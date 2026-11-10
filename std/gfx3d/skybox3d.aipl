@@ -1,0 +1,57 @@
+/// # Module: `std/gfx3d/skybox3d` (`Skybox3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Environment cubemaps, equirectangular spherical panorama UV mapping, and
+/// procedural Rayleigh/Mie atmospheric scattering sky models.
+module Skybox3DMod
+
+import { PI, TAU, EPSILON, maxFloat, clampFloat } from "std/math/consts"
+import { sqrt, asin, atan2, pow } from "std/math/trig"
+import { Vec2, Vec3 } from "std/math/vec_math"
+
+pub struct AtmosphereSettings(sunDirection: Vec3, rayleighCoeff: Vec3, mieCoeff: float, sunIntensity: float)
+
+fn normSkyVec3(v: Vec3, fallback: Vec3): Vec3:
+  let lsq = v.x * v.x + v.y * v.y + v.z * v.z
+  if lsq > EPSILON:
+    let inv = 1.0 / sqrt(lsq)
+    ret Vec3(x = v.x * inv, y = v.y * inv, z = v.z * inv)
+  ret fallback
+
+pub fn computeAtmosphericScattering(dir: Vec3, settings: AtmosphereSettings): Vec3:
+  let vDir = normSkyVec3(dir, Vec3(x = 0.0, y = 1.0, z = 0.0))
+  let sDir = normSkyVec3(settings.sunDirection, Vec3(x = 0.0, y = 1.0, z = 0.0))
+  let mu = vDir.x * sDir.x + vDir.y * sDir.y + vDir.z * sDir.z
+
+  // Rayleigh phase function: P_R(mu) = 3 / (16 * pi) * (1 + mu^2)
+  let phaseR = (3.0 / (16.0 * PI)) * (1.0 + mu * mu)
+
+  // Cornette-Shanks / Henyey-Greenstein Mie phase function with anisotropy g = 0.76
+  let g = 0.76
+  let g2 = g * g
+  let denomBase = maxFloat(1.0 + g2 - 2.0 * g * mu, 0.001)
+  let phaseM = (3.0 / (8.0 * PI)) * ((1.0 - g2) * (1.0 + mu * mu)) / ((2.0 + g2) * pow(denomBase, 1.5))
+
+  // Optical depth approximation based on zenith angle
+  let zenith = maxFloat(vDir.y, 0.05)
+  let opticalMass = 1.0 / zenith
+
+  let rScale = phaseR * opticalMass
+  let rScatter = Vec3(
+    x = settings.rayleighCoeff.x * rScale,
+    y = settings.rayleighCoeff.y * rScale,
+    z = settings.rayleighCoeff.z * rScale
+  )
+  let mVal = settings.mieCoeff * phaseM * opticalMass
+  let total = Vec3(
+    x = (rScatter.x + mVal) * settings.sunIntensity,
+    y = (rScatter.y + mVal) * settings.sunIntensity,
+    z = (rScatter.z + mVal) * settings.sunIntensity
+  )
+  ret total
+
+pub fn sampleEquirectangularUv(direction: Vec3): Vec2:
+  let d = normSkyVec3(direction, Vec3(x = 0.0, y = 0.0, z = 1.0))
+  let u = atan2(d.z, d.x) / TAU + 0.5
+  let v = asin(clampFloat(d.y, -1.0, 1.0)) / PI + 0.5
+  ret Vec2(x = u, y = v)

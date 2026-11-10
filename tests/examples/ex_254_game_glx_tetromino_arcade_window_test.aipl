@@ -1,0 +1,65 @@
+// ============================================================================
+// Twin Test Suite 254: Game GLX Tetromino Arcade Classic (WINDOW - X11 + libGL)
+// Verifies examples/ex_254_game_glx_tetromino_arcade_window.aipl
+// ============================================================================
+module Ex254GameGlxTetrominoArcadeWindowTest
+
+import {
+  createTetrominoGame,
+  canPlacePiece,
+  tryRotatePiece,
+  computeGhostY,
+  lockAndClearLines,
+  renderTetrominoArena,
+  renderFrameStep
+} from "../../examples/ex_254_game_glx_tetromino_arcade_window.aipl"
+import { getWindowMode } from "../../std/gfx2d/shape2d.aipl"
+
+pub fn test_game_glx_tetromino_arcade_window(): int:
+  mut g = createTetrominoGame()
+  assert(canPlacePiece(g.board, g.pieceType, g.rot, g.px, g.py), "initial piece placement valid")
+  assert(not canPlacePiece(g.board, g.pieceType, g.rot, -2, g.py), "out-of-bounds left placement rejected")
+  assert(not canPlacePiece(g.board, g.pieceType, g.rot, 9, g.py), "out-of-bounds right placement rejected")
+
+  // Verify I-piece (pieceType=0) wall-kick at right wall (px=9, rot=3 -> rot=0 kicked to px=7)
+  g.pieceType = 0
+  g.rot = 3
+  g.px = 9
+  g.py = 5
+  g = tryRotatePiece(g)
+  assert(g.rot == 0 and g.px == 7, "I-tetromino flush against right wall (px=9) kicks 2 cells left to px=7 on rotation")
+
+  // Verify I-piece wall-kick at left wall (px=0, rot=1 -> rot=2 kicked to px=2)
+  g.rot = 1
+  g.px = 0
+  g.py = 5
+  g = tryRotatePiece(g)
+  assert(g.rot == 2 and g.px == 2, "I-tetromino flush against left wall (px=0) kicks 2 cells right to px=2 on rotation")
+
+  let gy = computeGhostY(g.board, 1, 0, 4, 1)
+  assert(gy == 18, "O-tetromino ghost piece lands at bottom row 18..19")
+
+  // Fill bottom row 19 except columns 4..5, then drop O-piece (type=1) at px=4, py=18 to clear row 19
+  mut c = 0
+  while c < 10:
+    if c != 4 and c != 5:
+      g.board[19 * 10 + c] = 3
+    c = c + 1
+  g.pieceType = 1
+  g.rot = 0
+  g.px = 4
+  g.py = 18
+  g = lockAndClearLines(g)
+  assert(g.linesCleared == 1 and g.score == 100, "clearing 1 full row awards 100 * level points and increments linesCleared")
+
+  let m0 = renderTetrominoArena(g, 0)
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  assert(getWindowMode() == "glx", "window mode is glx")
+  assert(m0 > 100 and f0 > 10 and f0 != f1, "tetromino arena renders and advances across frames")
+  ret 0
+
+pub fn main(): int:
+  test_game_glx_tetromino_arcade_window()
+  println("PASS: ex_254_game_glx_tetromino_arcade_window_test")
+  ret 0

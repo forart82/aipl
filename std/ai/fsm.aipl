@@ -1,0 +1,76 @@
+/// # Module: `std/ai/fsm` (`FsmMod`)
+///
+/// ## Purpose & Domain Scope
+/// Hierarchical Finite State Machine (HFSM) engine supporting named states
+/// and event-triggered state transitions.
+module FsmMod
+
+pub struct StateTransition(fromStateId: int, toStateId: int, eventTrigger: str)
+
+pub struct StateNode(id: int, name: str)
+
+pub struct HierarchicalStateMachine(currentStateId: int, states: [StateNode], transitions: [StateTransition])
+
+pub fn fsmNew(initialStateId: int): HierarchicalStateMachine:
+  mut sts: [StateNode] = []
+  mut trs: [StateTransition] = []
+  ret HierarchicalStateMachine(
+    currentStateId = initialStateId,
+    states = sts,
+    transitions = trs
+  )
+
+pub fn fsmAddState(mut fsm: HierarchicalStateMachine, id: int, name: str): void:
+  mut sts = fsm.states
+  sts.push(StateNode(id = id, name = name))
+  fsm.states = sts
+
+pub fn fsmAddTransition(mut fsm: HierarchicalStateMachine, fromId: int, toId: int, event: str): void:
+  mut trs = fsm.transitions
+  trs.push(StateTransition(fromStateId = fromId, toStateId = toId, eventTrigger = event))
+  fsm.transitions = trs
+
+pub fn fsmTriggerEvent(mut fsm: HierarchicalStateMachine, event: str): bool:
+  mut i = 0
+  while i < fsm.transitions.len:
+    let tr: StateTransition = fsm.transitions[i]
+    if tr.fromStateId == fsm.currentStateId and tr.eventTrigger == event:
+      fsm.currentStateId = tr.toStateId
+      ret true
+    i = i + 1
+  ret false
+
+pub fn fsmCurrentStateId(fsm: HierarchicalStateMachine): int:
+  ret fsm.currentStateId
+
+pub fn fsmCurrentStateName(fsm: HierarchicalStateMachine): str:
+  mut i = 0
+  while i < fsm.states.len:
+    let st: StateNode = fsm.states[i]
+    if st.id == fsm.currentStateId:
+      ret st.name
+    i = i + 1
+  ret ""
+
+pub fn fsmHasState(fsm: HierarchicalStateMachine, stateId: int): bool:
+  mut i = 0
+  while i < fsm.states.len:
+    let st: StateNode = fsm.states[i]
+    if st.id == stateId:
+      ret true
+    i = i + 1
+  ret false
+
+pub fn fsmReset(mut fsm: HierarchicalStateMachine, stateId: int): HierarchicalStateMachine:
+  fsm.currentStateId = stateId
+  ret fsm
+
+pub fn fsmGetValidEvents(fsm: HierarchicalStateMachine): [str]:
+  mut out: [str] = []
+  mut i = 0
+  while i < fsm.transitions.len:
+    let tr: StateTransition = fsm.transitions[i]
+    if tr.fromStateId == fsm.currentStateId:
+      out.push(tr.eventTrigger)
+    i = i + 1
+  ret out

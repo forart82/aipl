@@ -1,0 +1,70 @@
+// ============================================================================
+// Example 098: Stream Adapters (Chain, Take, Tee) & Zero-Copy Pipe (CLI)
+// Demonstrates: cursorNew, cursorEmpty, cursorRewind, ioChainNew, ioChainRead,
+//               ioTakeNew, ioTakeRead, ioTeeCopy, ioCopyCursor, ioCopyLimited,
+//               ioSinkWrite, ioEmptyRead, and ioRepeatRead from std/io.
+// ============================================================================
+module Ex098IoCopyAndStreamPipeCli
+
+import {
+  cursorNew,
+  cursorEmpty,
+  cursorRewind,
+  ioChainNew,
+  ioChainRead,
+  ioTakeNew,
+  ioTakeRead,
+  ioTeeCopy,
+  ioCopyCursor,
+  ioCopyLimited,
+  ioSinkWrite,
+  ioEmptyRead,
+  ioRepeatRead
+} from "../std/io"
+
+// Concatenates two cursors via ioChainNew, limits reads via ioTakeNew, and fans out via ioTeeCopy.
+pub fn evaluateChainTakeAndTeeByteCounts(): int:
+  let c1 = cursorNew([1, 2, 3])
+  let c2 = cursorNew([4, 5, 6])
+  mut chained = ioChainNew(c1, c2)
+  let allSix = ioChainRead(chained, 10)
+  assert(allSix.len() == 6 and allSix[0] == 1 and allSix[5] == 6, "ChainAdapter concatenates streams")
+
+  mut takeStream = ioTakeNew(cursorNew([10, 20, 30, 40, 50]), 3)
+  let taken = ioTakeRead(takeStream, 10)
+  assert(taken.len() == 3 and taken[2] == 30, "TakeAdapter caps read at 3 bytes")
+
+  mut teeSrc = cursorNew([7, 8, 9])
+  let teeRes = ioTeeCopy(teeSrc, 2)
+  assert(teeRes.primaryOut.len() == 3 and teeRes.teeOut.len() == 3, "TeeAdapter duplicates stream")
+  ret allSix.len() + taken.len() + teeRes.bytesCopied
+
+// Verifies ioCopyCursor, ioCopyLimited, ioSinkWrite, ioEmptyRead, and ioRepeatRead.
+pub fn verifyCursorCopySinkAndRepeat(): int:
+  mut src = cursorNew([11, 22, 33, 44])
+  mut dst = cursorEmpty(4)
+  let fullCopied = ioCopyCursor(src, dst, 2)
+
+  src = cursorRewind(src)
+  mut limDst = cursorEmpty(2)
+  let limCopied = ioCopyLimited(src, limDst, 2)
+
+  let sinkCnt = ioSinkWrite([1, 2, 3])
+  let emptySlice = ioEmptyRead(10)
+  let repSlice = ioRepeatRead(42, 4)
+  if fullCopied == 4 and limCopied == 2 and sinkCnt == 3 and emptySlice.len() == 0 and repSlice.len() == 4 and repSlice[3] == 42:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a stream pipeline topology.
+pub fn describeStreamPipeTopology(teeEnabled: bool): str:
+  if teeEnabled:
+    ret "PIPE:DUAL_TEE_FANOUT_ACTIVE"
+  ret "PIPE:LINEAR_CHAIN_STREAM"
+
+pub fn main(): int:
+  let totalBytes = evaluateChainTakeAndTeeByteCounts()
+  let pipeOk = verifyCursorCopySinkAndRepeat()
+  let topo = describeStreamPipeTopology(true)
+  println("ex_098_io_copy_and_stream_pipe_cli: totalBytes=" + str(totalBytes) + " pipeOk=" + str(pipeOk) + " topo=" + topo)
+  ret 0

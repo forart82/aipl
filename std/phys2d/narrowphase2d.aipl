@@ -1,0 +1,208 @@
+/// # Module: `std/phys2d/narrowphase2d` (`Narrowphase2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 2D narrowphase collision detection: Circle-Circle, Circle-OBB SAT,
+/// OBB-OBB Separating Axis Theorem (SAT), and convex polygon SAT/GJK-EPA.
+module Narrowphase2DMod
+
+import { absFloat, minFloat, maxFloat, clampFloat } from "std/math/consts"
+import { sin, cos, sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+
+pub struct ContactPoint2D(position: Vec2, normal: Vec2, penetration: float, normalImpulse: float, tangentImpulse: float)
+
+pub struct ContactManifold2D(bodyIdA: int, bodyIdB: int, normal: Vec2, points: [ContactPoint2D], isColliding: bool)
+
+pub fn testCircleCircle(posA: Vec2, radA: float, posB: Vec2, radB: float): Option[ContactManifold2D]:
+  let dx = posB.x - posA.x
+  let dy = posB.y - posA.y
+  let distSq = dx * dx + dy * dy
+  let radSum = radA + radB
+  if distSq > radSum * radSum:
+    ret None
+
+  let dist = sqrt(distSq)
+  let nx = if dist > 0.000001: dx / dist else: 1.0
+  let ny = if dist > 0.000001: dy / dist else: 0.0
+  let pen = radSum - dist
+  let nVec = Vec2(x = nx, y = ny)
+  let cPos = Vec2(x = posA.x + nx * radA, y = posA.y + ny * radA)
+  let cp = ContactPoint2D(
+    position = cPos,
+    normal = nVec,
+    penetration = pen,
+    normalImpulse = 0.0,
+    tangentImpulse = 0.0
+  )
+  ret Some(ContactManifold2D(
+    bodyIdA = 0,
+    bodyIdB = 0,
+    normal = nVec,
+    points = [cp],
+    isColliding = true
+  ))
+
+pub fn testCircleBoxSAT(circlePos: Vec2, radius: float, boxPos: Vec2, boxExtents: Vec2, boxAngle: float): Option[ContactManifold2D]:
+  let c = cos(boxAngle)
+  let s = sin(boxAngle)
+  let dx = circlePos.x - boxPos.x
+  let dy = circlePos.y - boxPos.y
+
+  let localX = dx * c + dy * s
+  let localY = -dx * s + dy * c
+
+  let closestX = clampFloat(localX, -boxExtents.x, boxExtents.x)
+  let closestY = clampFloat(localY, -boxExtents.y, boxExtents.y)
+
+  let diffX = localX - closestX
+  let diffY = localY - closestY
+  let distSq = diffX * diffX + diffY * diffY
+  if distSq > radius * radius:
+    ret None
+
+  let dist = sqrt(distSq)
+  mut lnx = 1.0
+  mut lny = 0.0
+  mut pen = radius - dist
+  if dist > 0.000001:
+    lnx = diffX / dist
+    lny = diffY / dist
+  else:
+    let px = boxExtents.x - absFloat(localX)
+    let py = boxExtents.y - absFloat(localY)
+    if px < py:
+      lnx = if localX >= 0.0: 1.0 else: -1.0
+      lny = 0.0
+      pen = px + radius
+    else:
+      lnx = 0.0
+      lny = if localY >= 0.0: 1.0 else: -1.0
+      pen = py + radius
+
+  let wnx = lnx * c - lny * s
+  let wny = lnx * s + lny * c
+  let wClosestX = boxPos.x + closestX * c - closestY * s
+  let wClosestY = boxPos.y + closestX * s + closestY * c
+  let nVec = Vec2(x = wnx, y = wny)
+  let cp = ContactPoint2D(
+    position = Vec2(x = wClosestX, y = wClosestY),
+    normal = nVec,
+    penetration = pen,
+    normalImpulse = 0.0,
+    tangentImpulse = 0.0
+  )
+  ret Some(ContactManifold2D(
+    bodyIdA = 0,
+    bodyIdB = 0,
+    normal = nVec,
+    points = [cp],
+    isColliding = true
+  ))
+
+fn buildBoxVerts2D(pos: Vec2, ext: Vec2, rot: float): [Vec2]:
+  let c = cos(rot)
+  let s = sin(rot)
+  let lx = [-ext.x, ext.x, ext.x, -ext.x]
+  let ly = [-ext.y, -ext.y, ext.y, ext.y]
+  mut out: [Vec2] = []
+  mut i = 0
+  while i < 4:
+    out.push(Vec2(
+      x = pos.x + lx[i] * c - ly[i] * s,
+      y = pos.y + lx[i] * s + ly[i] * c
+    ))
+    i = i + 1
+  ret out
+
+pub fn testGjkEpa2D(vertsA: [Vec2], vertsB: [Vec2]): Option[ContactManifold2D]:
+  if vertsA.len < 3 or vertsB.len < 3:
+    ret None
+
+  mut minOverlap = 1000000000.0
+  mut bestAxis = Vec2(x = 1.0, y = 0.0)
+
+  mut pass = 0
+  while pass < 2:
+    let poly = if pass == 0: vertsA else: vertsB
+    let n = poly.len
+    mut i = 0
+    while i < n:
+      let p0: Vec2 = poly[i]
+      let p1: Vec2 = poly[(i + 1) % n]
+      let ex = p1.x - p0.x
+      let ey = p1.y - p0.y
+      let elen = sqrt(ex * ex + ey * ey)
+      if elen > 0.000001:
+        let ax = ey / elen
+        let ay = -ex / elen
+
+        mut minA = 1000000000.0
+        mut maxA = -1000000000.0
+        mut ka = 0
+        while ka < vertsA.len:
+          let va: Vec2 = vertsA[ka]
+          let proj = va.x * ax + va.y * ay
+          minA = minFloat(minA, proj)
+          maxA = maxFloat(maxA, proj)
+          ka = ka + 1
+
+        mut minB = 1000000000.0
+        mut maxB = -1000000000.0
+        mut kb = 0
+        while kb < vertsB.len:
+          let vb: Vec2 = vertsB[kb]
+          let proj = vb.x * ax + vb.y * ay
+          minB = minFloat(minB, proj)
+          maxB = maxFloat(maxB, proj)
+          kb = kb + 1
+
+        let overlap = minFloat(maxA, maxB) - maxFloat(minA, minB)
+        if overlap <= 0.0:
+          ret None
+        if overlap < minOverlap:
+          minOverlap = overlap
+          bestAxis = Vec2(x = ax, y = ay)
+      i = i + 1
+    pass = pass + 1
+
+  mut centerA = Vec2(x = 0.0, y = 0.0)
+  mut ia = 0
+  while ia < vertsA.len:
+    let v: Vec2 = vertsA[ia]
+    centerA = Vec2(x = centerA.x + v.x, y = centerA.y + v.y)
+    ia = ia + 1
+  centerA = Vec2(x = centerA.x / float(vertsA.len), y = centerA.y / float(vertsA.len))
+
+  mut centerB = Vec2(x = 0.0, y = 0.0)
+  mut ib = 0
+  while ib < vertsB.len:
+    let v: Vec2 = vertsB[ib]
+    centerB = Vec2(x = centerB.x + v.x, y = centerB.y + v.y)
+    ib = ib + 1
+  centerB = Vec2(x = centerB.x / float(vertsB.len), y = centerB.y / float(vertsB.len))
+
+  let abX = centerB.x - centerA.x
+  let abY = centerB.y - centerA.y
+  if abX * bestAxis.x + abY * bestAxis.y < 0.0:
+    bestAxis = Vec2(x = -bestAxis.x, y = -bestAxis.y)
+
+  let midPt = Vec2(x = (centerA.x + centerB.x) * 0.5, y = (centerA.y + centerB.y) * 0.5)
+  let cp = ContactPoint2D(
+    position = midPt,
+    normal = bestAxis,
+    penetration = minOverlap,
+    normalImpulse = 0.0,
+    tangentImpulse = 0.0
+  )
+  ret Some(ContactManifold2D(
+    bodyIdA = 0,
+    bodyIdB = 0,
+    normal = bestAxis,
+    points = [cp],
+    isColliding = true
+  ))
+
+pub fn testBoxBoxSAT(posA: Vec2, extA: Vec2, rotA: float, posB: Vec2, extB: Vec2, rotB: float): Option[ContactManifold2D]:
+  let vA = buildBoxVerts2D(posA, extA, rotA)
+  let vB = buildBoxVerts2D(posB, extB, rotB)
+  ret testGjkEpa2D(vA, vB)

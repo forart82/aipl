@@ -1,0 +1,52 @@
+// ============================================================================
+// Example 074: XML DOM Tree Parser & Element Query Inspector (CLI)
+// Demonstrates: parseXml, xmlAttr, xmlFindElements, xmlFindAll, xmlText,
+//               serializeXml, encodeXmlEntities, and decodeXmlEntities
+//               from std/encoding.
+// ============================================================================
+module Ex074EncodingXmlXpathCli
+
+import {
+  parseXml,
+  xmlAttr,
+  xmlFindElements,
+  xmlFindAll,
+  xmlText,
+  serializeXml,
+  encodeXmlEntities,
+  decodeXmlEntities
+} from "../std/encoding"
+
+// Parses an XML catalog document and queries the book ID attribute and title text.
+pub fn extractXmlCatalogBookTitle(): str:
+  let xmlSrc = "<catalog><book id=\"b1\"><title>AIPL Guide</title></book></catalog>"
+  let doc = parseXml(xmlSrc).unwrap()
+  let bookNode = doc.root.findChild("book").unwrap()
+  let bookId = xmlAttr(bookNode, "id").unwrap()
+  let titles = xmlFindAll(doc, "title")
+  assert(xmlFindElements(doc.root, "title").len == 1, "xmlFindElements finds 1 title node")
+  let titleStr = xmlText(titles[0])
+  ret bookId + ":" + titleStr
+
+// Verifies XML entity escaping/unescaping and XML DOM serialization.
+pub fn verifyXmlEntitiesAndSerialization(): int:
+  let esc = encodeXmlEntities("<tag&attr>")
+  let dec = decodeXmlEntities(esc)
+  let doc = parseXml("<catalog><book id=\"b1\"><title>AIPL Guide</title></book></catalog>").unwrap()
+  let out = serializeXml(doc, false)
+  if esc == "&lt;tag&amp;attr&gt;" and dec == "<tag&attr>" and out.contains("<title>AIPL Guide</title>"):
+    ret 1
+  ret 0
+
+// Summarizes the outcome of an XML element query.
+pub fn describeXmlQueryStatus(matchCount: int): str:
+  if matchCount > 0:
+    ret "XML:DOM_ELEMENT_FOUND"
+  ret "XML:EMPTY_NODE_SET"
+
+pub fn main(): int:
+  let bookInfo = extractXmlCatalogBookTitle()
+  let entityOk = verifyXmlEntitiesAndSerialization()
+  let status = describeXmlQueryStatus(1)
+  println("ex_074_encoding_xml_xpath_cli: bookInfo=" + bookInfo + " entityOk=" + str(entityOk) + " status=" + status)
+  ret 0

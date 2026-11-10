@@ -1,0 +1,31 @@
+// ============================================================================
+// Twin Test Suite 153: Audio Device & Pentatonic Step Sequencer (WINDOW)
+// Verifies examples/ex_153_audio_device_pentatonic_sequencer_window.aipl
+// ============================================================================
+module Ex153AudioDevicePentatonicSequencerWindowTest
+
+import {
+  verifyAudioDeviceAndPentatonicQuantizer,
+  computeSequencerStepDurationMs,
+  describeAudioDeviceConfig,
+  renderFrameStep
+} from "../../examples/ex_153_audio_device_pentatonic_sequencer_window.aipl"
+
+pub fn test_audio_device_pentatonic_sequencer_window(): int:
+  assert(verifyAudioDeviceAndPentatonicQuantizer() == 394, "2 stereo PCM frames written + 392Hz quantized G4 note == 394")
+  assert(computeSequencerStepDurationMs(120) == 125, "120 BPM sixteenth-note step == 125ms")
+  assert(describeAudioDeviceConfig(44100, 512) == "AUDIO:DEV_44100HZ_BUF_512", "44.1kHz 512-frame buffer label")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  let f100 = renderFrameStep(100, 0.016)
+  assert(f0 > 394, "frame 0 evaluates quantized pentatonic step frequency and audio device write")
+  assert(f0 != f1, "audio device ring buffer write count advances between frame 0 and frame 1")
+  assert(f1 != f20, "pentatonic step sequencer playhead note advances between frame 1 and frame 20")
+  assert(f20 != f100, "pentatonic step sequencer playhead note advances between frame 20 and frame 100")
+  ret 0
+
+pub fn main(): int:
+  test_audio_device_pentatonic_sequencer_window()
+  println("PASS: ex_153_audio_device_pentatonic_sequencer_window_test")
+  ret 0

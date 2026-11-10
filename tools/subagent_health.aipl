@@ -1,0 +1,95 @@
+module AiplSubagentHealth
+
+import { fileExists, readFile, readBytes } from "std/fs"
+import { userArgs } from "std/os"
+
+// ============================================================================
+// AIPL Self-Hosted Subagent & Fleet Health Inspector (`subagent_health.aipl` - v0.8.0)
+// Inspects:
+//   - examples/.health_status.json
+//   - examples/*/hebar_telemetry.json
+//   - examples/*/wave_feedback_app.md & examples/*/wave_feedback_hebar.md
+//   - examples/*/<app>_wasm.html & tri-target build artifacts
+// ============================================================================
+
+pub struct SubagentPairHealth:
+  app: str
+  hasTelemetryJson: bool
+  telemetryBytes: int
+  hebarCompliant: bool
+  hasAppFeedback: bool
+  hasHebarFeedback: bool
+  hasWasmHtml: bool
+  pairHealthy: bool
+
+pub fn inspectSubagentPair(app: str): SubagentPairHealth:
+  let baseDir = "examples/" + app
+  let telemPath = baseDir + "/hebar_telemetry.json"
+  let fbAppPath = baseDir + "/wave_feedback_app.md"
+  let fbHebarPath = baseDir + "/wave_feedback_hebar.md"
+  let wasmHtmlPath = baseDir + "/" + app + "_wasm.html"
+
+  let hasTelem = fileExists(telemPath)
+  mut telemBytes = 0
+  mut isCompliant = false
+  if hasTelem:
+    let tText = readFile(telemPath)
+    telemBytes = tText.len
+    if tText.contains("true") or tText.contains("PASS") or tText.contains("PASSED"):
+      isCompliant = true
+
+  let hasFbApp = fileExists(fbAppPath)
+  let hasFbHebar = fileExists(fbHebarPath)
+  let hasWasmHost = fileExists(wasmHtmlPath)
+  let healthy = hasTelem and telemBytes > 32 and isCompliant and hasFbApp and hasFbHebar and hasWasmHost
+
+  ret SubagentPairHealth(
+    app = app,
+    hasTelemetryJson = hasTelem,
+    telemetryBytes = telemBytes,
+    hebarCompliant = isCompliant,
+    hasAppFeedback = hasFbApp,
+    hasHebarFeedback = hasFbHebar,
+    hasWasmHtml = hasWasmHost,
+    pairHealthy = healthy
+  )
+
+pub fn main(): int:
+  let _args = userArgs()
+  let healthJsonPath = "examples/.health_status.json"
+  mut watchdogStatus = "UNKNOWN"
+  if fileExists(healthJsonPath):
+    let hj = readFile(healthJsonPath)
+    if hj.contains("\"HEALTHY\""):
+      watchdogStatus = "HEALTHY"
+    elif hj.contains("\"DEGRADED\""):
+      watchdogStatus = "DEGRADED"
+
+  let apps = [
+    "crm",
+    "markdown",
+    "paint",
+    "notepad",
+    "survival_horror",
+    "tactical_fps",
+    "fantasy_rts",
+    "powdergame",
+    "dark_arpg"
+  ]
+
+  println("[AIPL SubagentHealth v0.8.0] Watchdog Status (" + healthJsonPath + "): " + watchdogStatus)
+  println("[AIPL SubagentHealth v0.8.0] Auditing 9 App_Specialist + 9 HEBAR_Bot Subagent Pairs (18 Subagents):")
+
+  mut healthyCount = 0
+  mut i = 0
+  while i < apps.len:
+    let app = apps[i]
+    let st = inspectSubagentPair(app)
+    if st.pairHealthy:
+      healthyCount += 1
+    let tag = if st.pairHealthy: "PASS" else: "WARN"
+    println("  [" + tag + "] " + st.app + " | telemetry=" + str(st.telemetryBytes) + "B (compliant=" + str(st.hebarCompliant) + ") | app_fb=" + str(st.hasAppFeedback) + " | hebar_fb=" + str(st.hasHebarFeedback) + " | wasm_html=" + str(st.hasWasmHtml))
+    i += 1
+
+  println("[AIPL SubagentHealth v0.8.0] Summary: " + str(healthyCount) + "/" + str(apps.len) + " POC subagent pairs healthy (Watchdog=" + watchdogStatus + ").")
+  ret if healthyCount == apps.len and watchdogStatus == "HEALTHY": 0 else: 1

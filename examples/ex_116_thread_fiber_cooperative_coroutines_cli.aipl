@@ -1,0 +1,61 @@
+// ============================================================================
+// Canonical Example 116: Cooperative Stackful Fibers & Coroutines (CLI)
+// Target Profile: CLI | Standard Library Module: std/thread
+// ============================================================================
+module Ex116ThreadFiberCooperativeCoroutinesCli
+
+import {
+  fiberSpawn,
+  fiberState,
+  fiberCurrentId,
+  fiberResume,
+  fiberYield,
+  fiberResult,
+  fiberSleepYield,
+  fiberSchedulerNew,
+  fiberSchedulerAdd,
+  fiberSchedulerCount,
+  fiberSchedulerRunUntilIdle
+} from "../std/thread/thread_mod.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub fn evaluateThreeStepFiberCoroutineSum(): int:
+  mut f = fiberSpawn(3)
+  assert(fiberState(f) == 0, "initial fiber state SUSPENDED")
+  assert(fiberCurrentId() == 1, "fiberCurrentId is 1")
+  let s1 = fiberResume(f, 10).unwrap()
+  assert(s1 == 10, "step 1 yield")
+  let s2 = fiberResume(f, 20).unwrap()
+  assert(s2 == 30, "step 2 yield")
+  let _ = fiberYield(f, 30)
+  let s3 = fiberResume(f, 30).unwrap()
+  assert(s3 == 60, "step 3 yield")
+  assert(fiberState(f) == 2, "fiber COMPLETED")
+  ret fiberResult(f).unwrap()
+
+pub fn runRoundRobinFiberSchedulerBatch(): int:
+  mut sched = fiberSchedulerNew()
+  mut fSleep = fiberSpawn(2)
+  fiberSleepYield(fSleep, 1)
+  fiberSchedulerAdd(sched, fSleep)
+  fiberSchedulerAdd(sched, fiberSpawn(3))
+  fiberSchedulerAdd(sched, fiberSpawn(1))
+  assert(fiberSchedulerCount(sched) == 3, "3 fibers registered")
+  ret fiberSchedulerRunUntilIdle(sched)
+
+pub fn describeFiberLifecycleState(stateCode: int): str:
+  let s = clampInt(stateCode, 0, 2)
+  if s == 0:
+    ret "FIBER:SUSPENDED_STATE_0"
+  if s == 1:
+    ret "FIBER:RUNNING_STATE_1"
+  ret "FIBER:COMPLETED_STATE_2"
+
+pub fn main(): int:
+  let sum60 = evaluateThreeStepFiberCoroutineSum()
+  let completed = runRoundRobinFiberSchedulerBatch()
+  let tag = describeFiberLifecycleState(2)
+  assert(sum60 == 60, "fiber result is 60")
+  assert(completed == 3, "all 3 fibers finished")
+  println(tag + " | sum=" + str(sum60) + " | completed=" + str(completed))
+  ret 0

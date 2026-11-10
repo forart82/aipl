@@ -1,0 +1,59 @@
+// ============================================================================
+// Example 090: ChaCha20-Poly1305, AES-256-GCM AEAD & Zeroize (CLI)
+// Demonstrates: chacha20Poly1305Encrypt, chacha20Poly1305Decrypt,
+//               aes256GcmEncrypt, aes256GcmDecrypt, and zeroize
+//               from std/crypto.
+// ============================================================================
+module Ex090CryptoAeadChacha20Poly1305Cli
+
+import {
+  chacha20Poly1305Encrypt,
+  chacha20Poly1305Decrypt,
+  aes256GcmEncrypt,
+  aes256GcmDecrypt,
+  zeroize
+} from "../std/crypto"
+
+// Computes the total sealed ciphertext + authentication tag size in bytes.
+pub fn computeAeadSealedLength(plaintextBytes: int, tagBytes: int): int:
+  ret plaintextBytes + tagBytes
+
+// Computes the ChaCha20 64-byte block counter after encrypting payloadBytes.
+pub fn computeChaCha20BlockCounter(initialCounter: int, payloadBytes: int): int:
+  ret initialCounter + (payloadBytes + 63) / 64
+
+// Returns a canonical status label for an AEAD authentication tag check.
+pub fn describeAeadOpenResult(verifyCode: int): str:
+  if verifyCode == 0:
+    ret "AEAD:AUTHENTICATED_OK"
+  ret "AEAD:TAG_MISMATCH_REJECTED"
+
+// Encrypts and decrypts an authenticated message with ChaCha20-Poly1305 and AES-256-GCM, then zeroizes key memory.
+pub fn verifyChaCha20AndAesGcmRoundTrip(): int:
+  mut key = bytesFromArray([
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+    17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32
+  ])
+  let nonce = bytesFromArray([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])
+  let text = "AIPL authenticated encryption payload"
+  let plaintext = text.toBytes()
+  let aad = "header_context".toBytes()
+
+  let chachaSealed = chacha20Poly1305Encrypt(key, nonce, plaintext, aad)
+  let chachaDec = chacha20Poly1305Decrypt(key, nonce, chachaSealed, aad).unwrap().toStringLossy()
+
+  let gcmSealed = aes256GcmEncrypt(key, nonce, plaintext, aad)
+  let gcmDec = aes256GcmDecrypt(key, nonce, gcmSealed, aad).unwrap().toStringLossy()
+
+  zeroize(key)
+  if chachaSealed.tag.len() == 16 and chachaDec == text and gcmSealed.tag.len() == 16 and gcmDec == text and key[0] == 0 and key[31] == 0:
+    ret 1
+  ret 0
+
+pub fn main(): int:
+  let sealedLen = computeAeadSealedLength(256, 16)
+  let blkCounter = computeChaCha20BlockCounter(1, 256)
+  let verdict = describeAeadOpenResult(0)
+  let aeadOk = verifyChaCha20AndAesGcmRoundTrip()
+  println("ex_090_crypto_aead_chacha20_poly1305_cli: sealedLen=" + str(sealedLen) + " blkCounter=" + str(blkCounter) + " verdict=" + verdict + " aeadOk=" + str(aeadOk))
+  ret 0

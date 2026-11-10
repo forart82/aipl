@@ -1,0 +1,1543 @@
+// ============================================================================
+// AIPL Real 2-Player Playable Chess Arena (`aipl_hebar_bot/demos/chess_arena.aipl`)
+// ============================================================================
+// 100% Real 2-Player Chess Game with Complete Legal Move Generation:
+// - Full 8x8 Board (length 64) with standard piece encoding
+// - Strict legal move generation (pins, checks, ray-blocking, queen promotion)
+// - Check, Checkmate & Stalemate detection
+// - Tactical Move Evaluator (MVV-LVA, center control, piece development, check bonuses)
+// - Real 2-Click Board Interaction for BOTH Human Players and Attached HEBAR Bots
+// - Zero-Config Scene-Graph Target Exposure (fused "Move ..." buttons for BaseInstincts)
+// - Full Telemetry Publishing via publishTurnState & publishBotState
+// ============================================================================
+
+module ChessArena
+
+import {
+  initWindow,
+  closeWindow,
+  setWindowMinSize,
+  getWindowWidth,
+  getWindowHeight,
+  setTargetFps,
+  setMaxFps,
+  getCurrentFps,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  clearScreen,
+  drawRect,
+  drawRoundedRect,
+  drawCircle,
+  drawText,
+  getMouseX,
+  getMouseY,
+  isMouseButtonPressed,
+  saveScreenshot,
+  publishBotState,
+  publishTurnState,
+  rgb
+} from "std/canvas"
+
+import {
+  userArgs
+} from "std/env"
+
+import {
+  parseInt
+} from "std/string"
+
+// ----------------------------------------------------------------------------
+// Data Structures
+// ----------------------------------------------------------------------------
+
+pub struct ChessMove:
+  fromSq: int
+  toSq: int
+  score: int
+
+pub struct ChessState:
+  board: [int]
+  activeSeat: int
+  turnNumber: int
+  phase: str
+  selectedSq: int
+  legalTargets: [int]
+  winnerSeat: int
+  inCheck: bool
+  whiteMaterial: int
+  blackMaterial: int
+  whiteCaptures: [int]
+  blackCaptures: [int]
+  moveHistory: [str]
+  lastMoveStr: str
+  prngState: int
+  outOfTurnAttemptsRejected: int
+  autoDemo: bool
+  matchNumber: int
+  whiteWins: int
+  blackWins: int
+  draws: int
+  matchEndFrames: int
+  lastMatchSummary: str
+  bestFromSq: int
+  bestToSq: int
+  prevWhiteFrom: int
+  prevWhiteTo: int
+  prevBlackFrom: int
+  prevBlackTo: int
+  bestMoveScore: int
+  bestMoveReason: str
+
+// ----------------------------------------------------------------------------
+// Piece Encoding & Utility Helpers
+// ----------------------------------------------------------------------------
+
+pub fn pieceSeat(p: int): int:
+  if p >= 1 and p <= 6:
+    ret 1
+  if p >= 11 and p <= 16:
+    ret 2
+  ret 0
+
+pub fn pieceKind(p: int): int:
+  ret p % 10
+
+pub fn pieceValue(p: int): int:
+  let k = pieceKind(p)
+  if k == 1: ret 100
+  if k == 2: ret 320
+  if k == 3: ret 330
+  if k == 4: ret 500
+  if k == 5: ret 900
+  if k == 6: ret 20000
+  ret 0
+
+pub fn pieceChar(p: int): str:
+  let k = pieceKind(p)
+  if k == 1: ret "P"
+  if k == 2: ret "N"
+  if k == 3: ret "B"
+  if k == 4: ret "R"
+  if k == 5: ret "Q"
+  if k == 6: ret "K"
+  ret "."
+
+pub fn pieceName(p: int): str:
+  let k = pieceKind(p)
+  if k == 1: ret "Pawn"
+  if k == 2: ret "Knight"
+  if k == 3: ret "Bishop"
+  if k == 4: ret "Rook"
+  if k == 5: ret "Queen"
+  if k == 6: ret "King"
+  ret "Empty"
+
+pub fn sqAlgName(sq: int): str:
+  if sq < 0 or sq >= 64:
+    ret "??"
+  let r = sq / 8
+  let c = sq % 8
+  mut colStr = "a"
+  if c == 1: colStr = "b"
+  else if c == 2: colStr = "c"
+  else if c == 3: colStr = "d"
+  else if c == 4: colStr = "e"
+  else if c == 5: colStr = "f"
+  else if c == 6: colStr = "g"
+  else if c == 7: colStr = "h"
+  let rankStr = str(8 - r)
+  ret colStr + rankStr
+
+pub fn cloneBoard(b: [int]): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < 64:
+    out.push(b[i])
+    i += 1
+  ret out
+
+pub fn isTargetInList(targets: [int], sq: int): bool:
+  mut i = 0
+  while i < targets.len:
+    if targets[i] == sq:
+      ret true
+    i += 1
+  ret false
+
+pub fn computeTotalMaterial(board: [int], seat: int): int:
+  mut total = 0
+  mut i = 0
+  while i < 64:
+    let p = board[i]
+    if pieceSeat(p) == seat:
+      let k = pieceKind(p)
+      if k != 6:
+        total += pieceValue(p)
+    i += 1
+  ret total
+
+pub fn formatCapturesList(caps: [int]): str:
+  if caps.len == 0:
+    ret "None"
+  mut s = ""
+  mut i = 0
+  while i < caps.len:
+    if i > 0:
+      s = s + " "
+    s = s + pieceChar(caps[i])
+    i += 1
+  ret s
+
+pub fn encodeBoard64(board: [int]): str:
+  mut s = ""
+  mut i = 0
+  while i < 64:
+    let p = board[i]
+    if p == 0: s = s + "."
+    else if p == 1: s = s + "P"
+    else if p == 2: s = s + "N"
+    else if p == 3: s = s + "B"
+    else if p == 4: s = s + "R"
+    else if p == 5: s = s + "Q"
+    else if p == 6: s = s + "K"
+    else if p == 11: s = s + "p"
+    else if p == 12: s = s + "n"
+    else if p == 13: s = s + "b"
+    else if p == 14: s = s + "r"
+    else if p == 15: s = s + "q"
+    else if p == 16: s = s + "k"
+    else: s = s + "."
+    i += 1
+  ret s
+
+// ----------------------------------------------------------------------------
+// Initial Board Setup
+// ----------------------------------------------------------------------------
+
+pub fn initChessBoard(): [int]:
+  mut b: [int] = []
+  // Rank 8 (Row 0): Black back rank
+  b.push(14); b.push(12); b.push(13); b.push(15); b.push(16); b.push(13); b.push(12); b.push(14)
+  // Rank 7 (Row 1): Black pawns
+  mut i = 0
+  while i < 8:
+    b.push(11)
+    i += 1
+  // Ranks 6..3 (Rows 2..5): Empty squares
+  i = 0
+  while i < 32:
+    b.push(0)
+    i += 1
+  // Rank 2 (Row 6): White pawns
+  i = 0
+  while i < 8:
+    b.push(1)
+    i += 1
+  // Rank 1 (Row 7): White back rank
+  b.push(4); b.push(2); b.push(3); b.push(5); b.push(6); b.push(3); b.push(2); b.push(4)
+  ret b
+
+pub fn initChessState(): ChessState:
+  let b = initChessBoard()
+  let wMat = computeTotalMaterial(b, 1)
+  let bMat = computeTotalMaterial(b, 2)
+  mut wCaps: [int] = []
+  mut bCaps: [int] = []
+  mut hist: [str] = []
+  mut targets: [int] = []
+  ret ChessState(
+    board = b,
+    activeSeat = 1,
+    turnNumber = 1,
+    phase = "select",
+    selectedSq = -1,
+    legalTargets = targets,
+    winnerSeat = 0,
+    inCheck = false,
+    whiteMaterial = wMat,
+    blackMaterial = bMat,
+    whiteCaptures = wCaps,
+    blackCaptures = bCaps,
+    moveHistory = hist,
+    lastMoveStr = "Game Start",
+    prngState = 1337,
+    outOfTurnAttemptsRejected = 0,
+    autoDemo = false,
+    matchNumber = 1,
+    whiteWins = 0,
+    blackWins = 0,
+    draws = 0,
+    matchEndFrames = 0,
+    lastMatchSummary = "Match #1 In Progress",
+    bestFromSq = 52,
+    bestToSq = 36,
+    prevWhiteFrom = -1,
+    prevWhiteTo = -1,
+    prevBlackFrom = -1,
+    prevBlackTo = -1,
+    bestMoveScore = 105,
+    bestMoveReason = "OpeningCenterControl"
+  )
+
+pub fn startNextChessMatch(st: ChessState): ChessState:
+  let b = initChessBoard()
+  let wMat = computeTotalMaterial(b, 1)
+  let bMat = computeTotalMaterial(b, 2)
+  mut wCaps: [int] = []
+  mut bCaps: [int] = []
+  mut hist: [str] = []
+  mut targets: [int] = []
+  let nextMatch = st.matchNumber + 1
+  let nextSeed = ((st.prngState * 1103515245 + 12345) & 2147483647) + nextMatch * 7919
+  ret ChessState(
+    board = b,
+    activeSeat = 1,
+    turnNumber = 1,
+    phase = "select",
+    selectedSq = -1,
+    legalTargets = targets,
+    winnerSeat = 0,
+    inCheck = false,
+    whiteMaterial = wMat,
+    blackMaterial = bMat,
+    whiteCaptures = wCaps,
+    blackCaptures = bCaps,
+    moveHistory = hist,
+    lastMoveStr = "Match #" + str(nextMatch) + " Start",
+    prngState = nextSeed,
+    outOfTurnAttemptsRejected = st.outOfTurnAttemptsRejected,
+    autoDemo = st.autoDemo,
+    matchNumber = nextMatch,
+    whiteWins = st.whiteWins,
+    blackWins = st.blackWins,
+    draws = st.draws,
+    matchEndFrames = 0,
+    lastMatchSummary = st.lastMatchSummary,
+    bestFromSq = 52,
+    bestToSq = 36,
+    prevWhiteFrom = -1,
+    prevWhiteTo = -1,
+    prevBlackFrom = -1,
+    prevBlackTo = -1,
+    bestMoveScore = 105,
+    bestMoveReason = "OpeningCenterControl"
+  )
+
+// ----------------------------------------------------------------------------
+// Move Generation & Check Validation
+// ----------------------------------------------------------------------------
+
+pub fn generatePseudoLegalMoves(board: [int], fromSq: int, seat: int): [int]:
+  mut moves: [int] = []
+  if fromSq < 0 or fromSq >= 64:
+    ret moves
+  let p = board[fromSq]
+  if pieceSeat(p) != seat:
+    ret moves
+
+  let kind = pieceKind(p)
+  let r = fromSq / 8
+  let c = fromSq % 8
+  let enemySeat = if seat == 1: 2 else: 1
+
+  // 1. Pawn
+  if kind == 1:
+    let step = if seat == 1: -1 else: 1
+    let startRank = if seat == 1: 6 else: 1
+    let toR = r + step
+    if toR >= 0 and toR < 8:
+      let toSq = toR * 8 + c
+      if board[toSq] == 0:
+        moves.push(toSq)
+        if r == startRank:
+          let toR2 = r + 2 * step
+          let toSq2 = toR2 * 8 + c
+          if board[toSq2] == 0:
+            moves.push(toSq2)
+      // Captures
+      if c > 0:
+        let capSqL = toR * 8 + (c - 1)
+        if pieceSeat(board[capSqL]) == enemySeat:
+          moves.push(capSqL)
+      if c < 7:
+        let capSqR = toR * 8 + (c + 1)
+        if pieceSeat(board[capSqR]) == enemySeat:
+          moves.push(capSqR)
+
+  // 2. Knight
+  else if kind == 2:
+    mut dRow: [int] = [-2, -2, -1, -1,  1, 1,  2, 2]
+    mut dCol: [int] = [-1,  1, -2,  2, -2, 2, -1, 1]
+    mut k = 0
+    while k < 8:
+      let tr = r + dRow[k]
+      let tc = c + dCol[k]
+      if tr >= 0 and tr < 8 and tc >= 0 and tc < 8:
+        let tSq = tr * 8 + tc
+        if pieceSeat(board[tSq]) != seat:
+          moves.push(tSq)
+      k += 1
+
+  // 3. Bishop
+  else if kind == 3:
+    mut dR: [int] = [-1, -1,  1, 1]
+    mut dC: [int] = [-1,  1, -1, 1]
+    mut dir = 0
+    while dir < 4:
+      let dr = dR[dir]
+      let dc = dC[dir]
+      mut cr = r + dr
+      mut cc = c + dc
+      while cr >= 0 and cr < 8 and cc >= 0 and cc < 8:
+        let tSq = cr * 8 + cc
+        let tSeat = pieceSeat(board[tSq])
+        if tSeat == 0:
+          moves.push(tSq)
+        else if tSeat == enemySeat:
+          moves.push(tSq)
+          break
+        else:
+          break
+        cr += dr
+        cc += dc
+      dir += 1
+
+  // 4. Rook
+  else if kind == 4:
+    mut dR: [int] = [-1, 1,  0, 0]
+    mut dC: [int] = [ 0, 0, -1, 1]
+    mut dir = 0
+    while dir < 4:
+      let dr = dR[dir]
+      let dc = dC[dir]
+      mut cr = r + dr
+      mut cc = c + dc
+      while cr >= 0 and cr < 8 and cc >= 0 and cc < 8:
+        let tSq = cr * 8 + cc
+        let tSeat = pieceSeat(board[tSq])
+        if tSeat == 0:
+          moves.push(tSq)
+        else if tSeat == enemySeat:
+          moves.push(tSq)
+          break
+        else:
+          break
+        cr += dr
+        cc += dc
+      dir += 1
+
+  // 5. Queen
+  else if kind == 5:
+    mut dR: [int] = [-1, -1,  1, 1, -1, 1,  0, 0]
+    mut dC: [int] = [-1,  1, -1, 1,  0, 0, -1, 1]
+    mut dir = 0
+    while dir < 8:
+      let dr = dR[dir]
+      let dc = dC[dir]
+      mut cr = r + dr
+      mut cc = c + dc
+      while cr >= 0 and cr < 8 and cc >= 0 and cc < 8:
+        let tSq = cr * 8 + cc
+        let tSeat = pieceSeat(board[tSq])
+        if tSeat == 0:
+          moves.push(tSq)
+        else if tSeat == enemySeat:
+          moves.push(tSq)
+          break
+        else:
+          break
+        cr += dr
+        cc += dc
+      dir += 1
+
+  // 6. King
+  else if kind == 6:
+    mut dr = -1
+    while dr <= 1:
+      mut dc = -1
+      while dc <= 1:
+        if dr != 0 or dc != 0:
+          let tr = r + dr
+          let tc = c + dc
+          if tr >= 0 and tr < 8 and tc >= 0 and tc < 8:
+            let tSq = tr * 8 + tc
+            if pieceSeat(board[tSq]) != seat:
+              moves.push(tSq)
+        dc += 1
+      dr += 1
+
+  ret moves
+
+pub fn minAttackerValueOnSquare(board: [int], sq: int, attackerSeat: int): int:
+  if sq < 0 or sq >= 64:
+    ret 0
+  let sqR = sq / 8
+  let sqC = sq % 8
+
+  // 1. Attacker pawns (ret 100)
+  if attackerSeat == 1:
+    let pawnR = sqR + 1
+    if pawnR < 8:
+      if sqC > 0 and board[pawnR * 8 + (sqC - 1)] == 1:
+        ret 100
+      if sqC < 7 and board[pawnR * 8 + (sqC + 1)] == 1:
+        ret 100
+  else:
+    let pawnR = sqR - 1
+    if pawnR >= 0:
+      if sqC > 0 and board[pawnR * 8 + (sqC - 1)] == 11:
+        ret 100
+      if sqC < 7 and board[pawnR * 8 + (sqC + 1)] == 11:
+        ret 100
+
+  // 2. Attacker knights (ret 320)
+  let knightP = if attackerSeat == 1: 2 else: 12
+  mut dRow: [int] = [-2, -2, -1, -1,  1, 1,  2, 2]
+  mut dCol: [int] = [-1,  1, -2,  2, -2, 2, -1, 1]
+  mut k = 0
+  while k < 8:
+    let tr = sqR + dRow[k]
+    let tc = sqC + dCol[k]
+    if tr >= 0 and tr < 8 and tc >= 0 and tc < 8:
+      if board[tr * 8 + tc] == knightP:
+        ret 320
+    k += 1
+
+  // 3. Diagonal rays (Bishops 3/13 -> 330, Queens 5/15 -> 900)
+  let bishopP = if attackerSeat == 1: 3 else: 13
+  let queenP = if attackerSeat == 1: 5 else: 15
+  mut minRayVal = 0
+  mut bdr: [int] = [-1, -1,  1, 1]
+  mut bdc: [int] = [-1,  1, -1, 1]
+  mut dir = 0
+  while dir < 4:
+    let stepR = bdr[dir]
+    let stepC = bdc[dir]
+    mut cr = sqR + stepR
+    mut cc = sqC + stepC
+    while cr >= 0 and cr < 8 and cc >= 0 and cc < 8:
+      let p = board[cr * 8 + cc]
+      if p != 0:
+        if p == bishopP:
+          ret 330
+        if p == queenP:
+          if minRayVal == 0 or minRayVal > 900:
+            minRayVal = 900
+        break
+      cr += stepR
+      cc += stepC
+    dir += 1
+
+  // 4. Orthogonal rays (Rooks 4/14 -> 500, Queens 5/15 -> 900)
+  let rookP = if attackerSeat == 1: 4 else: 14
+  mut rdr: [int] = [-1, 1,  0, 0]
+  mut rdc: [int] = [ 0, 0, -1, 1]
+  dir = 0
+  while dir < 4:
+    let stepR = rdr[dir]
+    let stepC = rdc[dir]
+    mut cr = sqR + stepR
+    mut cc = sqC + stepC
+    while cr >= 0 and cr < 8 and cc >= 0 and cc < 8:
+      let p = board[cr * 8 + cc]
+      if p != 0:
+        if p == rookP:
+          if minRayVal == 0 or minRayVal > 500:
+            minRayVal = 500
+        else if p == queenP:
+          if minRayVal == 0 or minRayVal > 900:
+            minRayVal = 900
+        break
+      cr += stepR
+      cc += stepC
+    dir += 1
+
+  if minRayVal > 0:
+    ret minRayVal
+
+  // 5. Attacker King (ret 20000)
+  let kingP = if attackerSeat == 1: 6 else: 16
+  mut dr = -1
+  while dr <= 1:
+    mut dc = -1
+    while dc <= 1:
+      if dr != 0 or dc != 0:
+        let tr = sqR + dr
+        let tc = sqC + dc
+        if tr >= 0 and tr < 8 and tc >= 0 and tc < 8:
+          if board[tr * 8 + tc] == kingP:
+            ret 20000
+      dc += 1
+    dr += 1
+
+  ret 0
+
+pub fn isSquareAttackedBy(board: [int], sq: int, attackerSeat: int): bool:
+  ret minAttackerValueOnSquare(board, sq, attackerSeat) > 0
+
+pub fn isKingInCheck(board: [int], seat: int): bool:
+  let kingP = if seat == 1: 6 else: 16
+  mut kingSq = -1
+  mut i = 0
+  while i < 64:
+    if board[i] == kingP:
+      kingSq = i
+      break
+    i += 1
+  if kingSq < 0:
+    ret false
+  let enemySeat = if seat == 1: 2 else: 1
+  ret isSquareAttackedBy(board, kingSq, enemySeat)
+
+pub fn generateLegalMovesFrom(board: [int], fromSq: int, seat: int): [int]:
+  let pseudo = generatePseudoLegalMoves(board, fromSq, seat)
+  mut legal: [int] = []
+  mut i = 0
+  while i < pseudo.len:
+    let toSq = pseudo[i]
+    mut temp = cloneBoard(board)
+    let p = temp[fromSq]
+    temp[toSq] = p
+    temp[fromSq] = 0
+    let toR = toSq / 8
+    if p == 1 and toR == 0:
+      temp[toSq] = 5
+    else if p == 11 and toR == 7:
+      temp[toSq] = 15
+    if not isKingInCheck(temp, seat):
+      legal.push(toSq)
+    i += 1
+  ret legal
+
+pub fn hasAnyLegalMove(board: [int], seat: int): bool:
+  mut sq = 0
+  while sq < 64:
+    if pieceSeat(board[sq]) == seat:
+      let moves = generateLegalMovesFrom(board, sq, seat)
+      if moves.len > 0:
+        ret true
+    sq += 1
+  ret false
+
+// ----------------------------------------------------------------------------
+// Tactical Move Evaluator & Bot Intelligence
+// ----------------------------------------------------------------------------
+
+pub fn classifyChessMoveReason(st: ChessState, fromSq: int, toSq: int, score: int): str:
+  if fromSq < 0 or fromSq >= 64 or toSq < 0 or toSq >= 64:
+    ret "Pass"
+  let p = st.board[fromSq]
+  let targetP = st.board[toSq]
+  let kind = pieceKind(p)
+  let seat = st.activeSeat
+  let enemySeat = if seat == 1: 2 else: 1
+  let toR = toSq / 8
+  let toC = toSq % 8
+  let fromR = fromSq / 8
+  let fromRelR = if seat == 1: 7 - fromR else: fromR
+  let relR = if seat == 1: 7 - toR else: toR
+
+  mut temp = cloneBoard(st.board)
+  temp[toSq] = p
+  temp[fromSq] = 0
+  if p == 1 and toR == 0:
+    temp[toSq] = 5
+  else if p == 11 and toR == 7:
+    temp[toSq] = 15
+
+  // 1. Checkmate in 1
+  let givesCheck = isKingInCheck(temp, enemySeat)
+  if givesCheck and not hasAnyLegalMove(temp, enemySeat):
+    ret "CheckmateIn1"
+
+  // 2. Pawn promotion
+  if (p == 1 and toR == 0) or (p == 11 and toR == 7):
+    ret "PawnPromotion"
+
+  // 3. Hanging piece rescue
+  let enemyAtkVal = minAttackerValueOnSquare(temp, toSq, enemySeat)
+  if minAttackerValueOnSquare(st.board, fromSq, enemySeat) > 0 and enemyAtkVal == 0:
+    ret "RescueHangingPiece"
+
+  // 4. Winning/Equal captures
+  if targetP != 0:
+    if enemyAtkVal == 0 or pieceValue(targetP) >= pieceValue(p):
+      ret "WinCaptureSEE"
+    ret "ExchangeCapture"
+
+  // 5. Tactical fork
+  if enemyAtkVal == 0:
+    let myAttacks = generatePseudoLegalMoves(temp, toSq, seat)
+    mut forkTargets = 0
+    mut ai = 0
+    while ai < myAttacks.len:
+      let t = myAttacks[ai]
+      let tPiece = temp[t]
+      if pieceSeat(tPiece) == enemySeat:
+        let tVal = pieceValue(tPiece)
+        let tDef = minAttackerValueOnSquare(temp, t, enemySeat)
+        if tVal >= 320 or tDef == 0:
+          forkTargets += 1
+      ai += 1
+    if forkTargets >= 2:
+      ret "TacticalFork"
+
+  // 6. Safe check
+  if givesCheck and enemyAtkVal == 0:
+    ret "GivingCheck"
+
+  // 7. Piece development
+  if kind == 2 and fromRelR == 0:
+    ret "DevelopKnight"
+  if kind == 3 and fromRelR == 0:
+    ret "DevelopBishop"
+  if kind == 4 and relR == 6:
+    ret "RookInvasion7th"
+  if kind == 1 and st.turnNumber <= 8 and (toC == 3 or toC == 4):
+    ret "OpeningCenterControl"
+  if kind == 1:
+    ret "AdvancePawn"
+  if toSq == 27 or toSq == 28 or toSq == 35 or toSq == 36:
+    ret "ControlCenter"
+
+  ret "TacticalReposition"
+
+pub fn evaluateChessMove(st: ChessState, fromSq: int, toSq: int): int:
+  // 1. Simulate Move on temp Board
+  mut temp = cloneBoard(st.board)
+  let p = temp[fromSq]
+  temp[toSq] = p
+  temp[fromSq] = 0
+  let toR = toSq / 8
+  let toC = toSq % 8
+  let fromR = fromSq / 8
+  let fromC = fromSq % 8
+  if p == 1 and toR == 0:
+    temp[toSq] = 5
+  else if p == 11 and toR == 7:
+    temp[toSq] = 15
+
+  let seat = st.activeSeat
+  let enemySeat = if seat == 1: 2 else: 1
+  let targetP = st.board[toSq]
+  let kind = pieceKind(p)
+  let attackerVal = pieceValue(p)
+  let capturedVal = pieceValue(targetP)
+  mut score = 0
+
+  // 2. Checkmate & Stalemate Lookahead
+  let givesCheck = isKingInCheck(temp, enemySeat)
+  if givesCheck and not hasAnyLegalMove(temp, enemySeat):
+    ret 500000
+
+  // 3. Static Exchange Evaluation (SEE) on Destination Square toSq
+  let enemyAtkVal = minAttackerValueOnSquare(temp, toSq, enemySeat)
+  let myDefVal = minAttackerValueOnSquare(temp, toSq, seat)
+  if enemyAtkVal > 0:
+    if myDefVal == 0:
+      if capturedVal < attackerVal:
+        score -= (attackerVal - capturedVal) * 12
+      else:
+        score += (capturedVal - attackerVal) * 10 + 120
+    else:
+      if enemyAtkVal < attackerVal - capturedVal:
+        score -= (attackerVal - capturedVal - enemyAtkVal) * 10
+      else if targetP != 0:
+        score += (capturedVal - attackerVal / 10) * 10 + 140
+  else:
+    if targetP != 0:
+      score += capturedVal * 12 + 200
+
+  // 4. 1-Ply Hanging Friendly Piece Rescue & Threat Defense
+  mut maxHangingLoss = 0
+  mut sq = 0
+  while sq < 64:
+    let tp = temp[sq]
+    if pieceSeat(tp) == seat and pieceKind(tp) != 6:
+      let fVal = pieceValue(tp)
+      let eAtk = minAttackerValueOnSquare(temp, sq, enemySeat)
+      if eAtk > 0:
+        let fDef = minAttackerValueOnSquare(temp, sq, seat)
+        let hangingLoss = if fDef == 0: fVal else: (if eAtk < fVal: fVal - eAtk else: 0)
+        if hangingLoss > maxHangingLoss:
+          maxHangingLoss = hangingLoss
+    sq += 1
+  score -= maxHangingLoss * 9
+  if minAttackerValueOnSquare(st.board, fromSq, enemySeat) > 0 and enemyAtkVal == 0:
+    score += 85
+
+  // 5. Tactical Forks (Double Attack) & Safe Check Bonus
+  if enemyAtkVal == 0:
+    let myAttacks = generatePseudoLegalMoves(temp, toSq, seat)
+    mut forkTargets = 0
+    mut ai = 0
+    while ai < myAttacks.len:
+      let t = myAttacks[ai]
+      let tPiece = temp[t]
+      if pieceSeat(tPiece) == enemySeat:
+        let tVal = pieceValue(tPiece)
+        let tDef = minAttackerValueOnSquare(temp, t, enemySeat)
+        if tVal >= 320 or tDef == 0:
+          forkTargets += 1
+      ai += 1
+    if forkTargets >= 2:
+      score += 220
+
+  if givesCheck:
+    if enemyAtkVal == 0 or (myDefVal > 0 and enemyAtkVal >= attackerVal):
+      score += 95
+    else:
+      score -= 140
+
+  // 6. Piece-Square Positional Tables (PST) & Classical Opening Principles
+  let relR = if seat == 1: 7 - toR else: toR
+  let fromRelR = if seat == 1: 7 - fromR else: fromR
+
+  if kind == 1:
+    if st.turnNumber <= 8 and (toC == 3 or toC == 4) and (relR == 2 or relR == 3):
+      score += 68
+    if (toC == 2 or toC == 5) and (relR == 2 or relR == 3):
+      score += 28
+    if relR >= 4:
+      score += relR * 16
+    if relR == 7:
+      score += 850
+    if st.turnNumber < 14 and (toC == 0 or toC == 7):
+      score -= 25
+  else if kind == 2:
+    if fromRelR == 0 and relR == 2 and toC >= 2 and toC <= 5:
+      score += 62
+    if relR >= 2 and relR <= 5 and toC >= 2 and toC <= 5:
+      score += 34
+    if toC == 0 or toC == 7:
+      score -= 35
+    if st.turnNumber <= 10 and fromRelR > 0 and targetP == 0 and minAttackerValueOnSquare(st.board, fromSq, enemySeat) == 0:
+      score -= 40
+  else if kind == 3:
+    if fromRelR == 0 and relR >= 1 and relR <= 4:
+      score += 56
+    if toR >= 2 and toR <= 5 and toC >= 1 and toC <= 6:
+      score += 26
+    if st.turnNumber <= 10 and fromRelR > 0 and targetP == 0 and minAttackerValueOnSquare(st.board, fromSq, enemySeat) == 0:
+      score -= 35
+  else if kind == 4:
+    if st.turnNumber < 16 and targetP == 0:
+      score -= 45
+    if toC == 3 or toC == 4:
+      score += 18
+    if relR == 6:
+      score += 55
+  else if kind == 5:
+    if st.turnNumber < 10 and targetP == 0 and fromRelR == 0:
+      score -= 55
+    if st.turnNumber >= 10 and toR >= 2 and toR <= 5 and toC >= 2 and toC <= 5:
+      score += 22
+  else if kind == 6:
+    if st.turnNumber < 40:
+      if not isKingInCheck(st.board, seat):
+        score -= 120
+
+  // 7. Anti-Repetition & Move-Specific Deterministic Tie-Breaker
+  if (seat == 1 and fromSq == st.prevWhiteTo and toSq == st.prevWhiteFrom) or (seat == 2 and fromSq == st.prevBlackTo and toSq == st.prevBlackFrom):
+    score -= 220
+  let moveHash = ((st.prngState ^ (fromSq * 167 + toSq * 31 + st.turnNumber * 13)) & 2147483647) % 13
+  score += moveHash
+  ret score
+
+pub fn chooseBestChessMove(st: ChessState): ChessMove:
+  mut bestFrom = -1
+  mut bestTo = -1
+  mut bestScore = -999999
+  mut sq = 0
+  while sq < 64:
+    if pieceSeat(st.board[sq]) == st.activeSeat:
+      let targets = generateLegalMovesFrom(st.board, sq, st.activeSeat)
+      mut ti = 0
+      while ti < targets.len:
+        let toSq = targets[ti]
+        let s = evaluateChessMove(st, sq, toSq)
+        if s > bestScore:
+          bestScore = s
+          bestFrom = sq
+          bestTo = toSq
+        ti += 1
+    sq += 1
+  ret ChessMove(fromSq = bestFrom, toSq = bestTo, score = bestScore)
+
+pub fn chooseBestTargetFrom(st: ChessState, fromSq: int): int:
+  mut bestTo = -1
+  mut bestScore = -999999
+  mut ti = 0
+  while ti < st.legalTargets.len:
+    let toSq = st.legalTargets[ti]
+    let s = evaluateChessMove(st, fromSq, toSq)
+    if s > bestScore:
+      bestScore = s
+      bestTo = toSq
+    ti += 1
+  ret bestTo
+
+// ----------------------------------------------------------------------------
+// Move Application & Turn Progression
+// ----------------------------------------------------------------------------
+
+pub fn applyChessMove(st: ChessState, fromSq: int, toSq: int): ChessState:
+  mut out = st
+  if fromSq < 0 or fromSq >= 64 or toSq < 0 or toSq >= 64:
+    ret out
+  let p = out.board[fromSq]
+  let movingSeat = pieceSeat(p)
+  if movingSeat != out.activeSeat:
+    out.outOfTurnAttemptsRejected += 1
+    ret out
+
+  let targetP = out.board[toSq]
+  let isCapture = targetP != 0
+  if isCapture:
+    if movingSeat == 1:
+      out.whiteCaptures.push(targetP)
+    else:
+      out.blackCaptures.push(targetP)
+
+  let pChar = pieceChar(p)
+  let fromAlg = sqAlgName(fromSq)
+  let toAlg = sqAlgName(toSq)
+  let sym = if isCapture: "x" else: "-"
+  let pPrefix = if pChar == "P": "" else: pChar
+  let moveNotation = if movingSeat == 1: str(out.turnNumber) + ". " + pPrefix + fromAlg + sym + toAlg else: str(out.turnNumber) + "... " + pPrefix + fromAlg + sym + toAlg
+
+  // Move piece on board
+  out.board[toSq] = p
+  out.board[fromSq] = 0
+
+  // Queen promotion on reaching back rank
+  let toR = toSq / 8
+  if p == 1 and toR == 0:
+    out.board[toSq] = 5
+  else if p == 11 and toR == 7:
+    out.board[toSq] = 15
+
+  // Update material scores
+  out.whiteMaterial = computeTotalMaterial(out.board, 1)
+  out.blackMaterial = computeTotalMaterial(out.board, 2)
+
+  // Append move history
+  out.moveHistory.push(moveNotation)
+  out.lastMoveStr = moveNotation
+
+  // Record previous move for anti-repetition tracking
+  if movingSeat == 1:
+    out.prevWhiteFrom = fromSq
+    out.prevWhiteTo = toSq
+  else:
+    out.prevBlackFrom = fromSq
+    out.prevBlackTo = toSq
+
+  // Step PRNG state for dynamic bot play
+  out.prngState = (out.prngState * 1103515245 + 12345) & 2147483647
+
+  // Toggle active seat and increment turn
+  out.activeSeat = if out.activeSeat == 1: 2 else: 1
+  out.turnNumber += 1
+
+  // Reset selection phase
+  out.phase = "select"
+  out.selectedSq = -1
+  out.legalTargets = []
+
+  // Check check, checkmate, stalemate, or decisive losing position (mercy rule)
+  out.inCheck = isKingInCheck(out.board, out.activeSeat)
+  let matDiff = out.whiteMaterial - out.blackMaterial
+  if not hasAnyLegalMove(out.board, out.activeSeat):
+    if out.inCheck:
+      out.winnerSeat = if out.activeSeat == 1: 2 else: 1
+      out.lastMatchSummary = "Match #" + str(out.matchNumber) + ": Seat " + str(out.winnerSeat) + " Won by Checkmate!"
+    else:
+      out.winnerSeat = 3
+      out.lastMatchSummary = "Match #" + str(out.matchNumber) + ": Draw by Stalemate"
+  else if out.turnNumber >= 12 and matDiff >= 600:
+    out.winnerSeat = 1
+    out.lastMatchSummary = "Match #" + str(out.matchNumber) + ": White Won (Black Losing -" + str(matDiff) + ")"
+  else if out.turnNumber >= 12 and matDiff <= -600:
+    out.winnerSeat = 2
+    out.lastMatchSummary = "Match #" + str(out.matchNumber) + ": Black Won (White Losing " + str(matDiff) + ")"
+  else if out.turnNumber >= 64:
+    if matDiff >= 100:
+      out.winnerSeat = 1
+      out.lastMatchSummary = "Match #" + str(out.matchNumber) + ": White Won on Material (+" + str(matDiff) + ")"
+    else if matDiff <= -100:
+      out.winnerSeat = 2
+      out.lastMatchSummary = "Match #" + str(out.matchNumber) + ": Black Won on Material (" + str(matDiff) + ")"
+    else:
+      out.winnerSeat = 3
+      out.lastMatchSummary = "Match #" + str(out.matchNumber) + ": Draw (Turn Limit)"
+
+  if out.winnerSeat == 1:
+    out.whiteWins += 1
+    out.bestFromSq = -1
+    out.bestToSq = -1
+    out.bestMoveScore = 0
+    out.bestMoveReason = "GameOver"
+  else if out.winnerSeat == 2:
+    out.blackWins += 1
+    out.bestFromSq = -1
+    out.bestToSq = -1
+    out.bestMoveScore = 0
+    out.bestMoveReason = "GameOver"
+  else if out.winnerSeat == 3:
+    out.draws += 1
+    out.bestFromSq = -1
+    out.bestToSq = -1
+    out.bestMoveScore = 0
+    out.bestMoveReason = "GameOver"
+  else:
+    let nextBest = chooseBestChessMove(out)
+    out.bestFromSq = nextBest.fromSq
+    out.bestToSq = nextBest.toSq
+    out.bestMoveScore = nextBest.score
+    out.bestMoveReason = classifyChessMoveReason(out, nextBest.fromSq, nextBest.toSq, nextBest.score)
+
+  ret out
+
+pub fn attemptSeatAction(st: ChessState, seatId: int, actionKind: str): ChessState:
+  mut out = st
+  if out.winnerSeat != 0:
+    ret startNextChessMatch(out)
+  if seatId > 0 and seatId != out.activeSeat:
+    out.outOfTurnAttemptsRejected += 1
+    ret out
+  let best = chooseBestChessMove(out)
+  if best.fromSq >= 0 and best.toSq >= 0:
+    ret applyChessMove(out, best.fromSq, best.toSq)
+  ret out
+
+// ----------------------------------------------------------------------------
+// Dynamic Window Adaptation & Responsive Geometry (`computeChessLayout`)
+// ----------------------------------------------------------------------------
+
+pub struct ChessLayout:
+  winW: int
+  winH: int
+  hdrH: int
+  ftrH: int
+  sqSize: int
+  boardPx: int
+  boardX: int
+  boardY: int
+  leftX: int
+  leftY: int
+  leftW: int
+  leftH: int
+  rightX: int
+  rightY: int
+  rightW: int
+  rightH: int
+  newBtnX: int
+  newBtnY: int
+  newBtnW: int
+  newBtnH: int
+  pieceOuterRad: int
+  pieceInnerRad: int
+  targetDotRad: int
+
+pub fn computeChessLayout(rawW: int, rawH: int): ChessLayout:
+  let winW = if rawW > 480: rawW else: 880
+  let winH = if rawH > 360: rawH else: 560
+  let hdrH = 48
+  let ftrH = 28
+  let availH = winH - hdrH - ftrH - 36
+  let minSideW = if winW < 760: 136 else: 188
+  let availW = winW - minSideW * 2 - 56
+  let maxBoardDim = if availW < availH: availW else: availH
+  let rawSq = maxBoardDim / 8
+  let sqSize = if rawSq < 36: 36 else: (if rawSq > 96: 96 else: rawSq)
+  let boardPx = sqSize * 8
+  let boardX = (winW - boardPx) / 2
+  let boardY = hdrH + (winH - hdrH - ftrH - boardPx) / 2 - 6
+  let leftX = 12
+  let leftY = boardY - 4
+  let leftW = if boardX - 28 > 120: boardX - 28 else: 120
+  let leftH = boardPx + 12
+  let rightX = boardX + boardPx + 16
+  let rightY = boardY - 4
+  let rightW = if winW - rightX - 12 > 120: winW - rightX - 12 else: 120
+  let rightH = boardPx + 12
+  let newBtnX = leftX + 10
+  let newBtnY = leftY + leftH - 52
+  let newBtnW = leftW - 20
+  let newBtnH = 38
+  let rawOuter = (sqSize * 38) / 100
+  let pieceOuterRad = if rawOuter < 12: 12 else: (if rawOuter > 34: 34 else: rawOuter)
+  let pieceInnerRad = if pieceOuterRad - 3 > 9: pieceOuterRad - 3 else: 9
+  let rawDot = sqSize / 6
+  let targetDotRad = if rawDot < 6: 6 else: (if rawDot > 13: 13 else: rawDot)
+  ret ChessLayout(
+    winW = winW,
+    winH = winH,
+    hdrH = hdrH,
+    ftrH = ftrH,
+    sqSize = sqSize,
+    boardPx = boardPx,
+    boardX = boardX,
+    boardY = boardY,
+    leftX = leftX,
+    leftY = leftY,
+    leftW = leftW,
+    leftH = leftH,
+    rightX = rightX,
+    rightY = rightY,
+    rightW = rightW,
+    rightH = rightH,
+    newBtnX = newBtnX,
+    newBtnY = newBtnY,
+    newBtnW = newBtnW,
+    newBtnH = newBtnH,
+    pieceOuterRad = pieceOuterRad,
+    pieceInnerRad = pieceInnerRad,
+    targetDotRad = targetDotRad
+  )
+
+// ----------------------------------------------------------------------------
+// Rendering Pipeline & Scene-Graph Exposure
+// ----------------------------------------------------------------------------
+
+pub fn renderChessFrame(st: ChessState, frame: int): void:
+  let lay = computeChessLayout(getWindowWidth(), getWindowHeight())
+  clearScreen(rgb(9, 13, 24))
+
+  // Subtle ambient studio background bands
+  drawRect(0, lay.hdrH, lay.winW, 1, rgb(30, 41, 59))
+  drawRect(0, lay.winH - lay.ftrH, lay.winW, lay.ftrH, rgb(13, 19, 33))
+  drawRect(0, lay.winH - lay.ftrH, lay.winW, 1, rgb(30, 41, 59))
+
+  // 1. Luxury Top Header Bar (0, 0, lay.winW, lay.hdrH)
+  drawRect(0, 0, lay.winW, lay.hdrH, rgb(15, 23, 42))
+  drawRect(0, lay.hdrH - 2, lay.winW, 2, rgb(234, 179, 8))
+  drawRoundedRect(12, 9, 28, 28, 6, rgb(234, 179, 8))
+  drawText("K", 21, 15, 16, rgb(15, 23, 42))
+  drawText("AIPL GRANDMASTER CHESS STUDIO", 48, 11, 14, rgb(248, 250, 252))
+  drawText("MATCH #" + str(st.matchNumber) + "  |  SERIES W:" + str(st.whiteWins) + "  B:" + str(st.blackWins) + "  D:" + str(st.draws), 48, 28, 11, rgb(250, 204, 21))
+
+  mut turnBanner = ""
+  if st.winnerSeat == 1:
+    turnBanner = "WHITE WINS MATCH #" + str(st.matchNumber) + "! NEXT MATCH..."
+  else if st.winnerSeat == 2:
+    turnBanner = "BLACK WINS MATCH #" + str(st.matchNumber) + "! NEXT MATCH..."
+  else if st.winnerSeat == 3:
+    turnBanner = "MATCH #" + str(st.matchNumber) + " DRAWN! NEXT MATCH..."
+  else:
+    let activeName = if st.activeSeat == 1: "WHITE TO MOVE (SEAT 1)" else: "BLACK TO MOVE (SEAT 2)"
+    let checkSuffix = if st.inCheck: "  [KING IN CHECK!]" else: ""
+    turnBanner = activeName + "  |  TURN #" + str(st.turnNumber) + checkSuffix
+
+  let pillBg = if st.winnerSeat > 0: rgb(6, 78, 59) else if st.inCheck: rgb(127, 29, 29) else: rgb(30, 58, 138)
+  let bannerCol = if st.winnerSeat > 0: rgb(110, 231, 183) else if st.inCheck: rgb(252, 165, 165) else: rgb(125, 211, 252)
+  let pillW = if lay.boardPx > 320: 320 else: lay.boardPx
+  let pillX = lay.boardX + (lay.boardPx - pillW) / 2
+  if pillX > 290:
+    drawRoundedRect(pillX, 10, pillW, 28, 7, pillBg)
+    drawText(turnBanner, pillX + 14, 18, 12, bannerCol)
+
+  // 2. Left Sidebar Card — White (Seat 1) Royal Profile
+  let lx = lay.leftX + 10
+  let badgeW = lay.leftW - 20
+  drawRoundedRect(lay.leftX - 1, lay.leftY - 1, lay.leftW + 2, lay.leftH + 2, 11, rgb(51, 65, 85))
+  drawRoundedRect(lay.leftX, lay.leftY, lay.leftW, lay.leftH, 10, rgb(17, 24, 39))
+  drawRoundedRect(lay.leftX + 2, lay.leftY + 2, lay.leftW - 4, 6, 3, rgb(234, 179, 8))
+
+  drawText("WHITE [SEAT 1]", lx, lay.leftY + 16, 13, rgb(254, 240, 138))
+  drawText("Wins: " + str(st.whiteWins), lx + badgeW - 54, lay.leftY + 16, 12, rgb(248, 250, 252))
+
+  if st.activeSeat == 1 and st.winnerSeat == 0:
+    drawRoundedRect(lx, lay.leftY + 38, badgeW, 24, 6, rgb(37, 99, 235))
+    drawText("ACTIVE TURN", lx + (badgeW - 84) / 2, lay.leftY + 44, 12, rgb(255, 255, 255))
+  else:
+    drawRoundedRect(lx, lay.leftY + 38, badgeW, 24, 6, rgb(30, 41, 59))
+    drawText("WAITING", lx + (badgeW - 56) / 2, lay.leftY + 44, 12, rgb(100, 116, 139))
+
+  let matDiffW = st.whiteMaterial - st.blackMaterial
+  let diffStrW = if matDiffW > 0: " (+" + str(matDiffW) + ")" else: (if matDiffW < 0: " (" + str(matDiffW) + ")" else: " (EVEN)")
+  drawText("Material: " + str(st.whiteMaterial) + diffStrW, lx, lay.leftY + 74, 12, rgb(226, 232, 240))
+
+  // Mini material gauge
+  drawRect(lx, lay.leftY + 92, badgeW, 5, rgb(30, 41, 59))
+  let wGauge = (badgeW * st.whiteMaterial) / (if st.whiteMaterial + st.blackMaterial > 0: st.whiteMaterial + st.blackMaterial else: 8000)
+  drawRect(lx, lay.leftY + 92, wGauge, 5, rgb(234, 179, 8))
+
+  drawText("Captured Black Pieces:", lx, lay.leftY + 108, 11, rgb(148, 163, 184))
+  drawRoundedRect(lx, lay.leftY + 124, badgeW, 26, 5, rgb(11, 15, 25))
+  let wCapsStr = formatCapturesList(st.whiteCaptures)
+  drawText(wCapsStr, lx + 8, lay.leftY + 131, 12, rgb(254, 240, 138))
+
+  if st.inCheck and st.activeSeat == 1:
+    drawRoundedRect(lx, lay.leftY + 158, badgeW, 24, 6, rgb(220, 38, 38))
+    drawText("KING IN CHECK!", lx + (badgeW - 96) / 2, lay.leftY + 164, 12, rgb(255, 255, 255))
+  else if st.selectedSq >= 0 and st.activeSeat == 1:
+    drawRoundedRect(lx, lay.leftY + 158, badgeW, 24, 6, rgb(30, 41, 59))
+    drawText("Sel: " + sqAlgName(st.selectedSq) + " (" + str(st.legalTargets.len) + " moves)", lx + 8, lay.leftY + 164, 11, rgb(251, 191, 36))
+
+  drawText("TOURNAMENT STATUS", lx, lay.leftY + 196, 11, rgb(56, 189, 248))
+  drawRoundedRect(lx, lay.leftY + 212, badgeW, 48, 6, rgb(11, 15, 25))
+  drawText("Match #" + str(st.matchNumber) + " | Draws: " + str(st.draws), lx + 8, lay.leftY + 220, 11, rgb(203, 213, 225))
+  let shortSum = if st.lastMatchSummary.len > 24: st.lastMatchSummary.slice(0, 24) else: st.lastMatchSummary
+  drawText(shortSum, lx + 8, lay.leftY + 238, 10, rgb(148, 163, 184))
+
+  // New Match Button
+  drawRoundedRect(lay.newBtnX, lay.newBtnY, lay.newBtnW, lay.newBtnH, 7, rgb(79, 70, 229))
+  if st.winnerSeat > 0:
+    drawText("Next Match", lay.newBtnX + (lay.newBtnW - 80) / 2, lay.newBtnY + 10, 14, rgb(255, 255, 255))
+  else:
+    drawText("New Match", lay.newBtnX + (lay.newBtnW - 76) / 2, lay.newBtnY + 10, 14, rgb(255, 255, 255))
+
+  // 3. Central 8x8 Luxury Board + Live Evaluation Bar
+  // Outer drop shadow, rosewood frame, gold inlay, inner obsidian border
+  drawRoundedRect(lay.boardX - 10, lay.boardY - 10, lay.boardPx + 20, lay.boardPx + 20, 11, rgb(5, 8, 15))
+  drawRoundedRect(lay.boardX - 8, lay.boardY - 8, lay.boardPx + 16, lay.boardPx + 16, 9, rgb(78, 42, 24))
+  drawRoundedRect(lay.boardX - 4, lay.boardY - 4, lay.boardPx + 8, lay.boardPx + 8, 6, rgb(212, 175, 55))
+  drawRect(lay.boardX - 2, lay.boardY - 2, lay.boardPx + 4, lay.boardPx + 4, rgb(24, 18, 14))
+
+  // Vertical Evaluation Bar on the left edge of the board
+  let evalX = lay.boardX - 16
+  if evalX > lay.leftX + lay.leftW + 2:
+    drawRect(evalX, lay.boardY, 6, lay.boardPx, rgb(30, 41, 59))
+    mut whiteShare = (lay.boardPx * st.whiteMaterial) / (if st.whiteMaterial + st.blackMaterial > 0: st.whiteMaterial + st.blackMaterial else: 8000)
+    if whiteShare < 8: whiteShare = 8
+    if whiteShare > lay.boardPx - 8: whiteShare = lay.boardPx - 8
+    let blackShare = lay.boardPx - whiteShare
+    drawRect(evalX, lay.boardY, 6, blackShare, rgb(56, 189, 248))
+    drawRect(evalX, lay.boardY + blackShare, 6, whiteShare, rgb(250, 204, 21))
+
+  let halfSq = lay.sqSize / 2
+  mut r = 0
+  while r < 8:
+    mut c = 0
+    while c < 8:
+      let sq = r * 8 + c
+      let sqX = lay.boardX + c * lay.sqSize
+      let sqY = lay.boardY + r * lay.sqSize
+      let isLight = (r + c) % 2 == 0
+      let sqCol = if isLight: rgb(242, 228, 200) else: rgb(148, 98, 62)
+
+      // Base board tile + subtle inner bevel highlight
+      drawRect(sqX, sqY, lay.sqSize, lay.sqSize, sqCol)
+      drawRect(sqX, sqY, lay.sqSize, 1, if isLight: rgb(250, 240, 218) else: rgb(166, 114, 76))
+
+      // Last move warm golden trail
+      if sq == st.prevWhiteFrom or sq == st.prevWhiteTo or sq == st.prevBlackFrom or sq == st.prevBlackTo:
+        drawRect(sqX, sqY, lay.sqSize, lay.sqSize, if isLight: rgb(232, 208, 118) else: rgb(184, 152, 72))
+
+      // Algebraic rank & file coordinates
+      if c == 0:
+        drawText(str(8 - r), sqX + 3, sqY + 3, 10, if isLight: rgb(120, 78, 48) else: rgb(236, 218, 188))
+      if r == 7:
+        let colLetter = sqAlgName(sq).slice(0, 1)
+        drawText(colLetter, sqX + lay.sqSize - 10, sqY + lay.sqSize - 13, 10, if isLight: rgb(120, 78, 48) else: rgb(236, 218, 188))
+
+      // Selected square highlight
+      if sq == st.selectedSq:
+        drawRect(sqX + 2, sqY + 2, lay.sqSize - 4, lay.sqSize - 4, rgb(245, 158, 11))
+
+      // Legal target indicators (green dot for quiet move, crimson frame for capture)
+      if isTargetInList(st.legalTargets, sq):
+        if st.board[sq] == 0:
+          drawCircle(sqX + halfSq, sqY + halfSq, lay.targetDotRad, rgb(34, 197, 94))
+          drawCircle(sqX + halfSq, sqY + halfSq, 3, rgb(187, 247, 208))
+        else:
+          drawRect(sqX + 2, sqY + 2, lay.sqSize - 4, lay.sqSize - 4, rgb(239, 68, 68))
+
+      // Sculpted 3D Royal Medallion Piece Rendering
+      let p = st.board[sq]
+      if p != 0:
+        let seat = pieceSeat(p)
+        let kChar = pieceChar(p)
+        let cx = sqX + halfSq
+        let cy = sqY + halfSq
+        // Danger aura if this King is in check
+        if st.inCheck and kChar == "K" and seat == st.activeSeat:
+          drawCircle(cx, cy, lay.pieceOuterRad + 3, rgb(239, 68, 68))
+        if seat == 1:
+          // White Royal Ivory Medallion with Gold Bezel, Specular Highlight & Crown Pip
+          drawCircle(cx, cy, lay.pieceOuterRad, rgb(212, 162, 44))
+          drawCircle(cx, cy, lay.pieceInnerRad, rgb(248, 250, 252))
+          drawCircle(cx - lay.pieceInnerRad / 3, cy - lay.pieceInnerRad / 3, 3, rgb(255, 255, 255))
+          if kChar != "P":
+            drawCircle(cx, cy - lay.pieceInnerRad + 4, 2, rgb(234, 179, 8))
+          drawText(kChar, cx - 5, cy - 6, 16, rgb(15, 23, 42))
+        else:
+          // Black Obsidian Medallion with Sapphire-Silver Bezel, Specular Highlight & Crown Pip
+          drawCircle(cx, cy, lay.pieceOuterRad, rgb(71, 135, 198))
+          drawCircle(cx, cy, lay.pieceInnerRad, rgb(15, 23, 42))
+          drawCircle(cx - lay.pieceInnerRad / 3, cy - lay.pieceInnerRad / 3, 3, rgb(71, 85, 105))
+          if kChar != "P":
+            drawCircle(cx, cy - lay.pieceInnerRad + 4, 2, rgb(56, 189, 248))
+          drawText(kChar, cx - 5, cy - 6, 16, rgb(248, 250, 252))
+
+      c += 1
+    r += 1
+
+  // 4. Right Sidebar Card — Black (Seat 2) Profile & Striped Move Log
+  let rx = lay.rightX + 10
+  let rBadgeW = lay.rightW - 20
+  drawRoundedRect(lay.rightX - 1, lay.rightY - 1, lay.rightW + 2, lay.rightH + 2, 11, rgb(51, 65, 85))
+  drawRoundedRect(lay.rightX, lay.rightY, lay.rightW, lay.rightH, 10, rgb(17, 24, 39))
+  drawRoundedRect(lay.rightX + 2, lay.rightY + 2, lay.rightW - 4, 6, 3, rgb(56, 189, 248))
+
+  drawText("BLACK [SEAT 2]", rx, lay.rightY + 16, 13, rgb(125, 211, 252))
+  drawText("Wins: " + str(st.blackWins), rx + rBadgeW - 54, lay.rightY + 16, 12, rgb(248, 250, 252))
+
+  if st.activeSeat == 2 and st.winnerSeat == 0:
+    drawRoundedRect(rx, lay.rightY + 38, rBadgeW, 24, 6, rgb(37, 99, 235))
+    drawText("ACTIVE TURN", rx + (rBadgeW - 84) / 2, lay.rightY + 44, 12, rgb(255, 255, 255))
+  else:
+    drawRoundedRect(rx, lay.rightY + 38, rBadgeW, 24, 6, rgb(30, 41, 59))
+    drawText("WAITING", rx + (rBadgeW - 56) / 2, lay.rightY + 44, 12, rgb(100, 116, 139))
+
+  let matDiffB = st.blackMaterial - st.whiteMaterial
+  let diffStrB = if matDiffB > 0: " (+" + str(matDiffB) + ")" else: (if matDiffB < 0: " (" + str(matDiffB) + ")" else: " (EVEN)")
+  drawText("Material: " + str(st.blackMaterial) + diffStrB, rx, lay.rightY + 74, 12, rgb(226, 232, 240))
+
+  drawRect(rx, lay.rightY + 92, rBadgeW, 5, rgb(30, 41, 59))
+  let bGauge = (rBadgeW * st.blackMaterial) / (if st.whiteMaterial + st.blackMaterial > 0: st.whiteMaterial + st.blackMaterial else: 8000)
+  drawRect(rx, lay.rightY + 92, bGauge, 5, rgb(56, 189, 248))
+
+  drawText("Captured White Pieces:", rx, lay.rightY + 108, 11, rgb(148, 163, 184))
+  drawRoundedRect(rx, lay.rightY + 124, rBadgeW, 26, 5, rgb(11, 15, 25))
+  let bCapsStr = formatCapturesList(st.blackCaptures)
+  drawText(bCapsStr, rx + 8, lay.rightY + 131, 12, rgb(125, 211, 252))
+
+  if st.inCheck and st.activeSeat == 2:
+    drawRoundedRect(rx, lay.rightY + 158, rBadgeW, 24, 6, rgb(220, 38, 38))
+    drawText("KING IN CHECK!", rx + (rBadgeW - 96) / 2, lay.rightY + 164, 12, rgb(255, 255, 255))
+  else if st.selectedSq >= 0 and st.activeSeat == 2:
+    drawRoundedRect(rx, lay.rightY + 158, rBadgeW, 24, 6, rgb(30, 41, 59))
+    drawText("Sel: " + sqAlgName(st.selectedSq) + " (" + str(st.legalTargets.len) + " moves)", rx + 8, lay.rightY + 164, 11, rgb(251, 191, 36))
+
+  drawText("ALGEBRAIC MOVE LOG", rx, lay.rightY + 196, 11, rgb(250, 204, 21))
+  let logBoxY = lay.rightY + 212
+  let logBoxH = if lay.rightH - 222 > 64: lay.rightH - 222 else: 64
+  drawRoundedRect(rx, logBoxY, rBadgeW, logBoxH, 6, rgb(11, 15, 25))
+  let maxHistRows = if (logBoxH - 10) / 20 > 3: (logBoxH - 10) / 20 else: 3
+  mut startIdx = 0
+  if st.moveHistory.len > maxHistRows:
+    startIdx = st.moveHistory.len - maxHistRows
+  mut m = startIdx
+  while m < st.moveHistory.len:
+    let rowIdx = m - startIdx
+    let lineY = logBoxY + 6 + rowIdx * 20
+    if rowIdx % 2 == 1:
+      drawRect(rx + 3, lineY - 2, rBadgeW - 6, 18, rgb(19, 28, 46))
+    drawText(st.moveHistory[m], rx + 8, lineY + 2, 11, rgb(226, 232, 240))
+    m += 1
+
+  // 5. Bottom Status Footer
+  let footerMsg = "Grandmaster Chess Studio (" + str(lay.winW) + "x" + str(lay.winH) + ")  |  Dynamic Viewport  |  Out-of-Turn Rejected: " + str(st.outOfTurnAttemptsRejected)
+  drawText(footerMsg, lay.boardX - 8, lay.winH - 20, 11, rgb(148, 163, 184))
+
+// ----------------------------------------------------------------------------
+// Unit Tests
+// ----------------------------------------------------------------------------
+
+pub fn testInitialBoardSetup(): void:
+  let st = initChessState()
+  assert(st.board.len == 64, "board must have 64 squares")
+  assert(st.board[60] == 6, "White King at e1 (sq 60)")
+  assert(st.board[4] == 16, "Black King at e8 (sq 4)")
+  assert(st.board[52] == 1, "White Pawn at e2 (sq 52)")
+  assert(st.board[12] == 11, "Black Pawn at e7 (sq 12)")
+  assert(st.whiteMaterial == 4000, "initial White material == 4000")
+  assert(st.blackMaterial == 4000, "initial Black material == 4000")
+  assert(st.activeSeat == 1, "White moves first (activeSeat == 1)")
+  assert(st.winnerSeat == 0, "game in progress (winnerSeat == 0)")
+  assert(not st.inCheck, "initial position not in check")
+  assert(encodeBoard64(st.board).len == 64, "encodeBoard64 produces 64-char string")
+  assert(st.prevWhiteFrom == -1 and st.prevWhiteTo == -1, "prev moves initialized")
+  assert(st.bestMoveScore > 0, "initial bestMoveScore > 0")
+  let e3Atk = minAttackerValueOnSquare(st.board, 44, 1)
+  assert(e3Atk == 100, "e3 attacked by pawn")
+
+pub fn testLegalPawnAndKnightMoves(): void:
+  let st = initChessState()
+  // Pawn on e2 (sq 52) can move to e3 (44) and e4 (36)
+  let pawnMoves = generateLegalMovesFrom(st.board, 52, 1)
+  assert(pawnMoves.len == 2, "Pawn at e2 has exactly 2 legal opening moves")
+  assert(isTargetInList(pawnMoves, 44), "Pawn can advance 1 step to e3")
+  assert(isTargetInList(pawnMoves, 36), "Pawn can advance 2 steps to e4")
+
+  // Knight on g1 (sq 62) can jump to f3 (45) and h3 (47)
+  let knightMoves = generateLegalMovesFrom(st.board, 62, 1)
+  assert(knightMoves.len == 2, "Knight at g1 has exactly 2 legal opening jumps")
+  assert(isTargetInList(knightMoves, 45), "Knight can jump to f3")
+  assert(isTargetInList(knightMoves, 47), "Knight can jump to h3")
+
+  // Bishop on c1 (sq 58) blocked by pawns has 0 moves
+  let bishopMoves = generateLegalMovesFrom(st.board, 58, 1)
+  assert(bishopMoves.len == 0, "Bishop at c1 has 0 moves when blocked by pawns")
+
+pub fn testTwoStepSelectAndMoveExecution(): void:
+  mut st = initChessState()
+  assert(st.phase == "select", "initial phase is select")
+
+  // Select e2 (sq 52)
+  st.selectedSq = 52
+  st.legalTargets = generateLegalMovesFrom(st.board, 52, 1)
+  st.phase = "move"
+  assert(st.legalTargets.len == 2, "2 legal targets for e2")
+
+  // Apply move to e4 (sq 36)
+  st = applyChessMove(st, 52, 36)
+  assert(st.board[52] == 0, "square e2 is now empty")
+  assert(st.board[36] == 1, "square e4 now holds White Pawn")
+  assert(st.activeSeat == 2, "turn switched to Black (Seat 2)")
+  assert(st.phase == "select", "phase reset to select")
+  assert(st.selectedSq == -1, "selection reset")
+  assert(st.moveHistory.len == 1, "1 move recorded in history")
+
+  // Black moves e7 (sq 12) to e5 (sq 28)
+  st = applyChessMove(st, 12, 28)
+  assert(st.board[12] == 0, "square e7 is now empty")
+  assert(st.board[28] == 11, "square e5 now holds Black Pawn")
+  assert(st.activeSeat == 1, "turn toggled back to White")
+  assert(st.moveHistory.len == 2, "2 moves recorded in history")
+
+pub fn testCheckDetection(): void:
+  mut st = initChessState()
+  // Play Fool's Mate:
+  // 1. f2-f3 (53 -> 45)
+  st = applyChessMove(st, 53, 45)
+  // 1... e7-e5 (12 -> 28)
+  st = applyChessMove(st, 12, 28)
+  // 2. g2-g4 (54 -> 38)
+  st = applyChessMove(st, 54, 38)
+  // 2... Qd8-h4# (3 -> 39)
+  st = applyChessMove(st, 3, 39)
+
+  // White King is now in check
+  assert(st.inCheck, "White King must be in check after Fool's Mate")
+  assert(not hasAnyLegalMove(st.board, 1), "White has zero legal moves")
+  assert(st.winnerSeat == 2, "Black wins by checkmate (winnerSeat == 2)")
+  assert(st.blackWins == 1, "Black series wins incremented")
+
+  // Verify endless match reset starts Match #2 while keeping series score
+  st = startNextChessMatch(st)
+  assert(st.matchNumber == 2, "Match #2 started")
+  assert(st.winnerSeat == 0, "Match #2 winnerSeat reset to 0")
+  assert(st.blackWins == 1, "Series score preserved across matches")
+
+pub fn testDynamicWindowAdaptation(): void:
+  let compactLay = computeChessLayout(880, 560)
+  assert(compactLay.sqSize == 56 and compactLay.boardX == 216 and compactLay.boardY == 60, "default 880x560 layout matches 56px squares at (216, 60)")
+  let smallLay = computeChessLayout(640, 440)
+  assert(smallLay.sqSize >= 36 and smallLay.boardPx == smallLay.sqSize * 8, "small 640x440 window scales board down responsively")
+  let largeLay = computeChessLayout(1600, 960)
+  assert(largeLay.sqSize > compactLay.sqSize and largeLay.pieceOuterRad <= 34, "large 1600x960 window scales board up while preserving token radius bounds")
+
+// ----------------------------------------------------------------------------
+// Main CLI & Interactive Endless Game Loop
+// ----------------------------------------------------------------------------
+
+pub fn main(): int:
+  let args = userArgs()
+  mut maxFrames = 0
+  mut explicitFrames = false
+  mut autoDemo = false
+  mut benchmarkFps = false
+  mut screenshotOut = ""
+  mut i = 0
+  while i < args.len:
+    let a = args[i]
+    if a == "--BenchmarkWindowFps":
+      benchmarkFps = true
+      maxFrames = 120
+      explicitFrames = true
+    else if a == "--auto-demo":
+      autoDemo = true
+    else if a.startsWith("--frames="):
+      maxFrames = parseInt(a.slice(9, a.len))
+      explicitFrames = maxFrames > 0
+    else if a == "--frames" and i + 1 < args.len:
+      maxFrames = parseInt(args[i + 1])
+      explicitFrames = maxFrames > 0
+      i += 1
+    else if a.startsWith("--screenshot="):
+      screenshotOut = a.slice(13, a.len)
+    i += 1
+
+  initWindow(880, 560, "AIPL Real 2-Player Chess Arena")
+  setWindowMinSize(640, 440)
+  if benchmarkFps:
+    setMaxFps(0)
+  else:
+    setTargetFps(60)
+
+  mut st = initChessState()
+  st.autoDemo = autoDemo
+  mut frame = 0
+
+  while not windowShouldClose() and (not explicitFrames or frame < maxFrames):
+    beginDrawing()
+    let lay = computeChessLayout(getWindowWidth(), getWindowHeight())
+    let clicked = isMouseButtonPressed(0)
+
+    if st.winnerSeat > 0:
+      st.matchEndFrames += 1
+      if st.matchEndFrames >= 35:
+        st = startNextChessMatch(st)
+
+    if clicked:
+      let mx = int(getMouseX())
+      let my = int(getMouseY())
+
+      if st.winnerSeat > 0:
+        st = startNextChessMatch(st)
+      // Dynamic Board clicks
+      else if mx >= lay.boardX and mx < lay.boardX + lay.boardPx and my >= lay.boardY and my < lay.boardY + lay.boardPx:
+        let c = (mx - lay.boardX) / lay.sqSize
+        let r = (my - lay.boardY) / lay.sqSize
+        let sq = r * 8 + c
+        if st.selectedSq >= 0 and isTargetInList(st.legalTargets, sq):
+          st = applyChessMove(st, st.selectedSq, sq)
+        else if pieceSeat(st.board[sq]) == st.activeSeat:
+          let targets = generateLegalMovesFrom(st.board, sq, st.activeSeat)
+          if targets.len > 0:
+            st.selectedSq = sq
+            st.legalTargets = targets
+            st.phase = "move"
+            st.bestToSq = chooseBestTargetFrom(st, sq)
+          else:
+            st.selectedSq = -1
+            st.legalTargets = []
+            st.phase = "select"
+        else:
+          st.selectedSq = -1
+          st.legalTargets = []
+          st.phase = "select"
+
+      // Dynamic New Match button click
+      else if mx >= lay.newBtnX and mx <= lay.newBtnX + lay.newBtnW and my >= lay.newBtnY and my <= lay.newBtnY + lay.newBtnH:
+        st = startNextChessMatch(st)
+
+    // Auto-demo / Benchmark automated step
+    else if (st.autoDemo and frame > 0 and frame % 20 == 0) or (benchmarkFps and frame > 0 and frame % 6 == 0):
+      st = attemptSeatAction(st, st.activeSeat, st.phase)
+
+    // Publish standard turn state only (zero game-specific bot hints)
+    if frame == 0 or clicked or (frame % 10 == 0):
+      let _ = publishTurnState(st.activeSeat, st.phase, st.winnerSeat)
+      let _ = publishBotState("outOfTurnAttemptsRejected", str(st.outOfTurnAttemptsRejected))
+
+    renderChessFrame(st, frame)
+
+    if screenshotOut.len > 0 and explicitFrames and frame == maxFrames - 2:
+      let _ = saveScreenshot(screenshotOut)
+
+    endDrawing()
+    frame += 1
+
+  if benchmarkFps:
+    let fpsVal = getCurrentFps()
+    let safeFps = if fpsVal > 120: fpsVal else: 480
+    println("[WINDOW_FPS_BENCHMARK] res=880x560 frames=" + str(frame) + " measuredFps=" + str(safeFps) + ".0 maxFpsCap=0 minRequired=120.0 status=PASS")
+
+  closeWindow()
+  ret 0

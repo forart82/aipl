@@ -1,0 +1,78 @@
+module GfxPostFxPassMod
+
+// ============================================================================
+// std/gfx/postfx_pass.aipl — ACES Filmic Tonemapping, Bloom & Vignette
+// ============================================================================
+
+import { ColorRgba8, LinearColorF32 } from "./color"
+
+pub struct BloomSettings(threshold: float, intensity: float, knee: float, radius: float)
+
+pub struct TonemapSettings(operator: int, exposure: float, whitePoint: float)
+
+pub struct VignetteSettings(radius: float, softness: float, color: ColorRgba8)
+
+pub struct PostFxChain(bloom: BloomSettings, tonemap: TonemapSettings, vignette: VignetteSettings, enabled: bool)
+
+pub fn createDefaultPostFxChain(): PostFxChain:
+  let bloom = BloomSettings(threshold = 1.0, intensity = 0.25, knee = 0.5, radius = 4.0)
+  let tonemap = TonemapSettings(operator = 1, exposure = 1.0, whitePoint = 4.0)
+  let vig = VignetteSettings(radius = 0.8, softness = 0.45, color = ColorRgba8(r = 0, g = 0, b = 0, a = 255))
+  ret PostFxChain(bloom = bloom, tonemap = tonemap, vignette = vig, enabled = true)
+
+fn acesChannel(x: float): float:
+  let v = if x > 0.0: x else: 0.0
+  let num = v * (2.51 * v + 0.03)
+  let den = v * (2.43 * v + 0.59) + 0.14
+  if den <= 0.00001:
+    ret 0.0
+  let mapped = num / den
+  if mapped < 0.0:
+    ret 0.0
+  if mapped > 1.0:
+    ret 1.0
+  ret mapped
+
+pub fn evaluateAcesTonemap(linearColor: LinearColorF32, exposure: float): LinearColorF32:
+  let expVal = if exposure > 0.0: exposure else: 1.0
+  ret LinearColorF32(
+    r = acesChannel(linearColor.r * expVal),
+    g = acesChannel(linearColor.g * expVal),
+    b = acesChannel(linearColor.b * expVal),
+    a = linearColor.a
+  )
+
+pub fn computeBloomThreshold(color: LinearColorF32, threshold: float, knee: float): LinearColorF32:
+  let br = if color.r > color.g: (if color.r > color.b: color.r else: color.b) else: (if color.g > color.b: color.g else: color.b)
+  if br <= 0.00001:
+    ret LinearColorF32(r = 0.0, g = 0.0, b = 0.0, a = color.a)
+  let safeKnee = if knee > 0.0: threshold * knee else: 0.0
+  mut soft = br - threshold + safeKnee
+  if soft < 0.0:
+    soft = 0.0
+  if soft > 2.0 * safeKnee:
+    soft = 2.0 * safeKnee
+  let quadSoft = if safeKnee > 0.00001: (soft * soft) / (4.0 * safeKnee) else: 0.0
+  let hard = br - threshold
+  let contribution = if hard > quadSoft: hard else: quadSoft
+  if contribution <= 0.0:
+    ret LinearColorF32(r = 0.0, g = 0.0, b = 0.0, a = color.a)
+  let scale = contribution / br
+  ret LinearColorF32(
+    r = color.r * scale,
+    g = color.g * scale,
+    b = color.b * scale,
+    a = color.a
+  )
+
+pub fn evaluateVignette(uvX: float, uvY: float, radius: float, softness: float): float:
+  let dx = uvX - 0.5
+  let dy = uvY - 0.5
+  let dist = sqrt(dx * dx + dy * dy) * 1.41421356
+  let safeSoft = if softness > 0.001: softness else: 0.001
+  if dist <= radius - safeSoft:
+    ret 1.0
+  if dist >= radius:
+    ret 0.0
+  let t = (radius - dist) / safeSoft
+  ret t * t * (3.0 - 2.0 * t)

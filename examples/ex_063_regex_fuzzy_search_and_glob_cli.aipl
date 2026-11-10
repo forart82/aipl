@@ -1,0 +1,42 @@
+// ============================================================================
+// Example 063: Fuzzy Edit Distance, Similarity Ratio & Glob Match (CLI)
+// Demonstrates: editDistance, similarityRatio, diffTexts, applyPatch,
+//               regexCompile, and .findSpan() from std/regex.
+// ============================================================================
+module Ex063RegexFuzzySearchAndGlobCli
+
+import {
+  regexCompile,
+  editDistance,
+  similarityRatio,
+  diffTexts,
+  applyPatch
+} from "../std/regex"
+
+pub fn evaluateFuzzyEditAndSimilarityPermille(): int:
+  let dist = editDistance("kitten", "sitting")
+  let sim = similarityRatio("abc", "abc")
+  ret dist + int(sim * 1000.0 + 0.5)
+
+pub fn verifyDiffTextsAndSpanGlob(filePath: str): int:
+  let oldDoc = "v1\ncore\n"
+  let newDoc = "v2\ncore\n"
+  let patchStr = diffTexts(oldDoc, newDoc)
+  let restored = applyPatch(oldDoc, patchStr).unwrap()
+  let reGlob = regexCompile("^src/[a-z_]+\\.aipl$").unwrap()
+  let spanOpt = reGlob.findSpan(filePath)
+  if restored == newDoc and spanOpt.isSome():
+    ret 1
+  ret 0
+
+pub fn describeFuzzySearchRanking(scorePermille: int): str:
+  if scorePermille >= 900:
+    ret "FUZZY:HIGH_CONFIDENCE_MATCH"
+  ret "FUZZY:APPROXIMATE_CANDIDATE"
+
+pub fn main(): int:
+  let fuzzyMetric = evaluateFuzzyEditAndSimilarityPermille()
+  let globOk = verifyDiffTextsAndSpanGlob("src/main.aipl")
+  println("Fuzzy Edit Distance + Similarity Metric: " + str(fuzzyMetric) + " (" + describeFuzzySearchRanking(950) + ")")
+  println("DiffTexts Roundtrip & Glob Match Valid: " + str(globOk))
+  ret 0

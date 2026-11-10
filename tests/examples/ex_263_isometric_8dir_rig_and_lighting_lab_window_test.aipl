@@ -1,0 +1,119 @@
+// ============================================================================
+// Twin Test Suite 263: Isometric 8-Dir Rig, Blend Mode & Lighting Lab
+// Verifies examples/ex_263_isometric_8dir_rig_and_lighting_lab_window.aipl
+// ============================================================================
+module Ex263Isometric8dirRigAndLightingLabWindowTest
+
+import {
+  Lab8DirState,
+  compassVelocityX,
+  compassVelocityY,
+  createLab8DirState,
+  stepLab8DirState,
+  renderLab8DirScene,
+  renderLab8DirFrameStep
+} from "../../examples/ex_263_isometric_8dir_rig_and_lighting_lab_window.aipl"
+import { direction8FromVelocity, project3DToIso, drawSpriteBillboard25D } from "../../std/gfx25d/gfx25d_mod.aipl"
+import {
+  initCanvas,
+  clearScreen,
+  setDepthTest,
+  clearDepth,
+  drawRect,
+  getPixel,
+  setBlendMode,
+  getBlendMode,
+  blendModeAlpha,
+  blendModeAdditive,
+  blendModeMultiplied,
+  blendModeScreen,
+  getWindowMode,
+  rgb,
+  rgba
+} from "../../std/gfx2d/shape2d.aipl"
+import { assert, assertEqInt } from "../../std/prelude.aipl"
+
+pub fn test_isometric_8dir_rig_and_lighting_lab(): int:
+  initCanvas(640, 360)
+  mut st: Lab8DirState = createLab8DirState(640.0, 360.0)
+  assertEqInt(st.compassRigs.len, 8, "8 hero_knight compass rigs initialized")
+  assertEqInt(st.skeletonRigs.len, 8, "8 skeleton compass rigs initialized")
+
+  // 1. Verify all 8 compass directions (0=N..7=NW) map accurately via direction8FromVelocity on both rings
+  mut d = 0
+  while d < 8:
+    let vx = compassVelocityX(d)
+    let vy = compassVelocityY(d)
+    assertEqInt(direction8FromVelocity(vx, vy, 4), d, "compassVelocity maps to exact dir8")
+    assertEqInt(st.compassRigs[d].dir8, d, "hero rig dir8 matches compass index")
+    assertEqInt(st.skeletonRigs[d].dir8, d, "skeleton rig dir8 matches compass index")
+    d += 1
+
+  let initialDropWz = st.rain.drops[0].wz
+  st = stepLab8DirState(st, 0.12)
+  assertEqInt(st.tick, 1, "stepLab8DirState increments tick")
+  assertEqInt(st.compassRigs[0].animFrame, 1, "stepping 0.12s at 10fps advances hero animFrame to 1")
+  assertEqInt(st.skeletonRigs[0].animFrame, 1, "stepping 0.12s at 10fps advances skeleton animFrame to 1")
+
+  let prims = renderLab8DirScene(st)
+  // 5 plinth + 5 pillar + 17*2 rig/campfire quads (34) + 2 cookie quads + 4 swatches = 50
+  assertEqInt(prims, 50, "renderLab8DirScene returns 50 primitives")
+  assertEqInt(getBlendMode(), 0, "blend mode restored to 0 (Alpha) after lab scene")
+
+  // 2. Verify particle stepping (ember/smoke emitter timeAccum and raindrop fall)
+  assert(st.emitter.timeAccum > 0.01, "renderLab8DirScene steps ember/smoke emitter timeAccum")
+  assert(st.rain.drops[0].wz != initialDropWz, "renderLab8DirScene steps raindrop vertical position")
+
+  // 3. Verify all 4 blend modes in the swatch panel:
+  // Panel at (16, 242, 360, 102): boxW = 80, box 0 (Alpha) x=26..106, box 1 (Additive) x=112..192, box 2 (Multiplied) x=198..278, box 3 (Screen) x=284..364
+  let alphaSwatchPx = getPixel(65, 295)
+  let addSwatchPx = getPixel(150, 295)
+  let mulSwatchPx = getPixel(235, 295)
+  let scrSwatchPx = getPixel(320, 295)
+  let alphaR = (alphaSwatchPx >> 24) & 255
+  let addR = (addSwatchPx >> 24) & 255
+  let mulR = (mulSwatchPx >> 24) & 255
+  let scrR = (scrSwatchPx >> 24) & 255
+  assert(addR > mulR + 60, "additive blend swatch is significantly brighter than multiplied blend swatch")
+  assert(scrR > mulR + 50, "screen blend swatch is significantly brighter than multiplied blend swatch")
+  assert(alphaR > mulR + 20, "alpha blend swatch is brighter than multiplied blend swatch")
+
+  // Verify direct setBlendMode / getBlendMode pixel math for all 4 modes (0..3)
+  setBlendMode(blendModeAlpha())
+  assertEqInt(getBlendMode(), 0, "blendModeAlpha == 0")
+  setBlendMode(blendModeAdditive())
+  assertEqInt(getBlendMode(), 1, "blendModeAdditive == 1")
+  setBlendMode(blendModeMultiplied())
+  assertEqInt(getBlendMode(), 2, "blendModeMultiplied == 2")
+  setBlendMode(blendModeScreen())
+  assertEqInt(getBlendMode(), 3, "blendModeScreen == 3")
+  setBlendMode(blendModeAlpha())
+
+  // 4. Verify alpha-test Z-buffer cutout occlusion:
+  // Draw foreground South hero rig at (0, 0, 0), then draw a bright green billboard behind its transparent corner
+  clearScreen(rgb(20, 26, 36))
+  setDepthTest(true)
+  clearDepth()
+  let fgHero = st.compassRigs[4] { wx = 0.0, wy = 0.0, wz = 0.0 }
+  let fgQuads = drawSpriteBillboard25D(st.cam, fgHero.sheetTexId, 0.0, 0.0, 0.0, 48.0, 48.0, 0.0, 0.5, 0.166, 0.625, rgb(255, 255, 255))
+  assertEqInt(fgQuads, 1, "foreground hero billboard drawn")
+  let anchor = project3DToIso(st.cam, 0.0, 0.0, 0.0)
+  let cornerX = int(anchor.x - 22.0)
+  let cornerY = int(anchor.y - 44.0)
+  let bgBefore = getPixel(cornerX, cornerY)
+  assertEqInt((bgBefore >> 16) & 255, 26, "transparent sprite corner preserves clearScreen background")
+  let bgQuads = drawSpriteBillboard25D(st.cam, st.cobbleTex, -15.0, -15.0, 20.0, 64.0, 64.0, 0.25, 0.25, 0.75, 0.75, rgb(80, 255, 100))
+  assertEqInt(bgQuads, 1, "background test billboard drawn")
+  let cutoutPx = getPixel(cornerX, cornerY)
+  assert(((cutoutPx >> 16) & 255) > ((bgBefore >> 16) & 255) + 40, "alpha-test Z-buffer cutout lets background billboard shine through transparent sprite corner")
+  setDepthTest(false)
+
+  let f0 = renderLab8DirFrameStep(0, 0.02)
+  assert(getWindowMode() == "glx", "window mode is glx")
+  assertEqInt(f0, 50, "renderLab8DirFrameStep returns 50")
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_isometric_8dir_rig_and_lighting_lab(), 0, "test_isometric_8dir_rig_and_lighting_lab")
+  println("PASS: ex_263_isometric_8dir_rig_and_lighting_lab_window_test")
+  ret 0

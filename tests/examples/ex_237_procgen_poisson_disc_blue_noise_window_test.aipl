@@ -1,0 +1,64 @@
+module Ex237ProcgenPoissonDiscBlueNoiseWindowTest
+
+import {
+  PoissonDiscConfig2D, poissonDiscSample2D, poissonDiscSample3D
+} from "../../std/procgen/poisson_disc"
+import { Rect2D } from "../../std/math/geom2d"
+import { AABB3D } from "../../std/math/geom3d"
+import { Vec2, Vec3 } from "../../std/math/vec_math"
+import { sqrt } from "../../std/math/trig"
+import {
+  PoissonScene, createPoissonScene, stepScene, auditProcgenPoissonDiscBlueNoise
+} from "../../examples/ex_237_procgen_poisson_disc_blue_noise_window"
+
+pub fn test_procgen_poisson_disc_blue_noise(): void:
+  let pCfg = PoissonDiscConfig2D(
+    bounds = Rect2D(x = 0.0, y = 0.0, w = 100.0, h = 100.0, width = 100.0, height = 100.0),
+    minDistance = 15.0,
+    maxCandidates = 20,
+    seed = 54321
+  )
+  let samples2d = poissonDiscSample2D(pCfg)
+  assert(samples2d.len() > 1, "poissonDiscSample2D generated points")
+  let p0: Vec2 = samples2d[0]
+  let p1: Vec2 = samples2d[1]
+  let d2 = sqrt((p0.x - p1.x) * (p0.x - p1.x) + (p0.y - p1.y) * (p0.y - p1.y))
+  assert(d2 >= 14.99, "poissonDiscSample2D respects minDistance")
+
+  let box3 = AABB3D(min = Vec3(x = 0.0, y = 0.0, z = 0.0), max = Vec3(x = 50.0, y = 50.0, z = 50.0))
+  let samples3d = poissonDiscSample3D(box3, 15.0, 15, 111)
+  assert(samples3d.len() > 1, "poissonDiscSample3D generated points")
+
+  mut scene: PoissonScene = createPoissonScene()
+  let pt0: Vec2 = scene.samples2d[1]
+  let x0 = pt0.x
+  let y0 = pt0.y
+  stepScene(scene, 0, 1.0)
+  let pt1: Vec2 = scene.samples2d[1]
+  let x1 = pt1.x
+  let y1 = pt1.y
+  assert(x1 != x0 or y1 != y0, "t=0 -> t=1 resamples Bridson Poisson-Disc blue noise")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 1.0)
+    f = f + 1
+  let pt20: Vec2 = scene.samples2d[1]
+  let x20 = pt20.x
+  let y20 = pt20.y
+  let seed20 = scene.seed
+  assert((x20 != x1 or y20 != y1) and scene.samples3d.len() > 1, "t=1 -> t=20 progresses 2D/3D Poisson-Disc sampling")
+
+  while f <= 100:
+    stepScene(scene, f, 1.0)
+    f = f + 1
+  let pt100: Vec2 = scene.samples2d[1]
+  assert((pt100.x != x20 or pt100.y != y20) and scene.seed != seed20, "t=20 -> t=100 continues resampling 2D/3D Poisson-Disc blue noise")
+
+  let audit = auditProcgenPoissonDiscBlueNoise()
+  assert(audit >= 10, "Poisson disc blue noise audit")
+
+pub fn main(): int:
+  test_procgen_poisson_disc_blue_noise()
+  println("PASS: ex_237_procgen_poisson_disc_blue_noise_window_test")
+  ret 0

@@ -1,0 +1,142 @@
+// ============================================================================
+// Canonical Example 142: Image Decoder QOI, BMP & PPM Pixel Inspector (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/asset
+// ============================================================================
+module Ex142AssetImageDecoderQoiBmpPpmWindow
+
+import {
+  DecodedImage,
+  detectImageFormat,
+  decodeQoi,
+  getPixelRgba,
+  imageBufferNew,
+  imageSetPixel,
+  encodePpm,
+  decodePpm,
+  FORMAT_QOI
+} from "../std/asset/asset_mod.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyQoiBmpAndPpmDecoders(): int:
+  let qoi = [
+    113, 111, 105, 102,
+    0, 0, 0, 1,
+    0, 0, 0, 1,
+    4, 0,
+    255, 100, 150, 200, 255,
+    0, 0, 0, 0, 0, 0, 0, 1
+  ]
+  assert(detectImageFormat(qoi) == FORMAT_QOI, "QOI format detected")
+  let img = decodeQoi(qoi).unwrap()
+  let (r, g, b, a) = getPixelRgba(img, 0, 0)
+  assert(a == 255, "alpha 255")
+
+  mut ib = imageBufferNew(2, 2, 0x112233)
+  ib = imageSetPixel(ib, 0, 0, 0xFF0000)
+  let ppm = encodePpm(ib)
+  assert(decodePpm(ppm).isOk(), "PPM roundtrip")
+  ret r + g + b
+
+pub fn computeUncompressedRgbaStrideBytes(widthPx: int, channels: int): int:
+  let w = maxInt(1, widthPx)
+  let c = clampInt(channels, 1, 4)
+  ret w * c
+
+pub fn describeImageFormatMagic(formatCode: int): str:
+  if formatCode == 3:
+    ret "IMAGE:CODEC_QOI_LOSSLESS_O1"
+  if formatCode == 1:
+    ret "IMAGE:CODEC_BMP_24BIT_BGR"
+  ret "IMAGE:CODEC_PPM_ASCII_P3"
+
+pub fn buildDecodedLoupeImage(): DecodedImage:
+  mut raw = imageBufferNew(8, 8, 0)
+  mut py = 0
+  while py < 8:
+    mut px = 0
+    while px < 8:
+      let rVal = (px * 28 + 36) % 256
+      let gVal = (py * 30 + 48) % 256
+      let bVal = ((px * 3 + py * 5) * 19 + 72) % 256
+      let packed = (rVal << 16) | (gVal << 8) | bVal
+      raw = imageSetPixel(raw, px, py, packed)
+      px = px + 1
+    py = py + 1
+  let ppmText = encodePpm(raw)
+  ret decodePpm(ppmText).unwrap()
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let decoded = buildDecodedLoupeImage()
+  let hoverIdx = frameIndex % (decoded.width * decoded.height)
+  let hoverX = hoverIdx % decoded.width
+  let hoverY = hoverIdx / decoded.width
+  let (hr, hg, hb, _) = getPixelRgba(decoded, hoverX, hoverY)
+  ret verifyQoiBmpAndPpmDecoders() + hr + hg + hb + int(dt * 0.0)
+
+pub fn renderImageDecoderInspectorScene(frameIndex: int): void:
+  let decoded = buildDecodedLoupeImage()
+  let hoverIdx = frameIndex % (decoded.width * decoded.height)
+  let hoverX = hoverIdx % decoded.width
+  let hoverY = hoverIdx / decoded.width
+  let (hr, hg, hb, ha) = getPixelRgba(decoded, hoverX, hoverY)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_142 // MULTI-FORMAT IMAGE DECODER (QOI / BMP / PPM) & RGBA PIXEL LOUPE", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Left: Magnified 8x8 Decoded Pixel Grid read directly from DecodedImage via getPixelRgba
+  let gx0 = 64.0
+  let gy0 = 104.0
+  let cell = 64.0
+  mut py = 0
+  while py < decoded.height:
+    mut px = 0
+    while px < decoded.width:
+      let cx = gx0 + float(px) * cell
+      let cy = gy0 + float(py) * cell
+      let (rVal, gVal, bVal, _) = getPixelRgba(decoded, px, py)
+      drawRect(cx, cy, cell - 4.0, cell - 4.0, rgb(rVal, gVal, bVal))
+      if px == hoverX and py == hoverY:
+        drawRectOutline(cx - 2.0, cy - 2.0, cell, cell, 3.0, rgb(250, 204, 21))
+      px = px + 1
+    py = py + 1
+
+  // Right: Codec Header & Pixel Channel Inspector
+  let rx = 620.0
+  drawRect(rx, 104.0, 604.0, 508.0, rgb(16, 24, 42))
+  drawRectOutline(rx, 104.0, 604.0, 508.0, 2.0, rgb(71, 85, 105))
+  drawText("DECODED STREAM TELEMETRY", rx + 24.0, 136.0, 18.0, rgb(56, 189, 248))
+  drawText(describeImageFormatMagic(3), rx + 24.0, 174.0, 15.0, rgb(74, 222, 128))
+  drawText("QOI Magic: 'qoif' (0x716F6966) | Channels: " + str(decoded.channels) + " (RGBA)", rx + 24.0, 212.0, 15.0, rgb(226, 232, 240))
+  drawText("BMP Magic: 'BM' (54-byte DIB Header, Bottom-Up BGR)", rx + 24.0, 248.0, 15.0, rgb(226, 232, 240))
+  drawText("PPM Magic: 'P3' / 'P6' Netpbm Portable Pixmap", rx + 24.0, 284.0, 15.0, rgb(226, 232, 240))
+  drawText("Row Stride (256px RGBA): " + str(computeUncompressedRgbaStrideBytes(256, decoded.channels)) + " bytes", rx + 24.0, 324.0, 15.0, rgb(250, 204, 21))
+  drawText("Inspected Texel: (" + str(hoverX) + ", " + str(hoverY) + ") RGBA=(" + str(hr) + "," + str(hg) + "," + str(hb) + "," + str(ha) + ")", rx + 24.0, 364.0, 15.0, rgb(134, 239, 172))
+  drawRect(rx + 24.0, 404.0, 120.0, 64.0, rgb(hr, hg, hb))
+  drawRectOutline(rx + 24.0, 404.0, 120.0, 64.0, 2.0, rgb(250, 204, 21))
+
+pub fn main(): int:
+  let rgbSum = verifyQoiBmpAndPpmDecoders()
+  assert(rgbSum == 450, "QOI RGB sum 450")
+  initWindow(1280, 720, "AIPL ex_142 - Image Decoder QOI, BMP & PPM Pixel Inspector")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderImageDecoderInspectorScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

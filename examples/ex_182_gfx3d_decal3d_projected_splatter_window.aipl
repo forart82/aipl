@@ -1,0 +1,147 @@
+module Ex182Gfx3dDecal3dProjectedSplatterWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import { Quat } from "../std/math/quat"
+import {
+  createDecalProjector, clipTriangleAgainstBoxPlanes
+} from "../std/gfx3d/decal3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepDecalInputTriangle(frame: int): [Vec3]:
+  let xTip = 1.38 + sin(float(frame) * 0.053) * 0.42
+  let yTop = 0.88 + cos(float(frame) * 0.037) * 0.36
+  let xLeft = -0.68 + sin(float(frame) * 0.029) * 0.25
+  ret [
+    Vec3(x = xLeft, y = -0.65, z = 0.0),
+    Vec3(x = xTip,  y = -0.42, z = 0.0),
+    Vec3(x = 0.15,  y = yTop,  z = 0.0)
+  ]
+
+pub fn buildDecal3dSutherlandHodgmanAudit(): int:
+  let proj = createDecalProjector(
+    Vec3(x = 0.0, y = 0.0, z = 0.0),
+    Quat.identity(),
+    Vec3(x = 1.0, y = 1.0, z = 1.0),
+    42
+  )
+  let insideTri = [
+    Vec3(x = -0.5, y = -0.5, z = 0.0),
+    Vec3(x =  0.5, y = -0.5, z = 0.0),
+    Vec3(x =  0.0, y =  0.5, z = 0.0)
+  ]
+  let straddlingTri = [
+    Vec3(x = -0.5, y = -0.5, z = 0.0),
+    Vec3(x =  1.8, y = -0.5, z = 0.0),
+    Vec3(x =  0.0, y =  0.5, z = 0.0)
+  ]
+  let cIn = clipTriangleAgainstBoxPlanes(insideTri, proj.extents)
+  let cStraddle = clipTriangleAgainstBoxPlanes(straddlingTri, proj.extents)
+  ret proj.textureId + cIn.len() + cStraddle.len()
+
+pub fn main(): int:
+  let proj = createDecalProjector(
+    Vec3(x = 0.0, y = 0.0, z = 0.0),
+    Quat.identity(),
+    Vec3(x = 1.0, y = 1.0, z = 1.0),
+    42
+  )
+  let audit = buildDecal3dSutherlandHodgmanAudit()
+
+  initWindow(1280, 720, "AIPL ex_182: 3D Projected Decal OBB & Sutherland-Hodgman Clipping")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let straddlingTri = stepDecalInputTriangle(frame)
+    let clippedPoly = clipTriangleAgainstBoxPlanes(straddlingTri, proj.extents)
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_182: 3D PROJECTED DECAL OBB & SUTHERLAND-HODGMAN 6-PLANE CLIPPER", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/decal3d: createDecalProjector | clipTriangleAgainstBoxPlanes | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: Sutherland-Hodgman Clipping of Straddling Triangle Against Decal Box [-1..1]
+    drawRect(40.0, 96.0, 620.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 620.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("SUTHERLAND-HODGMAN POLYGON CLIPPER (Decal OBB [-1..+1])", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    // Decal OBB Box centered at (300, 316), scale = 110 px per unit -> [-1..1] = [190..410], [206..426]
+    drawRect(190.0, 206.0, 220.0, 220.0, rgb(20, 33, 56))
+    drawLine(300.0, 206.0, 300.0, 426.0, rgb(51, 65, 85), 1.0)
+    drawLine(190.0, 316.0, 410.0, 316.0, rgb(51, 65, 85), 1.0)
+    drawRectOutline(190.0, 206.0, 220.0, 220.0, 2.5, rgb(250, 204, 21))
+    drawText("Decal OBB [-1..+1]", 196.0, 184.0, 13.0, rgb(253, 224, 71))
+
+    // 4 Clipping plane inward normal arrows (+X, -X, +Y, -Y)
+    drawLine(410.0, 316.0, 392.0, 316.0, rgb(250, 204, 21), 2.0)
+    drawLine(190.0, 316.0, 208.0, 316.0, rgb(250, 204, 21), 2.0)
+    drawLine(300.0, 206.0, 300.0, 224.0, rgb(250, 204, 21), 2.0)
+    drawLine(300.0, 426.0, 300.0, 408.0, rgb(250, 204, 21), 2.0)
+
+    // Original unclipped triangle in crimson
+    let ox0 = 300.0 + straddlingTri[0].x * 110.0
+    let oy0 = 316.0 - straddlingTri[0].y * 110.0
+    let ox1 = 300.0 + straddlingTri[1].x * 110.0
+    let oy1 = 316.0 - straddlingTri[1].y * 110.0
+    let ox2 = 300.0 + straddlingTri[2].x * 110.0
+    let oy2 = 316.0 - straddlingTri[2].y * 110.0
+    drawLine(ox0, oy0, ox1, oy1, rgb(244, 63, 94), 2.0)
+    drawLine(ox1, oy1, ox2, oy2, rgb(244, 63, 94), 2.0)
+    drawLine(ox2, oy2, ox0, oy0, rgb(244, 63, 94), 2.0)
+    drawCircleOutline(ox0, oy0, 5.0, 2.0, rgb(244, 63, 94))
+    drawCircleOutline(ox1, oy1, 5.0, 2.0, rgb(244, 63, 94))
+    drawCircleOutline(ox2, oy2, 5.0, 2.0, rgb(244, 63, 94))
+
+    // Decal splat concentric rings inside OBB
+    drawCircleOutline(300.0, 316.0, 68.0, 1.5, rgb(56, 189, 248))
+    drawCircleOutline(300.0, 316.0, 34.0, 1.5, rgb(56, 189, 248))
+
+    // Clipped polygon edges in bright emerald green
+    mut k: int = 0
+    while k < clippedPoly.len():
+      let pA = clippedPoly[k]
+      let pB = clippedPoly[(k + 1) % clippedPoly.len()]
+      let sxA = 300.0 + pA.x * 110.0
+      let syA = 316.0 - pA.y * 110.0
+      let sxB = 300.0 + pB.x * 110.0
+      let syB = 316.0 - pB.y * 110.0
+      drawLine(sxA, syA, sxB, syB, rgb(34, 197, 94), 4.0)
+      drawCircle(sxA, syA, 6.0, rgb(34, 197, 94))
+      drawText("V" + str(k), sxA + 8.0, syA - 8.0, 13.0, rgb(134, 239, 172))
+      k = k + 1
+
+    drawText("Red = Unclipped Input Triangle (3 Verts) | Green = Clipped Decal Polygon", 60.0, 472.0, 13.0, rgb(203, 213, 225))
+
+    // Right Panel: Clipped Vertex Coordinates & Projected UV Mapping
+    drawRect(680.0, 96.0, 560.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(680.0, 96.0, 560.0, 410.0, 2.0, rgb(34, 197, 94))
+    drawText("CLIPPED DECAL POLYGON VERTICES & PROJECTED UVs (" + str(clippedPoly.len()) + " Verts)", 700.0, 118.0, 16.0, rgb(134, 239, 172))
+
+    mut vi: int = 0
+    while vi < clippedPoly.len():
+      if vi < 6:
+        let vp = clippedPoly[vi]
+        let uCoord = int((vp.x * 0.5 + 0.5) * 100.0)
+        let vCoord = int((vp.y * 0.5 + 0.5) * 100.0)
+        let ry = 154.0 + float(vi) * 50.0
+        drawRect(700.0, ry, 520.0, 42.0, rgb(30, 41, 59))
+        drawRectOutline(700.0, ry, 520.0, 42.0, 1.0, rgb(51, 65, 85))
+        drawText("V" + str(vi) + " Pos=(" + str(int(vp.x * 100.0)) + "cm, " + str(int(vp.y * 100.0)) + "cm) | Decal UV=(" + str(uCoord) + "%, " + str(vCoord) + "%)", 716.0, ry + 13.0, 14.0, rgb(248, 250, 252))
+      vi = vi + 1
+
+    drawText("All clipped vertices guaranteed inside [-1..+1] OBB -> UV in [0%..100%]", 700.0, 468.0, 13.0, rgb(253, 224, 71))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("DECAL PROJECTOR & 6-PLANE CLIPPING TELEMETRY (Frame " + str(frame) + ")", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Projector Texture ID=" + str(proj.textureId) + " | Extents=(" + str(proj.extents.x) + ", " + str(proj.extents.y) + ", " + str(proj.extents.z) + ") | Tip X=" + str(int(straddlingTri[1].x * 100.0)) + "cm", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Input Triangle (3 verts) -> Sutherland-Hodgman Clipped Polygon (" + str(clippedPoly.len()) + " verts) | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

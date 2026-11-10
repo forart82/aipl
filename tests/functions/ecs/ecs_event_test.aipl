@@ -1,0 +1,53 @@
+module tests.functions.ecs.ecs_event_test
+
+import * from "std/ecs/ecs_event"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_ecs_event_createEventBus_1(): int:
+  let resNom = createEventBus()
+  let resEdge = createEventBus()
+  assertEqInt(resNom.currentQueue.len(), 0, "createEventBus nominal resNom.currentQueue.len() == 0")
+  assertEqInt(resEdge.currentQueue.len(), 0, "createEventBus boundary resEdge.currentQueue.len() == 0")
+  ret 0
+
+pub fn test_ecs_event_publishEvent_2(): int:
+  let arg_bus = EventBus(currentQueue = [], previousQueue = [])
+  let edge_bus = EventBus(currentQueue = [], previousQueue = [])
+  let arg_ev = EventEnvelope(eventTypeId = 4, sourceEntityIndex = 4, payloadA = 0.0, payloadB = 0.0)
+  let edge_ev = EventEnvelope(eventTypeId = 1, sourceEntityIndex = 1, payloadA = 0.0, payloadB = 0.0)
+  let resNom = publishEvent(arg_bus, arg_ev)
+  let resEdge = publishEvent(edge_bus, edge_ev)
+  assertEqInt(resNom.currentQueue.len(), 1, "publishEvent nominal resNom.currentQueue.len() == 1")
+  assertEqInt(resEdge.currentQueue.len(), 1, "publishEvent boundary resEdge.currentQueue.len() == 1")
+  ret 0
+
+pub fn test_ecs_event_swapEventBuffers_3(): int:
+  let arg_bus = EventBus(currentQueue = [], previousQueue = [])
+  let edge_bus = EventBus(currentQueue = [], previousQueue = [])
+  let resNom = swapEventBuffers(arg_bus)
+  let resEdge = swapEventBuffers(edge_bus)
+  assertEqInt(resNom.currentQueue.len(), 0, "swapEventBuffers nominal resNom.currentQueue.len() == 0")
+  assertEqInt(resEdge.currentQueue.len(), 0, "swapEventBuffers boundary resEdge.currentQueue.len() == 0")
+  ret 0
+
+pub fn test_ecs_event_readNewEvents_4(): int:
+  let arg_bus = EventBus(currentQueue = [], previousQueue = [])
+  let edge_bus = EventBus(currentQueue = [], previousQueue = [])
+  let arg_reader = EventReader(readCursorPrev = 2, readCursorCurr = 2)
+  let edge_reader = EventReader(readCursorPrev = 0, readCursorCurr = 0)
+  let arg_eventTypeId = 4
+  let edge_eventTypeId = 1
+  let resNom = readNewEvents(arg_bus, arg_reader, arg_eventTypeId)
+  let resEdge = readNewEvents(edge_bus, edge_reader, edge_eventTypeId)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.len(), 0, "readNewEvents nominal n_t0.len() == 0")
+  assertEqInt(e_t0.len(), 0, "readNewEvents boundary e_t0.len() == 0")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_ecs_event_createEventBus_1(), 0, "test_ecs_event_createEventBus_1")
+  assertEqInt(test_ecs_event_publishEvent_2(), 0, "test_ecs_event_publishEvent_2")
+  assertEqInt(test_ecs_event_swapEventBuffers_3(), 0, "test_ecs_event_swapEventBuffers_3")
+  assertEqInt(test_ecs_event_readNewEvents_4(), 0, "test_ecs_event_readNewEvents_4")
+  ret 0

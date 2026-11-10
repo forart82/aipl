@@ -1,0 +1,120 @@
+/// # Module: `std/io/io_copy` (`IoCopy`)
+///
+/// ## Purpose & Domain Scope
+/// Stream composition, chunked transfer (`ioCopyCursor`, `ioCopyLimited`), null sinks,
+/// infinite generators, and stream adapters (`TakeAdapter`, `ChainAdapter`, `TeeResult`).
+module IoCopy
+
+import "io_traits.aipl"
+import "byte_cursor.aipl"
+
+pub struct TakeAdapter:
+  mut inner: ByteCursor
+  mut remainingLimit: int
+
+pub struct ChainAdapter:
+  mut first: ByteCursor
+  mut second: ByteCursor
+  mut inFirst: bool = true
+
+pub struct TeeResult:
+  bytesCopied: int
+  primaryOut: [int]
+  teeOut: [int]
+
+pub fn ioCopyCursor(mut src: ByteCursor, mut dst: ByteCursor, chunkSize: int): int:
+  mut step = chunkSize
+  if step <= 0:
+    step = 4096
+  mut total = 0
+  while not cursorIsEof(src):
+    let chunk = cursorRead(src, step)
+    if chunk.len() == 0:
+      break
+    let written = cursorWrite(dst, chunk)
+    total = total + written
+  ret total
+
+pub fn ioCopyLimited(mut src: ByteCursor, mut dst: ByteCursor, maxBytes: int): int:
+  if maxBytes <= 0:
+    ret 0
+  let chunk = cursorRead(src, maxBytes)
+  ret cursorWrite(dst, chunk)
+
+pub fn ioSinkWrite(data: [int]): int:
+  ret data.len()
+
+pub fn ioEmptyRead(maxBytes: int): [int]:
+  if maxBytes <= 0:
+    ret []
+  ret []
+
+pub fn ioRepeatRead(byteVal: int, count: int): [int]:
+  if count <= 0:
+    ret []
+  let b = byteVal & 255
+  mut out: [int] = []
+  mut i = 0
+  while i < count:
+    out.push(b)
+    i = i + 1
+  ret out
+
+pub fn ioTakeNew(c: ByteCursor, limit: int): TakeAdapter:
+  mut lim = limit
+  if lim < 0:
+    lim = 0
+  ret TakeAdapter(inner: c, remainingLimit: lim)
+
+pub fn ioTakeRead(mut t: TakeAdapter, maxBytes: int): [int]:
+  if maxBytes <= 0 or t.remainingLimit <= 0:
+    ret []
+  mut toRead = maxBytes
+  if t.remainingLimit < toRead:
+    toRead = t.remainingLimit
+  let chunk = cursorRead(t.inner, toRead)
+  t.remainingLimit = t.remainingLimit - chunk.len()
+  ret chunk
+
+pub fn ioChainNew(first: ByteCursor, second: ByteCursor): ChainAdapter:
+  ret ChainAdapter(first: first, second: second, inFirst: true)
+
+pub fn ioChainRead(mut ch: ChainAdapter, maxBytes: int): [int]:
+  if maxBytes <= 0:
+    ret []
+  mut out: [int] = []
+  if ch.inFirst:
+    let part1 = cursorRead(ch.first, maxBytes)
+    mut i = 0
+    while i < part1.len():
+      out.push(part1[i])
+      i = i + 1
+    if cursorIsEof(ch.first):
+      ch.inFirst = false
+  if out.len() < maxBytes and not ch.inFirst:
+    let rem = maxBytes - out.len()
+    let part2 = cursorRead(ch.second, rem)
+    mut i = 0
+    while i < part2.len():
+      out.push(part2[i])
+      i = i + 1
+  ret out
+
+pub fn ioTeeCopy(mut src: ByteCursor, chunkSize: int): TeeResult:
+  mut step = chunkSize
+  if step <= 0:
+    step = 4096
+  mut primary: [int] = []
+  mut secondary: [int] = []
+  mut total = 0
+  while not cursorIsEof(src):
+    let chunk = cursorRead(src, step)
+    if chunk.len() == 0:
+      break
+    mut i = 0
+    while i < chunk.len():
+      primary.push(chunk[i])
+      secondary.push(chunk[i])
+      i = i + 1
+    total = total + chunk.len()
+  ret TeeResult(bytesCopied: total, primaryOut: primary, teeOut: secondary)

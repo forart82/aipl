@@ -1,0 +1,87 @@
+// ============================================================================
+// Example 104: CLI Argument Parser, Subcommands & Shell Completion (CLI)
+// Demonstrates: CliCommand, cliAppNew, cliAppVersion, cliAppDescription,
+//               cliAddFlag, cliAddOption, cliAddPositional, cliAddSubcommand,
+//               cliParse, cliSubcommandName, cliGetBool, cliGetInt,
+//               cliGetFloat, cliGetRemainingArgs, cliGenerateHelp,
+//               cliGenerateBashCompletion, cliGenerateZshCompletion,
+//               parseCliArgs, and cliHasFlag from std/os.
+// ============================================================================
+module Ex104OsCliArgsSubcommandsCli
+
+import {
+  CliCommand,
+  cliAppNew,
+  cliAppVersion,
+  cliAppDescription,
+  cliAddFlag,
+  cliAddOption,
+  cliAddPositional,
+  cliAddSubcommand,
+  cliParse,
+  cliSubcommandName,
+  cliGetBool,
+  cliGetInt,
+  cliGetFloat,
+  cliGetRemainingArgs,
+  cliGenerateHelp,
+  cliGenerateBashCompletion,
+  cliGenerateZshCompletion,
+  parseCliArgs,
+  cliHasFlag
+} from "../std/os"
+
+// Configures a CLI application with subcommands, flags, and options, parses tokens, and returns "<subcmd>:<optLevel>:<positional>".
+pub fn evaluateParsedSubcommandAndOptLevel(): str:
+  mut app = cliAppNew("compiler")
+  app = cliAppVersion(app, "2.4.0")
+  app = cliAppDescription(app, "Industrial AIPL Compiler Driver")
+  app = cliAddFlag(app, "v", "verbose", "Enable verbose trace logging")
+  app = cliAddOption(app, "o", "opt-level", "Optimization level (0-3)", "2", false)
+  app = cliAddOption(app, "t", "timeout", "Timeout seconds", "1.5", false)
+  app = cliAddPositional(app, "input", "Source entry file", true)
+
+  let testCmd = CliCommand(
+    name = "test",
+    description = "Execute compiler test suite",
+    flags = [],
+    options = [],
+    args = [],
+    subcommands = []
+  )
+  app = cliAddSubcommand(app, testCmd)
+
+  let tokens = ["test", "--verbose", "--opt-level=3", "--timeout=2.5", "src/main.aipl"]
+  let res = cliParse(app, tokens).unwrap()
+  assert(cliGetBool(res, "verbose") and cliGetFloat(res, "timeout").unwrap() > 2.0, "verbose & timeout parsed")
+  let subName = cliSubcommandName(res).unwrap()
+  let optLvl = cliGetInt(res, "opt-level").unwrap()
+  let rem = cliGetRemainingArgs(res)
+  ret subName + ":" + str(optLvl) + ":" + rem[0]
+
+// Verifies generated help text, Bash/Zsh completion scripts, and clustered short flags (-ab).
+pub fn verifyCliHelpCompletionsAndClusteredFlags(): int:
+  mut app = cliAppNew("compiler")
+  app = cliAppVersion(app, "2.4.0")
+  app = cliAddFlag(app, "v", "verbose", "Enable verbose trace logging")
+
+  let helpTxt = cliGenerateHelp(app)
+  let bashComp = cliGenerateBashCompletion(app)
+  let zshComp = cliGenerateZshCompletion(app)
+  let rawParsed = parseCliArgs(["-ab", "--out=file.txt", "pos1"])
+  if helpTxt.contains("compiler 2.4.0") and bashComp.contains("complete -W") and zshComp.contains("#compdef compiler") and cliHasFlag(rawParsed, "a") and cliHasFlag(rawParsed, "b"):
+    ret 1
+  ret 0
+
+// Maps a parsed subcommand string to its canonical dispatch action.
+pub fn describeCliSubcommandDispatch(subcmd: str): str:
+  if subcmd == "test":
+    ret "CLI:SUBCOMMAND_TEST_SUITE"
+  ret "CLI:SUBCOMMAND_BUILD_DEFAULT"
+
+pub fn main(): int:
+  let summary = evaluateParsedSubcommandAndOptLevel()
+  let compOk = verifyCliHelpCompletionsAndClusteredFlags()
+  let dispatch = describeCliSubcommandDispatch("test")
+  println("ex_104_os_cli_args_subcommands_cli: summary=" + summary + " compOk=" + str(compOk) + " dispatch=" + dispatch)
+  ret 0

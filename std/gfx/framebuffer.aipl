@@ -1,0 +1,28 @@
+module GfxFramebufferMod
+
+// ============================================================================
+// std/gfx/framebuffer.aipl — Offscreen Render Targets & MSAA Resolves
+// ============================================================================
+
+import { GpuDevice } from "./gpu_device"
+import { TextureFormat, GpuTexture, createTexture2D } from "./gpu_texture"
+
+pub struct Framebuffer(width: int, height: int, colorAttachment: GpuTexture, depthAttachment: GpuTexture, sampleCount: int)
+
+pub fn createFramebuffer(dev: GpuDevice, w: int, h: int, hasDepth: bool = true, samples: int = 1): Framebuffer:
+  let colorFmt = TextureFormat(id = 1, bytesPerPixel = 4, hasAlpha = true, isDepth = false, isCompressed = false)
+  let depthFmt = TextureFormat(id = 2, bytesPerPixel = 4, hasAlpha = false, isDepth = true, isCompressed = false)
+  let colorTex = createTexture2D(dev, w, h, colorFmt, 1)
+  let depthTex = if hasDepth: createTexture2D(dev, w, h, depthFmt, 1) else: createTexture2D(dev, 1, 1, depthFmt, 1)
+  let safeSamples = if samples >= 1: samples else: 1
+  ret Framebuffer(
+    width = w,
+    height = h,
+    colorAttachment = colorTex,
+    depthAttachment = depthTex,
+    sampleCount = safeSamples
+  )
+
+pub fn resizeFramebuffer(dev: GpuDevice, fb: Framebuffer, newW: int, newH: int): Framebuffer:
+  let hasDepth = fb.depthAttachment.width > 1 or fb.depthAttachment.height > 1
+  ret createFramebuffer(dev, newW, newH, hasDepth, fb.sampleCount)

@@ -1,0 +1,125 @@
+// ============================================================================
+// Canonical Example 252: Desktop Vector Diagram Studio (WINDOW - X11 MIT-SHM)
+// Target Profile: WINDOW (Normal Desktop App) | Mode: setWindowMode("x11")
+// ============================================================================
+module Ex252DesktopVectorDiagramStudioWindow
+
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  setWindowMode,
+  getWindowMode,
+  drawRect,
+  drawRectOutline,
+  drawRoundedRect,
+  drawCircle,
+  drawCircleOutline,
+  drawEllipse,
+  drawTriangle,
+  drawLine,
+  drawText,
+  getPixel,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub fn snapCoordinateToGrid(coordPx: int, gridStepPx: int): int:
+  let g = if gridStepPx > 1: gridStepPx else: 16
+  ret ((coordPx + g / 2) / g) * g
+
+pub fn describeDiagramStudioMode(gridStepPx: int): str:
+  setWindowMode("x11")
+  ret "CAD_STUDIO:" + getWindowMode() + ":GRID_" + str(gridStepPx) + "PX"
+
+pub fn renderVectorDiagramStudioScene(frameIndex: int): int:
+  clearScreen(rgb(14, 18, 28))
+  drawRect(20.0, 16.0, 1240.0, 50.0, rgb(22, 31, 50))
+  drawRectOutline(20.0, 16.0, 1240.0, 50.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_252 // DESKTOP VECTOR FLOWCHART & CAD DIAGRAM STUDIO (X11 MIT-SHM)", 40.0, 34.0, 19.0, rgb(240, 249, 255))
+
+  // Left Canvas Area with 32px Snap Grid
+  let cx = 20.0
+  let cy = 80.0
+  let cw = 910.0
+  let ch = 616.0
+  drawRect(cx, cy, cw, ch, rgb(18, 24, 38))
+  drawRectOutline(cx, cy, cw, ch, 2.0, rgb(71, 85, 105))
+
+  mut gx = 52
+  while gx < 910:
+    drawLine(float(gx), cy + 4.0, float(gx), cy + ch - 4.0, rgb(24, 33, 52), 1.0)
+    gx = gx + 32
+  mut gy = 112
+  while gy < 690:
+    drawLine(cx + 4.0, float(gy), cx + cw - 4.0, float(gy), rgb(24, 33, 52), 1.0)
+    gy = gy + 32
+
+  // Animated Snapped Flowchart Nodes
+  let rawX = 160 + ((frameIndex * 7) % 160)
+  let rawY = 180 + ((frameIndex * 5) % 96)
+  let n1x = snapCoordinateToGrid(rawX, 16)
+  let n1y = snapCoordinateToGrid(rawY, 16)
+  let n2x = snapCoordinateToGrid(520 - ((frameIndex * 3) % 80), 16)
+  let n2y = snapCoordinateToGrid(360 + ((frameIndex * 4) % 64), 16)
+  let n3x = 704
+  let n3y = 224
+
+  // Connectors & Direction Arrows
+  drawLine(float(n1x + 140), float(n1y + 36), float(n2x), float(n2y + 36), rgb(56, 189, 248), 2.5)
+  drawLine(float(n2x + 140), float(n2y + 36), float(n3x), float(n3y + 36), rgb(34, 197, 94), 2.5)
+  drawTriangle(float(n2x), float(n2y + 36), float(n2x - 12), float(n2y + 28), float(n2x - 12), float(n2y + 44), rgb(56, 189, 248))
+  drawTriangle(float(n3x), float(n3y + 36), float(n3x - 12), float(n3y + 28), float(n3x - 12), float(n3y + 44), rgb(34, 197, 94))
+
+  // Node 1: Parser Stage
+  drawRoundedRect(float(n1x), float(n1y), 140.0, 72.0, 10.0, rgb(30, 58, 138))
+  drawRectOutline(float(n1x), float(n1y), 140.0, 72.0, 2.0, rgb(96, 165, 250))
+  drawText("AST PARSER", float(n1x + 22), float(n1y + 28), 15.0, rgb(240, 249, 255))
+
+  // Node 2: Elliptical Decision Hub
+  drawEllipse(float(n2x + 70), float(n2y + 36), 76.0, 42.0, rgb(88, 28, 135))
+  drawCircleOutline(float(n2x + 70), float(n2y + 36), 42.0, 2.0, rgb(192, 132, 252))
+  drawText("TYPE CHECK", float(n2x + 24), float(n2y + 30), 15.0, rgb(243, 232, 255))
+
+  // Node 3: Codegen Output
+  drawRoundedRect(float(n3x), float(n3y), 156.0, 72.0, 10.0, rgb(20, 83, 45))
+  drawRectOutline(float(n3x), float(n3y), 156.0, 72.0, 2.0, rgb(74, 222, 128))
+  drawCircle(float(n3x + 24), float(n3y + 36), 8.0, rgb(74, 222, 128))
+  drawText("NATIVE EMIT", float(n3x + 42), float(n3y + 28), 15.0, rgb(240, 253, 244))
+
+  // Right Inspector Sidebar
+  let sx = 948.0
+  let sy = 80.0
+  let sw = 312.0
+  let sh = 616.0
+  drawRect(sx, sy, sw, sh, rgb(16, 23, 38))
+  drawRectOutline(sx, sy, sw, sh, 2.0, rgb(56, 189, 248))
+  drawText("VECTOR OBJECT INSPECTOR", sx + 20.0, sy + 24.0, 16.0, rgb(56, 189, 248))
+  drawText(describeDiagramStudioMode(16), sx + 20.0, sy + 58.0, 13.0, rgb(74, 222, 128))
+  drawText("Node #1 Snap XY: (" + str(n1x) + ", " + str(n1y) + ")", sx + 20.0, sy + 96.0, 14.0, rgb(226, 232, 240))
+  drawText("Node #2 Snap XY: (" + str(n2x) + ", " + str(n2y) + ")", sx + 20.0, sy + 128.0, 14.0, rgb(226, 232, 240))
+  let distScore = clampInt((n2x - n1x) + (n2y - n1y), 10, 2000)
+  drawText("Manhattan Span: " + str(distScore) + " px", sx + 20.0, sy + 160.0, 14.0, rgb(250, 204, 21))
+
+  ret n1x + n1y + n2x + n2y + distScore
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  setWindowMode("x11")
+  let score = renderVectorDiagramStudioScene(frameIndex)
+  ret score + int(dt * 0.0)
+
+pub fn main(): int:
+  setWindowMode("x11")
+  assert(getWindowMode() == "x11", "Vector diagram studio uses x11 mode")
+  initWindow(1280, 720, "AIPL ex_252 - Desktop Vector Diagram Studio (X11 MIT-SHM)")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    let _ = renderVectorDiagramStudioScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,2802 @@
+module CompilerSmt
+
+import { Span, ExprNode, StmtNode, AstArena, stmtLhsExpr, stmtRhsExpr } from "./ast.aipl"
+import { HirModule, HirFunction, HirContract, summarizeExpr } from "./hir.aipl"
+import { CompilerDiagnostic } from "./types.aipl"
+
+// ============================================================================
+// Step 3.7 / Step 15.3 (Part 3): Real Linear Integer Arithmetic (LIA)
+// & Symbolic Interval Propagation SMT Verifier
+// ============================================================================
+
+pub struct SmtInterval:
+  name: str
+  lo: int
+  hi: int
+  nonZero: bool
+  known: bool
+
+pub struct SmtViolation:
+  code: str
+  message: str
+  counterexample: str
+  span: Span
+
+pub struct SmtVerificationResult:
+  valid: bool
+  verifiedContracts: int
+  diagnostics: [CompilerDiagnostic]
+
+pub type Interval = SmtInterval
+pub type SmtDbm = DbmState
+
+pub const DBM_INF: int = 1000000000
+pub const SMT_INF: int = 1000000000000000
+pub const AIPL_E3001_DIV_ZERO: str = "AIPL001"
+pub const AIPL_E3002_BOUNDS: str = "AIPL002"
+pub const AIPL_E3003_CONTRACT_ASSERT: str = "AIPL_E3003_CONTRACT_ASSERT"
+pub const AIPL_E3003_CONTRACT_ENSURES: str = "AIPL_E3003_CONTRACT_ENSURES"
+pub const AIPL_E3004_LOOP_INVARIANT: str = "AIPL_E3004_LOOP_INVARIANT"
+pub const AIPL_E3005_LOOP_TERMINATION: str = "AIPL_E3005_LOOP_TERMINATION"
+pub const AIPL_E_INFINITE_LOOP_RISK: str = "AIPL_E_INFINITE_LOOP_RISK"
+
+pub const STATUS_PROVEN_STATIC: str = "PROVEN_STATIC"
+pub const STATUS_REFUTED_STATIC: str = "REFUTED_STATIC"
+pub const STATUS_UNKNOWN_DYNAMIC: str = "UNKNOWN_DYNAMIC"
+
+pub struct SmtContractClassification:
+  fnName: str
+  kind: str
+  status: str
+  reason: str
+
+pub fn classifyContractResult(valid: bool, hasUnboundedCallOrLoop: bool, reason: str): str:
+  if not valid:
+    ret STATUS_REFUTED_STATIC
+  if hasUnboundedCallOrLoop:
+    ret STATUS_UNKNOWN_DYNAMIC
+  ret STATUS_PROVEN_STATIC
+
+pub struct DbmConstraint:
+  fromVar: str
+  toVar: str
+  signFrom: int
+  signTo: int
+  bound: int
+
+pub struct DbmState:
+  vars: [str]
+  dist: [int]
+  octPlus: [int]
+  octMinus: [int]
+  hasNegativeCycle: bool
+
+pub struct FunctionContractSummary:
+  name: str
+  params: [str]
+  requiresExprs: [int]
+  ensuresExprs: [int]
+  retInterval: SmtInterval
+
+pub struct InterproceduralContractTable:
+  summaries: [FunctionContractSummary]
+
+pub fn contractTableNew(): InterproceduralContractTable:
+  let emptySummaries: [FunctionContractSummary] = []
+  ret InterproceduralContractTable(summaries = emptySummaries)
+
+pub fn contractTableFind(table: InterproceduralContractTable, name: str): int:
+  mut i = 0
+  while i < table.summaries.len:
+    if table.summaries[i].name == name:
+      ret i
+    i += 1
+  ret -1
+
+pub fn dbmNew(): DbmState:
+  let emptyVars: [str] = []
+  let emptyDist: [int] = []
+  let emptyPlus: [int] = []
+  let emptyMinus: [int] = []
+  ret DbmState(
+    vars = emptyVars,
+    dist = emptyDist,
+    octPlus = emptyPlus,
+    octMinus = emptyMinus,
+    hasNegativeCycle = false
+  )
+
+pub fn dbmClone(dbm: DbmState): DbmState:
+  mut v: [str] = []
+  mut d: [int] = []
+  mut op: [int] = []
+  mut om: [int] = []
+  mut i = 0
+  while i < dbm.vars.len:
+    v.push(dbm.vars[i])
+    i += 1
+  mut j = 0
+  while j < dbm.dist.len:
+    d.push(dbm.dist[j])
+    j += 1
+  mut k = 0
+  while k < dbm.octPlus.len:
+    op.push(dbm.octPlus[k])
+    k += 1
+  mut m = 0
+  while m < dbm.octMinus.len:
+    om.push(dbm.octMinus[m])
+    m += 1
+  ret DbmState(
+    vars = v,
+    dist = d,
+    octPlus = op,
+    octMinus = om,
+    hasNegativeCycle = dbm.hasNegativeCycle
+  )
+
+pub fn smtDbmClone(dbm: DbmState): DbmState:
+  ret dbmClone(dbm)
+
+pub fn dbmFindVar(dbm: DbmState, name: str): int:
+  mut i = 0
+  while i < dbm.vars.len:
+    if dbm.vars[i] == name:
+      ret i
+    i += 1
+  ret -1
+
+pub fn dbmEnsureVar(dbm: DbmState, name: str): DbmState:
+  let idx = dbmFindVar(dbm, name)
+  if idx >= 0:
+    ret dbm
+  let oldN = dbm.vars.len
+  let newN = oldN + 1
+  mut newVars: [str] = []
+  mut vi = 0
+  while vi < dbm.vars.len:
+    newVars.push(dbm.vars[vi])
+    vi += 1
+  newVars.push(name)
+  mut newDist: [int] = []
+  mut newPlus: [int] = []
+  mut newMinus: [int] = []
+  mut r = 0
+  while r < newN:
+    mut c = 0
+    while c < newN:
+      if r < oldN and c < oldN:
+        newDist.push(dbm.dist[r * oldN + c])
+        if dbm.octPlus.len == oldN * oldN:
+          newPlus.push(dbm.octPlus[r * oldN + c])
+        else:
+          newPlus.push(DBM_INF)
+        if dbm.octMinus.len == oldN * oldN:
+          newMinus.push(dbm.octMinus[r * oldN + c])
+        else:
+          newMinus.push(DBM_INF)
+      else:
+        if r == c:
+          newDist.push(0)
+        else:
+          newDist.push(DBM_INF)
+        newPlus.push(DBM_INF)
+        newMinus.push(DBM_INF)
+      c += 1
+    r += 1
+  ret DbmState(
+    vars = newVars,
+    dist = newDist,
+    octPlus = newPlus,
+    octMinus = newMinus,
+    hasNegativeCycle = dbm.hasNegativeCycle
+  )
+
+pub fn dbmAddDiffConstraint(mut dbm: DbmState, x: str, y: str, c: int): DbmState:
+  dbm = dbmEnsureVar(dbm, x)
+  dbm = dbmEnsureVar(dbm, y)
+  let xi = dbmFindVar(dbm, x)
+  let yi = dbmFindVar(dbm, y)
+  let n = dbm.vars.len
+  let idx = xi * n + yi
+  if c < dbm.dist[idx]:
+    dbm.dist[idx] = c
+  if xi == yi and c < 0:
+    dbm.hasNegativeCycle = true
+  ret dbm
+
+pub fn dbmAddSumConstraint(mut dbm: DbmState, x: str, y: str, c: int): DbmState:
+  dbm = dbmEnsureVar(dbm, x)
+  dbm = dbmEnsureVar(dbm, y)
+  let xi = dbmFindVar(dbm, x)
+  let yi = dbmFindVar(dbm, y)
+  let n = dbm.vars.len
+  let idx1 = xi * n + yi
+  let idx2 = yi * n + xi
+  if c < dbm.octPlus[idx1]:
+    dbm.octPlus[idx1] = c
+  if c < dbm.octPlus[idx2]:
+    dbm.octPlus[idx2] = c
+  ret dbm
+
+pub fn dbmFloydWarshallClosure(mut dbm: DbmState): DbmState:
+  let n = dbm.vars.len
+  if n == 0:
+    ret dbm
+  mut k = 0
+  while k < n:
+    mut i = 0
+    while i < n:
+      mut j = 0
+      while j < n:
+        let dik = dbm.dist[i * n + k]
+        let dkj = dbm.dist[k * n + j]
+        if dik < DBM_INF and dkj < DBM_INF:
+          let sumVal = dik + dkj
+          if sumVal < dbm.dist[i * n + j]:
+            dbm.dist[i * n + j] = sumVal
+        j += 1
+      i += 1
+    k += 1
+
+  if dbm.octPlus.len == n * n:
+    mut k2 = 0
+    while k2 < n:
+      mut i2 = 0
+      while i2 < n:
+        mut j2 = 0
+        while j2 < n:
+          let opik = dbm.octPlus[i2 * n + k2]
+          let dkj = dbm.dist[k2 * n + j2]
+          if opik < DBM_INF and dkj < DBM_INF:
+            let sVal = opik + dkj
+            if sVal < dbm.octPlus[i2 * n + j2]:
+              dbm.octPlus[i2 * n + j2] = sVal
+              dbm.octPlus[j2 * n + i2] = sVal
+          j2 += 1
+        i2 += 1
+      k2 += 1
+
+  mut diagIdx = 0
+  while diagIdx < n:
+    if dbm.dist[diagIdx * n + diagIdx] < 0:
+      dbm.hasNegativeCycle = true
+    diagIdx += 1
+
+  ret dbm
+
+pub fn dbmResetVar(mut dbm: DbmState, name: str): DbmState:
+  let xi = dbmFindVar(dbm, name)
+  if xi < 0:
+    ret dbm
+  let n = dbm.vars.len
+  mut j = 0
+  while j < n:
+    if xi == j:
+      dbm.dist[xi * n + j] = 0
+    else:
+      dbm.dist[xi * n + j] = DBM_INF
+      dbm.dist[j * n + xi] = DBM_INF
+    if dbm.octPlus.len == n * n:
+      dbm.octPlus[xi * n + j] = DBM_INF
+      dbm.octPlus[j * n + xi] = DBM_INF
+    if dbm.octMinus.len == n * n:
+      dbm.octMinus[xi * n + j] = DBM_INF
+      dbm.octMinus[j * n + xi] = DBM_INF
+    j += 1
+  ret dbmFloydWarshallClosure(dbm)
+
+// ----------------------------------------------------------------------------
+// Symbolic Interval Domain & Linear Integer Arithmetic Helpers
+// ----------------------------------------------------------------------------
+
+pub fn smtIntervalConst(val: int): SmtInterval:
+  ret SmtInterval(
+    name = "",
+    lo = val,
+    hi = val,
+    nonZero = (val != 0),
+    known = true
+  )
+
+pub fn smtIntervalRange(lo: int, hi: int): SmtInterval:
+  ret SmtInterval(
+    name = "",
+    lo = lo,
+    hi = hi,
+    nonZero = (lo > 0 or hi < 0),
+    known = true
+  )
+
+pub fn smtIntervalUnknown(name: str): SmtInterval:
+  ret SmtInterval(
+    name = name,
+    lo = -1000000000,
+    hi = 1000000000,
+    nonZero = false,
+    known = false
+  )
+
+pub fn smtIntervalAdd(a: SmtInterval, b: SmtInterval): SmtInterval:
+  if not a.known or not b.known:
+    ret smtIntervalUnknown("")
+  let lo = a.lo + b.lo
+  let hi = a.hi + b.hi
+  ret SmtInterval(
+    name = "",
+    lo = lo,
+    hi = hi,
+    nonZero = (lo > 0 or hi < 0),
+    known = true
+  )
+
+pub fn smtIntervalSub(a: SmtInterval, b: SmtInterval): SmtInterval:
+  if not a.known or not b.known:
+    ret smtIntervalUnknown("")
+  let lo = a.lo - b.hi
+  let hi = a.hi - b.lo
+  ret SmtInterval(
+    name = "",
+    lo = lo,
+    hi = hi,
+    nonZero = (lo > 0 or hi < 0),
+    known = true
+  )
+
+fn smtAbs(x: int): int:
+  ret if x < 0: -x else: x
+
+pub fn smtSafeMul(a: int, b: int): int:
+  if a == 0 or b == 0:
+    ret 0
+  mut ca = a
+  if ca > SMT_INF:
+    ca = SMT_INF
+  elif ca < -SMT_INF:
+    ca = -SMT_INF
+  mut cb = b
+  if cb > SMT_INF:
+    cb = SMT_INF
+  elif cb < -SMT_INF:
+    cb = -SMT_INF
+
+  let absA = smtAbs(ca)
+  let absB = smtAbs(cb)
+  if absA > (SMT_INF / absB):
+    let sameSign = (ca > 0 and cb > 0) or (ca < 0 and cb < 0)
+    ret if sameSign: SMT_INF else: -SMT_INF
+  ret ca * cb
+
+pub fn smtIntervalMul(a: SmtInterval, b: SmtInterval): SmtInterval:
+  if not a.known or not b.known:
+    ret smtIntervalUnknown("")
+  let p1 = smtSafeMul(a.lo, b.lo)
+  let p2 = smtSafeMul(a.lo, b.hi)
+  let p3 = smtSafeMul(a.hi, b.lo)
+  let p4 = smtSafeMul(a.hi, b.hi)
+  mut minP = p1
+  if p2 < minP:
+    minP = p2
+  if p3 < minP:
+    minP = p3
+  if p4 < minP:
+    minP = p4
+  mut maxP = p1
+  if p2 > maxP:
+    maxP = p2
+  if p3 > maxP:
+    maxP = p3
+  if p4 > maxP:
+    maxP = p4
+  let isNz = (minP > 0 or maxP < 0) or (a.nonZero and b.nonZero)
+  ret SmtInterval(
+    name = "",
+    lo = minP,
+    hi = maxP,
+    nonZero = isNz,
+    known = true
+  )
+
+pub fn smtIntervalIntersect(a: SmtInterval, b: SmtInterval): SmtInterval:
+  if not a.known:
+    ret b
+  if not b.known:
+    ret a
+  let lo = if a.lo > b.lo: a.lo else: b.lo
+  let hi = if a.hi < b.hi: a.hi else: b.hi
+  let isNz = a.nonZero or b.nonZero or (lo > 0 or hi < 0)
+  let resName = if a.name.len > 0: a.name else: b.name
+  ret SmtInterval(
+    name = resName,
+    lo = lo,
+    hi = hi,
+    nonZero = isNz,
+    known = true
+  )
+
+pub fn smtProveNonZero(iv: SmtInterval): bool:
+  ret iv.known and (iv.lo > 0 or iv.hi < 0 or iv.nonZero)
+
+pub fn smtProveInBounds(idx: SmtInterval, len: int): bool:
+  ret idx.known and idx.lo >= 0 and idx.hi < len
+
+pub fn smtCheckRefinement(val: int, minVal: int, maxVal: int): bool:
+  ret val >= minVal and val <= maxVal
+
+// ----------------------------------------------------------------------------
+// SMT Symbolic State Environment
+// ----------------------------------------------------------------------------
+
+pub struct SmtEnv:
+  varNames: [str]
+  intervals: [SmtInterval]
+  arrNames: [str]
+  arrLens: [int]
+  dbm: DbmState
+  contractTable: InterproceduralContractTable
+  fnEnsures: [int]
+  dbmShared: bool = false
+  strictLoopAudit: bool = false
+
+pub fn envNew(): SmtEnv:
+  let emptyStrs1: [str] = []
+  let emptyIvs: [SmtInterval] = []
+  let emptyStrs2: [str] = []
+  let emptyLens: [int] = []
+  let emptyEns: [int] = []
+  ret SmtEnv(
+    varNames = emptyStrs1,
+    intervals = emptyIvs,
+    arrNames = emptyStrs2,
+    arrLens = emptyLens,
+    dbm = dbmNew(),
+    contractTable = contractTableNew(),
+    fnEnsures = emptyEns,
+    dbmShared = false,
+    strictLoopAudit = false
+  )
+
+pub fn intervalClone(iv: SmtInterval): SmtInterval:
+  ret SmtInterval(
+    name = iv.name,
+    lo = iv.lo,
+    hi = iv.hi,
+    nonZero = iv.nonZero,
+    known = iv.known
+  )
+
+pub fn envClone(env: SmtEnv): SmtEnv:
+  mut vNames: [str] = []
+  mut vIvs: [SmtInterval] = []
+  mut aNames: [str] = []
+  mut aLens: [int] = []
+  mut enss: [int] = []
+  mut i = 0
+  while i < env.varNames.len:
+    vNames.push(env.varNames[i])
+    vIvs.push(intervalClone(env.intervals[i]))
+    i += 1
+  mut j = 0
+  while j < env.arrNames.len:
+    aNames.push(env.arrNames[j])
+    aLens.push(env.arrLens[j])
+    j += 1
+  mut k = 0
+  while k < env.fnEnsures.len:
+    enss.push(env.fnEnsures[k])
+    k += 1
+  ret SmtEnv(
+    varNames = vNames,
+    intervals = vIvs,
+    arrNames = aNames,
+    arrLens = aLens,
+    dbm = env.dbm,
+    contractTable = env.contractTable,
+    fnEnsures = enss,
+    dbmShared = true,
+    strictLoopAudit = env.strictLoopAudit
+  )
+
+pub fn smtEnvClone(env: SmtEnv): SmtEnv:
+  ret envClone(env)
+
+pub fn smtEnvEnsureDbmOwned(mut env: SmtEnv): SmtEnv:
+  if env.dbmShared:
+    env.dbm = dbmClone(env.dbm)
+    env.dbmShared = false
+  ret env
+
+pub fn smtEnvAddDiffConstraint(mut env: SmtEnv, x: str, y: str, c: int): SmtEnv:
+  env = smtEnvEnsureDbmOwned(env)
+  env.dbm = dbmAddDiffConstraint(env.dbm, x, y, c)
+  ret env
+
+pub fn envFindVar(env: SmtEnv, name: str): int:
+  mut i = 0
+  while i < env.varNames.len:
+    if env.varNames[i] == name:
+      ret i
+    i += 1
+  ret -1
+
+pub fn envGetInterval(env: SmtEnv, name: str): SmtInterval:
+  let idx = envFindVar(env, name)
+  if idx >= 0:
+    ret env.intervals[idx]
+  ret smtIntervalUnknown(name)
+
+pub fn envSetInterval(mut env: SmtEnv, name: str, iv: SmtInterval): SmtEnv:
+  let idx = envFindVar(env, name)
+  if idx >= 0:
+    env.intervals[idx] = iv
+  else:
+    env.varNames.push(name)
+    env.intervals.push(iv)
+  ret env
+
+pub fn envFindArr(env: SmtEnv, name: str): int:
+  mut i = 0
+  while i < env.arrNames.len:
+    if env.arrNames[i] == name:
+      ret i
+    i += 1
+  ret -1
+
+pub fn envGetArrLen(env: SmtEnv, name: str): int:
+  let idx = envFindArr(env, name)
+  if idx >= 0:
+    ret env.arrLens[idx]
+  ret -1
+
+pub fn envSetArrLen(mut env: SmtEnv, name: str, lenVal: int): SmtEnv:
+  let idx = envFindArr(env, name)
+  if idx >= 0:
+    env.arrLens[idx] = lenVal
+  else:
+    env.arrNames.push(name)
+    env.arrLens.push(lenVal)
+  if lenVal >= 0:
+    env = envSetInterval(env, "__len_" + name, smtIntervalConst(lenVal))
+    env = smtEnvEnsureDbmOwned(env)
+    env.dbm = dbmAddDiffConstraint(env.dbm, "__len_" + name, "__len_" + name, 0)
+  else:
+    env = envSetInterval(env, "__len_" + name, smtIntervalUnknown("__len_" + name))
+  ret env
+
+pub fn extractVarNameFromExpr(arena: AstArena, exprId: int): str:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret ""
+  let e = arena.exprs[exprId]
+  if e.kind == "Ident":
+    ret e.strVal
+  if e.kind == "Member" and e.strVal == "len" and e.left >= 0:
+    let b = arena.exprs[e.left]
+    if b.kind == "Ident":
+      ret "__len_" + b.strVal
+  ret ""
+
+pub fn dbmTightenEnvIntervals(mut env: SmtEnv): SmtEnv:
+  let n = env.dbm.vars.len
+  if n == 0:
+    ret env
+  mut round = 0
+  while round < 2:
+    mut i = 0
+    while i < n:
+      let xName = env.dbm.vars[i]
+      mut xIv = intervalClone(envGetInterval(env, xName))
+      if not xIv.known:
+        xIv.lo = -1000000000
+        xIv.hi = 1000000000
+      mut changed = false
+      mut j = 0
+      while j < n:
+        if i != j:
+          let yName = env.dbm.vars[j]
+          let yIv = envGetInterval(env, yName)
+          if yIv.known:
+            let dxy = env.dbm.dist[i * n + j]
+            if dxy < DBM_INF and yIv.hi < 1000000000:
+              let candHi = yIv.hi + dxy
+              if candHi < xIv.hi and candHi >= xIv.lo:
+                xIv.hi = candHi
+                changed = true
+            let dyx = env.dbm.dist[j * n + i]
+            if dyx < DBM_INF and yIv.lo > -1000000000:
+              let candLo = yIv.lo - dyx
+              if candLo > xIv.lo and candLo <= xIv.hi:
+                xIv.lo = candLo
+                changed = true
+            if env.dbm.octPlus.len == n * n:
+              let opc = env.dbm.octPlus[i * n + j]
+              if opc < DBM_INF and yIv.lo > -1000000000:
+                let candHi2 = opc - yIv.lo
+                if candHi2 < xIv.hi and candHi2 >= xIv.lo:
+                  xIv.hi = candHi2
+                  changed = true
+        j += 1
+      if xIv.lo <= xIv.hi:
+        if xIv.lo > -1000000000 or xIv.hi < 1000000000:
+          xIv.known = true
+        if xIv.lo > 0 or xIv.hi < 0:
+          xIv.nonZero = true
+        if changed or xIv.known:
+          env = envSetInterval(env, xName, xIv)
+      i += 1
+    round += 1
+  ret env
+
+// ----------------------------------------------------------------------------
+// AST & HIR Refinement Lookups
+// ----------------------------------------------------------------------------
+
+pub fn findFunctionByName(hir: HirModule, name: str): int:
+  mut i = 0
+  while i < hir.functions.len:
+    if hir.functions[i].name == name:
+      ret i
+    i += 1
+  ret -1
+
+pub fn findRefinementDeclByName(arena: AstArena, typeName: str): int:
+  mut i = 0
+  while i < arena.decls.len:
+    let d = arena.decls[i]
+    if d.kind == "TypeAlias" and d.name == typeName:
+      if d.retType >= 0 and d.retType < arena.types.len:
+        if arena.types[d.retType].kind == "Refinement":
+          ret i
+    i += 1
+  ret -1
+
+pub fn resolveRefinementType(arena: AstArena, typeId: int): int:
+  if typeId < 0 or typeId >= arena.types.len:
+    ret -1
+  let t = arena.types[typeId]
+  if t.kind == "Refinement":
+    ret typeId
+  mut i = 0
+  while i < arena.decls.len:
+    let d = arena.decls[i]
+    if d.kind == "TypeAlias" and d.name == t.name:
+      if d.retType >= 0 and d.retType < arena.types.len:
+        if arena.types[d.retType].kind == "Refinement":
+          ret d.retType
+    i += 1
+  ret -1
+
+// ----------------------------------------------------------------------------
+// Symbolic Interval Evaluation
+// ----------------------------------------------------------------------------
+
+pub fn evalExprInterval(arena: AstArena, env: SmtEnv, exprId: int): SmtInterval:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret smtIntervalUnknown("")
+  let e = arena.exprs[exprId]
+
+  if e.kind == "IntLit":
+    ret smtIntervalConst(e.intVal)
+
+  if e.kind == "Ident":
+    ret envGetInterval(env, e.strVal)
+
+  if e.kind == "Unary":
+    if e.op == "-":
+      let subIv = evalExprInterval(arena, env, e.left)
+      if subIv.known:
+        let lo = -subIv.hi
+        let hi = -subIv.lo
+        ret SmtInterval(
+          name = "",
+          lo = lo,
+          hi = hi,
+          nonZero = subIv.nonZero or (lo > 0 or hi < 0),
+          known = true
+        )
+      ret smtIntervalUnknown("")
+    if e.op == "+":
+      ret evalExprInterval(arena, env, e.left)
+
+  if e.kind == "Binary":
+    if e.op == "+":
+      let l = evalExprInterval(arena, env, e.left)
+      let r = evalExprInterval(arena, env, e.right)
+      ret smtIntervalAdd(l, r)
+    if e.op == "-":
+      let l = evalExprInterval(arena, env, e.left)
+      let r = evalExprInterval(arena, env, e.right)
+      mut subIv = smtIntervalSub(l, r)
+      let vL = extractVarNameFromExpr(arena, e.left)
+      let vR = extractVarNameFromExpr(arena, e.right)
+      if vL.len > 0 and vR.len > 0:
+        let xi = dbmFindVar(env.dbm, vL)
+        let yi = dbmFindVar(env.dbm, vR)
+        if xi >= 0 and yi >= 0:
+          let n = env.dbm.vars.len
+          let dxy = env.dbm.dist[xi * n + yi]
+          let dyx = env.dbm.dist[yi * n + xi]
+          mut lo = subIv.lo
+          mut hi = subIv.hi
+          mut known = subIv.known
+          if dxy < DBM_INF:
+            if not known or dxy < hi:
+              hi = dxy
+              known = true
+          if dyx < DBM_INF:
+            let candLo = -dyx
+            if not known or candLo > lo:
+              lo = candLo
+              known = true
+          if known:
+            let nz = subIv.nonZero or (lo > 0 or hi < 0)
+            ret SmtInterval(
+              name = "",
+              lo = lo,
+              hi = hi,
+              nonZero = nz,
+              known = true
+            )
+      ret subIv
+    if e.op == "*":
+      let l = evalExprInterval(arena, env, e.left)
+      let r = evalExprInterval(arena, env, e.right)
+      ret smtIntervalMul(l, r)
+    if e.op == "/" or e.op == "//":
+      let l = evalExprInterval(arena, env, e.left)
+      let r = evalExprInterval(arena, env, e.right)
+      if l.known and r.known and r.lo == r.hi and r.lo != 0:
+        let k = r.lo
+        let q1 = l.lo / k
+        let q2 = l.hi / k
+        let lo = if q1 < q2: q1 else: q2
+        let hi = if q1 > q2: q1 else: q2
+        ret smtIntervalRange(lo, hi)
+      ret smtIntervalUnknown("")
+    if e.op == "..":
+      let l = evalExprInterval(arena, env, e.left)
+      let r = evalExprInterval(arena, env, e.right)
+      if l.known and r.known:
+        ret smtIntervalRange(l.lo, r.hi - 1)
+      ret smtIntervalUnknown("")
+    if e.op == "..=":
+      let l = evalExprInterval(arena, env, e.left)
+      let r = evalExprInterval(arena, env, e.right)
+      if l.known and r.known:
+        ret smtIntervalRange(l.lo, r.hi)
+      ret smtIntervalUnknown("")
+
+  if e.kind == "Call":
+    if e.left >= 0 and arena.exprs[e.left].kind == "Ident":
+      let calleeName = arena.exprs[e.left].strVal
+      let cIdx = contractTableFind(env.contractTable, calleeName)
+      if cIdx >= 0:
+        let summary = env.contractTable.summaries[cIdx]
+        if summary.retInterval.known:
+          ret summary.retInterval
+
+  if e.kind == "Member":
+    if e.strVal == "len" and e.left >= 0:
+      let baseExpr = arena.exprs[e.left]
+      if baseExpr.kind == "Ident":
+        let l = envGetArrLen(env, baseExpr.strVal)
+        if l >= 0:
+          ret smtIntervalConst(l)
+        let lenIv = envGetInterval(env, "__len_" + baseExpr.strVal)
+        if lenIv.known:
+          ret lenIv
+      elif baseExpr.kind == "Array":
+        ret smtIntervalConst(baseExpr.children.len)
+      elif baseExpr.kind == "ArrayRepeat":
+        let cntIv = evalExprInterval(arena, env, baseExpr.right)
+        if cntIv.known and cntIv.lo == cntIv.hi:
+          ret smtIntervalConst(cntIv.lo)
+
+  ret smtIntervalUnknown("")
+
+// ----------------------------------------------------------------------------
+// Refinement & Condition Propagation
+// ----------------------------------------------------------------------------
+
+pub fn invertRelOp(op: str): str:
+  if op == "<":
+    ret ">="
+  if op == "<=":
+    ret ">"
+  if op == ">":
+    ret "<="
+  if op == ">=":
+    ret "<"
+  if op == "==":
+    ret "!="
+  if op == "!=":
+    ret "=="
+  ret ""
+
+pub fn refineEnvFromBinaryCond(arena: AstArena, mut env: SmtEnv, left: int, op: str, right: int): SmtEnv:
+  // 1. Relational extraction between two variables (e.g. x < y, x <= y, x == y, etc.)
+  let vLeft = extractVarNameFromExpr(arena, left)
+  let vRight = extractVarNameFromExpr(arena, right)
+
+  if vLeft.len > 0 and vRight.len > 0:
+    env = smtEnvEnsureDbmOwned(env)
+    if op == "<":
+      env.dbm = dbmAddDiffConstraint(env.dbm, vLeft, vRight, -1)
+    elif op == "<=":
+      env.dbm = dbmAddDiffConstraint(env.dbm, vLeft, vRight, 0)
+    elif op == ">":
+      env.dbm = dbmAddDiffConstraint(env.dbm, vRight, vLeft, -1)
+    elif op == ">=":
+      env.dbm = dbmAddDiffConstraint(env.dbm, vRight, vLeft, 0)
+    elif op == "==":
+      env.dbm = dbmAddDiffConstraint(env.dbm, vLeft, vRight, 0)
+      env.dbm = dbmAddDiffConstraint(env.dbm, vRight, vLeft, 0)
+    env.dbm = dbmFloydWarshallClosure(env.dbm)
+    env = dbmTightenEnvIntervals(env)
+
+  // 2. Relational extraction for x + y <= c or x - y <= c
+  if left >= 0 and arena.exprs[left].kind == "Binary":
+    let lBin = arena.exprs[left]
+    let addL = extractVarNameFromExpr(arena, lBin.left)
+    let addR = extractVarNameFromExpr(arena, lBin.right)
+    if addL.len > 0 and addR.len > 0 and right >= 0 and arena.exprs[right].kind == "IntLit":
+      env = smtEnvEnsureDbmOwned(env)
+      let cVal = arena.exprs[right].intVal
+      if lBin.op == "+":
+        if op == "<=":
+          env.dbm = dbmAddSumConstraint(env.dbm, addL, addR, cVal)
+        elif op == "<":
+          env.dbm = dbmAddSumConstraint(env.dbm, addL, addR, cVal - 1)
+      elif lBin.op == "-":
+        if op == "<=":
+          env.dbm = dbmAddDiffConstraint(env.dbm, addL, addR, cVal)
+        elif op == "<":
+          env.dbm = dbmAddDiffConstraint(env.dbm, addL, addR, cVal - 1)
+        elif op == ">=":
+          env.dbm = dbmAddDiffConstraint(env.dbm, addR, addL, -cVal)
+        elif op == ">":
+          env.dbm = dbmAddDiffConstraint(env.dbm, addR, addL, -cVal - 1)
+        elif op == "==":
+          env.dbm = dbmAddDiffConstraint(env.dbm, addL, addR, cVal)
+          env.dbm = dbmAddDiffConstraint(env.dbm, addR, addL, -cVal)
+      env.dbm = dbmFloydWarshallClosure(env.dbm)
+      env = dbmTightenEnvIntervals(env)
+
+  if left >= 0 and right >= 0:
+    let isLeftIdent = arena.exprs[left].kind == "Ident"
+    let isRightIdent = arena.exprs[right].kind == "Ident"
+    let isLeftFloat = arena.exprs[left].kind == "FloatLit"
+    let isRightFloat = arena.exprs[right].kind == "FloatLit"
+
+    if isLeftIdent and isRightFloat:
+      let varName = arena.exprs[left].strVal
+      let fVal = arena.exprs[right].floatVal
+      let ex = envGetInterval(env, varName)
+      mut newNz = ex.nonZero
+      if (op == ">" and fVal >= 0.0) or (op == ">=" and fVal > 0.0):
+        newNz = true
+      elif (op == "<" and fVal <= 0.0) or (op == "<=" and fVal < 0.0):
+        newNz = true
+      elif op == "!=" and fVal == 0.0:
+        newNz = true
+      if newNz != ex.nonZero:
+        env = envSetInterval(env, varName, SmtInterval(
+          name = varName,
+          lo = ex.lo,
+          hi = ex.hi,
+          nonZero = newNz,
+          known = ex.known
+        ))
+
+    if isRightIdent and isLeftFloat:
+      let varName = arena.exprs[right].strVal
+      let fVal = arena.exprs[left].floatVal
+      let ex = envGetInterval(env, varName)
+      mut newNz = ex.nonZero
+      if (op == "<" and fVal >= 0.0) or (op == "<=" and fVal > 0.0):
+        newNz = true
+      elif (op == ">" and fVal <= 0.0) or (op == ">=" and fVal < 0.0):
+        newNz = true
+      elif op == "!=" and fVal == 0.0:
+        newNz = true
+      if newNz != ex.nonZero:
+        env = envSetInterval(env, varName, SmtInterval(
+          name = varName,
+          lo = ex.lo,
+          hi = ex.hi,
+          nonZero = newNz,
+          known = ex.known
+        ))
+
+    if isLeftIdent:
+      let varName = arena.exprs[left].strVal
+      let rIv = evalExprInterval(arena, env, right)
+      if rIv.known:
+        let existing = envGetInterval(env, varName)
+        mut newLo = existing.lo
+        mut newHi = existing.hi
+        mut newNz = existing.nonZero
+        if op == ">":
+          let bound = rIv.lo + 1
+          if bound > newLo:
+            newLo = bound
+          if newHi < newLo:
+            newHi = 1000000000
+          if newLo > 0:
+            newNz = true
+        elif op == ">=":
+          let bound = rIv.lo
+          if bound > newLo:
+            newLo = bound
+          if newHi < newLo:
+            newHi = 1000000000
+          if newLo > 0:
+            newNz = true
+        elif op == "<":
+          let bound = rIv.hi - 1
+          if bound < newHi:
+            newHi = bound
+          if newLo > newHi:
+            newLo = -1000000000
+          if newHi < 0:
+            newNz = true
+        elif op == "<=":
+          let bound = rIv.hi
+          if bound < newHi:
+            newHi = bound
+          if newLo > newHi:
+            newLo = -1000000000
+          if newHi < 0:
+            newNz = true
+        elif op == "!=":
+          if rIv.lo == 0 and rIv.hi == 0:
+            newNz = true
+        elif op == "==":
+          if rIv.lo > newLo:
+            newLo = rIv.lo
+          if rIv.hi < newHi:
+            newHi = rIv.hi
+          if rIv.nonZero or (newLo > 0 or newHi < 0):
+            newNz = true
+        if newLo <= newHi:
+          env = envSetInterval(env, varName, SmtInterval(
+            name = varName,
+            lo = newLo,
+            hi = newHi,
+            nonZero = newNz,
+            known = true
+          ))
+          env = smtEnvEnsureDbmOwned(env)
+          env.dbm = dbmFloydWarshallClosure(env.dbm)
+          env = dbmTightenEnvIntervals(env)
+
+    if isRightIdent:
+      let varName = arena.exprs[right].strVal
+      let lIv = evalExprInterval(arena, env, left)
+      if lIv.known:
+        let existing = envGetInterval(env, varName)
+        mut newLo = existing.lo
+        mut newHi = existing.hi
+        mut newNz = existing.nonZero
+        if op == ">":
+          let bound = lIv.hi - 1
+          if bound < newHi:
+            newHi = bound
+          if newLo > newHi:
+            newLo = -1000000000
+          if newHi < 0:
+            newNz = true
+        elif op == ">=":
+          let bound = lIv.hi
+          if bound < newHi:
+            newHi = bound
+          if newLo > newHi:
+            newLo = -1000000000
+          if newHi < 0:
+            newNz = true
+        elif op == "<":
+          let bound = lIv.lo + 1
+          if bound > newLo:
+            newLo = bound
+          if newHi < newLo:
+            newHi = 1000000000
+          if newLo > 0:
+            newNz = true
+        elif op == "<=":
+          let bound = lIv.lo
+          if bound > newLo:
+            newLo = bound
+          if newHi < newLo:
+            newHi = 1000000000
+          if newLo > 0:
+            newNz = true
+        elif op == "!=":
+          if lIv.lo == 0 and lIv.hi == 0:
+            newNz = true
+        elif op == "==":
+          if lIv.lo > newLo:
+            newLo = lIv.lo
+          if lIv.hi < newHi:
+            newHi = lIv.hi
+          if lIv.nonZero or (newLo > 0 or newHi < 0):
+            newNz = true
+        if newLo <= newHi:
+          env = envSetInterval(env, varName, SmtInterval(
+            name = varName,
+            lo = newLo,
+            hi = newHi,
+            nonZero = newNz,
+            known = true
+          ))
+          env = smtEnvEnsureDbmOwned(env)
+          env.dbm = dbmFloydWarshallClosure(env.dbm)
+          env = dbmTightenEnvIntervals(env)
+
+  ret env
+
+pub fn refineEnvFromCond(arena: AstArena, mut env: SmtEnv, condExprId: int, isTrueBranch: bool): SmtEnv:
+  if condExprId < 0 or condExprId >= arena.exprs.len:
+    ret env
+  let e = arena.exprs[condExprId]
+
+  if isTrueBranch:
+    if e.kind == "Binary" and (e.op == "and" or e.op == "&&"):
+      env = refineEnvFromCond(arena, env, e.left, true)
+      env = refineEnvFromCond(arena, env, e.right, true)
+      ret env
+
+    if e.kind == "Unary" and (e.op == "not" or e.op == "!"):
+      env = refineEnvFromCond(arena, env, e.left, false)
+      ret env
+
+    if e.kind == "Binary":
+      ret refineEnvFromBinaryCond(arena, env, e.left, e.op, e.right)
+
+  else:
+    // False branch (e.g. else of if)
+    if e.kind == "Binary" and (e.op == "or" or e.op == "||"):
+      env = refineEnvFromCond(arena, env, e.left, false)
+      env = refineEnvFromCond(arena, env, e.right, false)
+      ret env
+
+    if e.kind == "Unary" and (e.op == "not" or e.op == "!"):
+      env = refineEnvFromCond(arena, env, e.left, true)
+      ret env
+
+    if e.kind == "Binary":
+      let invOp = invertRelOp(e.op)
+      if invOp.len > 0:
+        ret refineEnvFromBinaryCond(arena, env, e.left, invOp, e.right)
+
+  ret env
+
+pub fn refineEnvWithCond(arena: AstArena, env: SmtEnv, condExprId: int): SmtEnv:
+  ret refineEnvFromCond(arena, env, condExprId, true)
+
+// ----------------------------------------------------------------------------
+// Predicate & Boolean Evaluation
+// ----------------------------------------------------------------------------
+
+pub fn areExprIdentsKnown(arena: AstArena, env: SmtEnv, exprId: int): bool:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret true
+  let e = arena.exprs[exprId]
+  if e.kind == "Ident":
+    let iv = envGetInterval(env, e.strVal)
+    ret iv.known and iv.lo == iv.hi
+  if e.kind == "Unary":
+    ret areExprIdentsKnown(arena, env, e.left)
+  if e.kind == "Binary":
+    ret areExprIdentsKnown(arena, env, e.left) and areExprIdentsKnown(arena, env, e.right)
+  ret true
+
+pub fn evalCondTruth(arena: AstArena, env: SmtEnv, exprId: int): int:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret 0
+  let e = arena.exprs[exprId]
+
+  if e.kind == "BoolLit":
+    if e.boolVal:
+      ret 1
+    ret -1
+
+  if e.kind == "Unary" and (e.op == "not" or e.op == "!"):
+    let sub = evalCondTruth(arena, env, e.left)
+    if sub == 1:
+      ret -1
+    if sub == -1:
+      ret 1
+    ret 0
+
+  if e.kind == "Binary":
+    if e.op == "and" or e.op == "&&":
+      let t1 = evalCondTruth(arena, env, e.left)
+      let t2 = evalCondTruth(arena, env, e.right)
+      if t1 == -1 or t2 == -1:
+        ret -1
+      if t1 == 1 and t2 == 1:
+        ret 1
+      ret 0
+
+    if e.op == "or" or e.op == "||":
+      let t1 = evalCondTruth(arena, env, e.left)
+      let t2 = evalCondTruth(arena, env, e.right)
+      if t1 == 1 or t2 == 1:
+        ret 1
+      if t1 == -1 and t2 == -1:
+        ret -1
+      ret 0
+
+    // 1. Relational check via DBM
+    let vL = extractVarNameFromExpr(arena, e.left)
+    let vR = extractVarNameFromExpr(arena, e.right)
+    if vL.len > 0 and vR.len > 0:
+      let xi = dbmFindVar(env.dbm, vL)
+      let yi = dbmFindVar(env.dbm, vR)
+      if xi >= 0 and yi >= 0:
+        let n = env.dbm.vars.len
+        let dxy = env.dbm.dist[xi * n + yi]
+        let dyx = env.dbm.dist[yi * n + xi]
+        if e.op == ">":
+          if dyx <= -1:
+            ret 1
+          if dxy <= 0:
+            ret -1
+        elif e.op == ">=":
+          if dyx <= 0:
+            ret 1
+          if dxy <= -1:
+            ret -1
+        elif e.op == "<":
+          if dxy <= -1:
+            ret 1
+          if dyx <= 0:
+            ret -1
+        elif e.op == "<=":
+          if dxy <= 0:
+            ret 1
+          if dyx <= -1:
+            ret -1
+        elif e.op == "==":
+          if dxy <= 0 and dyx <= 0:
+            ret 1
+          if dxy <= -1 or dyx <= -1:
+            ret -1
+        elif e.op == "!=":
+          if dxy <= -1 or dyx <= -1:
+            ret 1
+          if dxy == 0 and dyx == 0:
+            ret -1
+
+    // 2. Interval evaluation
+    let lIv = evalExprInterval(arena, env, e.left)
+    let rIv = evalExprInterval(arena, env, e.right)
+    if lIv.known and rIv.known:
+      if e.op == ">":
+        if lIv.lo > rIv.hi:
+          ret 1
+        if lIv.hi <= rIv.lo:
+          ret -1
+      elif e.op == ">=":
+        if lIv.lo >= rIv.hi:
+          ret 1
+        if lIv.hi < rIv.lo:
+          ret -1
+      elif e.op == "<":
+        if lIv.hi < rIv.lo:
+          ret 1
+        if lIv.lo >= rIv.hi:
+          ret -1
+      elif e.op == "<=":
+        if lIv.hi <= rIv.lo:
+          ret 1
+        if lIv.lo > rIv.hi:
+          ret -1
+      elif e.op == "==":
+        if lIv.lo == lIv.hi and rIv.lo == rIv.hi and lIv.lo == rIv.lo:
+          ret 1
+        if lIv.lo > rIv.hi or lIv.hi < rIv.lo:
+          ret -1
+      elif e.op == "!=":
+        if lIv.lo > rIv.hi or lIv.hi < rIv.lo:
+          ret 1
+        if lIv.lo == lIv.hi and rIv.lo == rIv.hi and lIv.lo == rIv.lo:
+          ret -1
+
+  ret 0
+
+pub fn evalBoolExpr(arena: AstArena, env: SmtEnv, exprId: int): bool:
+  let truth = evalCondTruth(arena, env, exprId)
+  if truth == -1:
+    ret false
+  ret true
+
+pub fn evalPredicateWithVal(arena: AstArena, predExprId: int, varName: str, val: int): bool:
+  mut predEnv = envNew()
+  predEnv = envSetInterval(predEnv, varName, smtIntervalConst(val))
+  ret evalBoolExpr(arena, predEnv, predExprId)
+
+// ----------------------------------------------------------------------------
+// Legacy & Compatibility Helpers
+// ----------------------------------------------------------------------------
+
+pub fn isLiteralZeroExpr(arena: AstArena, exprId: int): bool:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret false
+  let e = arena.exprs[exprId]
+  if e.kind == "IntLit" and e.intVal == 0:
+    ret true
+  if e.kind == "FloatLit" and e.floatVal == 0.0:
+    ret true
+  ret false
+
+pub fn isContradictionPredicate(summary: str): bool:
+  let s = summary.trim()
+  if s == "false" or s == "0 > 1" or s == "1 < 0" or s == "0 != 0" or s == "0 == 1" or s == "1 == 0":
+    ret true
+  ret false
+
+pub fn checkExprDivisionSafety(arena: AstArena, exprId: int, nonZeroVars: [str], mut diags: [CompilerDiagnostic]): [CompilerDiagnostic]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret diags
+  let e = arena.exprs[exprId]
+  if e.kind == "Binary":
+    diags = checkExprDivisionSafety(arena, e.left, nonZeroVars, diags)
+    diags = checkExprDivisionSafety(arena, e.right, nonZeroVars, diags)
+    if e.op == "/" or e.op == "//" or e.op == "%" or e.op == "%%":
+      if isLiteralZeroExpr(arena, e.right):
+        diags.push(CompilerDiagnostic(
+          code = "AIPL001",
+          message = "Compile-time division or modulo by literal zero refuted by SMT verifier",
+          span = e.span
+        ))
+  elif e.kind == "Call":
+    mut i = 0
+    while i < e.children.len:
+      diags = checkExprDivisionSafety(arena, e.children[i], nonZeroVars, diags)
+      i += 1
+  ret diags
+
+pub fn checkStmtsDivisionSafety(arena: AstArena, stmtIds: [int], nonZeroVars: [str], mut diags: [CompilerDiagnostic]): [CompilerDiagnostic]:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.exprId >= 0:
+        diags = checkExprDivisionSafety(arena, st.exprId, nonZeroVars, diags)
+      if st.condExpr >= 0:
+        diags = checkExprDivisionSafety(arena, st.condExpr, nonZeroVars, diags)
+      if st.bodyStmts.len > 0:
+        diags = checkStmtsDivisionSafety(arena, st.bodyStmts, nonZeroVars, diags)
+      if st.elseStmts.len > 0:
+        diags = checkStmtsDivisionSafety(arena, st.elseStmts, nonZeroVars, diags)
+    i += 1
+  ret diags
+
+// ----------------------------------------------------------------------------
+// SMT Proof Obligations & Verification Engine
+// ----------------------------------------------------------------------------
+
+pub fn checkExprViolations(arena: AstArena, hir: HirModule, env: SmtEnv, exprId: int, mut violations: [SmtViolation]): [SmtViolation]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret violations
+  let e = arena.exprs[exprId]
+
+  if e.kind == "Binary":
+    violations = checkExprViolations(arena, hir, env, e.left, violations)
+    violations = checkExprViolations(arena, hir, env, e.right, violations)
+
+    // AIPL001: division/modulo by zero
+    if e.op == "/" or e.op == "//" or e.op == "%" or e.op == "%%":
+      mut isZero = false
+      if isLiteralZeroExpr(arena, e.right):
+        isZero = true
+      else:
+        let rIv = evalExprInterval(arena, env, e.right)
+        if rIv.known and rIv.lo == 0 and rIv.hi == 0 and not rIv.nonZero:
+          isZero = true
+
+      if isZero:
+        mut ce = "divisor = 0"
+        if e.right >= 0 and arena.exprs[e.right].kind == "Ident":
+          ce = arena.exprs[e.right].strVal + " = 0"
+        violations.push(SmtViolation(
+          code = "AIPL001",
+          message = "Compile-time division or modulo by zero refuted by SMT verifier",
+          counterexample = ce,
+          span = e.span
+        ))
+
+  elif e.kind == "Unary":
+    violations = checkExprViolations(arena, hir, env, e.left, violations)
+
+  elif e.kind == "Index":
+    violations = checkExprViolations(arena, hir, env, e.left, violations)
+    violations = checkExprViolations(arena, hir, env, e.right, violations)
+
+    // AIPL002: array index out of bounds (only check single index, not range)
+    if e.right >= 0:
+      let rightExpr = arena.exprs[e.right]
+      let isRange = rightExpr.kind == "Binary" and (rightExpr.op == ".." or rightExpr.op == "..=")
+      if not isRange:
+        let idxIv = evalExprInterval(arena, env, e.right)
+        if idxIv.known and idxIv.lo <= idxIv.hi:
+          if idxIv.hi < 0:
+            violations.push(SmtViolation(
+              code = "AIPL002",
+              message = "Array index out of bounds: provably negative index " + str(idxIv.lo),
+              counterexample = "index = " + str(idxIv.lo),
+              span = e.span
+            ))
+          else:
+            mut knownLen = -1
+            if e.left >= 0:
+              let lExpr = arena.exprs[e.left]
+              if lExpr.kind == "Ident":
+                knownLen = envGetArrLen(env, lExpr.strVal)
+              elif lExpr.kind == "Array":
+                knownLen = lExpr.children.len
+              elif lExpr.kind == "ArrayRepeat":
+                let cntIv = evalExprInterval(arena, env, lExpr.right)
+                if cntIv.known and cntIv.lo == cntIv.hi:
+                  knownLen = cntIv.lo
+
+            if knownLen >= 0 and idxIv.lo >= knownLen:
+              violations.push(SmtViolation(
+                code = "AIPL002",
+                message = "Array index out of bounds: index " + str(idxIv.lo) + " >= length " + str(knownLen),
+                counterexample = "index = " + str(idxIv.lo) + ", len = " + str(knownLen),
+                span = e.span
+              ))
+            elif e.left >= 0 and arena.exprs[e.left].kind == "Ident":
+              let arrName = arena.exprs[e.left].strVal
+              let lenVar = "__len_" + arrName
+              let iName = extractVarNameFromExpr(arena, e.right)
+              if iName.len > 0:
+                let ii = dbmFindVar(env.dbm, iName)
+                let li = dbmFindVar(env.dbm, lenVar)
+                if ii >= 0 and li >= 0:
+                  let n = env.dbm.vars.len
+                  let d_len_i = env.dbm.dist[li * n + ii]
+                  if d_len_i <= 0:
+                    violations.push(SmtViolation(
+                      code = "AIPL002",
+                      message = "Array index out of bounds: index '" + iName + "' provably >= length of '" + arrName + "'",
+                      counterexample = iName + " >= " + arrName + ".len",
+                      span = e.span
+                    ))
+
+  elif e.kind == "Call":
+    mut ci = 0
+    while ci < e.children.len:
+      violations = checkExprViolations(arena, hir, env, e.children[ci], violations)
+      ci += 1
+
+    if e.left >= 0 and arena.exprs[e.left].kind == "Ident":
+      let calleeName = arena.exprs[e.left].strVal
+      let calleeIdx = findFunctionByName(hir, calleeName)
+      if calleeIdx >= 0:
+        let targetFn = hir.functions[calleeIdx]
+
+        // AIPL003: refinement parameter constraints
+        mut pi = 0
+        while pi < targetFn.paramTypes.len and pi < e.children.len:
+          let pType = targetFn.paramTypes[pi]
+          let refDeclIdx = findRefinementDeclByName(arena, pType)
+          if refDeclIdx >= 0:
+            let refNode = arena.types[arena.decls[refDeclIdx].retType]
+            let argIv = evalExprInterval(arena, env, e.children[pi])
+            if argIv.known and argIv.lo == argIv.hi:
+              let val = argIv.lo
+              if not evalPredicateWithVal(arena, refNode.refinePredExpr, refNode.refineVar, val):
+                violations.push(SmtViolation(
+                  code = "AIPL003",
+                  message = "Refinement predicate violation in argument '" + targetFn.paramNames[pi] + "' at call to '" + calleeName + "'",
+                  counterexample = refNode.refineVar + " = " + str(val),
+                  span = e.span
+                ))
+          pi += 1
+
+        // AIPL004: requires preconditions at call site
+        if targetFn.requiresExprs.len > 0:
+          mut callEnv = envNew()
+          mut ai = 0
+          while ai < targetFn.paramNames.len and ai < e.children.len:
+            let argIv = evalExprInterval(arena, env, e.children[ai])
+            if argIv.known and argIv.lo == argIv.hi:
+              callEnv = envSetInterval(callEnv, targetFn.paramNames[ai], argIv)
+            ai += 1
+
+          mut ri = 0
+          while ri < targetFn.requiresExprs.len:
+            let reqId = targetFn.requiresExprs[ri]
+            if areExprIdentsKnown(arena, callEnv, reqId):
+              if not evalBoolExpr(arena, callEnv, reqId):
+                mut ce = ""
+                mut ci2 = 0
+                while ci2 < targetFn.paramNames.len and ci2 < e.children.len:
+                  let pName = targetFn.paramNames[ci2]
+                  let pIv = envGetInterval(callEnv, pName)
+                  if pIv.known:
+                    if ce.len > 0:
+                      ce = ce + ", "
+                    ce = ce + pName + " = " + str(pIv.lo)
+                  ci2 += 1
+                violations.push(SmtViolation(
+                  code = "AIPL004",
+                  message = "Precondition 'require' violated at call site for '" + calleeName + "': " + summarizeExpr(arena, reqId),
+                  counterexample = ce,
+                  span = e.span
+                ))
+            ri += 1
+
+  elif e.kind == "Array":
+    mut ai = 0
+    while ai < e.children.len:
+      violations = checkExprViolations(arena, hir, env, e.children[ai], violations)
+      ai += 1
+
+  elif e.kind == "ArrayRepeat":
+    violations = checkExprViolations(arena, hir, env, e.left, violations)
+    violations = checkExprViolations(arena, hir, env, e.right, violations)
+
+  elif e.kind == "IfExpr" or e.kind == "BlockIfExpr" or e.kind == "Ternary":
+    if e.cond >= 0:
+      violations = checkExprViolations(arena, hir, env, e.cond, violations)
+    let thenEnv = if e.cond >= 0: refineEnvFromCond(arena, envClone(env), e.cond, true) else: envClone(env)
+    if e.left >= 0:
+      violations = checkExprViolations(arena, hir, thenEnv, e.left, violations)
+    let elseEnv = if e.cond >= 0: refineEnvFromCond(arena, envClone(env), e.cond, false) else: envClone(env)
+    if e.right >= 0:
+      violations = checkExprViolations(arena, hir, elseEnv, e.right, violations)
+
+  elif e.kind == "Member" or e.kind == "Try":
+    violations = checkExprViolations(arena, hir, env, e.left, violations)
+
+  ret violations
+
+pub fn isInvariantStmt(arena: AstArena, st: StmtNode): bool:
+  if st.kind == "Invariant":
+    ret true
+  if st.kind == "ExprStmt" or st.kind == "Expr":
+    if st.exprId >= 0 and st.exprId < arena.exprs.len:
+      let e = arena.exprs[st.exprId]
+      if e.kind == "Call" and e.left >= 0 and arena.exprs[e.left].kind == "Ident":
+        let fnName = arena.exprs[e.left].strVal
+        if fnName == "invariant":
+          ret true
+  ret false
+
+pub fn getInvariantExprId(arena: AstArena, st: StmtNode): int:
+  if st.kind == "Invariant":
+    ret st.exprId
+  if st.kind == "ExprStmt" or st.kind == "Expr":
+    if st.exprId >= 0 and st.exprId < arena.exprs.len:
+      let e = arena.exprs[st.exprId]
+      if e.kind == "Call" and e.left >= 0 and arena.exprs[e.left].kind == "Ident":
+        if arena.exprs[e.left].strVal == "invariant" and e.children.len > 0:
+          ret e.children[0]
+  ret st.exprId
+
+pub fn isDecreasesStmt(arena: AstArena, st: StmtNode): bool:
+  if st.kind == "Decreases":
+    ret true
+  if st.kind == "ExprStmt" or st.kind == "Expr":
+    if st.exprId >= 0 and st.exprId < arena.exprs.len:
+      let e = arena.exprs[st.exprId]
+      if e.kind == "Call" and e.left >= 0 and arena.exprs[e.left].kind == "Ident":
+        let fnName = arena.exprs[e.left].strVal
+        if fnName == "decreases":
+          ret true
+  ret false
+
+pub fn getDecreasesExprId(arena: AstArena, st: StmtNode): int:
+  if st.kind == "Decreases":
+    ret st.exprId
+  if st.kind == "ExprStmt" or st.kind == "Expr":
+    if st.exprId >= 0 and st.exprId < arena.exprs.len:
+      let e = arena.exprs[st.exprId]
+      if e.kind == "Call" and e.left >= 0 and arena.exprs[e.left].kind == "Ident":
+        if arena.exprs[e.left].strVal == "decreases" and e.children.len > 0:
+          ret e.children[0]
+  ret st.exprId
+
+pub fn isAssertStmt(arena: AstArena, st: StmtNode): bool:
+  if st.kind == "Assert":
+    ret true
+  if st.kind == "ExprStmt" or st.kind == "Expr":
+    if st.exprId >= 0 and st.exprId < arena.exprs.len:
+      let e = arena.exprs[st.exprId]
+      if e.kind == "Call" and e.left >= 0 and arena.exprs[e.left].kind == "Ident":
+        let fnName = arena.exprs[e.left].strVal
+        if fnName == "assert":
+          ret true
+  ret false
+
+pub fn getAssertExprId(arena: AstArena, st: StmtNode): int:
+  if st.kind == "Assert":
+    ret st.exprId
+  if st.kind == "ExprStmt" or st.kind == "Expr":
+    if st.exprId >= 0 and st.exprId < arena.exprs.len:
+      let e = arena.exprs[st.exprId]
+      if e.kind == "Call" and e.left >= 0 and arena.exprs[e.left].kind == "Ident":
+        if arena.exprs[e.left].strVal == "assert" and e.children.len > 0:
+          ret e.children[0]
+  ret st.exprId
+
+pub fn collectMutatedVarsInStmts(arena: AstArena, stmtIds: [int], mut out: [str]): [str]:
+  mut si = 0
+  while si < stmtIds.len:
+    let sid = stmtIds[si]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Assign":
+        let lhs = stmtLhsExpr(st)
+        if lhs >= 0 and lhs < arena.exprs.len and arena.exprs[lhs].kind == "Ident":
+          let vName = arena.exprs[lhs].strVal
+          mut found = false
+          mut vi = 0
+          while vi < out.len:
+            if out[vi] == vName:
+              found = true
+            vi += 1
+          if not found:
+            out.push(vName)
+      if st.bodyStmts.len > 0:
+        out = collectMutatedVarsInStmts(arena, st.bodyStmts, out)
+      if st.elseStmts.len > 0:
+        out = collectMutatedVarsInStmts(arena, st.elseStmts, out)
+      if st.matchArms.len > 0:
+        out = collectMutatedVarsInStmts(arena, st.matchArms, out)
+    si += 1
+  ret out
+
+pub fn stmtListAlwaysExits(arena: AstArena, stmtIds: [int]): bool:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Return":
+        ret true
+      if st.kind == "Expr" or st.kind == "ExprStmt":
+        if st.exprId >= 0 and st.exprId < arena.exprs.len:
+          let e = arena.exprs[st.exprId]
+          if e.kind == "Call" and e.left >= 0 and e.left < arena.exprs.len:
+            let ce = arena.exprs[e.left]
+            if ce.kind == "Ident" and (ce.strVal == "panic" or ce.strVal == "exit"):
+              ret true
+      if st.kind == "If":
+        if st.elseStmts.len > 0:
+          if stmtListAlwaysExits(arena, st.bodyStmts) and stmtListAlwaysExits(arena, st.elseStmts):
+            ret true
+    i += 1
+  ret false
+
+pub fn collectVarsFromExpr(arena: AstArena, exprId: int, mut out: [str]): [str]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret out
+  let e = arena.exprs[exprId]
+  if e.kind == "Ident":
+    let name = e.strVal
+    if name != "true" and name != "false" and name != "nil" and name != "null":
+      mut found = false
+      mut i = 0
+      while i < out.len:
+        if out[i] == name:
+          found = true
+          break
+        i += 1
+      if not found:
+        out.push(name)
+  if e.left >= 0:
+    out = collectVarsFromExpr(arena, e.left, out)
+  if e.right >= 0:
+    out = collectVarsFromExpr(arena, e.right, out)
+  if e.cond >= 0:
+    out = collectVarsFromExpr(arena, e.cond, out)
+  mut ci = 0
+  while ci < e.children.len:
+    out = collectVarsFromExpr(arena, e.children[ci], out)
+    ci += 1
+  ret out
+
+pub fn stmtMutatesVar(arena: AstArena, stmt: StmtNode, varName: str): bool:
+  if stmt.kind == "Assign":
+    let lhs = stmtLhsExpr(stmt)
+    if lhs >= 0 and lhs < arena.exprs.len and arena.exprs[lhs].kind == "Ident":
+      if arena.exprs[lhs].strVal == varName:
+        ret true
+    if stmt.name == varName:
+      ret true
+  ret false
+
+pub fn stmtsMutateVar(arena: AstArena, stmtIds: [int], varName: str): bool:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if stmtMutatesVar(arena, st, varName):
+        ret true
+      if st.bodyStmts.len > 0 and stmtsMutateVar(arena, st.bodyStmts, varName):
+        ret true
+      if st.elseStmts.len > 0 and stmtsMutateVar(arena, st.elseStmts, varName):
+        ret true
+      if st.matchArms.len > 0 and stmtsMutateVar(arena, st.matchArms, varName):
+        ret true
+    i += 1
+  ret false
+
+pub fn hasTopLevelMutation(arena: AstArena, stmtIds: [int], varName: str): bool:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if stmtMutatesVar(arena, st, varName):
+        ret true
+    i += 1
+  ret false
+
+pub fn stmtListHasBreakOrReturn(arena: AstArena, stmtIds: [int]): bool:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Break" or st.kind == "Return":
+        ret true
+      if st.kind == "Expr" or st.kind == "ExprStmt":
+        if st.exprId >= 0 and st.exprId < arena.exprs.len:
+          let e = arena.exprs[st.exprId]
+          if e.kind == "Call" and e.left >= 0 and e.left < arena.exprs.len:
+            let ce = arena.exprs[e.left]
+            if ce.kind == "Ident" and (ce.strVal == "panic" or ce.strVal == "exit"):
+              ret true
+      if st.bodyStmts.len > 0 and stmtListHasBreakOrReturn(arena, st.bodyStmts):
+        ret true
+      if st.elseStmts.len > 0 and stmtListHasBreakOrReturn(arena, st.elseStmts):
+        ret true
+      if st.matchArms.len > 0 and stmtListHasBreakOrReturn(arena, st.matchArms):
+        ret true
+    i += 1
+  ret false
+
+pub fn hasTopLevelExit(arena: AstArena, stmtIds: [int]): bool:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Break" or st.kind == "Return":
+        ret true
+      if st.kind == "Expr" or st.kind == "ExprStmt":
+        if st.exprId >= 0 and st.exprId < arena.exprs.len:
+          let e = arena.exprs[st.exprId]
+          if e.kind == "Call" and e.left >= 0 and e.left < arena.exprs.len:
+            let ce = arena.exprs[e.left]
+            if ce.kind == "Ident" and (ce.strVal == "panic" or ce.strVal == "exit"):
+              ret true
+    i += 1
+  ret false
+
+pub fn checkInfiniteLoopRisk(arena: AstArena, condId: int, bodyStmts: [int]): bool:
+  if condId < 0 or bodyStmts.len == 0:
+    ret false
+  mut emptyVars: [str] = []
+  let condVars = collectVarsFromExpr(arena, condId, emptyVars)
+  if condVars.len == 0:
+    ret false
+
+  if hasTopLevelExit(arena, bodyStmts):
+    ret false
+
+  mut vi = 0
+  while vi < condVars.len:
+    let v = condVars[vi]
+    if stmtsMutateVar(arena, bodyStmts, v):
+      if not hasTopLevelMutation(arena, bodyStmts, v):
+        mut allMutationsInIfWithoutElse = true
+        mut foundIfWithoutElse = false
+        mut si = 0
+        while si < bodyStmts.len:
+          let sid = bodyStmts[si]
+          if sid >= 0 and sid < arena.stmts.len:
+            let st = arena.stmts[sid]
+            let mutatesV = stmtMutatesVar(arena, st, v) or (st.bodyStmts.len > 0 and stmtsMutateVar(arena, st.bodyStmts, v)) or (st.elseStmts.len > 0 and stmtsMutateVar(arena, st.elseStmts, v)) or (st.matchArms.len > 0 and stmtsMutateVar(arena, st.matchArms, v))
+            if mutatesV:
+              if st.kind == "If" and st.elseStmts.len == 0 and not stmtListHasBreakOrReturn(arena, st.bodyStmts):
+                foundIfWithoutElse = true
+              else:
+                allMutationsInIfWithoutElse = false
+                break
+          si += 1
+        if foundIfWithoutElse and allMutationsInIfWithoutElse:
+          ret true
+    vi += 1
+
+  ret false
+
+pub fn checkStmtInfiniteLoopRisk(arena: AstArena, stmtId: int, mut diags: [CompilerDiagnostic]): [CompilerDiagnostic]:
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret diags
+  let st = arena.stmts[stmtId]
+  if st.kind == "While" and st.condExpr >= 0:
+    if checkInfiniteLoopRisk(arena, st.condExpr, st.bodyStmts):
+      diags.push(CompilerDiagnostic(
+        code = AIPL_E_INFINITE_LOOP_RISK,
+        message = "Indentation-induced infinite loop risk: loop variable mutated only inside conditional 'if' branch without 'else'",
+        span = st.span
+      ))
+  mut bi = 0
+  while bi < st.bodyStmts.len:
+    diags = checkStmtInfiniteLoopRisk(arena, st.bodyStmts[bi], diags)
+    bi += 1
+  mut ei = 0
+  while ei < st.elseStmts.len:
+    diags = checkStmtInfiniteLoopRisk(arena, st.elseStmts[ei], diags)
+    ei += 1
+  mut mi = 0
+  while mi < st.matchArms.len:
+    diags = checkStmtInfiniteLoopRisk(arena, st.matchArms[mi], diags)
+    mi += 1
+  ret diags
+
+pub fn checkFunctionInfiniteLoopRisks(arena: AstArena, f: HirFunction): [CompilerDiagnostic]:
+  mut diags: [CompilerDiagnostic] = []
+  mut si = 0
+  while si < f.bodyStmts.len:
+    diags = checkStmtInfiniteLoopRisk(arena, f.bodyStmts[si], diags)
+    si += 1
+  ret diags
+
+pub fn checkModuleInfiniteLoopRisks(hir: HirModule): [CompilerDiagnostic]:
+  mut diags: [CompilerDiagnostic] = []
+  mut fi = 0
+  while fi < hir.functions.len:
+    let fDiags = checkFunctionInfiniteLoopRisks(hir.arena, hir.functions[fi])
+    mut di = 0
+    while di < fDiags.len:
+      diags.push(fDiags[di])
+      di += 1
+    fi += 1
+  ret diags
+
+pub fn widenMutatedVars(arena: AstArena, mut env: SmtEnv, stmtIds: [int], invExprIds: [int]): SmtEnv:
+  let emptyMuts: [str] = []
+  let mutatedVars = collectMutatedVarsInStmts(arena, stmtIds, emptyMuts)
+
+  mut mi = 0
+  while mi < mutatedVars.len:
+    let mv = mutatedVars[mi]
+    env = smtEnvEnsureDbmOwned(env)
+    env.dbm = dbmResetVar(env.dbm, mv)
+    let curIv = envGetInterval(env, mv)
+    mut boundedHi = false
+    mut boundedLo = false
+    mut ii = 0
+    while ii < invExprIds.len:
+      let invId = invExprIds[ii]
+      if invId >= 0 and invId < arena.exprs.len:
+        let ie = arena.exprs[invId]
+        if ie.kind == "Binary":
+          let lv = extractVarNameFromExpr(arena, ie.left)
+          let rv = extractVarNameFromExpr(arena, ie.right)
+          if lv == mv or rv == mv:
+            if ie.op == "<" or ie.op == "<=":
+              if lv == mv:
+                boundedHi = true
+              else:
+                boundedLo = true
+            elif ie.op == ">" or ie.op == ">=":
+              if lv == mv:
+                boundedLo = true
+              else:
+                boundedHi = true
+      ii += 1
+    mut newLo = curIv.lo
+    mut newHi = curIv.hi
+    if not boundedHi and newHi < 1000000000:
+      newHi = 1000000000
+    if not boundedLo and newLo > -1000000000:
+      newLo = -1000000000
+    env = envSetInterval(env, mv, SmtInterval(
+      name = mv,
+      lo = newLo,
+      hi = newHi,
+      nonZero = (newLo > 0 or newHi < 0),
+      known = (boundedHi or boundedLo) and curIv.known
+    ))
+    mi += 1
+  ret env
+
+pub fn simulateStmtListEffects(arena: AstArena, hir: HirModule, mut env: SmtEnv, stmtIds: [int]): SmtEnv:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Let" or st.kind == "VarDecl":
+        if st.exprId >= 0:
+          let iv = evalExprInterval(arena, env, st.exprId)
+          if iv.known:
+            env = envSetInterval(env, st.name, SmtInterval(
+              name = st.name,
+              lo = iv.lo,
+              hi = iv.hi,
+              nonZero = iv.nonZero,
+              known = true
+            ))
+          let rhsVar = extractVarNameFromExpr(arena, st.exprId)
+          if rhsVar.len > 0:
+            env = smtEnvEnsureDbmOwned(env)
+            env.dbm = dbmAddDiffConstraint(env.dbm, st.name, rhsVar, 0)
+            env.dbm = dbmAddDiffConstraint(env.dbm, rhsVar, st.name, 0)
+            env.dbm = dbmFloydWarshallClosure(env.dbm)
+            env = dbmTightenEnvIntervals(env)
+      elif st.kind == "Assign":
+        let lhsId = stmtLhsExpr(st)
+        let rhsId = stmtRhsExpr(st)
+        if lhsId >= 0 and rhsId >= 0 and arena.exprs[lhsId].kind == "Ident":
+          let varName = arena.exprs[lhsId].strVal
+          if st.name == "+=":
+            let lIv = envGetInterval(env, varName)
+            let rIv = evalExprInterval(arena, env, rhsId)
+            env = envSetInterval(env, varName, smtIntervalAdd(lIv, rIv))
+          elif st.name == "-=":
+            let lIv = envGetInterval(env, varName)
+            let rIv = evalExprInterval(arena, env, rhsId)
+            env = envSetInterval(env, varName, smtIntervalSub(lIv, rIv))
+          else:
+            let iv = evalExprInterval(arena, env, rhsId)
+            if iv.known:
+              env = envSetInterval(env, varName, SmtInterval(
+                name = varName,
+                lo = iv.lo,
+                hi = iv.hi,
+                nonZero = iv.nonZero,
+                known = true
+              ))
+            else:
+              env = envSetInterval(env, varName, smtIntervalUnknown(varName))
+            let rhsVar = extractVarNameFromExpr(arena, rhsId)
+            if rhsVar.len > 0:
+              env = smtEnvEnsureDbmOwned(env)
+              env.dbm = dbmAddDiffConstraint(env.dbm, varName, rhsVar, 0)
+              env.dbm = dbmAddDiffConstraint(env.dbm, rhsVar, varName, 0)
+              env.dbm = dbmFloydWarshallClosure(env.dbm)
+              env = dbmTightenEnvIntervals(env)
+      elif st.kind == "Require" or st.kind == "Assert":
+        if st.exprId >= 0:
+          env = refineEnvFromCond(arena, env, st.exprId, true)
+    i += 1
+  ret env
+
+pub fn buildContractTable(arena: AstArena, hir: HirModule): InterproceduralContractTable:
+  mut table: [FunctionContractSummary] = []
+  mut fi = 0
+  while fi < hir.functions.len:
+    let f = hir.functions[fi]
+    mut reqs: [int] = []
+    mut enss: [int] = []
+    mut ri = 0
+    while ri < f.requiresExprs.len:
+      reqs.push(f.requiresExprs[ri])
+      ri += 1
+    mut ei = 0
+    while ei < f.ensuresExprs.len:
+      enss.push(f.ensuresExprs[ei])
+      ei += 1
+    mut si = 0
+    while si < f.bodyStmts.len:
+      let sid = f.bodyStmts[si]
+      if sid >= 0 and sid < arena.stmts.len:
+        let st = arena.stmts[sid]
+        if st.kind == "Require" and st.exprId >= 0:
+          reqs.push(st.exprId)
+        elif st.kind == "Ensure" and st.exprId >= 0:
+          enss.push(st.exprId)
+      si += 1
+
+    mut retEnv = envNew()
+    retEnv = envSetInterval(retEnv, "ret", smtIntervalUnknown("ret"))
+    retEnv = envSetInterval(retEnv, "result", smtIntervalUnknown("result"))
+    mut ej = 0
+    while ej < enss.len:
+      retEnv = refineEnvFromCond(arena, retEnv, enss[ej], true)
+      ej += 1
+    let retIv1 = envGetInterval(retEnv, "ret")
+    let retIv2 = envGetInterval(retEnv, "result")
+    let retIv = smtIntervalIntersect(retIv1, retIv2)
+
+    table.push(FunctionContractSummary(
+      name = f.name,
+      params = f.paramNames,
+      requiresExprs = reqs,
+      ensuresExprs = enss,
+      retInterval = retIv
+    ))
+    fi += 1
+  ret InterproceduralContractTable(summaries = table)
+
+pub fn checkStmtListSmt(arena: AstArena, hir: HirModule, mut env: SmtEnv, stmtIds: [int], mut violations: [SmtViolation]): [SmtViolation]:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Let" or st.kind == "VarDecl":
+        if st.exprId >= 0:
+          violations = checkExprViolations(arena, hir, env, st.exprId, violations)
+          let iv = evalExprInterval(arena, env, st.exprId)
+          if iv.known:
+            env = envSetInterval(env, st.name, SmtInterval(
+              name = st.name,
+              lo = iv.lo,
+              hi = iv.hi,
+              nonZero = iv.nonZero,
+              known = true
+            ))
+
+          // Track array literal length
+          if not st.isMut:
+            let exprNode = arena.exprs[st.exprId]
+            if exprNode.kind == "Array":
+              env = envSetArrLen(env, st.name, exprNode.children.len)
+            elif exprNode.kind == "ArrayRepeat":
+              let cntIv = evalExprInterval(arena, env, exprNode.right)
+              if cntIv.known and cntIv.lo == cntIv.hi:
+                env = envSetArrLen(env, st.name, cntIv.lo)
+
+          let rhsVar = extractVarNameFromExpr(arena, st.exprId)
+          if rhsVar.len > 0:
+            env = smtEnvEnsureDbmOwned(env)
+            env.dbm = dbmAddDiffConstraint(env.dbm, st.name, rhsVar, 0)
+            env.dbm = dbmAddDiffConstraint(env.dbm, rhsVar, st.name, 0)
+            env.dbm = dbmFloydWarshallClosure(env.dbm)
+            env = dbmTightenEnvIntervals(env)
+
+          // AIPL003: refinement predicate on let binding
+          if st.typeId >= 0:
+            let refNodeId = resolveRefinementType(arena, st.typeId)
+            if refNodeId >= 0:
+              let refNode = arena.types[refNodeId]
+              if iv.known and iv.lo == iv.hi:
+                let val = iv.lo
+                if not evalPredicateWithVal(arena, refNode.refinePredExpr, refNode.refineVar, val):
+                  violations.push(SmtViolation(
+                    code = "AIPL003",
+                    message = "Refinement predicate violation: constant " + str(val) + " does not satisfy refinement for '" + st.name + "'",
+                    counterexample = refNode.refineVar + " = " + str(val),
+                    span = st.span
+                  ))
+
+      elif st.kind == "Assign":
+        let lhsId = stmtLhsExpr(st)
+        let rhsId = stmtRhsExpr(st)
+        if lhsId >= 0:
+          violations = checkExprViolations(arena, hir, env, lhsId, violations)
+        if rhsId >= 0:
+          violations = checkExprViolations(arena, hir, env, rhsId, violations)
+          if lhsId >= 0 and arena.exprs[lhsId].kind == "Ident":
+            let varName = arena.exprs[lhsId].strVal
+            env = smtEnvEnsureDbmOwned(env)
+            env.dbm = dbmResetVar(env.dbm, varName)
+            if st.name == "+=":
+              let lIv = envGetInterval(env, varName)
+              let rIv = evalExprInterval(arena, env, rhsId)
+              env = envSetInterval(env, varName, smtIntervalAdd(lIv, rIv))
+            elif st.name == "-=":
+              let lIv = envGetInterval(env, varName)
+              let rIv = evalExprInterval(arena, env, rhsId)
+              env = envSetInterval(env, varName, smtIntervalSub(lIv, rIv))
+            else:
+              let iv = evalExprInterval(arena, env, rhsId)
+              if iv.known:
+                env = envSetInterval(env, varName, SmtInterval(
+                  name = varName,
+                  lo = iv.lo,
+                  hi = iv.hi,
+                  nonZero = iv.nonZero,
+                  known = true
+                ))
+              else:
+                env = envSetInterval(env, varName, smtIntervalUnknown(varName))
+              let rhsVar = extractVarNameFromExpr(arena, rhsId)
+              if rhsVar.len > 0:
+                env = smtEnvEnsureDbmOwned(env)
+                env.dbm = dbmAddDiffConstraint(env.dbm, varName, rhsVar, 0)
+                env.dbm = dbmAddDiffConstraint(env.dbm, rhsVar, varName, 0)
+                env.dbm = dbmFloydWarshallClosure(env.dbm)
+                env = dbmTightenEnvIntervals(env)
+
+      elif isAssertStmt(arena, st):
+        let assertExprId = getAssertExprId(arena, st)
+        if assertExprId >= 0:
+          violations = checkExprViolations(arena, hir, env, assertExprId, violations)
+          if st.kind == "Assert":
+            let truth = evalCondTruth(arena, env, assertExprId)
+            if truth == -1 and not isContradictionPredicate(summarizeExpr(arena, assertExprId)):
+              violations.push(SmtViolation(
+                code = AIPL_E3003_CONTRACT_ASSERT,
+                message = "Assertion condition provably violated: " + summarizeExpr(arena, assertExprId),
+                counterexample = "assert expression evaluates to false",
+                span = st.span
+              ))
+          if not isContradictionPredicate(summarizeExpr(arena, assertExprId)):
+            env = refineEnvFromCond(arena, env, assertExprId, true)
+
+      elif st.kind == "Expr" or st.kind == "ExprStmt" or st.kind == "Discard":
+        if st.exprId >= 0:
+          violations = checkExprViolations(arena, hir, env, st.exprId, violations)
+          let eNode = arena.exprs[st.exprId]
+          if eNode.kind == "Call" and eNode.left >= 0 and arena.exprs[eNode.left].kind == "Member":
+            let mNode = arena.exprs[eNode.left]
+            if mNode.strVal == "push" and mNode.left >= 0 and arena.exprs[mNode.left].kind == "Ident":
+              let arrName = arena.exprs[mNode.left].strVal
+              env = envSetArrLen(env, arrName, -1)
+
+      elif st.kind == "Require":
+        if st.exprId >= 0:
+          violations = checkExprViolations(arena, hir, env, st.exprId, violations)
+          env = refineEnvFromCond(arena, env, st.exprId, true)
+
+      elif st.kind == "Ensure":
+        if st.exprId >= 0:
+          violations = checkExprViolations(arena, hir, env, st.exprId, violations)
+
+      elif st.kind == "Invariant":
+        if st.exprId >= 0:
+          violations = checkExprViolations(arena, hir, env, st.exprId, violations)
+          env = refineEnvFromCond(arena, env, st.exprId, true)
+
+      elif st.kind == "Decreases":
+        if st.exprId >= 0:
+          violations = checkExprViolations(arena, hir, env, st.exprId, violations)
+
+      elif st.kind == "Return":
+        if st.exprId >= 0:
+          violations = checkExprViolations(arena, hir, env, st.exprId, violations)
+          if env.fnEnsures.len > 0:
+            let retIv = evalExprInterval(arena, env, st.exprId)
+            mut retEnv = envClone(env)
+            retEnv = envSetInterval(retEnv, "ret", SmtInterval(
+              name = "ret",
+              lo = retIv.lo,
+              hi = retIv.hi,
+              nonZero = retIv.nonZero,
+              known = retIv.known
+            ))
+            retEnv = envSetInterval(retEnv, "result", SmtInterval(
+              name = "result",
+              lo = retIv.lo,
+              hi = retIv.hi,
+              nonZero = retIv.nonZero,
+              known = retIv.known
+            ))
+            let retVarName = extractVarNameFromExpr(arena, st.exprId)
+            if retVarName.len > 0:
+              retEnv = smtEnvEnsureDbmOwned(retEnv)
+              retEnv.dbm = dbmAddDiffConstraint(retEnv.dbm, "ret", retVarName, 0)
+              retEnv.dbm = dbmAddDiffConstraint(retEnv.dbm, retVarName, "ret", 0)
+              retEnv.dbm = dbmAddDiffConstraint(retEnv.dbm, "result", retVarName, 0)
+              retEnv.dbm = dbmAddDiffConstraint(retEnv.dbm, retVarName, "result", 0)
+              retEnv.dbm = dbmFloydWarshallClosure(retEnv.dbm)
+              retEnv = dbmTightenEnvIntervals(retEnv)
+
+            mut ei = 0
+            while ei < env.fnEnsures.len:
+              let ensId = env.fnEnsures[ei]
+              if not isContradictionPredicate(summarizeExpr(arena, ensId)):
+                let truth = evalCondTruth(arena, retEnv, ensId)
+                if truth == -1:
+                  violations.push(SmtViolation(
+                    code = AIPL_E3003_CONTRACT_ENSURES,
+                    message = "Contract ensures postcondition violated: " + summarizeExpr(arena, ensId),
+                    counterexample = "return value provably violates ensures predicate",
+                    span = st.span
+                  ))
+              ei += 1
+
+      elif st.kind == "If":
+        if st.condExpr >= 0:
+          violations = checkExprViolations(arena, hir, env, st.condExpr, violations)
+          let thenEnv = refineEnvFromCond(arena, envClone(env), st.condExpr, true)
+          violations = checkStmtListSmt(arena, hir, thenEnv, st.bodyStmts, violations)
+          if st.elseStmts.len > 0:
+            let elseEnv = refineEnvFromCond(arena, envClone(env), st.condExpr, false)
+            violations = checkStmtListSmt(arena, hir, elseEnv, st.elseStmts, violations)
+          else:
+            if stmtListAlwaysExits(arena, st.bodyStmts):
+              env = refineEnvFromCond(arena, env, st.condExpr, false)
+
+          mut mutatedToReset: [str] = []
+          if not stmtListAlwaysExits(arena, st.bodyStmts):
+            mutatedToReset = collectMutatedVarsInStmts(arena, st.bodyStmts, mutatedToReset)
+          if st.elseStmts.len > 0 and not stmtListAlwaysExits(arena, st.elseStmts):
+            mutatedToReset = collectMutatedVarsInStmts(arena, st.elseStmts, mutatedToReset)
+          mut mii = 0
+          while mii < mutatedToReset.len:
+            let mv = mutatedToReset[mii]
+            env = envSetInterval(env, mv, smtIntervalUnknown(mv))
+            env = smtEnvEnsureDbmOwned(env)
+            env.dbm = dbmResetVar(env.dbm, mv)
+            mii += 1
+
+      elif st.kind == "While":
+        if st.condExpr >= 0:
+          violations = checkExprViolations(arena, hir, env, st.condExpr, violations)
+          if (env.strictLoopAudit or strArrayContains(env.varNames, "@verify_loops")) and checkInfiniteLoopRisk(arena, st.condExpr, st.bodyStmts):
+            violations.push(SmtViolation(
+              code = AIPL_E_INFINITE_LOOP_RISK,
+              message = "Indentation-induced infinite loop risk: loop variable mutated only inside conditional 'if' branch without 'else'",
+              counterexample = "when condition is false, loop variable is never updated and loop does not terminate",
+              span = st.span
+            ))
+
+        // 1. Scan body for Invariant and Decreases statements
+        mut invStmtIds: [int] = []
+        mut decStmtIds: [int] = []
+        mut bi = 0
+        while bi < st.bodyStmts.len:
+          let bsId = st.bodyStmts[bi]
+          if bsId >= 0 and bsId < arena.stmts.len:
+            let bs = arena.stmts[bsId]
+            if isInvariantStmt(arena, bs):
+              invStmtIds.push(bsId)
+            elif isDecreasesStmt(arena, bs):
+              decStmtIds.push(bsId)
+          bi += 1
+
+        if invStmtIds.len == 0 and decStmtIds.len == 0:
+          let loopEnv = refineEnvFromCond(arena, envClone(env), st.condExpr, true)
+          violations = checkStmtListSmt(arena, hir, loopEnv, st.bodyStmts, violations)
+        else:
+          // 2. Base Case: verify each invariant is not provably false on entry
+          mut ii = 0
+          while ii < invStmtIds.len:
+            let invSid = invStmtIds[ii]
+            let invStmt = arena.stmts[invSid]
+            let invExprId = getInvariantExprId(arena, invStmt)
+            if invExprId >= 0:
+              let truth = evalCondTruth(arena, env, invExprId)
+              if truth == -1:
+                violations.push(SmtViolation(
+                  code = AIPL_E3004_LOOP_INVARIANT,
+                  message = "Loop invariant violated on entry: " + summarizeExpr(arena, invExprId),
+                  counterexample = "invariant evaluates to false before loop entry",
+                  span = invStmt.span
+                ))
+            ii += 1
+
+          // 3. Inductive Step: construct loopEnv
+          mut loopEnv = envClone(env)
+          if st.condExpr >= 0:
+            loopEnv = refineEnvFromCond(arena, loopEnv, st.condExpr, true)
+          mut ii2 = 0
+          mut invExprList: [int] = []
+          while ii2 < invStmtIds.len:
+            let invSid = invStmtIds[ii2]
+            let invExprId = getInvariantExprId(arena, arena.stmts[invSid])
+            if invExprId >= 0:
+              invExprList.push(invExprId)
+              loopEnv = refineEnvFromCond(arena, loopEnv, invExprId, true)
+            ii2 += 1
+
+          // 4. Decreases: initial rank check
+          mut di = 0
+          while di < decStmtIds.len:
+            let decSid = decStmtIds[di]
+            let decStmt = arena.stmts[decSid]
+            let decExprId = getDecreasesExprId(arena, decStmt)
+            if decExprId >= 0:
+              let initialRank = evalExprInterval(arena, loopEnv, decExprId)
+              if initialRank.known and initialRank.hi < 0:
+                violations.push(SmtViolation(
+                  code = AIPL_E3005_LOOP_TERMINATION,
+                  message = "Loop decreases expression must be non-negative: " + summarizeExpr(arena, decExprId),
+                  counterexample = "initial decreases rank upper bound " + str(initialRank.hi) + " < 0",
+                  span = decStmt.span
+                ))
+            di += 1
+
+          // 5. Widen mutated variables and step through loop body
+          loopEnv = widenMutatedVars(arena, loopEnv, st.bodyStmts, invExprList)
+          violations = checkStmtListSmt(arena, hir, loopEnv, st.bodyStmts, violations)
+
+          // 6. Post-body check: simulate body to get postBodyEnv
+          let postBodyEnv = simulateStmtListEffects(arena, hir, loopEnv, st.bodyStmts)
+
+          // Verify invariant after loop body
+          mut ii3 = 0
+          while ii3 < invStmtIds.len:
+            let invSid = invStmtIds[ii3]
+            let invStmt = arena.stmts[invSid]
+            let invExprId = getInvariantExprId(arena, invStmt)
+            if invExprId >= 0:
+              let truth = evalCondTruth(arena, postBodyEnv, invExprId)
+              if truth == -1:
+                violations.push(SmtViolation(
+                  code = AIPL_E3004_LOOP_INVARIANT,
+                  message = "Loop invariant inductive step violated after loop body: " + summarizeExpr(arena, invExprId),
+                  counterexample = "invariant evaluates to false after executing loop body",
+                  span = invStmt.span
+                ))
+            ii3 += 1
+
+          // Verify decreases rank strictly decreases after body
+          mut di2 = 0
+          while di2 < decStmtIds.len:
+            let decSid = decStmtIds[di2]
+            let decStmt = arena.stmts[decSid]
+            let decExprId = getDecreasesExprId(arena, decStmt)
+            if decExprId >= 0:
+              let initialRank = evalExprInterval(arena, loopEnv, decExprId)
+              let postRank = evalExprInterval(arena, postBodyEnv, decExprId)
+              if initialRank.known and postRank.known and postRank.lo > initialRank.hi:
+                violations.push(SmtViolation(
+                  code = AIPL_E3005_LOOP_TERMINATION,
+                  message = "Loop decreases expression must decrease across iterations: " + summarizeExpr(arena, decExprId),
+                  counterexample = "rank did not decrease: post-body lo " + str(postRank.lo) + " > pre-body hi " + str(initialRank.hi),
+                  span = decStmt.span
+                ))
+            di2 += 1
+
+        let emptyMutsWhile: [str] = []
+        let mutatedInLoop = collectMutatedVarsInStmts(arena, st.bodyStmts, emptyMutsWhile)
+        mut mli = 0
+        while mli < mutatedInLoop.len:
+          let mv = mutatedInLoop[mli]
+          env = envSetInterval(env, mv, smtIntervalUnknown(mv))
+          env = smtEnvEnsureDbmOwned(env)
+          env.dbm = dbmResetVar(env.dbm, mv)
+          mli += 1
+
+      elif st.kind == "For":
+        if st.exprId >= 0:
+          violations = checkExprViolations(arena, hir, env, st.exprId, violations)
+        mut loopEnv = envClone(env)
+        if st.exprId >= 0:
+          let iterExpr = arena.exprs[st.exprId]
+          if iterExpr.kind == "Binary" and (iterExpr.op == ".." or iterExpr.op == "..="):
+            let sIv = evalExprInterval(arena, env, iterExpr.left)
+            let eIv = evalExprInterval(arena, env, iterExpr.right)
+            if sIv.known and eIv.known:
+              let lo = sIv.lo
+              let hi = if iterExpr.op == "..": eIv.hi - 1 else: eIv.hi
+              loopEnv = envSetInterval(loopEnv, st.name, SmtInterval(
+                name = st.name,
+                lo = lo,
+                hi = hi,
+                nonZero = (lo > 0 or hi < 0),
+                known = true
+              ))
+            let rVar = extractVarNameFromExpr(arena, iterExpr.right)
+            if rVar.len > 0:
+              let bound = if iterExpr.op == "..": -1 else: 0
+              loopEnv = smtEnvEnsureDbmOwned(loopEnv)
+              loopEnv.dbm = dbmAddDiffConstraint(loopEnv.dbm, st.name, rVar, bound)
+              loopEnv.dbm = dbmFloydWarshallClosure(loopEnv.dbm)
+              loopEnv = dbmTightenEnvIntervals(loopEnv)
+        violations = checkStmtListSmt(arena, hir, loopEnv, st.bodyStmts, violations)
+        let emptyMutsFor: [str] = []
+        let mutatedInFor = collectMutatedVarsInStmts(arena, st.bodyStmts, emptyMutsFor)
+        mut mfi = 0
+        while mfi < mutatedInFor.len:
+          let mv = mutatedInFor[mfi]
+          env = envSetInterval(env, mv, smtIntervalUnknown(mv))
+          env = smtEnvEnsureDbmOwned(env)
+          env.dbm = dbmResetVar(env.dbm, mv)
+          mfi += 1
+
+      elif st.kind == "Match":
+        if st.exprId >= 0:
+          violations = checkExprViolations(arena, hir, env, st.exprId, violations)
+        mut ai = 0
+        while ai < st.matchArms.len:
+          let armId = st.matchArms[ai]
+          if armId >= 0 and armId < arena.stmts.len:
+            let arm = arena.stmts[armId]
+            violations = checkStmtListSmt(arena, hir, envClone(env), arm.bodyStmts, violations)
+          ai += 1
+
+      elif st.kind == "Block":
+        violations = checkStmtListSmt(arena, hir, env, st.bodyStmts, violations)
+
+    i += 1
+  ret violations
+
+pub fn exprNeedsSmt(arena: AstArena, exprId: int): bool:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret false
+  let e = arena.exprs[exprId]
+  if e.kind == "Binary":
+    if e.op == "/" or e.op == "//" or e.op == "%" or e.op == "%%":
+      ret true
+    if exprNeedsSmt(arena, e.left):
+      ret true
+    ret exprNeedsSmt(arena, e.right)
+  if e.kind == "Index":
+    ret true
+  if e.kind == "Call" or e.kind == "Member" or e.kind == "Unary":
+    if exprNeedsSmt(arena, e.left):
+      ret true
+    if exprNeedsSmt(arena, e.right):
+      ret true
+  if e.kind == "DoBlock" or e.kind == "MatchExpr" or e.kind == "BlockIfExpr":
+    mut sci = 0
+    while sci < e.children.len:
+      if stmtNeedsSmt(arena, e.children[sci]):
+        ret true
+      sci += 1
+    ret false
+  mut ci = 0
+  while ci < e.children.len:
+    if exprNeedsSmt(arena, e.children[ci]):
+      ret true
+    ci += 1
+  ret false
+
+pub fn stmtNeedsSmt(arena: AstArena, stmtId: int): bool:
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret false
+  let st = arena.stmts[stmtId]
+  if st.kind == "Require" or st.kind == "Ensure":
+    ret true
+  if isAssertStmt(arena, st) or isInvariantStmt(arena, st) or isDecreasesStmt(arena, st):
+    ret true
+  if st.exprId >= 0 and exprNeedsSmt(arena, st.exprId):
+    ret true
+  if st.condExpr >= 0 and exprNeedsSmt(arena, st.condExpr):
+    ret true
+  mut bi = 0
+  while bi < st.bodyStmts.len:
+    if stmtNeedsSmt(arena, st.bodyStmts[bi]):
+      ret true
+    bi += 1
+  mut ei = 0
+  while ei < st.elseStmts.len:
+    if stmtNeedsSmt(arena, st.elseStmts[ei]):
+      ret true
+    ei += 1
+  mut mi = 0
+  while mi < st.matchArms.len:
+    if stmtNeedsSmt(arena, st.matchArms[mi]):
+      ret true
+    mi += 1
+  ret false
+
+pub fn exprHasDivOrMod(arena: AstArena, exprId: int): bool:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret false
+  let e = arena.exprs[exprId]
+  if e.kind == "Binary" and (e.op == "/" or e.op == "//" or e.op == "%" or e.op == "%%"):
+    ret true
+  if e.left >= 0 and exprHasDivOrMod(arena, e.left):
+    ret true
+  if e.right >= 0 and exprHasDivOrMod(arena, e.right):
+    ret true
+  if e.cond >= 0 and exprHasDivOrMod(arena, e.cond):
+    ret true
+  if e.kind == "DoBlock" or e.kind == "MatchExpr" or e.kind == "BlockIfExpr":
+    mut sci = 0
+    while sci < e.children.len:
+      if stmtHasContractOrAssertOrDivMod(arena, e.children[sci]):
+        ret true
+      sci += 1
+    ret false
+  mut ci = 0
+  while ci < e.children.len:
+    if exprHasDivOrMod(arena, e.children[ci]):
+      ret true
+    ci += 1
+  ret false
+
+pub fn stmtHasContractOrAssertOrDivMod(arena: AstArena, stmtId: int): bool:
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret false
+  let st = arena.stmts[stmtId]
+  if st.kind == "Require" or st.kind == "Ensure":
+    ret true
+  if isAssertStmt(arena, st) or isInvariantStmt(arena, st) or isDecreasesStmt(arena, st):
+    ret true
+  if st.typeId >= 0 and resolveRefinementType(arena, st.typeId) >= 0:
+    ret true
+  if st.kind == "Assign" and (st.name == "/=" or st.name == "%="):
+    ret true
+  if st.exprId >= 0 and exprHasDivOrMod(arena, st.exprId):
+    ret true
+  if st.condExpr >= 0 and exprHasDivOrMod(arena, st.condExpr):
+    ret true
+  mut bi = 0
+  while bi < st.bodyStmts.len:
+    if stmtHasContractOrAssertOrDivMod(arena, st.bodyStmts[bi]):
+      ret true
+    bi += 1
+  mut ei = 0
+  while ei < st.elseStmts.len:
+    if stmtHasContractOrAssertOrDivMod(arena, st.elseStmts[ei]):
+      ret true
+    ei += 1
+  mut mi = 0
+  while mi < st.matchArms.len:
+    if stmtHasContractOrAssertOrDivMod(arena, st.matchArms[mi]):
+      ret true
+    mi += 1
+  ret false
+
+pub fn exprIsStringArrayPush(arena: AstArena, exprId: int): bool:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret false
+  let e = arena.exprs[exprId]
+  if e.kind == "Call" and e.left >= 0 and arena.exprs[e.left].kind == "Member":
+    let m = arena.exprs[e.left]
+    if m.strVal == "push":
+      ret true
+  ret false
+
+pub fn stmtHasStringArrayPush(arena: AstArena, stmtId: int): bool:
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret false
+  let st = arena.stmts[stmtId]
+  if (st.kind == "Expr" or st.kind == "ExprStmt") and st.exprId >= 0:
+    if exprIsStringArrayPush(arena, st.exprId):
+      ret true
+  mut bi = 0
+  while bi < st.bodyStmts.len:
+    if stmtHasStringArrayPush(arena, st.bodyStmts[bi]):
+      ret true
+    bi += 1
+  mut ei = 0
+  while ei < st.elseStmts.len:
+    if stmtHasStringArrayPush(arena, st.elseStmts[ei]):
+      ret true
+    ei += 1
+  mut mi = 0
+  while mi < st.matchArms.len:
+    if stmtHasStringArrayPush(arena, st.matchArms[mi]):
+      ret true
+    mi += 1
+  ret false
+
+pub fn funcOnlyConstructsStringArrays(arena: AstArena, f: HirFunction): bool:
+  if f.requiresExprs.len > 0 or f.ensuresExprs.len > 0:
+    ret false
+  mut hasPush = false
+  mut i = 0
+  while i < f.bodyStmts.len:
+    let sid = f.bodyStmts[i]
+    if stmtHasContractOrAssertOrDivMod(arena, sid):
+      ret false
+    if not hasPush and stmtHasStringArrayPush(arena, sid):
+      hasPush = true
+    i += 1
+  ret hasPush
+
+// Functions whose call sites carry proof obligations: `require` preconditions (signature or
+// body-level) or refinement-typed parameters. Callers of these must always be SMT-verified.
+pub fn buildContractedCalleeMap(arena: AstArena, hir: HirModule): Map[str, bool]:
+  mut callees: Map[str, bool] = Map.new()
+  mut fi = 0
+  while fi < hir.functions.len:
+    let f = hir.functions[fi]
+    mut contracted = f.requiresExprs.len > 0
+    if not contracted:
+      mut si = 0
+      while si < f.bodyStmts.len:
+        let sid = f.bodyStmts[si]
+        if sid >= 0 and sid < arena.stmts.len and arena.stmts[sid].kind == "Require":
+          contracted = true
+          break
+        si += 1
+    if not contracted:
+      mut pi = 0
+      while pi < f.paramTypes.len:
+        if findRefinementDeclByName(arena, f.paramTypes[pi]) >= 0:
+          contracted = true
+          break
+        pi += 1
+    if contracted:
+      callees.set(f.name, true)
+    fi += 1
+  ret callees
+
+pub fn exprCallsContractedFn(arena: AstArena, exprId: int, callees: Map[str, bool]): bool:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret false
+  let e = arena.exprs[exprId]
+  if e.kind == "Call" and e.left >= 0 and e.left < arena.exprs.len:
+    let callee = arena.exprs[e.left]
+    if callee.kind == "Ident" and callees.containsKey(callee.strVal):
+      ret true
+  if exprCallsContractedFn(arena, e.left, callees) or exprCallsContractedFn(arena, e.right, callees) or exprCallsContractedFn(arena, e.cond, callees):
+    ret true
+  let childrenAreStmts = e.kind == "DoBlock" or e.kind == "MatchExpr" or e.kind == "BlockIfExpr"
+  mut ci = 0
+  while ci < e.children.len:
+    let ch = e.children[ci]
+    if childrenAreStmts:
+      if stmtCallsContractedFn(arena, ch, callees):
+        ret true
+    elif exprCallsContractedFn(arena, ch, callees):
+      ret true
+    ci += 1
+  ret false
+
+pub fn stmtCallsContractedFn(arena: AstArena, stmtId: int, callees: Map[str, bool]): bool:
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret false
+  let st = arena.stmts[stmtId]
+  if exprCallsContractedFn(arena, st.exprId, callees) or exprCallsContractedFn(arena, st.condExpr, callees):
+    ret true
+  mut bi = 0
+  while bi < st.bodyStmts.len:
+    if stmtCallsContractedFn(arena, st.bodyStmts[bi], callees):
+      ret true
+    bi += 1
+  mut ei = 0
+  while ei < st.elseStmts.len:
+    if stmtCallsContractedFn(arena, st.elseStmts[ei], callees):
+      ret true
+    ei += 1
+  mut mi = 0
+  while mi < st.matchArms.len:
+    if stmtCallsContractedFn(arena, st.matchArms[mi], callees):
+      ret true
+    mi += 1
+  ret false
+
+pub fn funcNeedsSmtVerification(arena: AstArena, f: HirFunction, callees: Map[str, bool]): bool:
+  if f.bodyStmts.len == 0:
+    ret false
+  if f.requiresExprs.len > 0 or f.ensuresExprs.len > 0:
+    ret true
+  // Call sites of contracted functions (require / refinement params) are proof obligations.
+  mut csi = 0
+  while csi < f.bodyStmts.len:
+    if stmtCallsContractedFn(arena, f.bodyStmts[csi], callees):
+      ret true
+    csi += 1
+  if strArrayContains(f.capabilities, "verify_loops") or strArrayContains(f.capabilities, "@verify_loops") or f.docComment.contains("@verify_loops"):
+    ret true
+  if funcOnlyConstructsStringArrays(arena, f):
+    ret false
+  mut i = 0
+  while i < f.bodyStmts.len:
+    if stmtNeedsSmt(arena, f.bodyStmts[i]):
+      ret true
+    i += 1
+  ret false
+
+pub fn verifyFuncSmt(arena: AstArena, hir: HirModule, contractTable: InterproceduralContractTable, f: HirFunction, mut violations: [SmtViolation]): [SmtViolation]:
+  mut env = envNew()
+  env.contractTable = contractTable
+  if strArrayContains(f.capabilities, "verify_loops") or strArrayContains(f.capabilities, "@verify_loops") or f.docComment.contains("@verify_loops"):
+    env.strictLoopAudit = true
+
+  // Collect ensures for this function
+  mut fnEns: [int] = []
+  mut fei = 0
+  while fei < f.ensuresExprs.len:
+    fnEns.push(f.ensuresExprs[fei])
+    fei += 1
+  mut fsi = 0
+  while fsi < f.bodyStmts.len:
+    let sid = f.bodyStmts[fsi]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Ensure" and st.exprId >= 0:
+        fnEns.push(st.exprId)
+    fsi += 1
+  env.fnEnsures = fnEns
+
+  // Initialize parameters
+  mut pi = 0
+  while pi < f.paramNames.len:
+    let pName = f.paramNames[pi]
+    env = envSetInterval(env, pName, smtIntervalUnknown(pName))
+    pi += 1
+
+  // Refine environment with 'require' preconditions
+  mut ri = 0
+  while ri < f.requiresExprs.len:
+    let reqId = f.requiresExprs[ri]
+    env = refineEnvFromCond(arena, env, reqId, true)
+    ri += 1
+
+  // Also check body for top-level Require statements
+  mut bsi = 0
+  while bsi < f.bodyStmts.len:
+    let bsid = f.bodyStmts[bsi]
+    if bsid >= 0 and bsid < arena.stmts.len:
+      let bst = arena.stmts[bsid]
+      if bst.kind == "Require" and bst.exprId >= 0:
+        env = refineEnvFromCond(arena, env, bst.exprId, true)
+    bsi += 1
+
+  // Check statements in function body
+  violations = checkStmtListSmt(arena, hir, env, f.bodyStmts, violations)
+  ret violations
+
+pub fn verifyHirSmtParallel(arena: AstArena, hir: HirModule, contractTable: InterproceduralContractTable, funcs: [HirFunction], mut violations: [SmtViolation]): [SmtViolation]:
+  let callees = buildContractedCalleeMap(arena, hir)
+  mut fi = 0
+  while fi < funcs.len:
+    let f = funcs[fi]
+    if funcNeedsSmtVerification(arena, f, callees):
+      violations = verifyFuncSmt(arena, hir, contractTable, f, violations)
+    fi += 1
+  ret violations
+
+pub fn verifyHirSmt(arena: AstArena, hir: HirModule): [SmtViolation]:
+  mut violations: [SmtViolation] = []
+
+  // Step 3.3: Build InterproceduralContractTable
+  let contractTable = buildContractTable(arena, hir)
+
+  // 1. Check contracts for obvious contradictions (AIPL005)
+  mut ci = 0
+  while ci < hir.contracts.len:
+    let c = hir.contracts[ci]
+    if isContradictionPredicate(c.summary):
+      if c.kind == "ensure" or c.kind == "ensures":
+        violations.push(SmtViolation(
+          code = "AIPL005",
+          message = "Unsatisfiable 'ensure' postcondition in '" + c.fnName + "': " + c.summary,
+          counterexample = "postcondition is unsatisfiable (contradiction)",
+          span = c.span
+        ))
+      else:
+        violations.push(SmtViolation(
+          code = "AIPL005",
+          message = "Unsatisfiable '" + c.kind + "' contract in '" + c.fnName + "': " + c.summary,
+          counterexample = "contract is unsatisfiable (contradiction)",
+          span = c.span
+        ))
+    ci += 1
+
+  // 2. Check each function body with symbolic interval propagation and proof obligations (parallel/batch helper)
+  violations = verifyHirSmtParallel(arena, hir, contractTable, hir.functions, violations)
+
+  ret violations
+
+pub fn verifyHirSmtStride(hir: HirModule, startOffset: int, stride: int): SmtVerificationResult:
+  let arena = hir.arena
+  mut diags: [CompilerDiagnostic] = []
+  mut verifiedCount = 0
+  mut violations: [SmtViolation] = []
+
+  let contractTable = buildContractTable(arena, hir)
+  let callees = buildContractedCalleeMap(arena, hir)
+
+  // Module contract count (contradiction diagnostics are emitted in verifyHirSmt before verifyHirSmtParallel)
+  if startOffset == 0:
+    mut ci = 0
+    while ci < hir.contracts.len:
+      let c = hir.contracts[ci]
+      if not isContradictionPredicate(c.summary):
+        verifiedCount += 1
+      ci += 1
+
+  mut fi = startOffset
+  let step = if stride > 0: stride else: 1
+  while fi < hir.functions.len:
+    let f = hir.functions[fi]
+    if funcNeedsSmtVerification(arena, f, callees):
+      violations = verifyFuncSmt(arena, hir, contractTable, f, violations)
+    fi += step
+
+  mut vi = 0
+  while vi < violations.len:
+    diags.push(smtViolationToDiagnostic(violations[vi]))
+    vi += 1
+
+  ret SmtVerificationResult(
+    valid = diags.len == 0,
+    verifiedContracts = verifiedCount,
+    diagnostics = diags
+  )
+
+// ----------------------------------------------------------------------------
+// Compiler Entrypoint: Contract & Refinement Verification Pass
+// ----------------------------------------------------------------------------
+
+pub fn smtViolationToDiagnostic(v: SmtViolation): CompilerDiagnostic:
+  mut msg = v.message
+  if v.counterexample.len > 0:
+    msg = msg + " (counterexample: " + v.counterexample + ")"
+  ret CompilerDiagnostic(
+    code = v.code,
+    message = msg,
+    span = v.span
+  )
+
+pub fn verifyContracts(hir: HirModule): SmtVerificationResult:
+  let arena = hir.arena
+  mut diags: [CompilerDiagnostic] = []
+  mut verifiedCount = 0
+
+  let violations = verifyHirSmt(arena, hir)
+  mut vi = 0
+  while vi < violations.len:
+    diags.push(smtViolationToDiagnostic(violations[vi]))
+    vi += 1
+
+  mut ci = 0
+  while ci < hir.contracts.len:
+    let c = hir.contracts[ci]
+    if not isContradictionPredicate(c.summary):
+      verifiedCount += 1
+    ci += 1
+
+  ret SmtVerificationResult(
+    valid = diags.len == 0,
+    verifiedContracts = verifiedCount,
+    diagnostics = diags
+  )
+
+pub fn verifyContractsSmt(hir: HirModule): SmtVerificationResult:
+  ret verifyContracts(hir)
+
+pub fn synthesizeIntervalWitness(intervals: [SmtInterval], predSummary: str): str:
+  if intervals.len == 0:
+    ret "unconstrained state violating (" + predSummary + ")"
+  mut parts: [str] = []
+  mut i = 0
+  while i < intervals.len:
+    let iv = intervals[i]
+    if iv.name.len > 0:
+      let sampleVal = if iv.known: iv.lo else: -1
+      parts.push(iv.name + " = " + str(sampleVal))
+    i += 1
+  if parts.len == 0:
+    ret "witness violating (" + predSummary + ")"
+  ret parts.join(", ")
+
+pub fn classifyHirContracts(hir: HirModule): [SmtContractClassification]:
+  let arena = hir.arena
+  let violations = verifyHirSmt(arena, hir)
+  mut results: [SmtContractClassification] = []
+  mut ci = 0
+  while ci < hir.contracts.len:
+    let c = hir.contracts[ci]
+    mut isRefuted = isContradictionPredicate(c.summary)
+    mut refuteReason = "contradiction in " + c.summary
+    mut vi = 0
+    while vi < violations.len:
+      let v = violations[vi]
+      if v.span.line == c.span.line or v.message.contains("'" + c.fnName + "'"):
+        isRefuted = true
+        refuteReason = if v.counterexample.len > 0: v.counterexample else: v.message
+        break
+      vi += 1
+    let isDynamic = c.summary.contains("(") and not c.summary.startsWith("(")
+    let status = classifyContractResult(not isRefuted, isDynamic, refuteReason)
+    let reason = if isRefuted: refuteReason else: (if isDynamic: "contains dynamic call in contract" else: "proven via interval/octagon propagation")
+    results.push(SmtContractClassification(
+      fnName = c.fnName,
+      kind = c.kind,
+      status = status,
+      reason = reason
+    ))
+    ci += 1
+  ret results
+
+pub fn emitSmtLib2Query(intervals: [SmtInterval], predSummary: str): str:
+  mut lines: [str] = ["(set-logic QF_LIA)"]
+  mut i = 0
+  while i < intervals.len:
+    let iv = intervals[i]
+    if iv.name.len > 0:
+      lines.push("(declare-const " + iv.name + " Int)")
+      if iv.known:
+        lines.push("(assert (>= " + iv.name + " " + str(iv.lo) + "))")
+        lines.push("(assert (<= " + iv.name + " " + str(iv.hi) + "))")
+      if iv.nonZero:
+        lines.push("(assert (not (= " + iv.name + " 0)))")
+    i += 1
+  lines.push("; obligation: " + predSummary)
+  lines.push("(check-sat)")
+  lines.push("(get-model)")
+  ret lines.join("\n")

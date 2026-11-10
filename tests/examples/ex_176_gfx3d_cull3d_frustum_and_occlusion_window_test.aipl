@@ -1,0 +1,46 @@
+module Ex176Gfx3dCull3dFrustumAndOcclusionWindowTest
+
+import {
+  computeFinalRenderedObjectCount, computeCullingEfficiencyPct,
+  buildCull3dFrustumAudit, stepCull3dProbeX
+} from "../../examples/ex_176_gfx3d_cull3d_frustum_and_occlusion_window"
+import { Vec3 } from "../../std/math/vec_math"
+import { AABB3D } from "../../std/math/geom3d"
+import {
+  createPerspectiveCamera3D, computeViewMatrix,
+  computeProjectionMatrix, extractFrustumPlanes, mat4Mul
+} from "../../std/gfx3d/camera3d"
+import {
+  testFrustumAabb, testFrustumSphere, projectAabbToScreenRect
+} from "../../std/gfx3d/cull3d"
+
+pub fn test_gfx3d_cull3d_frustum_and_occlusion(): void:
+  assert(computeFinalRenderedObjectCount(180, 45) == 135, "180 visible - 45 occluded == 135 rendered")
+  assert(computeCullingEfficiencyPct(365, 500) == 73, "365 / 500 == 73% culling efficiency")
+
+  let cam = createPerspectiveCamera3D(Vec3(x = 0.0, y = 5.0, z = 10.0), Vec3(x = 0.0, y = 0.0, z = 0.0), 60.0, 16.0 / 9.0, 0.1, 1000.0)
+  let vp = mat4Mul(computeViewMatrix(cam), computeProjectionMatrix(cam))
+  let frustum = extractFrustumPlanes(vp)
+  assert(frustum.planes.len() == 6, "6 frustum planes extracted")
+
+  assert(testFrustumSphere(frustum, Vec3(x = 0.0, y = 0.0, z = 0.0), 1.0), "Origin sphere inside frustum")
+  assert(not testFrustumSphere(frustum, Vec3(x = 0.0, y = 5.0, z = 25.0), 1.0), "Behind-camera sphere culled")
+  assert(not testFrustumSphere(frustum, Vec3(x = -14.0, y = 0.0, z = 2.0), 1.0), "Left outside-frustum sphere culled")
+  assert(not testFrustumSphere(frustum, Vec3(x = 14.0, y = 0.0, z = 2.0), 1.0), "Right outside-frustum sphere culled")
+
+  let boxOrigin = AABB3D(min = Vec3(x = -1.0, y = -1.0, z = -1.0), max = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  assert(testFrustumAabb(frustum, boxOrigin), "Origin AABB inside frustum")
+  let screenRect = projectAabbToScreenRect(boxOrigin, vp, 1280.0, 720.0)
+  assert(screenRect.w > 0.0 and screenRect.h > 0.0, "Screen-space projected AABB has positive dimensions")
+  assert(buildCull3dFrustumAudit() == 215, "buildCull3dFrustumAudit returns 135 + 73 + 6 + 1 == 215")
+
+  let px0 = stepCull3dProbeX(0)
+  let px1 = stepCull3dProbeX(1)
+  let px20 = stepCull3dProbeX(20)
+  let px100 = stepCull3dProbeX(100)
+  assert(px0 != px1 and px1 != px20 and px20 != px100, "Probe sphere X sweeps without harmonic aliasing across frames 0, 1, 20, 100")
+
+pub fn main(): int:
+  test_gfx3d_cull3d_frustum_and_occlusion()
+  println("PASS: ex_176_gfx3d_cull3d_frustum_and_occlusion_window_test")
+  ret 0

@@ -1,0 +1,132 @@
+// ============================================================================
+// Example 055: 2D Spatial Hash Grid Crowd Neighborhood Radar Window
+// Demonstrates: spatialCellHash2D, spatialHash2DNew, .insert(), .queryRadius(),
+//               and .clear() from std/collections/spatial_hash, rendered as a
+//               uniform spatial cell grid and crowd neighborhood radar on
+//               a 1280x720 desktop window.
+// ============================================================================
+module Ex055CollectionsSpatialHashCrowdWindow
+
+import { clampInt } from "../std/prelude"
+import { SpatialHashGrid2D, spatialCellHash2D, spatialHash2DNew } from "../std/collections/spatial_hash"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct SpatialCrowdState:
+  nearbySum: int
+  cellHashNonZero: int
+  radarX: float
+
+pub fn buildDemoCrowdSpatialHash(): SpatialHashGrid2D[int]:
+  mut sh = spatialHash2DNew[int](100.0)
+  for idx in 0..12:
+    let ax = 70.0 + float((idx * 47) % 480)
+    let ay = 65.0 + float((idx * 83) % 380)
+    sh.insert(ax, ay, idx + 1)
+  ret sh
+
+pub fn evaluateSpatialHashRadiusNeighbors(): int:
+  mut sh = spatialHash2DNew[int](32.0)
+  sh.insert(20.0, 22.0, 10)
+  sh.insert(26.0, 25.0, 20)
+  sh.insert(30.0, 28.0, 30)
+  sh.insert(180.0, 180.0, 999)
+  let hits = sh.queryRadius(25.0, 25.0, 15.0)
+  mut sumIds = 0
+  for i in 0..hits.len:
+    sumIds = sumIds + hits[i]
+  sh.clear()
+  if sh.queryRadius(25.0, 25.0, 15.0).len == 0:
+    ret sumIds
+  ret -1
+
+pub fn describeSpatialHashBucketMode(cellPx: int): str:
+  if cellPx == 32:
+    ret "SPATIAL_HASH:UNIFORM_CELL_32PX_O1"
+  ret "SPATIAL_HASH:COARSE_GRID"
+
+pub fn buildSpatialCrowdState(frameIdx: int): SpatialCrowdState:
+  let h = spatialCellHash2D(3, 5)
+  let rx = 180.0 + float((frameIdx * 5) % 320)
+  ret SpatialCrowdState(
+    nearbySum = evaluateSpatialHashRadiusNeighbors(),
+    cellHashNonZero = if h != 0: 1 else: 0,
+    radarX = rx
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildSpatialCrowdState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.nearbySum + frameIndex + dtPad
+
+pub fn renderSpatialCrowdScene(frame: int): void:
+  let sh = buildDemoCrowdSpatialHash()
+  let st = buildSpatialCrowdState(frame)
+  let radarHits = sh.queryRadius(st.radarX, 240.0, 110.0)
+
+  clearScreen(rgb(10, 15, 25))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 44))
+  drawText("AIPL ex_055: 2D SpatialHashGrid2D O(1) Cell Bucketing & Crowd Neighborhood Radar", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Left Panel: 6x5 Uniform Spatial Hash Grid read from sh.cellSize
+  let gx = 60.0
+  let gy = 96.0
+  drawRect(gx, gy, 600.0, 500.0, rgb(16, 23, 38))
+  drawRectOutline(gx, gy, 600.0, 500.0, 2.0, rgb(56, 189, 248))
+
+  for col in 1..6:
+    let lx = gx + float(col) * sh.cellSize
+    drawLine(lx, gy, lx, gy + 500.0, rgb(30, 41, 59), 1.5)
+  for row in 1..5:
+    let ly = gy + float(row) * sh.cellSize
+    drawLine(gx, ly, gx + 600.0, ly, rgb(30, 41, 59), 1.5)
+
+  // Sweeping neighborhood query radar circle
+  let rcx = gx + st.radarX
+  let rcy = gy + 240.0
+  drawCircleOutline(rcx, rcy, 110.0, 2.5, rgb(74, 222, 128))
+  drawCircle(rcx, rcy, 5.0, rgb(250, 204, 21))
+
+  // Render crowd agents directly from sh.entries, highlighted via sh.queryRadius
+  for idx in 0..sh.entries.len:
+    let ent = sh.entries[idx]
+    mut insideRadar = false
+    for j in 0..radarHits.len:
+      if radarHits[j] == ent.val:
+        insideRadar = true
+    let agentCol = if insideRadar: rgb(74, 222, 128) else: rgb(56, 189, 248)
+    if insideRadar:
+      drawLine(rcx, rcy, gx + ent.x, gy + ent.y, rgb(74, 222, 128), 1.5)
+    drawCircle(gx + ent.x, gy + ent.y, 8.0, agentCol)
+
+  // Right Telemetry Panel
+  drawRect(700.0, 96.0, 528.0, 500.0, rgb(17, 24, 39))
+  drawRectOutline(700.0, 96.0, 528.0, 500.0, 2.0, rgb(71, 85, 105))
+  drawText("Bucket Mode: " + describeSpatialHashBucketMode(32), 728.0, 132.0, 18.0, rgb(125, 211, 252))
+  drawText("Cell Hash (3, 5) Non-Zero: " + str(st.cellHashNonZero == 1), 728.0, 172.0, 16.0, rgb(74, 222, 128))
+  drawText("Local Cluster Neighbor ID Sum: " + str(st.nearbySum) + " (live hits=" + str(radarHits.len) + ")", 728.0, 208.0, 16.0, rgb(250, 204, 21))
+  drawText("Radar Center X: " + str(int(st.radarX)) + " px  Frame: " + str(frame), 728.0, 244.0, 16.0, rgb(203, 213, 225))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_055 - 2D Spatial Hash Grid Crowd Radar")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderSpatialCrowdScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,223 @@
+module GfxColorMod
+
+// ============================================================================
+// std/gfx/color.aipl — Canonical Color Spaces, Oklab/OKLCH, WCAG/APCA & 3D LUT
+// ============================================================================
+
+pub struct ColorRgba8(r: int, g: int, b: int, a: int = 255)
+
+pub struct LinearColorF32(r: float, g: float, b: float, a: float = 1.0)
+
+pub struct ColorHsla(h: float, s: float, l: float, a: float = 1.0)
+
+pub struct ColorOklab(l: float, a: float, b: float, alpha: float = 1.0)
+
+pub struct ColorOklch(l: float, c: float, h: float, alpha: float = 1.0)
+
+pub struct ColorLut3D(size: int, table: [LinearColorF32])
+
+pub struct RadixScale12(s1: int, s2: int, s3: int, s4: int, s5: int, s6: int, s7: int, s8: int, s9: int, s10: int, s11: int, s12: int)
+
+fn clampByte8(v: int): int:
+  if v < 0:
+    ret 0
+  if v > 255:
+    ret 255
+  ret v
+
+fn clampUnit01(v: float): float:
+  if v < 0.0:
+    ret 0.0
+  if v > 1.0:
+    ret 1.0
+  ret v
+
+pub fn rgba8(r: int, g: int, b: int, a: int = 255): ColorRgba8:
+  ret ColorRgba8(
+    r = clampByte8(r),
+    g = clampByte8(g),
+    b = clampByte8(b),
+    a = clampByte8(a)
+  )
+
+pub fn linearRgb(r: float, g: float, b: float, a: float = 1.0): LinearColorF32:
+  ret LinearColorF32(r = r, g = g, b = b, a = a)
+
+fn srgbChanToLinear(c: float): float:
+  if c <= 0.04045:
+    ret c / 12.92
+  ret pow((c + 0.055) / 1.055, 2.4)
+
+fn linearChanToSrgb(c: float): float:
+  let u = clampUnit01(c)
+  if u <= 0.0031308:
+    ret u * 12.92
+  ret 1.055 * pow(u, 1.0 / 2.4) - 0.055
+
+pub fn srgbToLinear(c: ColorRgba8): LinearColorF32:
+  let r = srgbChanToLinear(float(clampByte8(c.r)) / 255.0)
+  let g = srgbChanToLinear(float(clampByte8(c.g)) / 255.0)
+  let b = srgbChanToLinear(float(clampByte8(c.b)) / 255.0)
+  let a = float(clampByte8(c.a)) / 255.0
+  ret LinearColorF32(r = r, g = g, b = b, a = a)
+
+pub fn linearToSrgb(c: LinearColorF32): ColorRgba8:
+  let r = clampByte8(int(linearChanToSrgb(c.r) * 255.0 + 0.5))
+  let g = clampByte8(int(linearChanToSrgb(c.g) * 255.0 + 0.5))
+  let b = clampByte8(int(linearChanToSrgb(c.b) * 255.0 + 0.5))
+  let a = clampByte8(int(clampUnit01(c.a) * 255.0 + 0.5))
+  ret ColorRgba8(r = r, g = g, b = b, a = a)
+
+fn cbrtPos(x: float): float:
+  if x <= 0.0:
+    ret 0.0
+  ret pow(x, 1.0 / 3.0)
+
+pub fn rgba8ToOklab(c: ColorRgba8): ColorOklab:
+  let lin = srgbToLinear(c)
+  let lCone = 0.4122214708 * lin.r + 0.5363325363 * lin.g + 0.0514459929 * lin.b
+  let mCone = 0.2119034982 * lin.r + 0.6806995451 * lin.g + 0.1073969566 * lin.b
+  let sCone = 0.0883024619 * lin.r + 0.2817188376 * lin.g + 0.6299787005 * lin.b
+  let lC = cbrtPos(lCone)
+  let mC = cbrtPos(mCone)
+  let sC = cbrtPos(sCone)
+  let L = 0.2104542553 * lC + 0.7936177850 * mC - 0.0040720468 * sC
+  let A = 1.9779984951 * lC - 2.4285922050 * mC + 0.4505937099 * sC
+  let B = 0.0259040371 * lC + 0.7827717662 * mC - 0.8086757660 * sC
+  ret ColorOklab(l = L, a = A, b = B, alpha = lin.a)
+
+pub fn oklabToRgba8(lab: ColorOklab): ColorRgba8:
+  let lC = lab.l + 0.3963377774 * lab.a + 0.2158037573 * lab.b
+  let mC = lab.l - 0.1055613458 * lab.a - 0.0638541728 * lab.b
+  let sC = lab.l - 0.0894841775 * lab.a - 1.2914855480 * lab.b
+  let lCone = lC * lC * lC
+  let mCone = mC * mC * mC
+  let sCone = sC * sC * sC
+  let rLin = 4.0767416621 * lCone - 3.3077115913 * mCone + 0.2309699292 * sCone
+  let gLin = -1.2684380046 * lCone + 2.6097574011 * mCone - 0.3413193965 * sCone
+  let bLin = -0.0041960863 * lCone - 0.7034186147 * mCone + 1.7076147010 * sCone
+  ret linearToSrgb(LinearColorF32(r = rLin, g = gLin, b = bLin, a = lab.alpha))
+
+pub fn oklabToOklch(lab: ColorOklab): ColorOklch:
+  let ch = sqrt(lab.a * lab.a + lab.b * lab.b)
+  mut deg = atan2(lab.b, lab.a) * 57.29577951308232
+  if deg < 0.0:
+    deg = deg + 360.0
+  ret ColorOklch(l = lab.l, c = ch, h = deg, alpha = lab.alpha)
+
+pub fn oklchToOklab(lch: ColorOklch): ColorOklab:
+  let rad = lch.h * 0.017453292519943295
+  ret ColorOklab(
+    l = lch.l,
+    a = lch.c * cos(rad),
+    b = lch.c * sin(rad),
+    alpha = lch.alpha
+  )
+
+pub fn lerpOklab(c1: ColorRgba8, c2: ColorRgba8, t: float): ColorRgba8:
+  let u = clampUnit01(t)
+  let lab1 = rgba8ToOklab(c1)
+  let lab2 = rgba8ToOklab(c2)
+  let mid = ColorOklab(
+    l = lab1.l + (lab2.l - lab1.l) * u,
+    a = lab1.a + (lab2.a - lab1.a) * u,
+    b = lab1.b + (lab2.b - lab1.b) * u,
+    alpha = lab1.alpha + (lab2.alpha - lab1.alpha) * u
+  )
+  ret oklabToRgba8(mid)
+
+pub fn wcagRelativeLuminance(c: ColorRgba8): float:
+  let lin = srgbToLinear(c)
+  ret 0.2126 * lin.r + 0.7152 * lin.g + 0.0722 * lin.b
+
+pub fn wcagContrastRatio(fg: ColorRgba8, bg: ColorRgba8): float:
+  let l1 = wcagRelativeLuminance(fg)
+  let l2 = wcagRelativeLuminance(bg)
+  let lighter = if l1 > l2: l1 else: l2
+  let darker = if l1 > l2: l2 else: l1
+  ret (lighter + 0.05) / (darker + 0.05)
+
+fn apcaLuminance(c: ColorRgba8): float:
+  let rLin = pow(float(clampByte8(c.r)) / 255.0, 2.4)
+  let gLin = pow(float(clampByte8(c.g)) / 255.0, 2.4)
+  let bLin = pow(float(clampByte8(c.b)) / 255.0, 2.4)
+  let y = 0.2126729 * rLin + 0.7151522 * gLin + 0.0721750 * bLin
+  if y < 0.022:
+    ret y + pow(0.022 - y, 1.414)
+  ret y
+
+pub fn apcaContrast(text: ColorRgba8, bg: ColorRgba8): float:
+  let yTxt = apcaLuminance(text)
+  let yBg = apcaLuminance(bg)
+  let diff = if yBg > yTxt: (yBg - yTxt) else: (yTxt - yBg)
+  if diff < 0.0005:
+    ret 0.0
+  if yBg > yTxt:
+    let sapc = (pow(yBg, 0.56) - pow(yTxt, 0.57)) * 1.14
+    if sapc < 0.1:
+      ret 0.0
+    ret (sapc - 0.027) * 100.0
+  let sapc = (pow(yBg, 0.65) - pow(yTxt, 0.62)) * 1.14
+  if sapc > -0.1:
+    ret 0.0
+  ret (sapc + 0.027) * 100.0
+
+fn hexNibble(code: int): int:
+  if code >= 48 and code <= 57:
+    ret code - 48
+  if code >= 65 and code <= 70:
+    ret code - 55
+  if code >= 97 and code <= 102:
+    ret code - 87
+  ret 0
+
+fn hexByteAt(s: str, pos: int): int:
+  ret (hexNibble(s.charCodeAt(pos)) << 4) | hexNibble(s.charCodeAt(pos + 1))
+
+pub fn parseHexColor(hexStr: str): ColorRgba8:
+  let s = if hexStr.startsWith("#"): hexStr.slice(1, hexStr.len) else: hexStr
+  if s.len == 3:
+    let r = hexNibble(s.charCodeAt(0)) * 17
+    let g = hexNibble(s.charCodeAt(1)) * 17
+    let b = hexNibble(s.charCodeAt(2)) * 17
+    ret ColorRgba8(r = r, g = g, b = b, a = 255)
+  if s.len == 4:
+    let r = hexNibble(s.charCodeAt(0)) * 17
+    let g = hexNibble(s.charCodeAt(1)) * 17
+    let b = hexNibble(s.charCodeAt(2)) * 17
+    let a = hexNibble(s.charCodeAt(3)) * 17
+    ret ColorRgba8(r = r, g = g, b = b, a = a)
+  if s.len == 6:
+    let r = hexByteAt(s, 0)
+    let g = hexByteAt(s, 2)
+    let b = hexByteAt(s, 4)
+    ret ColorRgba8(r = r, g = g, b = b, a = 255)
+  if s.len >= 8:
+    let r = hexByteAt(s, 0)
+    let g = hexByteAt(s, 2)
+    let b = hexByteAt(s, 4)
+    let a = hexByteAt(s, 6)
+    ret ColorRgba8(r = r, g = g, b = b, a = a)
+  ret ColorRgba8(r = 0, g = 0, b = 0, a = 255)
+
+fn byteToHexUpper(v: int): str:
+  let digits = "0123456789ABCDEF"
+  let b = clampByte8(v)
+  let hi = (b >> 4) & 15
+  let lo = b & 15
+  ret digits.slice(hi, hi + 1) + digits.slice(lo, lo + 1)
+
+pub fn toHexColor(c: ColorRgba8): str:
+  ret "#" + byteToHexUpper(c.r) + byteToHexUpper(c.g) + byteToHexUpper(c.b) + byteToHexUpper(c.a)
+
+pub fn sampleColorLut3D(lut: ColorLut3D, inColor: LinearColorF32): LinearColorF32:
+  if lut.size <= 1 or lut.table.len == 0:
+    ret inColor
+  let maxIdx = lut.size - 1
+  let rx = int(clampUnit01(inColor.r) * float(maxIdx) + 0.5)
+  let gx = int(clampUnit01(inColor.g) * float(maxIdx) + 0.5)
+  let bx = int(clampUnit01(inColor.b) * float(maxIdx) + 0.5)
+  let flatIdx = (bx * lut.size * lut.size) + (gx * lut.size) + rx
+  if flatIdx >= 0 and flatIdx < lut.table.len:
+    ret lut.table[flatIdx]
+  ret inColor

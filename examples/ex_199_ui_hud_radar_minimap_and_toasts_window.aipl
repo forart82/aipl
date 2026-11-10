@@ -1,0 +1,177 @@
+module Ex199UiHudRadarMinimapAndToastsWindow
+
+import { ColorRgba8 } from "../std/gfx/color"
+import {
+  RadialGaugeWidget, SegmentedBarWidget, CooldownActionSlot,
+  EntityTetherCard, ResourceRateBadge,
+  computeRadialGaugeSweep, evaluateActionSlotUsability
+} from "../std/ui/ui_hud"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb, rgba
+} from "../std/gfx2d/shape2d"
+
+pub fn stepRadialGaugeValue(frame: int): float:
+  ret 65.0 + sin(float(frame) * 0.06) * 30.0
+
+pub fn stepShieldSegments(frame: int): int:
+  ret 9 + int(sin(float(frame) * 0.05) * 3.0)
+
+pub fn stepSlotRemainingSec(slotIdx: int, frame: int): float:
+  let cycle = (frame + slotIdx * 13) % 50
+  if cycle < 18:
+    ret 0.0
+  ret float(50 - cycle) * 0.08
+
+pub fn buildUiHudAudit(): int:
+  let gauge = RadialGaugeWidget(
+    currentValue = 75.0,
+    maxValue = 100.0,
+    startAngleRad = 0.0,
+    sweepAngleRad = 3.14159,
+    innerRadius = 40.0,
+    outerRadius = 50.0,
+    fillColor = ColorRgba8(r = 52, g = 211, b = 153, a = 255)
+  )
+  let sweep = computeRadialGaugeSweep(gauge)
+  let slotReady = CooldownActionSlot(slotId = 1, iconTextureId = 10, cooldownPct = 0.0, remainingSeconds = 0.0, isUsable = true)
+  let slotCooling = CooldownActionSlot(slotId = 2, iconTextureId = 11, cooldownPct = 0.4, remainingSeconds = 2.5, isUsable = true)
+  let seg = SegmentedBarWidget(
+    totalSegments = 10,
+    filledSegments = 8,
+    segmentSpacing = 4.0,
+    filledColor = ColorRgba8(r = 56, g = 189, b = 248, a = 255),
+    emptyColor = ColorRgba8(r = 30, g = 41, b = 59, a = 255)
+  )
+  let resBadge = ResourceRateBadge(resourceName = "Energy", currentAmount = 420, netRatePerSec = 15.0)
+  let flags = (if evaluateActionSlotUsability(slotReady): 1 else: 0) + (if not evaluateActionSlotUsability(slotCooling): 1 else: 0)
+  ret int(sweep * 100.0) + flags + seg.filledSegments + resBadge.currentAmount
+
+pub fn main(): int:
+  let auditScore = buildUiHudAudit()
+  let resBadge = ResourceRateBadge(resourceName = "Fusion Core MW", currentAmount = 420, netRatePerSec = 15.0)
+
+  initWindow(1280, 720, "AIPL ex_199: UI HUD - Radar Minimap, Radial Gauges, Action Slots & Toasts")
+  mut frame = 0
+  while not windowShouldClose():
+    let gaugeVal = stepRadialGaugeValue(frame)
+    let gauge = RadialGaugeWidget(
+      currentValue = gaugeVal,
+      maxValue = 100.0,
+      startAngleRad = -1.5708,
+      sweepAngleRad = 6.28318,
+      innerRadius = 50.0,
+      outerRadius = 150.0,
+      fillColor = ColorRgba8(r = 52, g = 211, b = 153, a = 255)
+    )
+    let sweepAngle = computeRadialGaugeSweep(gauge)
+    let liveAmount = resBadge.currentAmount + int(float(frame) * 0.25)
+    let filledSegs = stepShieldSegments(frame)
+    let seg = SegmentedBarWidget(
+      totalSegments = 12,
+      filledSegments = filledSegs,
+      segmentSpacing = 6.0,
+      filledColor = ColorRgba8(r = 56, g = 189, b = 248, a = 255),
+      emptyColor = ColorRgba8(r = 30, g = 41, b = 59, a = 255)
+    )
+    let tetherDist = 62.0 + sin(float(frame) * 0.07) * 32.0
+    let tether = EntityTetherCard(
+      entityName = "Scout Drone Alpha-4",
+      distanceUnits = tetherDist,
+      maxLeashUnits = 80.0,
+      isTetherStrained = tetherDist > 80.0
+    )
+
+    beginDrawing()
+    clearScreen(rgb(9, 13, 22))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_199: UI HUD - RADAR MINIMAP, RADIAL GAUGES, COOLDOWN SLOTS & TOASTS", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText(resBadge.resourceName + "=" + str(liveAmount) + " (+" + str(int(resBadge.netRatePerSec)) + "/s) | segments=" + str(seg.filledSegments) + "/" + str(seg.totalSegments) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Left Tactical Radar Minimap & RadialGaugeWidget Sweep
+    drawCircle(240.0, 320.0, gauge.outerRadius, rgb(13, 25, 43))
+    drawCircleOutline(240.0, 320.0, gauge.outerRadius, 3.0, rgb(gauge.fillColor.r, gauge.fillColor.g, gauge.fillColor.b))
+    drawCircleOutline(240.0, 320.0, (gauge.innerRadius + gauge.outerRadius) * 0.5, 1.5, rgb(16, 185, 129))
+    drawCircleOutline(240.0, 320.0, gauge.innerRadius, 1.5, rgb(16, 185, 129))
+    drawLine(90.0, 320.0, 390.0, 320.0, rgb(16, 185, 129), 1.0)
+    drawLine(240.0, 170.0, 240.0, 470.0, rgb(16, 185, 129), 1.0)
+    let sweepTipX = 240.0 + cos(sweepAngle) * gauge.outerRadius
+    let sweepTipY = 320.0 + sin(sweepAngle) * gauge.outerRadius
+    drawLine(240.0, 320.0, sweepTipX, sweepTipY, rgb(250, 204, 21), 2.5)
+    drawCircle(240.0, 320.0, 6.0, rgb(250, 204, 21))
+
+    // Orbiting radar blips & tethered drone vector
+    let blip1X = 240.0 + cos(float(frame) * 0.04) * 85.0
+    let blip1Y = 320.0 + sin(float(frame) * 0.04) * 65.0
+    let blip2X = 240.0 + cos(float(frame) * -0.05 + 1.5) * tether.distanceUnits
+    let blip2Y = 320.0 + sin(float(frame) * -0.05 + 1.5) * tether.distanceUnits
+    drawLine(240.0, 320.0, blip2X, blip2Y, if tether.isTetherStrained: rgb(239, 68, 68) else: rgb(56, 189, 248), 1.5)
+    drawCircle(blip1X, blip1Y, 6.0, rgb(239, 68, 68))
+    drawCircle(blip2X, blip2Y, 6.0, rgb(56, 189, 248))
+    drawText("RADIAL GAUGE & RADAR (" + str(int(gauge.currentValue)) + "%)", 115.0, 490.0, 16.0, rgb(110, 231, 183))
+
+    // EntityTetherCard below radar
+    drawRect(80.0, 530.0, 320.0, 82.0, rgb(15, 23, 42))
+    drawRectOutline(80.0, 530.0, 320.0, 82.0, 2.0, if tether.isTetherStrained: rgb(239, 68, 68) else: rgb(56, 189, 248))
+    drawText("TETHER: " + tether.entityName, 96.0, 546.0, 15.0, rgb(241, 245, 249))
+    drawText("Dist: " + str(int(tether.distanceUnits)) + "m / " + str(int(tether.maxLeashUnits)) + "m (" + (if tether.isTetherStrained: "STRAINED" else: "NOMINAL") + ")", 96.0, 570.0, 14.0, if tether.isTetherStrained: rgb(252, 165, 165) else: rgb(110, 231, 183))
+    let leashPct = if tether.distanceUnits > 100.0: 1.0 else: tether.distanceUnits / 100.0
+    drawRect(96.0, 594.0, 288.0 * leashPct, 8.0, if tether.isTetherStrained: rgb(239, 68, 68) else: rgb(56, 189, 248))
+
+    // Center Segmented Shield Bar & Cooldown Action Slots
+    drawText("Shield Integrity (SegmentedBarWidget " + str(seg.filledSegments) + "/" + str(seg.totalSegments) + "):", 470.0, 160.0, 18.0, rgb(226, 232, 240))
+    mut sIdx = 0
+    while sIdx < seg.totalSegments:
+      let sx = 470.0 + float(sIdx) * 52.0
+      let col = if sIdx < seg.filledSegments: rgb(seg.filledColor.r, seg.filledColor.g, seg.filledColor.b) else: rgb(seg.emptyColor.r, seg.emptyColor.g, seg.emptyColor.b)
+      drawRect(sx, 192.0, 44.0, 28.0, col)
+      drawRectOutline(sx, 192.0, 44.0, 28.0, 1.5, rgb(148, 163, 184))
+      sIdx = sIdx + 1
+
+    drawText("Action Hotbar (CooldownActionSlot Usability):", 470.0, 268.0, 18.0, rgb(226, 232, 240))
+    mut aIdx = 0
+    while aIdx < 5:
+      let remSec = stepSlotRemainingSec(aIdx, frame)
+      let pct = remSec / 2.56
+      let slot = CooldownActionSlot(
+        slotId = aIdx + 1,
+        iconTextureId = 100 + aIdx,
+        cooldownPct = pct,
+        remainingSeconds = remSec,
+        isUsable = true
+      )
+      let ready = evaluateActionSlotUsability(slot)
+      let ax = 470.0 + float(aIdx) * 96.0
+      drawRect(ax, 300.0, 80.0, 80.0, if ready: rgb(22, 48, 72) else: rgb(30, 27, 46))
+      if not ready:
+        let fillH = 80.0 * slot.cooldownPct
+        drawRect(ax, 380.0 - fillH, 80.0, fillH, rgba(239, 68, 68, 90))
+      drawRectOutline(ax, 300.0, 80.0, 80.0, 2.5, if ready: rgb(56, 189, 248) else: rgb(239, 68, 68))
+      drawText("Q" + str(slot.slotId), ax + 26.0, 318.0, 20.0, rgb(248, 250, 252))
+      let secTenths = int(remSec * 10.0)
+      let secLabel = str(secTenths / 10) + "." + str(secTenths % 10) + "s"
+      drawText(if ready: "READY" else: secLabel, ax + 14.0, 352.0, 15.0, if ready: rgb(52, 211, 153) else: rgb(252, 165, 165))
+      aIdx = aIdx + 1
+
+    // Right Toast Notifications Stack with live TTL bars
+    let toastLife1 = 1.0 - float(frame % 80) / 80.0
+    let toastLife2 = 1.0 - float((frame + 35) % 80) / 80.0
+    drawRect(850.0, 450.0, 380.0, 68.0, rgb(17, 24, 39))
+    drawRectOutline(850.0, 450.0, 380.0, 68.0, 2.0, rgb(52, 211, 153))
+    drawText("[TOAST] Sector 7 Telemetry Linked", 868.0, 468.0, 16.0, rgb(167, 243, 208))
+    drawRect(868.0, 500.0, 344.0 * toastLife1, 6.0, rgb(52, 211, 153))
+
+    drawRect(850.0, 534.0, 380.0, 68.0, rgb(17, 24, 39))
+    drawRectOutline(850.0, 534.0, 380.0, 68.0, 2.0, rgb(250, 204, 21))
+    drawText("[TOAST] Fusion Rate +" + str(int(resBadge.netRatePerSec)) + " MW/s (Total " + str(liveAmount) + ")", 868.0, 552.0, 15.0, rgb(254, 240, 138))
+    drawRect(868.0, 584.0, 344.0 * toastLife2, 6.0, rgb(250, 204, 21))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

@@ -1,0 +1,183 @@
+// ============================================================================
+// AIPL Universal HEBAR Multi-Seat Arbiter (`aipl_hebar_bot/core/seat_arbiter.aipl`)
+// ============================================================================
+// Coordinates 2..N bot instances or seats sharing a single window:
+// - Exclusive per-action cursor lease (/tmp/aipl_windows/win_<pid>.seat.lock)
+// - 3-level turn detection (explicit turnState.activeSeat, UI label scanner,
+//   and automatic round-robin state-delta handoff)
+// - Post-handoff 150-250ms FIFO reaction delay enforcement
+// - Out-of-turn security probe tracking
+// ============================================================================
+
+module SeatArbiter
+
+import {
+  fileExists,
+  readFile,
+  writeFile,
+  removeFile,
+  mkdirAll
+} from "std/fs"
+
+import {
+  SceneSnapshot,
+  extractJsonIntField
+} from "./scene_sensor.aipl"
+
+pub struct SeatArbiterState:
+  totalSeats: int
+  activeSeat: int
+  turnNumber: int
+  leaseHolderSeat: int
+  leaseAcquiredFrame: int
+  lastHandoffFrame: int
+  lastFramebufferHash: str
+  seatMovesCompleted: [int]
+  seatWins: [int]
+  outOfTurnProbes: int
+  outOfTurnRejected: int
+  cursorContentionCount: int
+
+pub fn SeatArbiterState.new(totalSeats: int): SeatArbiterState:
+  ret initSeatArbiter(totalSeats)
+
+pub fn initSeatArbiter(totalSeats: int): SeatArbiterState:
+  let n = if totalSeats > 0: totalSeats else: 1
+  mut moves: [int] = []
+  mut wins: [int] = []
+  mut i = 0
+  while i < n:
+    moves.push(0)
+    wins.push(0)
+    i += 1
+  ret SeatArbiterState(
+    totalSeats = n,
+    activeSeat = 1,
+    turnNumber = 1,
+    leaseHolderSeat = 0,
+    leaseAcquiredFrame = 0,
+    lastHandoffFrame = 0,
+    lastFramebufferHash = "00000000",
+    seatMovesCompleted = moves,
+    seatWins = wins,
+    outOfTurnProbes = 0,
+    outOfTurnRejected = 0,
+    cursorContentionCount = 0
+  )
+
+pub fn detectActiveSeatFromScene(arb: SeatArbiterState, snap: SceneSnapshot): int:
+  // Level 1: Explicit turnState.activeSeat from .state.json
+  if snap.turnState.activeSeat >= 1 and snap.turnState.activeSeat <= arb.totalSeats:
+    ret snap.turnState.activeSeat
+
+  // Level 2: Automatic UI scene-graph turn indicator
+  mut i = 0
+  while i < snap.uiNodes.len:
+    let txt = snap.uiNodes[i].text.toLowerCase()
+    if txt.contains("seat 1") or txt.contains("player 1") or txt.contains("red turn") or txt.contains("white turn"):
+      ret 1
+    if txt.contains("seat 2") or txt.contains("player 2") or txt.contains("blue turn") or txt.contains("black turn"):
+      ret if arb.totalSeats >= 2: 2 else: 1
+    if txt.contains("seat 3") or txt.contains("player 3") or txt.contains("green turn"):
+      ret if arb.totalSeats >= 3: 3 else: 1
+    if txt.contains("seat 4") or txt.contains("player 4") or txt.contains("yellow turn"):
+      ret if arb.totalSeats >= 4: 4 else: 1
+    i += 1
+
+  // Level 3: Round-robin active seat
+  ret arb.activeSeat
+
+pub fn syncArbiterWithSnapshot(arb: SeatArbiterState, snap: SceneSnapshot, currentFrame: int): SeatArbiterState:
+  mut out = arb
+  let detected = detectActiveSeatFromScene(out, snap)
+  if detected != out.activeSeat:
+    out.activeSeat = detected
+    out.turnNumber = out.turnNumber + 1
+    out.lastHandoffFrame = currentFrame
+  if snap.turnState.turnNumber > out.turnNumber:
+    out.turnNumber = snap.turnState.turnNumber
+  if snap.turnState.outOfTurnRejected > out.outOfTurnRejected:
+    out.outOfTurnRejected = snap.turnState.outOfTurnRejected
+    if out.outOfTurnProbes < out.outOfTurnRejected:
+      out.outOfTurnProbes = out.outOfTurnRejected
+  if snap.turnState.winnerSeat >= 1 and snap.turnState.winnerSeat <= out.seatWins.len:
+    let wIdx = snap.turnState.winnerSeat - 1
+    if out.seatWins[wIdx] == 0:
+      out.seatWins[wIdx] = 1
+  ret out
+
+pub fn tryAcquireSeatCursorLease(arb: SeatArbiterState, pid: int, seatId: int, currentFrame: int): SeatArbiterState:
+  mut out = arb
+  // Post-handoff reaction guard: wait at least 9 frames (150ms @ 60Hz) after turn handoff
+  if currentFrame - out.lastHandoffFrame < 9 and out.turnNumber > 1:
+    ret out
+
+  if pid > 0:
+    let lockPath = "/tmp/aipl_windows/win_" + str(pid) + ".seat.lock"
+    if fileExists(lockPath):
+      let lockTxt = readFile(lockPath)
+      let fSeat = extractJsonIntField(lockTxt, "seat", 0)
+      let fFrame = extractJsonIntField(lockTxt, "frame", 0)
+      if fSeat > 0 and fSeat != seatId and currentFrame >= fFrame and (currentFrame - fFrame) <= 8:
+        out.leaseHolderSeat = fSeat
+        out.leaseAcquiredFrame = fFrame
+        out.cursorContentionCount = out.cursorContentionCount + 1
+        ret out
+
+  if out.leaseHolderSeat == 0 or out.leaseHolderSeat == seatId or (currentFrame - out.leaseAcquiredFrame) > 8:
+    out.leaseHolderSeat = seatId
+    out.leaseAcquiredFrame = currentFrame
+    if pid > 0:
+      let _ = mkdirAll("/tmp/aipl_windows")
+      let lockPath = "/tmp/aipl_windows/win_" + str(pid) + ".seat.lock"
+      let _ = writeFile(lockPath, "{\"seat\":" + str(seatId) + ",\"frame\":" + str(currentFrame) + "}\n")
+  else:
+    out.cursorContentionCount = out.cursorContentionCount + 1
+  ret out
+
+pub fn releaseSeatCursorLease(arb: SeatArbiterState, pid: int, seatId: int, currentFrame: int, nextHash: str): SeatArbiterState:
+  mut out = arb
+  if out.leaseHolderSeat == seatId:
+    out.leaseHolderSeat = 0
+    if pid > 0:
+      let lockPath = "/tmp/aipl_windows/win_" + str(pid) + ".seat.lock"
+      if fileExists(lockPath):
+        let _ = removeFile(lockPath)
+  if seatId >= 1 and seatId <= out.seatMovesCompleted.len:
+    out.seatMovesCompleted[seatId - 1] = out.seatMovesCompleted[seatId - 1] + 1
+  if out.totalSeats > 1:
+    out.activeSeat = (seatId % out.totalSeats) + 1
+    out.turnNumber = out.turnNumber + 1
+    out.lastHandoffFrame = currentFrame
+  out.lastFramebufferHash = nextHash
+  ret out
+
+pub fn recordOutOfTurnProbe(arb: SeatArbiterState, rejected: bool): SeatArbiterState:
+  mut out = arb
+  out.outOfTurnProbes = out.outOfTurnProbes + 1
+  if rejected:
+    out.outOfTurnRejected = out.outOfTurnRejected + 1
+  ret out
+
+pub fn (self: SeatArbiterState) get(metric: str): int:
+  if metric == "activeSeat":
+    ret self.activeSeat
+  elif metric == "totalSeats":
+    ret self.totalSeats
+  elif metric == "turnNumber":
+    ret self.turnNumber
+  ret 0
+
+pub fn (self: SeatArbiterState) has(flag: str): bool:
+  if flag == "activeLease":
+    ret self.leaseHolderSeat > 0
+  elif flag == "outOfTurnProbes":
+    ret self.outOfTurnProbes > 0
+  ret false
+
+pub fn (self: mut SeatArbiterState) update(activeSeat: int, turnNumber: int): void:
+  self.activeSeat = activeSeat
+  self.turnNumber = turnNumber
+
+pub fn (self: SeatArbiterState) serialize(): str:
+  ret "{\"activeSeat\":" + str(self.activeSeat) + ",\"totalSeats\":" + str(self.totalSeats) + ",\"turnNumber\":" + str(self.turnNumber) + ",\"leaseHolderSeat\":" + str(self.leaseHolderSeat) + "}"

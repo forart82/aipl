@@ -1,0 +1,173 @@
+/// # Module: `std/fs/path` (`FsPath`)
+///
+/// ## Purpose & Domain Scope
+/// Cross-platform path manipulation, canonicalization, lexical normalization,
+/// extension/stem extraction, relative path computation, and traversal escape detection.
+module FsPath
+
+pub struct PathComponents:
+  hasRoot: bool = false
+  drivePrefix: str = ""
+  segments: [str]
+
+fn unifySlashes(p: str): str:
+  ret p.replace(chr(92), "/")
+
+pub fn pathIsAbsolute(p: str): bool:
+  let u = unifySlashes(p)
+  if u.startsWith("/"):
+    ret true
+  if u.len() >= 3 and u.slice(1, 3) == ":/":
+    ret true
+  ret false
+
+pub fn pathComponents(p: str): PathComponents:
+  let u = unifySlashes(p)
+  mut drive = ""
+  mut rest = u
+  if u.len() >= 2 and u.slice(1, 2) == ":":
+    drive = u.slice(0, 2)
+    rest = u.slice(2, u.len())
+  let hasRoot = rest.startsWith("/")
+  let parts = rest.split("/")
+  mut segs: [str] = []
+  mut i = 0
+  while i < parts.len():
+    let s = parts[i]
+    if s.len() > 0 and s != ".":
+      if s == "..":
+        if segs.len() > 0 and segs[segs.len() - 1] != "..":
+          let _ = segs.pop()
+        elif not hasRoot:
+          segs.push("..")
+      else:
+        segs.push(s)
+    i = i + 1
+  ret PathComponents(hasRoot: hasRoot, drivePrefix: drive, segments: segs)
+
+pub fn pathNormalize(p: str): str:
+  let comp = pathComponents(p)
+  let joined = comp.segments.join("/")
+  mut prefix = comp.drivePrefix
+  if comp.hasRoot:
+    prefix = prefix + "/"
+  if joined.len() == 0:
+    if prefix.len() > 0:
+      ret prefix
+    ret "."
+  ret prefix + joined
+
+pub fn pathJoin(base: str, child: str): str:
+  if child.len() == 0:
+    ret pathNormalize(base)
+  if pathIsAbsolute(child) or base.len() == 0:
+    ret pathNormalize(child)
+  ret pathNormalize(base + "/" + child)
+
+pub fn pathJoinMany(parts: [str]): str:
+  if parts.len() == 0:
+    ret "."
+  mut acc = parts[0]
+  mut i = 1
+  while i < parts.len():
+    acc = pathJoin(acc, parts[i])
+    i = i + 1
+  ret pathNormalize(acc)
+
+pub fn pathParent(p: str): str:
+  let norm = pathNormalize(p)
+  if norm == "/" or norm == ".":
+    ret norm
+  let lastSlash = norm.lastIndexOf("/")
+  if lastSlash < 0:
+    ret "."
+  if lastSlash == 0:
+    ret "/"
+  ret norm.slice(0, lastSlash)
+
+pub fn pathFileName(p: str): str:
+  let norm = pathNormalize(p)
+  if norm == "/" or norm == ".":
+    ret ""
+  let lastSlash = norm.lastIndexOf("/")
+  if lastSlash < 0:
+    ret norm
+  ret norm.slice(lastSlash + 1, norm.len())
+
+pub fn pathFileStem(p: str): str:
+  let name = pathFileName(p)
+  if name.len() == 0:
+    ret ""
+  let dotIdx = name.lastIndexOf(".")
+  if dotIdx <= 0:
+    ret name
+  ret name.slice(0, dotIdx)
+
+pub fn pathExtension(p: str): str:
+  let name = pathFileName(p)
+  if name.len() == 0:
+    ret ""
+  let dotIdx = name.lastIndexOf(".")
+  if dotIdx <= 0 or dotIdx == name.len() - 1:
+    ret ""
+  ret name.slice(dotIdx + 1, name.len())
+
+pub fn pathWithExtension(p: str, ext: str): str:
+  let parent = pathParent(p)
+  let stem = pathFileStem(p)
+  if stem.len() == 0:
+    ret p
+  mut cleanExt = ext
+  if cleanExt.startsWith("."):
+    cleanExt = cleanExt.slice(1, cleanExt.len())
+  let newName = if cleanExt.len() > 0: stem + "." + cleanExt else: stem
+  if parent == ".":
+    let norm = pathNormalize(p)
+    if norm.startsWith("/"):
+      ret "/" + newName
+    ret newName
+  ret pathJoin(parent, newName)
+
+pub fn pathRelativeTo(base: str, target: str): str:
+  let bComp = pathComponents(base)
+  let tComp = pathComponents(target)
+  mut common = 0
+  while common < bComp.segments.len() and common < tComp.segments.len():
+    if bComp.segments[common] == tComp.segments[common]:
+      common = common + 1
+    else:
+      break
+  mut relParts: [str] = []
+  mut i = common
+  while i < bComp.segments.len():
+    relParts.push("..")
+    i = i + 1
+  mut j = common
+  while j < tComp.segments.len():
+    relParts.push(tComp.segments[j])
+    j = j + 1
+  if relParts.len() == 0:
+    ret "."
+  ret relParts.join("/")
+
+pub fn pathHasTraversalEscape(base: str, candidate: str): bool:
+  let uCand = unifySlashes(candidate)
+  let rawSegs = uCand.split("/")
+  let bComp = pathComponents(base)
+  mut depth = bComp.segments.len()
+  mut i = 0
+  while i < rawSegs.len():
+    let s = rawSegs[i]
+    if s == "..":
+      depth = depth - 1
+      if depth < bComp.segments.len():
+        ret true
+    elif s.len() > 0 and s != ".":
+      depth = depth + 1
+    i = i + 1
+  let normBase = pathNormalize(base)
+  let joined = pathNormalize(normBase + "/" + candidate)
+  if joined == normBase:
+    ret false
+  let prefix = if normBase.endsWith("/"): normBase else: normBase + "/"
+  ret not joined.startsWith(prefix)

@@ -1,0 +1,66 @@
+// ============================================================================
+// Example 030: Mat3/Mat4 Affine Transforms, LookAt & Inversion (CLI)
+// Demonstrates: Mat2, Mat3, Mat4, mat3Identity, mat3Mul, mat3TransformVec3,
+//               mat3Det, Mat4.translation, Mat4.lookAt, Mat4.perspective,
+//               .transformVec4(), and .inverse() from std/math/mat.
+// ============================================================================
+module Ex030MathMat3Mat4TransformsCli
+
+import { absFloat, EPSILON } from "../std/math/consts"
+import { Vec2, Vec3, Vec4, Vector3 } from "../std/math/vec_math"
+import {
+  Mat2,
+  Mat3,
+  Mat4,
+  mat3Identity,
+  mat3Mul,
+  mat3TransformVec3,
+  mat3Det
+} from "../std/math/mat"
+
+pub fn verifyMat3DeterminantAndTransform(x: float, y: float, z: float): int:
+  let m2 = Mat2.identity()
+  let v2 = m2.transformVec2(Vec2(x = x, y = y))
+  let m3 = mat3Mul(mat3Identity(), Mat3.identity())
+  let v3 = mat3TransformVec3(m3, Vector3.new(x, y, z))
+  if m2.det() == 1.0 and mat3Det(m3) == 1.0 and v2.x == x:
+    ret int(v3.x + v3.y + v3.z)
+  ret -1
+
+pub fn verifyMat4AffineInverseRoundtrip(tx: float, ty: float, tz: float): int:
+  let tr = Mat4.translation(tx, ty, tz)
+  let p = Vec4(x = 1.0, y = 2.0, z = 3.0, w = 1.0)
+  let moved = tr.transformVec4(p)
+  match tr.inverse():
+    Some(inv) =>
+      let back = inv.transformVec4(moved)
+      if absFloat(back.x - 1.0) < EPSILON and absFloat(back.z - 3.0) < EPSILON:
+        ret int(moved.x + moved.y + moved.z)
+      ret -2
+    None =>
+      ret -1
+
+pub fn verifyCameraViewProjectionMatrix(): int:
+  let eye = Vec3(x = 0.0, y = 2.0, z = 8.0)
+  let target = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  let up = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  let view = Mat4.lookAt(eye, target, up)
+  let proj = Mat4.perspective(1.0, 1.77, 0.1, 100.0)
+  let vp = proj.mul(view)
+  if view.m33 == 1.0 and proj.m00 != 0.0 and vp.m00 != 0.0:
+    ret 1
+  ret 0
+
+pub fn describeMatrixSpace(rank: int): str:
+  if rank == 4:
+    ret "MAT4:HOMOGENEOUS_AFFINE_3D"
+  ret "MAT3:LINEAR_BASIS"
+
+pub fn main(): int:
+  let m3Sum = verifyMat3DeterminantAndTransform(2.0, 3.0, 4.0)
+  let m4Sum = verifyMat4AffineInverseRoundtrip(10.0, 20.0, 30.0)
+  let vpOk = verifyCameraViewProjectionMatrix()
+  println("Mat3 Transform Component Sum: " + str(m3Sum))
+  println("Mat4 Translated Point Sum (reversible): " + str(m4Sum))
+  println("Camera View-Projection Valid: " + str(vpOk) + " (" + describeMatrixSpace(4) + ")")
+  ret 0

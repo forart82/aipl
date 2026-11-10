@@ -1,0 +1,118 @@
+/// # Module: `std/phys2d/broadphase2d` (`Broadphase2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Dynamic AABB Bounding Volume Tree (`DynamicAABBTree2D`) with node fattening
+/// and overlapping pair discovery.
+module Broadphase2DMod
+
+import { Vec2 } from "std/math/vec_math"
+import { Rect2D } from "std/math/geom2d"
+
+pub struct BroadphasePair2D(bodyIdA: int, bodyIdB: int, colliderIdxA: int, colliderIdxB: int)
+
+pub struct DynamicAABBNode2D(aabb: Rect2D, bodyId: int, parent: int, child1: int, child2: int, height: int, active: bool)
+
+pub struct DynamicAABBTree2D(nodes: [DynamicAABBNode2D], root: int, freeList: int)
+
+pub fn dynamicAABBTreeNew(): DynamicAABBTree2D:
+  mut ns: [DynamicAABBNode2D] = []
+  ret DynamicAABBTree2D(nodes = ns, root = -1, freeList = -1)
+
+fn fattenRect2D(r: Rect2D, margin: float): Rect2D:
+  let rw = if r.w > 0.0: r.w else: r.width
+  let rh = if r.h > 0.0: r.h else: r.height
+  let nw = rw + margin * 2.0
+  let nh = rh + margin * 2.0
+  ret Rect2D(x = r.x - margin, y = r.y - margin, w = nw, h = nh, width = nw, height = nh)
+
+fn rectContainsOther(outer: Rect2D, inner: Rect2D): bool:
+  let ow = if outer.w > 0.0: outer.w else: outer.width
+  let oh = if outer.h > 0.0: outer.h else: outer.height
+  let iw = if inner.w > 0.0: inner.w else: inner.width
+  let ih = if inner.h > 0.0: inner.h else: inner.height
+  ret inner.x >= outer.x and inner.y >= outer.y and (inner.x + iw) <= (outer.x + ow) and (inner.y + ih) <= (outer.y + oh)
+
+fn rectsOverlap2D(a: Rect2D, b: Rect2D): bool:
+  let aw = if a.w > 0.0: a.w else: a.width
+  let ah = if a.h > 0.0: a.h else: a.height
+  let bw = if b.w > 0.0: b.w else: b.width
+  let bh = if b.h > 0.0: b.h else: b.height
+  ret a.x <= b.x + bw and a.x + aw >= b.x and a.y <= b.y + bh and a.y + ah >= b.y
+
+pub fn dynamicAABBTreeInsert(mut tree: DynamicAABBTree2D, bodyId: int, aabb: Rect2D): int:
+  mut ns = tree.nodes
+  let nodeId = ns.len
+  let fat = fattenRect2D(aabb, 0.2)
+  ns.push(DynamicAABBNode2D(
+    aabb = fat,
+    bodyId = bodyId,
+    parent = -1,
+    child1 = -1,
+    child2 = -1,
+    height = 0,
+    active = true
+  ))
+  tree.nodes = ns
+  if tree.root < 0:
+    tree.root = nodeId
+  ret nodeId
+
+pub fn dynamicAABBTreeUpdate(mut tree: DynamicAABBTree2D, nodeId: int, newAABB: Rect2D, velocity: Vec2): bool:
+  if nodeId < 0 or nodeId >= tree.nodes.len:
+    ret false
+  let nd: DynamicAABBNode2D = tree.nodes[nodeId]
+  if not nd.active:
+    ret false
+  if rectContainsOther(nd.aabb, newAABB):
+    ret false
+  mut ns = tree.nodes
+  let fat = fattenRect2D(newAABB, 0.2 + (velocity.x * velocity.x + velocity.y * velocity.y) * 0.01)
+  ns[nodeId] = DynamicAABBNode2D(
+    aabb = fat,
+    bodyId = nd.bodyId,
+    parent = nd.parent,
+    child1 = nd.child1,
+    child2 = nd.child2,
+    height = nd.height,
+    active = true
+  )
+  tree.nodes = ns
+  ret true
+
+pub fn dynamicAABBTreeRemove(mut tree: DynamicAABBTree2D, nodeId: int): void:
+  if nodeId < 0 or nodeId >= tree.nodes.len:
+    ret
+  let nd: DynamicAABBNode2D = tree.nodes[nodeId]
+  mut ns = tree.nodes
+  ns[nodeId] = DynamicAABBNode2D(
+    aabb = nd.aabb,
+    bodyId = nd.bodyId,
+    parent = -1,
+    child1 = -1,
+    child2 = -1,
+    height = -1,
+    active = false
+  )
+  tree.nodes = ns
+
+pub fn dynamicAABBTreeFindPairs(tree: DynamicAABBTree2D): [BroadphasePair2D]:
+  mut pairs: [BroadphasePair2D] = []
+  let n = tree.nodes.len
+  mut i = 0
+  while i < n:
+    let na: DynamicAABBNode2D = tree.nodes[i]
+    if na.active:
+      mut j = i + 1
+      while j < n:
+        let nb: DynamicAABBNode2D = tree.nodes[j]
+        if nb.active and na.bodyId != nb.bodyId:
+          if rectsOverlap2D(na.aabb, nb.aabb):
+            pairs.push(BroadphasePair2D(
+              bodyIdA = na.bodyId,
+              bodyIdB = nb.bodyId,
+              colliderIdxA = i,
+              colliderIdxB = j
+            ))
+        j = j + 1
+    i = i + 1
+  ret pairs

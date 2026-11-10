@@ -1,0 +1,126 @@
+// ============================================================================
+// Canonical Example 132: Window Surface Resizing & Aspect Letterbox Viewport (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/window/surface
+// ============================================================================
+module Ex132WindowSurfaceLetterboxViewportWindow
+
+import {
+  createWindowSurface,
+  resizeWindowSurface,
+  calculateSurfaceDimensions,
+  computeLetterbox,
+  isSurfaceReady,
+  destroyWindowSurface,
+  PRESENT_MODE_FIFO
+} from "../std/window/surface"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+import { maxInt } from "../std/prelude"
+
+pub fn verifySurfaceResizeAndLetterboxViewport(): int:
+  let surface = createWindowSurface("Main Viewport", 1280, 720, PRESENT_MODE_FIFO)
+  assert(isSurfaceReady(surface), "surface ready initially")
+  let resized = resizeWindowSurface(surface, 2560, 1440, 2.0)
+  let dims = calculateSurfaceDimensions(resized)
+  assert(dims.logicalWidth == 1280 and dims.logicalHeight == 720, "HiDPI 2.0x logical dimensions")
+
+  let letterbox = computeLetterbox(1920, 1200, 16.0 / 9.0)
+  assert(letterbox.width == 1920 and letterbox.y == 60, "letterbox centered vertically")
+  let destroyed = destroyWindowSurface(resized)
+  assert(not isSurfaceReady(destroyed), "destroyed surface not ready")
+  ret letterbox.height
+
+pub fn computeLetterboxBarThicknessPx(containerSpan: int, activeSpan: int): int:
+  let diff = maxInt(0, containerSpan - activeSpan)
+  ret diff / 2
+
+pub fn describeSurfacePresentMode(modeId: int): str:
+  if modeId == 1:
+    ret "SURFACE:PRESENT_FIFO_VSYNC"
+  ret "SURFACE:PRESENT_MAILBOX_TRIPLE"
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let containerH = 1200 + (frameIndex % 19) * 10
+  let lb = computeLetterbox(1920, containerH, 16.0 / 9.0)
+  let _ = int(dt * 0.0)
+  ret lb.height + lb.y
+
+pub fn renderLetterboxViewportScene(frameIndex: int): void:
+  let containerH = 1200 + (frameIndex % 19) * 10
+  let surface = createWindowSurface("Viewport Inspector", 1920, containerH, PRESENT_MODE_FIFO)
+  let resized = resizeWindowSurface(surface, 3840, containerH * 2, 2.0)
+  let dims = calculateSurfaceDimensions(resized)
+  let lb = computeLetterbox(dims.logicalWidth, dims.logicalHeight, 16.0 / 9.0)
+
+  clearScreen(rgb(9, 13, 22))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(17, 26, 46))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_132 // WINDOW SURFACE HIDPI SCALING & 16:9 LETTERBOX VIEWPORT SOLVER", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Left: Scaled Monitor Container read directly from dims.logicalWidth / dims.logicalHeight and lb
+  let cx = 64.0
+  let cy = 110.0
+  let cw = float(dims.logicalWidth) * 0.4
+  let ch = float(dims.logicalHeight) * 0.4
+  let topMatteH = float(lb.y) * 0.4
+  let activeW = float(lb.width) * 0.4
+  let activeH = float(lb.height) * 0.4
+
+  // Top & Bottom Letterbox Matte Bars read from lb.y and lb.height
+  drawRect(cx, cy, cw, topMatteH, rgb(24, 24, 32))
+  drawRect(cx, cy + topMatteH + activeH, cw, topMatteH, rgb(24, 24, 32))
+  drawText("MATTE BAR (y=0.." + str(lb.y) + "px)", cx + 16.0, cy + 5.0, 13.0, rgb(148, 163, 184))
+  drawText("MATTE BAR (h=" + str(lb.y) + "px)", cx + 16.0, cy + topMatteH + activeH + 5.0, 13.0, rgb(148, 163, 184))
+
+  // Active 16:9 Viewport Canvas inside Letterbox read from lb.x, lb.y, lb.width, lb.height
+  let vx = cx + float(lb.x) * 0.4
+  let vy = cy + topMatteH
+  drawRect(vx, vy, activeW, activeH, rgb(15, 32, 58))
+  drawRectOutline(vx, vy, activeW, activeH, 2.5, rgb(34, 197, 94))
+
+  // Rule-of-Thirds Safe Composition Guides read from activeW and activeH
+  drawLine(vx + activeW / 3.0, vy, vx + activeW / 3.0, vy + activeH, rgb(30, 64, 110), 1.5)
+  drawLine(vx + (activeW * 2.0) / 3.0, vy, vx + (activeW * 2.0) / 3.0, vy + activeH, rgb(30, 64, 110), 1.5)
+  drawLine(vx, vy + activeH / 3.0, vx + activeW, vy + activeH / 3.0, rgb(30, 64, 110), 1.5)
+  drawLine(vx, vy + (activeH * 2.0) / 3.0, vx + activeW, vy + (activeH * 2.0) / 3.0, rgb(30, 64, 110), 1.5)
+
+  drawText("16:9 ACTIVE VIEWPORT (" + str(lb.width) + "x" + str(lb.height) + ")", vx + 220.0, vy + activeH / 2.0 - 8.0, 18.0, rgb(134, 239, 172))
+  drawRectOutline(cx, cy, cw, ch, 2.0, rgb(148, 163, 184))
+
+  // Right Telemetry Panel
+  let rx = 868.0
+  drawRect(rx, cy, 356.0, 480.0, rgb(16, 24, 42))
+  drawRectOutline(rx, cy, 356.0, 480.0, 2.0, rgb(71, 85, 105))
+  drawText("SURFACE TELEMETRY", rx + 24.0, cy + 32.0, 18.0, rgb(56, 189, 248))
+  drawText("Physical Size: " + str(dims.physicalWidth) + "x" + str(dims.physicalHeight), rx + 24.0, cy + 78.0, 15.0, rgb(226, 232, 240))
+  drawText("Logical Size:  " + str(dims.logicalWidth) + "x" + str(dims.logicalHeight), rx + 24.0, cy + 112.0, 15.0, rgb(226, 232, 240))
+  drawText("HiDPI Factor:  " + str(dims.scaleFactor) + "x", rx + 24.0, cy + 146.0, 15.0, rgb(74, 222, 128))
+  drawText("Container:     " + str(dims.logicalWidth) + "x" + str(dims.logicalHeight), rx + 24.0, cy + 196.0, 15.0, rgb(250, 204, 21))
+  drawText("Letterbox:     " + str(lb.width) + "x" + str(lb.height), rx + 24.0, cy + 230.0, 15.0, rgb(74, 222, 128))
+  drawText("Matte Offset:  x=" + str(lb.x) + ", y=" + str(lb.y) + "px", rx + 24.0, cy + 264.0, 15.0, rgb(203, 213, 225))
+  drawText(describeSurfacePresentMode(1), rx + 24.0, cy + 314.0, 14.0, rgb(125, 211, 252))
+  drawText("Frame Step:    " + str(frameIndex), rx + 24.0, cy + 350.0, 14.0, rgb(148, 163, 184))
+
+pub fn main(): int:
+  let h = verifySurfaceResizeAndLetterboxViewport()
+  assert(h == 1080, "1080px letterbox height")
+  initWindow(1280, 720, "AIPL ex_132 - Window Surface & Aspect Letterbox Viewport")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderLetterboxViewportScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

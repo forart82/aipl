@@ -1,0 +1,369 @@
+/// # Module: `std/ai/vector_embedding` (`VectorEmbeddingMod`)
+///
+/// ## Purpose & Domain Scope
+/// High-performance semantic vector index supporting Cosine Similarity,
+/// L2 Euclidean distance, and top-K Nearest Neighbor (KNN) search.
+module VectorEmbeddingMod
+
+import { minInt } from "../math/consts"
+import { sqrt } from "../math/trig"
+import { tensorMatmul, tensorCosineSimilarity } from "../math/simd"
+import { jsonQuery, escapeJsonString } from "../encoding/json"
+import { Map } from "../collections/hash_map"
+
+pub struct VectorEmbedding(dims: int, values: [float])
+
+pub struct KnnSearchResult(id: int, similarity: float)
+
+pub struct AiMessage(role: str, content: str)
+
+pub struct AiToolDef(name: str, description: str, parametersSchemaJson: str)
+
+pub struct AiCompletionRequest(model: str, systemPrompt: str, messages: [AiMessage], temperature: float = 0.0, maxTokens: int = 1024, responseSchemaJson: str = "")
+
+pub struct AiToolCall(name: str, argumentsJson: str)
+
+pub fn cosineSimilarity(v1: VectorEmbedding, v2: VectorEmbedding): float:
+  let n = minInt(v1.values.len, v2.values.len)
+  if n == 0 or v1.dims <= 0 or v2.dims <= 0:
+    ret 0.0
+  mut dot = 0.0
+  mut norm1 = 0.0
+  mut norm2 = 0.0
+  mut i = 0
+  while i < n:
+    let a = v1.values[i]
+    let b = v2.values[i]
+    dot = dot + a * b
+    norm1 = norm1 + a * a
+    norm2 = norm2 + b * b
+    i = i + 1
+  let denom = sqrt(norm1) * sqrt(norm2)
+  if denom <= 0.000001:
+    ret 0.0
+  ret dot / denom
+
+pub fn l2Distance(v1: VectorEmbedding, v2: VectorEmbedding): float:
+  let n = minInt(v1.values.len, v2.values.len)
+  if n == 0 or v1.dims <= 0 or v2.dims <= 0:
+    ret 0.0
+  mut sumSq = 0.0
+  mut i = 0
+  while i < n:
+    let d = v1.values[i] - v2.values[i]
+    sumSq = sumSq + d * d
+    i = i + 1
+  ret sqrt(sumSq)
+
+pub fn knnLinearSearch(query: VectorEmbedding, dataset: [VectorEmbedding], topK: int): [KnnSearchResult]:
+  mut allRes: [KnnSearchResult] = []
+  mut i = 0
+  while i < dataset.len:
+    let sim = cosineSimilarity(query, dataset[i])
+    allRes.push(KnnSearchResult(id = i, similarity = sim))
+    i = i + 1
+
+  let n = allRes.len
+  mut a = 0
+  while a < n:
+    mut b = 0
+    while b < n - 1 - a:
+      let r0: KnnSearchResult = allRes[b]
+      let r1: KnnSearchResult = allRes[b + 1]
+      if r0.similarity < r1.similarity:
+        allRes[b] = r1
+        allRes[b + 1] = r0
+      b = b + 1
+    a = a + 1
+
+  let kLim = minInt(topK, n)
+  mut out: [KnnSearchResult] = []
+  mut k = 0
+  while k < kLim:
+    out.push(allRes[k])
+    k = k + 1
+  ret out
+
+pub fn buildGeminiRequest(model: str, systemPrompt: str, userPrompt: str, responseSchemaJson: str = ""): str:
+  mut out = "{"
+  mut hasPrev = false
+  if model.len > 0:
+    out = out + "\"model\":\"" + escapeJsonString(model) + "\""
+    hasPrev = true
+  if hasPrev:
+    out = out + ","
+  out = out + "\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"" + escapeJsonString(userPrompt) + "\"}]}]"
+  if systemPrompt.len > 0:
+    out = out + ",\"systemInstruction\":{\"parts\":[{\"text\":\"" + escapeJsonString(systemPrompt) + "\"}]}"
+  let schema = responseSchemaJson.trim()
+  if schema.len > 0:
+    out = out + ",\"generationConfig\":{\"responseMimeType\":\"application/json\",\"responseSchema\":" + schema + "}"
+  out = out + "}"
+  ret out
+
+pub fn buildOpenAiRequest(model: str, messages: [AiMessage], responseSchemaJson: str = ""): str:
+  mut msgs = "["
+  mut i = 0
+  while i < messages.len:
+    let m: AiMessage = messages[i]
+    if i > 0:
+      msgs = msgs + ","
+    msgs = msgs + "{\"role\":\"" + escapeJsonString(m.role) + "\",\"content\":\"" + escapeJsonString(m.content) + "\"}"
+    i += 1
+  msgs = msgs + "]"
+
+  mut out = "{\"model\":\"" + escapeJsonString(model) + "\",\"messages\":" + msgs
+  let schema = responseSchemaJson.trim()
+  if schema.len > 0:
+    if schema.contains("\"json_schema\""):
+      out = out + ",\"response_format\":" + schema
+    elif schema.contains("\"schema\"") and schema.contains("\"name\""):
+      out = out + ",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":" + schema + "}"
+    else:
+      out = out + ",\"response_format\":{\"type\":\"json_schema\",\"json_schema\":{\"name\":\"response_schema\",\"strict\":true,\"schema\":" + schema + "}}"
+  out = out + "}"
+  ret out
+
+pub fn buildAnthropicRequest(model: str, systemPrompt: str, messages: [AiMessage], maxTokens: int = 1024): str:
+  mut msgs = "["
+  mut i = 0
+  while i < messages.len:
+    let m: AiMessage = messages[i]
+    if i > 0:
+      msgs = msgs + ","
+    msgs = msgs + "{\"role\":\"" + escapeJsonString(m.role) + "\",\"content\":\"" + escapeJsonString(m.content) + "\"}"
+    i += 1
+  msgs = msgs + "]"
+
+  mut out = "{\"model\":\"" + escapeJsonString(model) + "\",\"max_tokens\":" + toString(maxTokens)
+  if systemPrompt.len > 0:
+    out = out + ",\"system\":\"" + escapeJsonString(systemPrompt) + "\""
+  out = out + ",\"messages\":" + msgs + "}"
+  ret out
+
+pub fn buildOllamaRequest(model: str, prompt: str, formatSchemaJson: str = ""): str:
+  mut out = "{\"model\":\"" + escapeJsonString(model) + "\",\"prompt\":\"" + escapeJsonString(prompt) + "\",\"stream\":false"
+  let fmt = formatSchemaJson.trim()
+  if fmt.len > 0:
+    if fmt.startsWith("{") or fmt.startsWith("["):
+      out = out + ",\"format\":" + fmt
+    else:
+      out = out + ",\"format\":\"" + escapeJsonString(fmt) + "\""
+  out = out + "}"
+  ret out
+
+fn tryExtractToolCallPair(responseJson: str, namePath: str, argsPath1: str, argsPath2: str): Option[AiToolCall]:
+  let nameOpt = jsonQuery(responseJson, namePath)
+  if nameOpt.isSome():
+    let toolName = nameOpt.unwrap()
+    if toolName.len > 0:
+      mut argsJson = "{}"
+      let a1Opt = jsonQuery(responseJson, argsPath1)
+      if a1Opt.isSome():
+        argsJson = a1Opt.unwrap()
+      elif argsPath2.len > 0:
+        let a2Opt = jsonQuery(responseJson, argsPath2)
+        if a2Opt.isSome():
+          argsJson = a2Opt.unwrap()
+      ret Some(AiToolCall(name = toolName, argumentsJson = argsJson))
+  ret None
+
+pub fn parseAiToolCall(responseJson: str): Result[AiToolCall, str]:
+  let s = responseJson.trim()
+  if not s.startsWith("{"):
+    ret Err("No tool call found in response")
+
+  let c1 = tryExtractToolCallPair(s, "choices[0].message.tool_calls[0].function.name", "choices[0].message.tool_calls[0].function.arguments", "choices[0].message.tool_calls[0].function.args")
+  if c1.isSome():
+    ret Ok(c1.unwrap())
+
+  let c2 = tryExtractToolCallPair(s, "tool_calls[0].function.name", "tool_calls[0].function.arguments", "tool_calls[0].function.args")
+  if c2.isSome():
+    ret Ok(c2.unwrap())
+
+  let c3 = tryExtractToolCallPair(s, "candidates[0].content.parts[0].functionCall.name", "candidates[0].content.parts[0].functionCall.args", "candidates[0].content.parts[0].functionCall.arguments")
+  if c3.isSome():
+    ret Ok(c3.unwrap())
+
+  let c4 = tryExtractToolCallPair(s, "content[0].name", "content[0].input", "content[0].arguments")
+  if c4.isSome():
+    ret Ok(c4.unwrap())
+
+  let c5 = tryExtractToolCallPair(s, "tool_call.name", "tool_call.arguments", "tool_call.args")
+  if c5.isSome():
+    ret Ok(c5.unwrap())
+
+  let c6 = tryExtractToolCallPair(s, "functionCall.name", "functionCall.args", "functionCall.arguments")
+  if c6.isSome():
+    ret Ok(c6.unwrap())
+
+  let hasArgs = jsonQuery(s, "arguments").isSome() or jsonQuery(s, "args").isSome() or jsonQuery(s, "input").isSome()
+  if hasArgs:
+    let c7 = tryExtractToolCallPair(s, "name", "arguments", "args")
+    if c7.isSome():
+      ret Ok(c7.unwrap())
+
+  ret Err("No tool call found in response")
+
+fn hasJsonKey(jsonStr: str, key: str): bool:
+  let k1 = "\"" + key + "\":"
+  if jsonStr.contains(k1):
+    ret true
+  let k2 = "\"" + key + "\" :"
+  if jsonStr.contains(k2):
+    ret true
+  let k3 = "\"" + key + "\"\t:"
+  if jsonStr.contains(k3):
+    ret true
+  let k4 = "\"" + key + "\"\n:"
+  if jsonStr.contains(k4):
+    ret true
+  ret false
+
+fn extractStringArrayElements(arrJson: str): [str]:
+  mut out: [str] = []
+  let s = arrJson.trim()
+  if not s.startsWith("[") or not s.endsWith("]"):
+    ret out
+  mut i = 1
+  let n = s.len - 1
+  while i < n:
+    let ch = s.charAt(i)
+    if ch == "\"":
+      mut endIdx = i + 1
+      while endIdx < n:
+        let ec = s.charAt(endIdx)
+        if ec == "\\":
+          endIdx += 2
+        elif ec == "\"":
+          break
+        else:
+          endIdx += 1
+      let item = s.substring(i + 1, endIdx)
+      out.push(item)
+      i = endIdx + 1
+    else:
+      i += 1
+  ret out
+
+fn extractRequiredKeys(schemaJson: str): [str]:
+  mut out: [str] = []
+  let reqIdx = schemaJson.indexOf("\"required\"")
+  if reqIdx < 0:
+    ret out
+  let colonIdx = schemaJson.indexOfFrom(":", reqIdx + 10)
+  if colonIdx < 0:
+    ret out
+  let bracketOpen = schemaJson.indexOfFrom("[", colonIdx + 1)
+  if bracketOpen < 0:
+    ret out
+  let bracketClose = schemaJson.indexOfFrom("]", bracketOpen + 1)
+  if bracketClose < 0:
+    ret out
+  let arrSlice = schemaJson.slice(bracketOpen, bracketClose + 1)
+  ret extractStringArrayElements(arrSlice)
+
+pub fn validateJsonAgainstSchema(jsonStr: str, schemaJson: str): Result[bool, str]:
+  let trimmed = jsonStr.trim()
+  if not trimmed.startsWith("{") or not trimmed.endsWith("}"):
+    ret Err("Invalid JSON: expected JSON object")
+
+  let schemaTrimmed = schemaJson.trim()
+  if schemaTrimmed.len > 0:
+    if not schemaTrimmed.startsWith("{") or not schemaTrimmed.endsWith("}"):
+      ret Err("Invalid schema: expected JSON object")
+
+    let requiredKeys = extractRequiredKeys(schemaTrimmed)
+    for key in requiredKeys:
+      if not hasJsonKey(trimmed, key):
+        ret Err("Missing required property: {key}")
+
+  ret Ok(true)
+
+pub fn renderPromptTemplate(template: str, vars: Map[str, str]): str:
+  mut res = template
+  let keys = vars.keys()
+  for k in keys:
+    let optVal = vars.get(k)
+    if optVal.isSome():
+      let val = optVal.unwrap()
+      let openDouble = "{" + "{"
+      let closeDouble = "}" + "}"
+      res = res.replace(openDouble + k + closeDouble, val)
+      res = res.replace(openDouble + " " + k + " " + closeDouble, val)
+      res = res.replace("{" + k + "}", val)
+      res = res.replace("{" + " " + k + " " + "}", val)
+  ret res
+
+pub fn estimateTokenCount(text: str): int:
+  let n = text.len
+  if n == 0:
+    ret 0
+  mut tokens = 0
+  mut i = 0
+  while i < n:
+    let c = text.charCodeAt(i)
+    if c == 10:
+      tokens += 1
+      i += 1
+    elif c == 13:
+      if i + 1 < n and text.charCodeAt(i + 1) == 10:
+        i += 2
+      else:
+        i += 1
+      tokens += 1
+    elif c == 32 or c == 9:
+      mut spaceCount = 0
+      while i < n and (text.charCodeAt(i) == 32 or text.charCodeAt(i) == 9):
+        spaceCount += 1
+        i += 1
+      if spaceCount >= 4:
+        tokens += spaceCount / 4
+    elif (c >= 65 and c <= 90) or (c >= 97 and c <= 122):
+      mut wordLen = 0
+      while i < n:
+        let wc = text.charCodeAt(i)
+        if (wc >= 65 and wc <= 90) or (wc >= 97 and wc <= 122):
+          if wordLen > 0 and (wc >= 65 and wc <= 90) and (text.charCodeAt(i - 1) >= 97 and text.charCodeAt(i - 1) <= 122):
+            tokens += (wordLen + 4) / 5
+            wordLen = 0
+          wordLen += 1
+          i += 1
+        else:
+          break
+      if wordLen > 0:
+        tokens += (wordLen + 4) / 5
+    elif c >= 48 and c <= 57:
+      mut numLen = 0
+      while i < n and text.charCodeAt(i) >= 48 and text.charCodeAt(i) <= 57:
+        numLen += 1
+        i += 1
+      tokens += (numLen + 2) / 3
+    else:
+      tokens += 1
+      i += 1
+  if tokens == 0 and n > 0:
+    ret 1
+  ret tokens
+
+pub fn rankEmbeddingsByCosine(query: [float], candidates: [[float]]): [float]:
+  mut scores: [float] = []
+  mut i = 0
+  let n = candidates.len
+  while i < n:
+    let score = tensorCosineSimilarity(query, candidates[i])
+    scores.push(score)
+    i += 1
+  ret scores
+
+pub fn denseLayerForward(input: [float], weights: [float], bias: [float], inDim: int, outDim: int): [float]:
+  let prod = tensorMatmul(input, weights, 1, outDim, inDim)
+  mut out: [float] = []
+  mut j = 0
+  let bLen = bias.len
+  while j < outDim:
+    let b = if j < bLen: bias[j] else: 0.0
+    let p = if j < prod.len: prod[j] else: 0.0
+    out.push(p + b)
+    j += 1
+  ret out

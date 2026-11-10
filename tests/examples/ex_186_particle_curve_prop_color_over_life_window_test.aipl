@@ -1,0 +1,52 @@
+module Ex186ParticleCurvePropColorOverLifeWindowTest
+
+import {
+  buildParticleCurvePropAudit, stepCurvePlayhead
+} from "../../examples/ex_186_particle_curve_prop_color_over_life_window"
+import { ColorRgba8 } from "../../std/gfx/color"
+import {
+  CurveKeyframe, KeyframeCurve,
+  createConstantCurveProperty, createRandomConstantsProperty,
+  createLinearRampCurve, evaluateKeyframeCurve, evaluateMinMaxCurve,
+  sampleCurveIntegral, createTwoStopColorGradient, evaluateColorGradient
+} from "../../std/particle/curve_prop"
+
+pub fn test_particle_curve_prop_color_over_life(): void:
+  let constP = createConstantCurveProperty(42.0)
+  assert(evaluateMinMaxCurve(constP, 0.5, 0.0) == 42.0, "Constant curve evaluates to 42.0")
+
+  let randP = createRandomConstantsProperty(10.0, 30.0)
+  assert(evaluateMinMaxCurve(randP, 0.5, 0.5) == 20.0, "Random constants midpoint is 20.0")
+
+  let ramp = createLinearRampCurve(0.0, 10.0)
+  let area = sampleCurveIntegral(ramp, 10)
+  assert(area > 4.9 and area < 5.1, "Integral of y=10t over [0..1] is 5.0")
+
+  let curve = KeyframeCurve(keyframes = [
+    CurveKeyframe(time = 0.0, value = 0.0, inTangent = 0.0, outTangent = 100.0),
+    CurveKeyframe(time = 1.0, value = 100.0, inTangent = 100.0, outTangent = 0.0)
+  ])
+  let midVal = evaluateKeyframeCurve(curve, 0.5)
+  assert(midVal > 45.0 and midVal < 55.0, "Cubic Hermite spline midpoint is 50.0")
+
+  let grad = createTwoStopColorGradient(
+    ColorRgba8(r = 250, g = 204, b = 21, a = 255),
+    ColorRgba8(r = 244, g = 63, b = 94, a = 128)
+  )
+  let cMid = evaluateColorGradient(grad, 0.5)
+  assert(cMid.r > 200 and cMid.a > 150, "Oklab color-over-lifetime gradient interpolation")
+  assert(buildParticleCurvePropAudit() == 117, "buildParticleCurvePropAudit returns 42 + 20 + 5 + 50 == 117")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let p0 = stepCurvePlayhead(0)
+  let p1 = stepCurvePlayhead(1)
+  let p20 = stepCurvePlayhead(20)
+  let p100 = stepCurvePlayhead(100)
+  assert(p0 != p1, "Playhead advances from t=0 to t=1")
+  assert(p1 != p20, "Playhead advances from t=1 to t=20")
+  assert(p20 != p100 and p0 != p100, "Playhead advances from t=20 to t=100 without aliasing")
+
+pub fn main(): int:
+  test_particle_curve_prop_color_over_life()
+  println("PASS: ex_186_particle_curve_prop_color_over_life_window_test")
+  ret 0

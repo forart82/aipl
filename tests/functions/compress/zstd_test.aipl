@@ -1,0 +1,30 @@
+module tests.functions.compress.zstd_test
+
+import * from "std/compress/zstd"
+import * from "std/prelude"
+import { DeflateOptions, deflateCompress, deflateDecompress } from "std/compress/deflate"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { computeCrc32 } from "std/compress/gzip"
+
+pub fn test_zstd_zstdCompress_1(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_level = 2
+  let edge_level = 0
+  let resNom = zstdCompress(arg_data, arg_level)
+  let resEdge = zstdCompress(edge_data, edge_level)
+  assertEqInt(resNom.len(), 21, "zstdCompress nominal resNom.len() == 21")
+  assertEqInt(resEdge.len(), 18, "zstdCompress boundary resEdge.len() == 18")
+  ret 0
+
+pub fn test_zstd_zstdDecompress_2(): int:
+  let orig = [65, 73, 80, 76]
+  let comp = zstdCompress(orig, 2)
+  let decompRes = zstdDecompress(comp)
+  assert(decompRes.isOk() == true, "zstdDecompress roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "zstdDecompress len == 4")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = zstdDecompress([1, 2, 3])
+  assert(bad.isOk() == false, "zstdDecompress corrupt frame rejected")
+  ret 0

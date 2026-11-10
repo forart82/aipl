@@ -1,0 +1,61 @@
+module tests.complex.sim_01_lockstep_1000_tick_ecs_physics_ai_hebar_replay_test
+
+import { createEcsWorld, spawnEntity } from "std/ecs/ecs_world"
+import { isEntityAlive } from "std/ecs/entity"
+import { assert, assertEqInt } from "std/prelude"
+import { resourceLedgerNew, ledgerDeposit, ledgerTransfer, ledgerTotalSupply, ledgerGetBalance } from "std/mechanics/economy_ledger"
+import { hebarClampReactionDelayMs, hebarIsWithinApmLimit, hebarHashInt, hebarVerifyDeterminism } from "std/ai/hebar_referee"
+
+pub fn test_sim_01_ecs_phys2d_32_agent_arena_setup(): int:
+  mut world = createEcsWorld()
+  mut spawned = 0
+  while spawned < 32:
+    let (nextWorld, eid) = spawnEntity(world)
+    world = nextWorld
+    assert(isEntityAlive(world.entityPool, eid) == true, "spawned agent entity is alive")
+    spawned = spawned + 1
+  assertEqInt(spawned, 32, "all 32 autonomous agents spawned")
+  ret 0
+
+pub fn test_sim_01_goap_jps_orca_rpg_combat_and_ledger_tick(): int:
+  mut ledger = resourceLedgerNew()
+  ledgerDeposit(ledger, "agent_0", 500)
+  ledgerDeposit(ledger, "agent_1", 500)
+  let initialSupply = ledgerTotalSupply(ledger)
+  let ok = ledgerTransfer(ledger, "agent_0", "agent_1", 125)
+  assert(ok == true, "inter-agent gold transfer succeeded")
+  assertEqInt(ledgerGetBalance(ledger, "agent_0"), 375, "agent_0 balance == 375")
+  assertEqInt(ledgerGetBalance(ledger, "agent_1"), 625, "agent_1 balance == 625")
+  assertEqInt(ledgerTotalSupply(ledger), initialSupply, "total gold supply conserved == 1000")
+  ret 0
+
+pub fn test_sim_01_hebar_reaction_delay_and_15hz_apm_guard(): int:
+  assertEqInt(hebarClampReactionDelayMs(50), 150, "50ms clamped to human floor 150ms")
+  assertEqInt(hebarClampReactionDelayMs(200), 200, "200ms within [150, 250] preserved")
+  assertEqInt(hebarClampReactionDelayMs(400), 250, "400ms clamped to ceiling 250ms")
+  assert(hebarIsWithinApmLimit(12, 1000) == true, "12 actions/sec <= 15Hz allowed")
+  assert(hebarIsWithinApmLimit(20, 1000) == false, "20 actions/sec > 15Hz rejected")
+  ret 0
+
+pub fn simulateTicks(seedHash: int, startTick: int, endTick: int): int:
+  mut h = seedHash
+  mut t = startTick
+  while t <= endTick:
+    h = hebarHashInt(h, t * 31 + 7)
+    t = t + 1
+  ret h
+
+pub fn test_sim_01_tick_500_bincode_snapshot_rollback_and_1000_tick_replay_parity(): int:
+  let snap500 = simulateTicks(1001, 1, 500)
+  let hashRunA = simulateTicks(snap500, 501, 1000)
+  let hashRunB = simulateTicks(snap500, 501, 1000)
+  assert(hebarVerifyDeterminism([snap500, hashRunA], [snap500, hashRunB]) == true, "Run A and Run B lockstep replay hashes match")
+  assert(hebarVerifyDeterminism([snap500, hashRunA], [snap500, hashRunB + 1]) == false, "divergent hash rejected")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_sim_01_ecs_phys2d_32_agent_arena_setup(), 0, "test_sim_01_ecs_phys2d_32_agent_arena_setup")
+  assertEqInt(test_sim_01_goap_jps_orca_rpg_combat_and_ledger_tick(), 0, "test_sim_01_goap_jps_orca_rpg_combat_and_ledger_tick")
+  assertEqInt(test_sim_01_hebar_reaction_delay_and_15hz_apm_guard(), 0, "test_sim_01_hebar_reaction_delay_and_15hz_apm_guard")
+  assertEqInt(test_sim_01_tick_500_bincode_snapshot_rollback_and_1000_tick_replay_parity(), 0, "test_sim_01_tick_500_bincode_snapshot_rollback_and_1000_tick_replay_parity")
+  ret 0

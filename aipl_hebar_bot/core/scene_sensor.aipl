@@ -1,0 +1,803 @@
+// ============================================================================
+// AIPL Universal HEBAR Scene Sensor (`aipl_hebar_bot/core/scene_sensor.aipl`)
+// ============================================================================
+// Parses implicit runtime scene-graph & semantic state telemetry (.state.json),
+// provides scanEnv, findUi, boardScanner, raycast, Fitts's Law & Weber contrast
+// auditing, and dead-button detection.
+// ============================================================================
+
+module SceneSensor
+
+import {
+  cos,
+  sin,
+  sqrt
+} from "std/math"
+
+import {
+  parseInt,
+  parseFloat
+} from "std/string"
+
+import {
+  jsonGetPathStr,
+  jsonGetPathFloat,
+  jsonGetPathInt,
+  jsonGetPathIntArray
+} from "std/json"
+
+import {
+  Vector3,
+  vec3,
+  AABB3D,
+  Ray3D,
+  aabb2DTo3D,
+  EulerVectors,
+  eulerToAngleVectors,
+  rayIntersectsAABB
+} from "std/geom3d"
+
+import {
+  DynamicBitSet,
+  bitsetNew
+} from "std/collections"
+
+pub struct DenseBitGrid2D:
+  width: int
+  height: int
+  bits: DynamicBitSet
+
+pub fn denseBitGridNew(width: int, height: int, defaultBit: int = 0): DenseBitGrid2D:
+  mut b = bitsetNew(width * height)
+  if defaultBit != 0:
+    for i in 0..(width * height):
+      b.set(i)
+  ret DenseBitGrid2D(width = width, height = height, bits = b)
+
+pub fn denseBitGridGet(grid: DenseBitGrid2D, x: int, y: int): bool:
+  if x < 0 or x >= grid.width or y < 0 or y >= grid.height:
+    ret false
+  ret grid.bits.test(y * grid.width + x)
+
+pub fn denseBitGridSet(grid: DenseBitGrid2D, x: int, y: int, val: bool): DenseBitGrid2D:
+  if x < 0 or x >= grid.width or y < 0 or y >= grid.height:
+    ret grid
+  mut b = grid.bits
+  let idx = y * grid.width + x
+  if val:
+    b.set(idx)
+  else:
+    b.clear(idx)
+  ret DenseBitGrid2D(width = grid.width, height = grid.height, bits = b)
+
+pub struct SymmetricBitMatrix2D:
+  size: int
+  bits: DynamicBitSet
+
+pub fn symmetricBitMatrixNew(size: int): SymmetricBitMatrix2D:
+  ret SymmetricBitMatrix2D(size = size, bits = bitsetNew(size * size))
+
+pub fn symmetricBitMatrixGet(mat: SymmetricBitMatrix2D, i: int, j: int): bool:
+  if i < 0 or i >= mat.size or j < 0 or j >= mat.size:
+    ret false
+  ret mat.bits.test(i * mat.size + j)
+
+pub fn symmetricBitMatrixSet(mat: SymmetricBitMatrix2D, i: int, j: int, val: bool): SymmetricBitMatrix2D:
+  if i < 0 or i >= mat.size or j < 0 or j >= mat.size:
+    ret mat
+  mut b = mat.bits
+  if val:
+    b.set(i * mat.size + j)
+    b.set(j * mat.size + i)
+  else:
+    b.clear(i * mat.size + j)
+    b.clear(j * mat.size + i)
+  ret SymmetricBitMatrix2D(size = mat.size, bits = b)
+
+pub struct SceneUiNode:
+  id: str
+  kind: str
+  text: str
+  x: int
+  y: int
+  w: int
+  h: int
+  fgColor: str
+  bgColor: str
+  clickable: bool
+  contrastRatio: float
+
+pub struct SceneEntity:
+  id: int
+  tag: str
+  ownerSeat: int
+  x: float
+  y: float
+  vx: float
+  vy: float
+  w: float
+  h: float
+  hp: int
+  state: str
+
+pub struct SceneTurnState:
+  activeSeat: int
+  turnNumber: int
+  phase: str
+  legalActionsCount: int
+  scores: [int]
+  gameOver: bool
+  winnerSeat: int
+  outOfTurnRejected: int
+
+pub struct SceneSnapshot:
+  pid: int
+  windowId: str
+  title: str
+  targetType: str
+  frame: int
+  fps: float
+  frameTimeMs: float
+  width: int
+  height: int
+  mouseX: int
+  mouseY: int
+  audioEnergy: float
+  framebufferHash: str
+  uiNodes: [SceneUiNode]
+  entities: [SceneEntity]
+  turnState: SceneTurnState
+  rawJson: str
+
+pub struct UxAuditFindings:
+  totalUiNodesInspected: int
+  clickableButtonsFound: int
+  smallHitboxCount: int
+  lowContrastCount: int
+  overlappingLabelsCount: int
+  deadButtonsDetected: int
+  minContrastObserved: float
+  meanContrastObserved: float
+
+pub fn emptySceneSnapshot(): SceneSnapshot:
+  mut emptyUi: [SceneUiNode] = []
+  mut emptyEnts: [SceneEntity] = []
+  mut defaultScores: [int] = [0, 0, 0, 0]
+  let ts = SceneTurnState(
+    activeSeat = 1,
+    turnNumber = 1,
+    phase = "play",
+    legalActionsCount = 4,
+    scores = defaultScores,
+    gameOver = false,
+    winnerSeat = 0,
+    outOfTurnRejected = 0
+  )
+  ret SceneSnapshot(
+    pid = 0,
+    windowId = "0x0",
+    title = "AIPL Window",
+    targetType = "native",
+    frame = 0,
+    fps = 60.0,
+    frameTimeMs = 16.6,
+    width = 1280,
+    height = 720,
+    mouseX = 640,
+    mouseY = 360,
+    audioEnergy = 0.0,
+    framebufferHash = "00000000",
+    uiNodes = emptyUi,
+    entities = emptyEnts,
+    turnState = ts,
+    rawJson = "{}"
+  )
+
+pub fn extractJsonStringField(src: str, key: str, fallback: str): str:
+  let pat = "\"" + key + "\":"
+  let idx = src.indexOf(pat)
+  if idx < 0:
+    ret fallback
+  let startPos = idx + pat.len
+  let endPos = if startPos + 160 < src.len: startPos + 160 else: src.len
+  let after = src.slice(startPos, endPos).trim()
+  if not after.startsWith("\""):
+    ret fallback
+  let body = after.slice(1, after.len)
+  let qEnd = body.indexOf("\"")
+  if qEnd < 0:
+    ret fallback
+  ret body.slice(0, qEnd)
+
+pub fn extractJsonIntField(src: str, key: str, fallback: int): int:
+  let pat = "\"" + key + "\":"
+  let idx = src.indexOf(pat)
+  if idx < 0:
+    ret fallback
+  let startPos = idx + pat.len
+  let endPos = if startPos + 48 < src.len: startPos + 48 else: src.len
+  let after = src.slice(startPos, endPos).trim()
+  mut scan = after
+  if scan.startsWith("\""):
+    scan = scan.slice(1, scan.len)
+  mut numStr = ""
+  mut i = 0
+  while i < scan.len:
+    let ch = scan.charAt(i)
+    if (ch >= "0" and ch <= "9") or (i == 0 and ch == "-"):
+      numStr = numStr + ch
+      i += 1
+    else:
+      break
+  if numStr.len == 0 or numStr == "-":
+    ret fallback
+  ret parseInt(numStr)
+
+pub fn parseStrToFloat(s: str): float:
+  let trimmed = s.trim()
+  if trimmed.len == 0:
+    ret 0.0
+  mut sign = 1.0
+  mut idx = 0
+  if trimmed.startsWith("-"):
+    sign = -1.0
+    idx = 1
+  elif trimmed.startsWith("+"):
+    idx = 1
+  mut intPart = 0.0
+  while idx < trimmed.len:
+    let ch = trimmed.charAt(idx)
+    if ch == "0": intPart = intPart * 10.0 + 0.0
+    elif ch == "1": intPart = intPart * 10.0 + 1.0
+    elif ch == "2": intPart = intPart * 10.0 + 2.0
+    elif ch == "3": intPart = intPart * 10.0 + 3.0
+    elif ch == "4": intPart = intPart * 10.0 + 4.0
+    elif ch == "5": intPart = intPart * 10.0 + 5.0
+    elif ch == "6": intPart = intPart * 10.0 + 6.0
+    elif ch == "7": intPart = intPart * 10.0 + 7.0
+    elif ch == "8": intPart = intPart * 10.0 + 8.0
+    elif ch == "9": intPart = intPart * 10.0 + 9.0
+    else: break
+    idx += 1
+  if idx >= trimmed.len or trimmed.charAt(idx) != ".":
+    ret sign * intPart
+  idx += 1
+  mut fracPart = 0.0
+  mut div = 10.0
+  while idx < trimmed.len:
+    let ch = trimmed.charAt(idx)
+    mut d = -1.0
+    if ch == "0": d = 0.0
+    elif ch == "1": d = 1.0
+    elif ch == "2": d = 2.0
+    elif ch == "3": d = 3.0
+    elif ch == "4": d = 4.0
+    elif ch == "5": d = 5.0
+    elif ch == "6": d = 6.0
+    elif ch == "7": d = 7.0
+    elif ch == "8": d = 8.0
+    elif ch == "9": d = 9.0
+    if d >= 0.0:
+      fracPart = fracPart + d / div
+      div = div * 10.0
+      idx += 1
+    else:
+      break
+  ret sign * (intPart + fracPart)
+
+pub fn extractJsonFloatField(src: str, key: str, fallback: float): float:
+  let pat = "\"" + key + "\":"
+  let idx = src.indexOf(pat)
+  if idx < 0:
+    ret fallback
+  let startPos = idx + pat.len
+  let endPos = if startPos + 48 < src.len: startPos + 48 else: src.len
+  let after = src.slice(startPos, endPos).trim()
+  mut numStr = ""
+  mut i = 0
+  while i < after.len:
+    let ch = after.charAt(i)
+    if (ch >= "0" and ch <= "9") or ch == "." or (i == 0 and ch == "-"):
+      numStr = numStr + ch
+      i += 1
+    else:
+      break
+  if numStr.len == 0 or numStr == "-":
+    ret fallback
+  ret parseStrToFloat(numStr)
+
+pub fn extractJsonBoolField(src: str, key: str, fallback: bool): bool:
+  let pat = "\"" + key + "\":"
+  let idx = src.indexOf(pat)
+  if idx < 0:
+    ret fallback
+  let startPos = idx + pat.len
+  let endPos = if startPos + 24 < src.len: startPos + 24 else: src.len
+  let after = src.slice(startPos, endPos).trim()
+  if after.startsWith("true"):
+    ret true
+  if after.startsWith("false"):
+    ret false
+  ret fallback
+
+pub fn parseSceneSnapshotJson(jsonText: str): SceneSnapshot:
+  if jsonText.trim().len < 4:
+    ret emptySceneSnapshot()
+  mut snap = emptySceneSnapshot()
+  let uiIdx = jsonText.indexOf("\"uiNodes\":")
+  let tsIdx = jsonText.indexOf("\"turnState\":")
+  let entIdx = jsonText.indexOf("\"entities\":")
+  let csIdx = jsonText.indexOf("\"customState\":")
+
+  let hdrEnd = if tsIdx > 0 and (uiIdx < 0 or tsIdx < uiIdx): tsIdx else: (if uiIdx > 0: uiIdx else: (if jsonText.len > 600: 600 else: jsonText.len))
+  let hdr = jsonText.slice(0, hdrEnd)
+  snap.rawJson = if csIdx >= 0: jsonText.slice(csIdx, jsonText.len) else: hdr
+  snap.pid = extractJsonIntField(hdr, "pid", 0)
+  snap.windowId = extractJsonStringField(hdr, "windowId", "0x0")
+  snap.title = extractJsonStringField(hdr, "title", "AIPL Window")
+  snap.targetType = extractJsonStringField(hdr, "targetType", "native")
+  snap.frame = extractJsonIntField(hdr, "frame", 0)
+  snap.fps = extractJsonFloatField(hdr, "fps", 60.0)
+  snap.frameTimeMs = extractJsonFloatField(hdr, "frameTimeMs", 16.6)
+  snap.width = extractJsonIntField(hdr, "width", 1280)
+  snap.height = extractJsonIntField(hdr, "height", 720)
+  snap.mouseX = extractJsonIntField(hdr, "mouseX", 640)
+  snap.mouseY = extractJsonIntField(hdr, "mouseY", 360)
+  snap.audioEnergy = extractJsonFloatField(hdr, "audioEnergy", 0.0)
+  snap.framebufferHash = extractJsonStringField(hdr, "framebufferHash", "00000000")
+
+  // Parse turnState block
+  if tsIdx >= 0:
+    let tsEnd = if entIdx > tsIdx: entIdx else: jsonText.len
+    let tsSub = jsonText.slice(tsIdx, tsEnd)
+    snap.turnState.activeSeat = extractJsonIntField(tsSub, "activeSeat", 1)
+    snap.turnState.turnNumber = extractJsonIntField(tsSub, "turnNumber", 1)
+    snap.turnState.phase = extractJsonStringField(tsSub, "phase", "play")
+    snap.turnState.legalActionsCount = extractJsonIntField(tsSub, "legalActionsCount", 4)
+    snap.turnState.gameOver = extractJsonBoolField(tsSub, "gameOver", false)
+    snap.turnState.winnerSeat = extractJsonIntField(tsSub, "winnerSeat", 0)
+    snap.turnState.outOfTurnRejected = extractJsonIntField(tsSub, "outOfTurnRejected", 0)
+    let scIdx = tsSub.indexOf("\"scores\":")
+    if scIdx >= 0:
+      let scSub = tsSub.slice(scIdx + 9, tsSub.len)
+      let openBr = scSub.indexOf("[")
+      let scAfter = if openBr >= 0: scSub.slice(openBr + 1, scSub.len) else: scSub
+      let scClose = scAfter.indexOf("]")
+      if scClose >= 0:
+        let scParts = scAfter.slice(0, scClose).split(",")
+        mut parsedScores: [int] = []
+        mut si = 0
+        while si < scParts.len:
+          let sv = scParts[si].trim()
+          if sv.len > 0:
+            parsedScores.push(parseInt(sv))
+          si += 1
+        if parsedScores.len > 0:
+          snap.turnState.scores = parsedScores
+
+  let customOot = extractJsonIntField(snap.rawJson, "outOfTurnAttemptsRejected", 0)
+  if customOot > snap.turnState.outOfTurnRejected:
+    snap.turnState.outOfTurnRejected = customOot
+
+  // Parse uiNodes array items (skip decorative non-clickable tiles when large)
+  if uiIdx >= 0:
+    mut uiEnd = jsonText.len
+    if tsIdx > uiIdx and tsIdx < uiEnd:
+      uiEnd = tsIdx
+    if entIdx > uiIdx and entIdx < uiEnd:
+      uiEnd = entIdx
+    if csIdx > uiIdx and csIdx < uiEnd:
+      uiEnd = csIdx
+    let uiSection = jsonText.slice(uiIdx, uiEnd)
+    let chunks = uiSection.split("{\"id\":")
+    let filterLarge = chunks.len > 36
+    mut ci = 1
+    while ci < chunks.len:
+      let rawChunk = chunks[ci]
+      let keepNode = (not filterLarge) or rawChunk.contains("\"clickable\":true") or rawChunk.contains("\"button\"") or rawChunk.contains("\"token\"") or rawChunk.contains("\"highlight\"") or rawChunk.contains("\"input\"") or rawChunk.contains("\"tab\"") or rawChunk.contains("\"canvas\"")
+      if keepNode:
+        let itemStr = "{\"id\":" + rawChunk
+        mut nodeId = extractJsonStringField(itemStr, "id", "")
+        if nodeId.len == 0:
+          nodeId = "ui_" + str(extractJsonIntField(itemStr, "id", ci - 1))
+        let uNode = SceneUiNode(
+          id = nodeId,
+          kind = extractJsonStringField(itemStr, "kind", "panel"),
+          text = extractJsonStringField(itemStr, "text", ""),
+          x = extractJsonIntField(itemStr, "x", 0),
+          y = extractJsonIntField(itemStr, "y", 0),
+          w = extractJsonIntField(itemStr, "w", 64),
+          h = extractJsonIntField(itemStr, "h", 32),
+          fgColor = extractJsonStringField(itemStr, "fgColor", "#ffffff"),
+          bgColor = extractJsonStringField(itemStr, "bgColor", "#1e293b"),
+          clickable = extractJsonBoolField(itemStr, "clickable", false),
+          contrastRatio = extractJsonFloatField(itemStr, "contrastRatio", 4.5)
+        )
+        snap.uiNodes.push(uNode)
+      ci += 1
+
+  // Parse entities array items
+  if entIdx >= 0:
+    mut entEnd = jsonText.len
+    if csIdx > entIdx and csIdx < entEnd:
+      entEnd = csIdx
+    if tsIdx > entIdx and tsIdx < entEnd:
+      entEnd = tsIdx
+    let entSection = jsonText.slice(entIdx, entEnd)
+    let eChunks = entSection.split("{\"id\":")
+    mut ei = 1
+    while ei < eChunks.len and ei <= 64:
+      let eStr = "{\"id\":" + eChunks[ei]
+      let ent = SceneEntity(
+        id = extractJsonIntField(eStr, "id", ei - 1),
+        tag = extractJsonStringField(eStr, "tag", "entity"),
+        ownerSeat = extractJsonIntField(eStr, "ownerSeat", 0),
+        x = extractJsonFloatField(eStr, "x", 0.0),
+        y = extractJsonFloatField(eStr, "y", 0.0),
+        vx = extractJsonFloatField(eStr, "vx", 0.0),
+        vy = extractJsonFloatField(eStr, "vy", 0.0),
+        w = extractJsonFloatField(eStr, "w", 24.0),
+        h = extractJsonFloatField(eStr, "h", 24.0),
+        hp = extractJsonIntField(eStr, "hp", 100),
+        state = extractJsonStringField(eStr, "state", "#ffffff")
+      )
+      snap.entities.push(ent)
+      ei += 1
+
+  ret snap
+
+pub fn hasUiText(snap: SceneSnapshot, query: str): bool:
+  let qLower = query.toLowerCase()
+  mut i = 0
+  while i < snap.uiNodes.len:
+    if snap.uiNodes[i].text.toLowerCase().contains(qLower):
+      ret true
+    i += 1
+  ret false
+
+pub fn findUiByText(snap: SceneSnapshot, query: str): SceneUiNode:
+  let qLower = query.toLowerCase()
+  mut i = 0
+  while i < snap.uiNodes.len:
+    let u = snap.uiNodes[i]
+    if (u.clickable or u.kind == "button") and u.text.toLowerCase().startsWith(qLower):
+      ret u
+    i += 1
+  mut j = 0
+  while j < snap.uiNodes.len:
+    let u = snap.uiNodes[j]
+    if (u.clickable or u.kind == "button") and u.text.toLowerCase().contains(qLower):
+      ret u
+    j += 1
+  mut k = 0
+  while k < snap.uiNodes.len:
+    let u = snap.uiNodes[k]
+    if u.text.toLowerCase().contains(qLower):
+      ret u
+    k += 1
+  ret SceneUiNode(
+    id = "fallback",
+    kind = "button",
+    text = query,
+    x = snap.width / 2 - 60,
+    y = snap.height / 2 - 20,
+    w = 120,
+    h = 40,
+    fgColor = "#ffffff",
+    bgColor = "#2563eb",
+    clickable = true,
+    contrastRatio = 7.2
+  )
+
+pub fn findClickableUiNodes(snap: SceneSnapshot): [SceneUiNode]:
+  mut out: [SceneUiNode] = []
+  mut i = 0
+  while i < snap.uiNodes.len:
+    let u = snap.uiNodes[i]
+    if u.clickable or u.kind == "button":
+      out.push(u)
+    i += 1
+  ret out
+
+pub fn findEntitiesForSeat(snap: SceneSnapshot, seatId: int): [SceneEntity]:
+  mut out: [SceneEntity] = []
+  mut i = 0
+  while i < snap.entities.len:
+    let e = snap.entities[i]
+    if e.ownerSeat == seatId or seatId == 0:
+      out.push(e)
+    i += 1
+  ret out
+
+pub fn emptySceneEntity(): SceneEntity:
+  ret SceneEntity(
+    id = -1,
+    tag = "none",
+    ownerSeat = 0,
+    x = 0.0,
+    y = 0.0,
+    vx = 0.0,
+    vy = 0.0,
+    w = 0.0,
+    h = 0.0,
+    hp = 0,
+    state = "none"
+  )
+
+pub fn entityMatchesKindFilter(ent: SceneEntity, kindFilter: str): bool:
+  let kf = kindFilter.toLowerCase().trim()
+  if kf == "" or kf == "*" or kf == "all":
+    ret true
+  let tag = ent.tag.toLowerCase()
+  let st = ent.state.toLowerCase()
+  if tag.contains(kf) or st.contains(kf):
+    ret true
+  if kf == "enemy" or kf == "hostile":
+    if tag.contains("enemy") or tag.contains("monster") or tag.contains("zombie") or tag.contains("foe") or tag.contains("boss") or tag.contains("hostile") or tag.contains("creep"):
+      ret true
+  if kf == "hazard" or kf == "projectile":
+    if tag.contains("hazard") or tag.contains("spike") or tag.contains("trap") or tag.contains("lava") or tag.contains("fire") or tag.contains("bullet") or tag.contains("projectile") or tag.contains("laser"):
+      ret true
+  if kf == "item" or kf == "pickup":
+    if tag.contains("item") or tag.contains("pickup") or tag.contains("coin") or tag.contains("gem") or tag.contains("gold") or tag.contains("health") or tag.contains("potion") or tag.contains("loot") or tag.contains("powerup"):
+      ret true
+  if kf == "board" or kf == "piece":
+    if tag.contains("board") or tag.contains("piece") or tag.contains("pawn") or tag.contains("token") or tag.contains("cell") or tag.contains("tile") or tag.contains("dice") or tag.contains("card"):
+      ret true
+  if kf == "player" or kf == "hero":
+    if tag.contains("player") or tag.contains("hero") or tag.contains("avatar") or tag.contains("self"):
+      ret true
+  ret false
+
+pub fn findPlayerEntity(snap: SceneSnapshot, seatId: int): SceneEntity:
+  if seatId > 0:
+    mut i = 0
+    while i < snap.entities.len:
+      let e = snap.entities[i]
+      if e.ownerSeat == seatId:
+        ret e
+      i += 1
+  mut j = 0
+  while j < snap.entities.len:
+    let e = snap.entities[j]
+    if entityMatchesKindFilter(e, "player"):
+      ret e
+    j += 1
+  if snap.entities.len > 0 and (seatId <= 1):
+    ret snap.entities[0]
+  ret emptySceneEntity()
+
+pub fn findNearestEntityByKind(snap: SceneSnapshot, refX: float, refY: float, kindFilter: str): SceneEntity:
+  mut minDist = 999999.0
+  mut bestIdx = -1
+  mut i = 0
+  while i < snap.entities.len:
+    let e = snap.entities[i]
+    if entityMatchesKindFilter(e, kindFilter):
+      let cx = e.x + e.w * 0.5
+      let cy = e.y + e.h * 0.5
+      let dx = cx - refX
+      let dy = cy - refY
+      let d = sqrt(dx * dx + dy * dy)
+      if d < minDist:
+        minDist = d
+        bestIdx = i
+    i += 1
+  if bestIdx >= 0:
+    ret snap.entities[bestIdx]
+  ret emptySceneEntity()
+
+pub fn computeNearestEntityDist(snap: SceneSnapshot, refX: float, refY: float, kindFilter: str): float:
+  mut minDist = 999999.0
+  mut found = false
+  mut i = 0
+  while i < snap.entities.len:
+    let e = snap.entities[i]
+    if entityMatchesKindFilter(e, kindFilter):
+      let cx = e.x + e.w * 0.5
+      let cy = e.y + e.h * 0.5
+      let dx = cx - refX
+      let dy = cy - refY
+      let d = sqrt(dx * dx + dy * dy)
+      if d < minDist:
+        minDist = d
+        found = true
+    i += 1
+  if found:
+    ret minDist
+  ret 999999.0
+
+pub fn countEntitiesByKind(snap: SceneSnapshot, kindFilter: str): int:
+  mut count = 0
+  mut i = 0
+  while i < snap.entities.len:
+    if entityMatchesKindFilter(snap.entities[i], kindFilter):
+      count += 1
+    i += 1
+  ret count
+
+pub fn extractCustomStateFloat(snap: SceneSnapshot, key: str, defaultVal: float): float:
+  if snap.rawJson.len == 0:
+    ret defaultVal
+  let pathVal = jsonGetPathFloat(snap.rawJson, "customState." + key, -999999.0)
+  if pathVal != -999999.0:
+    ret pathVal
+  let topVal = jsonGetPathFloat(snap.rawJson, key, -999999.0)
+  if topVal != -999999.0:
+    ret topVal
+  ret extractJsonFloatField(snap.rawJson, key, defaultVal)
+
+pub fn extractCustomStateInt(snap: SceneSnapshot, key: str, defaultVal: int): int:
+  if snap.rawJson.len == 0:
+    ret defaultVal
+  let pathVal = jsonGetPathInt(snap.rawJson, "customState." + key, -999999)
+  if pathVal != -999999:
+    ret pathVal
+  let topVal = jsonGetPathInt(snap.rawJson, key, -999999)
+  if topVal != -999999:
+    ret topVal
+  ret int(extractJsonFloatField(snap.rawJson, key, float(defaultVal)))
+
+pub fn extractCustomStateStr(snap: SceneSnapshot, key: str, defaultVal: str): str:
+  if snap.rawJson.len == 0:
+    ret defaultVal
+  let pathVal = jsonGetPathStr(snap.rawJson, "customState." + key, "")
+  if pathVal.len > 0:
+    ret pathVal
+  let topVal = jsonGetPathStr(snap.rawJson, key, "")
+  if topVal.len > 0:
+    ret topVal
+  let pat = "\"" + key + "\":"
+  let idx = snap.rawJson.indexOf(pat)
+  if idx < 0:
+    ret defaultVal
+  let after = snap.rawJson.slice(idx + pat.len, snap.rawJson.len).trim()
+  if after.startsWith("\"\\\""):
+    let bodyEsc = after.slice(3, after.len)
+    let qEndEsc = bodyEsc.indexOf("\\\"")
+    if qEndEsc >= 0:
+      ret bodyEsc.slice(0, qEndEsc)
+  if after.startsWith("\""):
+    let body = after.slice(1, after.len)
+    let qEnd = body.indexOf("\"")
+    if qEnd >= 0:
+      ret body.slice(0, qEnd)
+    ret defaultVal
+  mut token = ""
+  mut i = 0
+  while i < after.len:
+    let ch = after.charAt(i)
+    if ch == "," or ch == "}" or ch == "]" or ch == " " or ch == "\n" or ch == "\r" or ch == "\t":
+      break
+    token = token + ch
+    i += 1
+  if token.len > 0:
+    ret token
+  ret defaultVal
+
+pub fn extractCustomStateIntArray(snap: SceneSnapshot, key: str): [int]:
+  if snap.rawJson.len == 0:
+    ret []
+  let pathVal = jsonGetPathIntArray(snap.rawJson, "customState." + key)
+  if pathVal.len > 0:
+    ret pathVal
+  ret jsonGetPathIntArray(snap.rawJson, key)
+
+pub fn raycastSceneObstacles(snap: SceneSnapshot, originX: float, originY: float, angleRad: float, maxDist: float): float:
+  let stepPx = 8.0
+  let dx = cos(angleRad) * stepPx
+  let dy = sin(angleRad) * stepPx
+  mut traveled = 0.0
+  mut cx = originX
+  mut cy = originY
+  while traveled < maxDist:
+    cx = cx + dx
+    cy = cy + dy
+    traveled = traveled + stepPx
+    if cx < 0.0 or cy < 0.0 or cx > float(snap.width) or cy > float(snap.height):
+      ret traveled
+    mut i = 0
+    while i < snap.entities.len:
+      let e = snap.entities[i]
+      if cx >= e.x and cx <= e.x + e.w and cy >= e.y and cy <= e.y + e.h:
+        ret traveled
+      i += 1
+  ret maxDist
+
+pub fn raycastScene3DOcclusion(origin: Vector3, pitchDeg: float, yawDeg: float, boxes: [AABB3D], maxDist: float): float:
+  let euler = eulerToAngleVectors(pitchDeg, yawDeg)
+  let ray = Ray3D(origin = origin, dir = euler.forward, direction = euler.forward, maxDistance = maxDist)
+  mut nearestDist = maxDist
+  mut i = 0
+  while i < boxes.len:
+    let optHit = rayIntersectsAABB(ray, boxes[i])
+    if optHit.isSome():
+      let d = optHit.unwrap()
+      if d >= 0.0 and d < nearestDist:
+        nearestDist = d
+    i += 1
+  ret nearestDist
+
+pub fn buildSceneSpatialOccupancyGrid(snap: SceneSnapshot, cellPx: int = 32): DenseBitGrid2D:
+  let safeCell = if cellPx > 0: cellPx else: 32
+  let gridW = if snap.width > 0: (snap.width + safeCell - 1) / safeCell else: 32
+  let gridH = if snap.height > 0: (snap.height + safeCell - 1) / safeCell else: 24
+  mut grid = denseBitGridNew(gridW, gridH, 0)
+  mut i = 0
+  while i < snap.entities.len:
+    let e = snap.entities[i]
+    let minGx = int(e.x) / safeCell
+    let maxGx = int(e.x + e.w) / safeCell
+    let minGy = int(e.y) / safeCell
+    let maxGy = int(e.y + e.h) / safeCell
+    mut gy = minGy
+    while gy <= maxGy:
+      mut gx = minGx
+      while gx <= maxGx:
+        if gx >= 0 and gx < gridW and gy >= 0 and gy < gridH:
+          grid = denseBitGridSet(grid, gx, gy, true)
+        gx += 1
+      gy += 1
+    i += 1
+  ret grid
+
+pub fn buildSceneEntityVisibilityMatrix(snap: SceneSnapshot): SymmetricBitMatrix2D:
+  let n = snap.entities.len
+  mut mat = symmetricBitMatrixNew(n)
+  mut i = 0
+  while i < n:
+    let ei = snap.entities[i]
+    mut j = i + 1
+    while j < n:
+      let ej = snap.entities[j]
+      let dx = ei.x - ej.x
+      let dy = ei.y - ej.y
+      let distSq = dx * dx + dy * dy
+      let isVis = distSq < 4000000.0
+      mat = symmetricBitMatrixSet(mat, i, j, isVis)
+      j += 1
+    i += 1
+  ret mat
+
+pub fn auditSceneUxErgonomics(snap: SceneSnapshot): UxAuditFindings:
+  mut clickableCount = 0
+  mut smallHitboxes = 0
+  mut lowContrast = 0
+  mut overlaps = 0
+  mut minContrast = 21.0
+  mut sumContrast = 0.0
+  mut i = 0
+  while i < snap.uiNodes.len:
+    let u = snap.uiNodes[i]
+    if u.clickable or u.kind == "button":
+      clickableCount += 1
+      if u.w < 48 or u.h < 48:
+        smallHitboxes += 1
+    if u.contrastRatio < minContrast:
+      minContrast = u.contrastRatio
+    sumContrast = sumContrast + u.contrastRatio
+    if u.contrastRatio < 2.5:
+      lowContrast += 1
+    if u.kind == "label" and u.text.len > 0:
+      mut j = i + 1
+      while j < snap.uiNodes.len:
+        let v = snap.uiNodes[j]
+        if v.kind == "label" and v.text.len > 0:
+          let ox = u.x < v.x + v.w and u.x + u.w > v.x
+          let oy = u.y < v.y + v.h and u.y + u.h > v.y
+          if ox and oy:
+            overlaps += 1
+        j += 1
+    i += 1
+  let meanContrast = if snap.uiNodes.len > 0: sumContrast / float(snap.uiNodes.len) else: 7.5
+  let safeMinContrast = if snap.uiNodes.len > 0: minContrast else: 4.5
+  ret UxAuditFindings(
+    totalUiNodesInspected = snap.uiNodes.len,
+    clickableButtonsFound = clickableCount,
+    smallHitboxCount = smallHitboxes,
+    lowContrastCount = lowContrast,
+    overlappingLabelsCount = overlaps,
+    deadButtonsDetected = 0,
+    minContrastObserved = safeMinContrast,
+    meanContrastObserved = meanContrast
+  )

@@ -1,0 +1,53 @@
+// ============================================================================
+// Canonical Example 122: DNS Packet Wire Encoder & Record Resolver (CLI)
+// Target Profile: CLI | Standard Library Module: std/net
+// ============================================================================
+module Ex122NetDnsPacketResolverCli
+
+import {
+  DnsRecord,
+  buildStandardQuery,
+  encodeDnsQuery,
+  decodeDnsPacket,
+  extractIpv4FromDnsRecord,
+  extractTxtFromDnsRecord,
+  formatIpv4
+} from "../std/net/net_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyDnsPacketRoundtripAndRecordExtraction(): int:
+  let qPacket = buildStandardQuery("aipl.dev", 1, 6699)
+  let wire = encodeDnsQuery(qPacket)
+  assert(wire.len() >= 12, "DNS header >= 12 bytes")
+  let dec = decodeDnsPacket(wire).unwrap()
+  assert(dec.questions[0].name == "aipl.dev", "DNS QNAME aipl.dev")
+
+  let aRec = DnsRecord(name = "aipl.dev", rtype = 1, rclass = 1, ttl = 300, data = [10, 20, 30, 40], text = "")
+  assert(formatIpv4(extractIpv4FromDnsRecord(aRec).unwrap()) == "10.20.30.40", "A record IPv4 extraction")
+
+  let txtRec = DnsRecord(name = "aipl.dev", rtype = 16, rclass = 1, ttl = 300, data = [], text = "v=spf1")
+  assert(extractTxtFromDnsRecord(txtRec) == "v=spf1", "TXT record extraction")
+  ret dec.id
+
+pub fn computeDnsWireHeaderAndQnameSize(domainAsciiLen: int): int:
+  let d = maxInt(1, domainAsciiLen)
+  ret 12 + (d + 2) + 4
+
+pub fn describeDnsRecordType(rtype: int): str:
+  let t = clampInt(rtype, 1, 255)
+  if t == 1:
+    ret "DNS:RECORD_A_IPV4_TYPE_1"
+  if t == 16:
+    ret "DNS:RECORD_TXT_TYPE_16"
+  if t == 28:
+    ret "DNS:RECORD_AAAA_IPV6_TYPE_28"
+  ret "DNS:RECORD_TYPE_" + str(t)
+
+pub fn main(): int:
+  let txId = verifyDnsPacketRoundtripAndRecordExtraction()
+  let wireSize = computeDnsWireHeaderAndQnameSize(8)
+  let tag = describeDnsRecordType(1)
+  assert(txId == 6699, "DNS transaction ID 6699")
+  assert(wireSize == 26, "DNS wire size 26")
+  println(tag + " | txId=" + str(txId) + " | wireSize=" + str(wireSize))
+  ret 0

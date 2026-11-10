@@ -1,0 +1,364 @@
+module tests.functions.compress.deflate_gzip_lz4_zstd_and_tar_test
+
+import * from "std/compress/compress_mod"
+import * from "std/compress/deflate"
+import * from "std/compress/gzip"
+import * from "std/compress/lz4"
+import * from "std/compress/tar_archive"
+import * from "std/compress/zstd"
+import * from "std/prelude"
+import { DeflateOptions, HuffmanTree, Lz77Token, buildHuffmanTree, lz77FindMatches, deflateCompress, deflateDecompress } from "std/compress/deflate"
+import { DeflateOptions, deflateCompress, deflateDecompress } from "std/compress/deflate"
+import { GzipHeader, ZlibHeader, computeAdler32, computeCrc32, gzipCompress, gzipDecompress, zlibCompress, zlibDecompress } from "std/compress/gzip"
+import { Lz4BlockHeader, Lz4FrameHeader, lz4CompressBlock, lz4DecompressBlock, lz4CompressFrame, lz4DecompressFrame } from "std/compress/lz4"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { TarEntry, TarArchive, tarPack, tarUnpack } from "std/compress/tar_archive"
+import { ZstdFrameHeader, ZstdBlockHeader, zstdCompress, zstdDecompress } from "std/compress/zstd"
+import { computeCrc32 } from "std/compress/gzip"
+
+pub fn test_deflate_buildHuffmanTree_1(): int:
+  let arg_symbolFreqs = [4]
+  let edge_symbolFreqs = []
+  let resNom = buildHuffmanTree(arg_symbolFreqs)
+  let resEdge = buildHuffmanTree(edge_symbolFreqs)
+  assertEqInt(resNom.codeLens.len(), 1, "buildHuffmanTree nominal resNom.codeLens.len() == 1")
+  assertEqInt(resEdge.codeLens.len(), 0, "buildHuffmanTree boundary resEdge.codeLens.len() == 0")
+  ret 0
+
+pub fn test_deflate_lz77FindMatches_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_windowSize = 4
+  let edge_windowSize = 1
+  let arg_minMatchLen = 4
+  let edge_minMatchLen = 1
+  let resNom = lz77FindMatches(arg_data, arg_windowSize, arg_minMatchLen)
+  let resEdge = lz77FindMatches(edge_data, edge_windowSize, edge_minMatchLen)
+  assertEqInt(resNom.len(), 4, "lz77FindMatches nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "lz77FindMatches boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_deflate_deflateCompress_3(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_opts = DeflateOptions(level = 0, windowBits = 4, memLevel = 4)
+  let edge_opts = DeflateOptions(level = 0, windowBits = 1, memLevel = 1)
+  let resNom = deflateCompress(arg_data, arg_opts)
+  let resEdge = deflateCompress(edge_data, edge_opts)
+  assertEqInt(resNom.len(), 9, "deflateCompress nominal resNom.len() == 9")
+  assertEqInt(resEdge.len(), 6, "deflateCompress boundary resEdge.len() == 6")
+  ret 0
+
+pub fn test_deflate_deflateDecompress_4(): int:
+  let opts = DeflateOptions(level = 0, windowBits = 15, memLevel = 8)
+  let origData = [65, 73, 80, 76]
+  let comp = deflateCompress(origData, opts)
+  let decompRes = deflateDecompress(comp)
+  assert(decompRes.isOk() == true, "deflateDecompress roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "deflateDecompress roundtrip length == 4")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  assertEqInt(decomp[1], 73, "decomp[1] == 73")
+  assertEqInt(decomp[2], 80, "decomp[2] == 80")
+  assertEqInt(decomp[3], 76, "decomp[3] == 76")
+  let bad = deflateDecompress([1, 2, 3])
+  assert(bad.isOk() == false, "deflateDecompress corrupt stream rejected")
+  ret 0
+
+pub fn test_gzip_computeAdler32_1(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = computeAdler32(arg_data)
+  let resEdge = computeAdler32(edge_data)
+  assertEqInt(resNom, 47120679, "computeAdler32 nominal resNom == 47120679")
+  assertEqInt(resEdge, 4325442, "computeAdler32 boundary resEdge == 4325442")
+  ret 0
+
+pub fn test_gzip_computeCrc32_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = computeCrc32(arg_data)
+  let resEdge = computeCrc32(edge_data)
+  assertEqInt(resNom, 3094742756, "computeCrc32 nominal resNom == 3094742756")
+  assertEqInt(resEdge, 3554254475, "computeCrc32 boundary resEdge == 3554254475")
+  ret 0
+
+pub fn test_gzip_gzipCompress_3(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_filename = "127.0.0.1"
+  let edge_filename = "127.0.0.1"
+  let arg_mtime = 4
+  let edge_mtime = 1
+  let resNom = gzipCompress(arg_data, arg_filename, arg_mtime)
+  let resEdge = gzipCompress(edge_data, edge_filename, edge_mtime)
+  assertEqInt(resNom.len(), 33, "gzipCompress nominal resNom.len() == 33")
+  assertEqInt(resEdge.len(), 30, "gzipCompress boundary resEdge.len() == 30")
+  ret 0
+
+pub fn test_gzip_gzipDecompress_4(): int:
+  let origData = [65, 73, 80, 76]
+  let comp = gzipCompress(origData, "test.txt", 100)
+  let decompRes = gzipDecompress(comp)
+  assert(decompRes.isOk() == true, "gzipDecompress roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "gzipDecompress length matches")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = gzipDecompress([1, 2, 3])
+  assert(bad.isOk() == false, "gzipDecompress corrupt stream rejected")
+  ret 0
+
+pub fn test_gzip_zlibCompress_5(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_level = 2
+  let edge_level = 0
+  let resNom = zlibCompress(arg_data, arg_level)
+  let resEdge = zlibCompress(edge_data, edge_level)
+  assertEqInt(resNom.len(), 11, "zlibCompress nominal resNom.len() == 11")
+  assertEqInt(resEdge.len(), 12, "zlibCompress boundary resEdge.len() == 12")
+  ret 0
+
+pub fn test_gzip_zlibDecompress_6(): int:
+  let origData = [65, 73, 80, 76]
+  let comp = zlibCompress(origData, 2)
+  let decompRes = zlibDecompress(comp)
+  assert(decompRes.isOk() == true, "zlibDecompress roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "zlibDecompress length matches")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = zlibDecompress([1, 2, 3])
+  assert(bad.isOk() == false, "zlibDecompress corrupt stream rejected")
+  ret 0
+
+pub fn test_lz4_lz4CompressBlock_1(): int:
+  let arg_src = [65, 73, 80, 76]
+  let edge_src = [65]
+  let resNom = lz4CompressBlock(arg_src)
+  let resEdge = lz4CompressBlock(edge_src)
+  assertEqInt(resNom.len(), 5, "lz4CompressBlock nominal resNom.len() == 5")
+  assertEqInt(resEdge.len(), 2, "lz4CompressBlock boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_lz4_lz4DecompressBlock_2(): int:
+  let orig = [65, 73, 80, 76]
+  let comp = lz4CompressBlock(orig)
+  let decompRes = lz4DecompressBlock(comp, 4)
+  assert(decompRes.isOk() == true, "lz4DecompressBlock roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "lz4DecompressBlock len == 4")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = lz4DecompressBlock([255, 255], 10)
+  assert(bad.isOk() == false, "lz4DecompressBlock corrupt block rejected")
+  ret 0
+
+pub fn test_lz4_lz4CompressFrame_3(): int:
+  let arg_src = [65, 73, 80, 76]
+  let edge_src = [65]
+  let resNom = lz4CompressFrame(arg_src)
+  let resEdge = lz4CompressFrame(edge_src)
+  assertEqInt(resNom.len(), 24, "lz4CompressFrame nominal resNom.len() == 24")
+  assertEqInt(resEdge.len(), 21, "lz4CompressFrame boundary resEdge.len() == 21")
+  ret 0
+
+pub fn test_lz4_lz4DecompressFrame_4(): int:
+  let orig = [65, 73, 80, 76]
+  let comp = lz4CompressFrame(orig)
+  let decompRes = lz4DecompressFrame(comp)
+  assert(decompRes.isOk() == true, "lz4DecompressFrame roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "lz4DecompressFrame len == 4")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = lz4DecompressFrame([1, 2, 3])
+  assert(bad.isOk() == false, "lz4DecompressFrame corrupt frame rejected")
+  ret 0
+
+pub fn test_zstd_zstdCompress_1(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_level = 2
+  let edge_level = 0
+  let resNom = zstdCompress(arg_data, arg_level)
+  let resEdge = zstdCompress(edge_data, edge_level)
+  assertEqInt(resNom.len(), 21, "zstdCompress nominal resNom.len() == 21")
+  assertEqInt(resEdge.len(), 18, "zstdCompress boundary resEdge.len() == 18")
+  ret 0
+
+pub fn test_zstd_zstdDecompress_2(): int:
+  let orig = [65, 73, 80, 76]
+  let comp = zstdCompress(orig, 2)
+  let decompRes = zstdDecompress(comp)
+  assert(decompRes.isOk() == true, "zstdDecompress roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "zstdDecompress len == 4")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = zstdDecompress([1, 2, 3])
+  assert(bad.isOk() == false, "zstdDecompress corrupt frame rejected")
+  ret 0
+
+pub fn test_tar_archive_writeOctalField_1(): int:
+  let arg_blk = [4]
+  let edge_blk = []
+  let arg_offset = 1
+  let edge_offset = 0
+  let arg_width = 4
+  let edge_width = 1
+  let arg_val = 2
+  let edge_val = 0
+  let resNom = writeOctalField(arg_blk, arg_offset, arg_width, arg_val)
+  let resEdge = writeOctalField(edge_blk, edge_offset, edge_width, edge_val)
+  assertEqInt(resNom.len(), 1, "writeOctalField nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "writeOctalField boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_tar_archive_parseOctalField_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_offset = 1
+  let edge_offset = 0
+  let arg_width = 4
+  let edge_width = 1
+  let resNom = parseOctalField(arg_data, arg_offset, arg_width)
+  let resEdge = parseOctalField(edge_data, edge_offset, edge_width)
+  assertEqInt(resNom, 0, "parseOctalField nominal resNom == 0")
+  assertEqInt(resEdge, 0, "parseOctalField boundary resEdge == 0")
+  ret 0
+
+pub fn test_tar_archive_readNullTermStr_3(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_offset = 1
+  let edge_offset = 0
+  let arg_maxLen = 4
+  let edge_maxLen = 1
+  let resNom = readNullTermStr(arg_data, arg_offset, arg_maxLen)
+  let resEdge = readNullTermStr(edge_data, edge_offset, edge_maxLen)
+  assertEqStr(resNom, "IPL", "readNullTermStr nominal string matches")
+  assertEqStr(resEdge, "A", "readNullTermStr boundary string matches")
+  ret 0
+
+pub fn test_tar_archive_tarPack_4(): int:
+  let arg_entries = [TarEntry(path = "/tmp/aipl_test_path", mode = 4, size = 0, mtime = 4, isDir = true, data = [65, 73, 80, 76])]
+  let edge_entries = []
+  let resNom = tarPack(arg_entries)
+  let resEdge = tarPack(edge_entries)
+  assertEqInt(resNom.len(), 1536, "tarPack nominal resNom.len() == 1536")
+  assertEqInt(resEdge.len(), 1024, "tarPack boundary resEdge.len() == 1024")
+  ret 0
+
+pub fn test_tar_archive_tarUnpack_5(): int:
+  let fileData = bytesFromArray([65, 73, 80, 76])
+  let entries = [TarEntry(path = "test.txt", mode = 420, size = 4, mtime = 1000, isDir = false, data = fileData)]
+  let packed = tarPack(entries)
+  let resOk = tarUnpack(packed)
+  assert(resOk.isOk() == true, "tarUnpack valid archive returns Ok")
+  let unpackedEntries = resOk.unwrap()
+  assertEqInt(unpackedEntries.len(), 1, "tarUnpack unpacked 1 entry")
+  assertEqStr(unpackedEntries[0].path, "test.txt", "unpacked entry path matches")
+  let resBad = tarUnpack(fileData)
+  assert(resBad.isOk() == false, "tarUnpack corrupt/truncated archive returns Err")
+  ret 0
+
+pub fn test_tar_archive_TarArchive_getEntry_6(): int:
+  let fileData = bytesFromArray([65, 73, 80, 76])
+  let entry = TarEntry(path = "docs/readme.txt", mode = 420, size = 4, mtime = 1000, isDir = false, data = fileData)
+  let archive = TarArchive(entries = [entry])
+  let resHit = archive.getEntry("docs/readme.txt")
+  assert(resHit.isSome() == true, "getEntry finds existing path")
+  assertEqStr(resHit.unwrap().path, "docs/readme.txt", "found entry path matches")
+  let resMiss = archive.getEntry("missing.txt")
+  assert(resMiss.isSome() == false, "getEntry returns None for missing path")
+  ret 0
+
+pub fn test_tar_archive_TarArchive_addFile_7(): int:
+  let mut recv_self = TarArchive(entries = [])
+  let mut edge_self = TarArchive(entries = [])
+  let arg_path = "/tmp/aipl_test_path"
+  let edge_path = "/tmp/aipl_test_path"
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_mode = 4
+  let edge_mode = 1
+  recv_self.addFile(arg_path, arg_data, arg_mode)
+  edge_self.addFile(edge_path, edge_data, edge_mode)
+  assertEqInt(recv_self.entries.len(), 1, "addFile nominal recv_self.entries.len() == 1")
+  assertEqInt(edge_self.entries.len(), 1, "addFile boundary edge_self.entries.len() == 1")
+  ret 0
+
+pub fn test_tar_archive_TarArchive_addDirectory_8(): int:
+  let mut recv_self = TarArchive(entries = [])
+  let mut edge_self = TarArchive(entries = [])
+  let arg_path = "/tmp/aipl_test_path"
+  let edge_path = "/tmp/aipl_test_path"
+  let arg_mode = 4
+  let edge_mode = 1
+  recv_self.addDirectory(arg_path, arg_mode)
+  edge_self.addDirectory(edge_path, edge_mode)
+  assertEqInt(recv_self.entries.len(), 1, "addDirectory nominal recv_self.entries.len() == 1")
+  assertEqInt(edge_self.entries.len(), 1, "addDirectory boundary edge_self.entries.len() == 1")
+  ret 0
+
+pub fn test_tar_archive_TarArchive_toBytes_9(): int:
+  let recv_self = TarArchive(entries = [])
+  let edge_self = TarArchive(entries = [])
+  let resNom = recv_self.toBytes()
+  let resEdge = edge_self.toBytes()
+  assertEqInt(resNom.len(), 1024, "toBytes nominal resNom.len() == 1024")
+  assertEqInt(resEdge.len(), 1024, "toBytes boundary resEdge.len() == 1024")
+  ret 0
+
+pub fn test_compress_mod_compressGzip_1(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = compressGzip(arg_data)
+  let resEdge = compressGzip(edge_data)
+  assertEqInt(resNom.len(), 23, "compressGzip nominal resNom.len() == 23")
+  assertEqInt(resEdge.len(), 20, "compressGzip boundary resEdge.len() == 20")
+  ret 0
+
+pub fn test_compress_mod_decompressGzip_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = decompressGzip(arg_data)
+  let resEdge = decompressGzip(edge_data)
+  assert(resNom.isOk() == false, "decompressGzip nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "decompressGzip boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_compress_mod_compressLz4_3(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = compressLz4(arg_data)
+  let resEdge = compressLz4(edge_data)
+  assertEqInt(resNom.len(), 24, "compressLz4 nominal resNom.len() == 24")
+  assertEqInt(resEdge.len(), 21, "compressLz4 boundary resEdge.len() == 21")
+  ret 0
+
+pub fn test_compress_mod_decompressLz4_4(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = decompressLz4(arg_data)
+  let resEdge = decompressLz4(edge_data)
+  assert(resNom.isOk() == false, "decompressLz4 nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "decompressLz4 boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_compress_mod_compressZstd_5(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_level = 2
+  let edge_level = 0
+  let resNom = compressZstd(arg_data, arg_level)
+  let resEdge = compressZstd(edge_data, edge_level)
+  assertEqInt(resNom.len(), 21, "compressZstd nominal resNom.len() == 21")
+  assertEqInt(resEdge.len(), 18, "compressZstd boundary resEdge.len() == 18")
+  ret 0
+
+pub fn test_compress_mod_decompressZstd_6(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = decompressZstd(arg_data)
+  let resEdge = decompressZstd(edge_data)
+  assert(resNom.isOk() == false, "decompressZstd nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "decompressZstd boundary resEdge.isOk() == false")
+  ret 0

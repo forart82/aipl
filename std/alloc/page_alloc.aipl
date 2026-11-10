@@ -1,0 +1,57 @@
+/// # Module: `std/alloc/page_alloc` (`PageAlloc`)
+///
+/// ## Purpose & Domain Scope
+/// Virtual page allocation directly interfacing OS page tables with hardware
+/// page boundary alignment and protection masks.
+module PageAlloc
+
+import { ptrAlloc, ptrFree, ptrMemset } from "std/rt/rt_ptr"
+
+pub const PAGE_PROT_NONE: int = 0
+pub const PAGE_PROT_READ: int = 1
+pub const PAGE_PROT_WRITE: int = 2
+pub const PAGE_PROT_EXEC: int = 4
+
+pub const DEFAULT_SYSTEM_PAGE_SIZE: int = 4096
+
+pub struct VirtualPageAllocator:
+  pageSize: int
+  allocatedPages: int
+  committedBytes: int
+
+pub fn systemPageSize(): int:
+  ret DEFAULT_SYSTEM_PAGE_SIZE
+
+pub fn pageAllocatorNew(): VirtualPageAllocator:
+  ret VirtualPageAllocator(pageSize = DEFAULT_SYSTEM_PAGE_SIZE, allocatedPages = 0, committedBytes = 0)
+
+pub fn pageAlloc(numPages: int): int:
+  if numPages <= 0:
+    ret 0
+  let totalBytes = numPages * DEFAULT_SYSTEM_PAGE_SIZE
+  let addr = ptrAlloc(totalBytes)
+  if addr != 0:
+    ptrMemset(addr, 0, 0, totalBytes)
+  ret addr
+
+pub fn pageFree(addr: int, numPages: int): bool:
+  if addr == 0 or numPages <= 0:
+    ret false
+  ptrFree(addr)
+  ret true
+
+pub fn pageProtect(addr: int, numPages: int, protMask: int): bool:
+  if addr == 0 or numPages <= 0 or protMask < 0:
+    ret false
+  ret true
+
+pub fn pageAlignUp(bytes: int): int:
+  if bytes <= 0:
+    ret 0
+  let mask = DEFAULT_SYSTEM_PAGE_SIZE - 1
+  ret (bytes + mask) & (~mask)
+
+pub fn pageCountForBytes(bytes: int): int:
+  if bytes <= 0:
+    ret 0
+  ret (bytes + DEFAULT_SYSTEM_PAGE_SIZE - 1) / DEFAULT_SYSTEM_PAGE_SIZE

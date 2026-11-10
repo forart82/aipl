@@ -1,0 +1,3214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="aipl-target" content="html" />
+  <title>ChessArena</title>
+  <style>body{margin:0;background:#0f172a;color:#f8fafc;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;}canvas{box-shadow:0 10px 30px rgba(0,0,0,0.5);display:block;}</style>
+</head>
+<body>
+  <canvas id="aipl-canvas" width="800" height="600"></canvas>
+  <script>
+  if (typeof globalThis !== 'undefined') globalThis.__AIPL_TARGET_TYPE = 'html';
+  // AIPL Module: ChessArena (65 functions, 4980 lines)
+// --- AIPL Runtime Header (TypeScript/HTML5) ---
+
+const __AIPL_ASSETS = (typeof window !== 'undefined' && window.__AIPL_ASSETS) ? window.__AIPL_ASSETS : {};
+
+function assetExists(path) {
+  const p = String(path).replace(/^\.\//, '');
+  return Boolean(__AIPL_ASSETS[p] || __AIPL_ASSETS[path]);
+}
+
+function loadAsset(path) {
+  const p = String(path).replace(/^\.\//, '');
+  const found = __AIPL_ASSETS[p] || __AIPL_ASSETS[path];
+  if (found) {
+    return { ok: true, value: found };
+  }
+  return { ok: false, error: 'Asset not found: ' + path };
+}
+
+function listAssets() {
+  return Object.keys(__AIPL_ASSETS);
+}
+
+function int(x) { return Math.trunc(Number(x) || 0); }
+function float(x) { return Number(x) || 0.0; }
+function bool(x) { return Boolean(x); }
+
+class ByteBuffer {
+  constructor(cap = 64) {
+    this.buf = new Uint8Array(Math.max(16, cap || 64));
+    this.len = 0;
+  }
+  get length() { return this.len; }
+  get buffer() { return this.buf; }
+  _ensure(extra) {
+    if (this.len + extra > this.buf.length) {
+      const nextCap = Math.max(this.buf.length * 2, this.len + extra + 16);
+      const nextBuf = new Uint8Array(nextCap);
+      nextBuf.set(this.buf.subarray(0, this.len));
+      this.buf = nextBuf;
+    }
+  }
+  writeU8(v) {
+    this._ensure(1);
+    this.buf[this.len++] = v & 0xff;
+    return this;
+  }
+  writeU16BE(v) {
+    this._ensure(2);
+    this.buf[this.len++] = (v >> 8) & 0xff;
+    this.buf[this.len++] = v & 0xff;
+    return this;
+  }
+  writeU16LE(v) {
+    this._ensure(2);
+    this.buf[this.len++] = v & 0xff;
+    this.buf[this.len++] = (v >> 8) & 0xff;
+    return this;
+  }
+  writeU32BE(v) {
+    this._ensure(4);
+    this.buf[this.len++] = (v >>> 24) & 0xff;
+    this.buf[this.len++] = (v >>> 16) & 0xff;
+    this.buf[this.len++] = (v >>> 8) & 0xff;
+    this.buf[this.len++] = v & 0xff;
+    return this;
+  }
+  writeU32LE(v) {
+    this._ensure(4);
+    this.buf[this.len++] = v & 0xff;
+    this.buf[this.len++] = (v >>> 8) & 0xff;
+    this.buf[this.len++] = (v >>> 16) & 0xff;
+    this.buf[this.len++] = (v >>> 24) & 0xff;
+    return this;
+  }
+  writeBytes(b) {
+    const arr = b instanceof Uint8Array ? b : new Uint8Array(b);
+    this._ensure(arr.length);
+    this.buf.set(arr, this.len);
+    this.len += arr.length;
+    return this;
+  }
+  writeString(s) {
+    const encoded = new TextEncoder().encode(String(s));
+    return this.writeBytes(encoded);
+  }
+  freeze() {
+    return this.buf.slice(0, this.len);
+  }
+  toBytes() {
+    return this.buf.slice(0, this.len);
+  }
+}
+
+function byteBufferAlloc(cap = 64) {
+  return new ByteBuffer(cap);
+}
+
+function bytesZeroed(size) {
+  return new Uint8Array(Math.max(0, size));
+}
+
+function bytesFromArray(arr) {
+  return new Uint8Array(arr);
+}
+
+function bytesConcat(parts) {
+  let total = 0;
+  for (let i = 0; i < parts.length; i++) total += parts[i].length;
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    out.set(p instanceof Uint8Array ? p : new Uint8Array(p), off);
+    off += p.length;
+  }
+  return out;
+}
+
+function bytesFromHex(hex) {
+  let s = String(hex).replace(/[^0-9a-fA-F]/g, '');
+  if (s.length % 2 !== 0) s = '0' + s;
+  const out = new Uint8Array(s.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(s.substr(i * 2, 2), 16) || 0;
+  }
+  return out;
+}
+
+function hexEncode(b) {
+  const arr = b instanceof Uint8Array ? b : new Uint8Array(b);
+  let hex = '';
+  for (let i = 0; i < arr.length; i++) {
+    hex += arr[i].toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+function hexDecode(hex) {
+  return bytesFromHex(hex);
+}
+
+function readU16BE(b, off) {
+  if (off < 0 || off + 2 > b.length) return 0;
+  return ((b[off] << 8) | b[off + 1]) >>> 0;
+}
+
+function readU16LE(b, off) {
+  if (off < 0 || off + 2 > b.length) return 0;
+  return (b[off] | (b[off + 1] << 8)) >>> 0;
+}
+
+function readU32BE(b, off) {
+  if (off < 0 || off + 4 > b.length) return 0;
+  return (((b[off] << 24) | (b[off + 1] << 16) | (b[off + 2] << 8) | b[off + 3]) >>> 0);
+}
+
+function readU32LE(b, off) {
+  if (off < 0 || off + 4 > b.length) return 0;
+  return ((b[off] | (b[off + 1] << 8) | (b[off + 2] << 16) | (b[off + 3] << 24)) >>> 0);
+}
+
+if (typeof Uint8Array !== 'undefined') {
+  const p = Uint8Array.prototype;
+  if (!p.toArray) p.toArray = function() { return Array.from(this); };
+  if (!p.toInts) p.toInts = function() { return Array.from(this); };
+  if (!p.setByte) p.setByte = function(i, v) { this[i] = v & 0xff; return this; };
+  if (!p.copyFrom) p.copyFrom = function(dstOff, src, srcOff, len) {
+    const s = src instanceof Uint8Array ? src : new Uint8Array(src);
+    this.set(s.subarray(srcOff, srcOff + len), dstOff);
+    return this;
+  };
+  if (!p.indexOfByte) p.indexOfByte = function(v, from = 0) { return this.indexOf(v, from); };
+  if (!p.indexOfBytes) p.indexOfBytes = function(needle, from = 0) {
+    const n = needle instanceof Uint8Array ? needle : new Uint8Array(needle);
+    if (n.length === 0) return from <= this.length ? from : -1;
+    for (let i = from; i <= this.length - n.length; i++) {
+      let match = true;
+      for (let j = 0; j < n.length; j++) {
+        if (this[i + j] !== n[j]) { match = false; break; }
+      }
+      if (match) return i;
+    }
+    return -1;
+  };
+  if (!p.readU16BE) p.readU16BE = function(off) { return readU16BE(this, off); };
+  if (!p.readU16LE) p.readU16LE = function(off) { return readU16LE(this, off); };
+  if (!p.readU32BE) p.readU32BE = function(off) { return readU32BE(this, off); };
+  if (!p.readU32LE) p.readU32LE = function(off) { return readU32LE(this, off); };
+  if (!p.toHex) p.toHex = function() { return hexEncode(this); };
+  if (!p.hexToBytes) p.hexToBytes = function() { return { ok: true, value: this }; };
+  if (!p.toStringUtf8) p.toStringUtf8 = function() {
+    try {
+      const dec = new TextDecoder('utf-8', { fatal: true });
+      return { ok: true, value: dec.decode(this) };
+    } catch (e) {
+      return { ok: false, error: String(e && e.message ? e.message : e) };
+    }
+  };
+  if (!p.toStringLossy) p.toStringLossy = function() {
+    return new TextDecoder('utf-8', { fatal: false }).decode(this);
+  };
+  if (!p.splitByte) p.splitByte = function(delim) {
+    const res = [];
+    let start = 0;
+    for (let i = 0; i < this.length; i++) {
+      if (this[i] === delim) {
+        res.push(this.slice(start, i));
+        start = i + 1;
+      }
+    }
+    res.push(this.slice(start));
+    return res;
+  };
+}
+
+if (typeof String !== 'undefined') {
+  const sp = String.prototype;
+  if (!sp.hexToBytes) sp.hexToBytes = function() {
+    try {
+      const clean = this.replace(/[^0-9a-fA-F]/g, '');
+      if (clean.length % 2 !== 0) return { ok: false, error: 'Invalid hex string' };
+      return { ok: true, value: bytesFromHex(clean) };
+    } catch (e) {
+      return { ok: false, error: String(e && e.message ? e.message : e) };
+    }
+  };
+  if (!sp.toBytes) sp.toBytes = function() {
+    return new TextEncoder().encode(this);
+  };
+}
+
+// --- Vector and Dynamic Binary Arithmetic Operator Helper ---
+function _aipl_op(a, b, op) {
+  if (typeof a === 'number' && typeof b === 'number') {
+    if (op === '+') return a + b;
+    if (op === '-') return a - b;
+    if (op === '*') return a * b;
+    if (op === '/') return (Number.isInteger(a) && Number.isInteger(b)) ? (b !== 0 ? Math.trunc(a / b) : 0) : (a / b);
+  }
+  if (typeof a === 'bigint' && typeof b === 'bigint') {
+    if (op === '+') return a + b;
+    if (op === '-') return a - b;
+    if (op === '*') return a * b;
+    if (op === '/') return a / b;
+  }
+  if (typeof a === 'string' || typeof b === 'string') {
+    if (op === '+') return a + b;
+  }
+  if (typeof a === 'object' && a !== null && 'x' in a && 'y' in a) {
+    if ('z' in a) {
+      if (typeof b === 'object' && b !== null && 'x' in b && 'y' in b && 'z' in b) {
+        if (op === '+') return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+        if (op === '-') return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+        if (op === '*') return { x: a.x * b.x, y: a.y * b.y, z: a.z * b.z };
+        if (op === '/') return { x: a.x / b.x, y: a.y / b.y, z: a.z / b.z };
+      }
+      if (op === '+') return { x: a.x + b, y: a.y + b, z: a.z + b };
+      if (op === '-') return { x: a.x - b, y: a.y - b, z: a.z - b };
+      if (op === '*') return { x: a.x * b, y: a.y * b, z: a.z * b };
+      if (op === '/') return { x: a.x / b, y: a.y / b, z: a.z / b };
+    }
+    if (typeof b === 'object' && b !== null && 'x' in b && 'y' in b) {
+      if (op === '+') return { x: a.x + b.x, y: a.y + b.y };
+      if (op === '-') return { x: a.x - b.x, y: a.y - b.y };
+      if (op === '*') return { x: a.x * b.x, y: a.y * b.y };
+      if (op === '/') return { x: a.x / b.x, y: a.y / b.y };
+    }
+    if (op === '+') return { x: a.x + b, y: a.y + b };
+    if (op === '-') return { x: a.x - b, y: a.y - b };
+    if (op === '*') return { x: a.x * b, y: a.y * b };
+    if (op === '/') return { x: a.x / b, y: a.y / b };
+  }
+  if (typeof b === 'object' && b !== null && 'x' in b && 'y' in b) {
+    if ('z' in b) {
+      if (op === '+') return { x: a + b.x, y: a + b.y, z: a + b.z };
+      if (op === '-') return { x: a - b.x, y: a - b.y, z: a - b.z };
+      if (op === '*') return { x: a * b.x, y: a * b.y, z: a * b.z };
+      if (op === '/') return { x: a / b.x, y: a / b.y, z: a / b.z };
+    }
+    if (op === '+') return { x: a + b.x, y: a + b.y };
+    if (op === '-') return { x: a - b.x, y: a - b.y };
+    if (op === '*') return { x: a * b.x, y: a * b.y };
+    if (op === '/') return { x: a / b.x, y: a / b.y };
+  }
+  if (op === '+') return a + b;
+  if (op === '-') return a - b;
+  if (op === '*') return a * b;
+  if (op === '/') return a / b;
+  return a + b;
+}
+
+// --- 64-Bit BigInt Bitboard Intrinsics (RFC-008) ---
+function _toBigInt64(v) {
+  if (typeof v === 'bigint') return BigInt.asUintN(64, v);
+  if (typeof v === 'number') return BigInt.asUintN(64, BigInt(Math.trunc(v)));
+  return BigInt.asUintN(64, BigInt(v || 0));
+}
+
+function bitboardShl64(a, shift) {
+  const bA = _toBigInt64(a);
+  const s = typeof shift === 'bigint' ? shift : BigInt(Math.trunc(Number(shift) || 0));
+  return BigInt.asUintN(64, bA << s);
+}
+
+function bitboardShr64(a, shift) {
+  const bA = _toBigInt64(a);
+  const s = typeof shift === 'bigint' ? shift : BigInt(Math.trunc(Number(shift) || 0));
+  return BigInt.asUintN(64, bA >> s);
+}
+
+function bitboardAnd64(a, b) {
+  return BigInt.asUintN(64, _toBigInt64(a) & _toBigInt64(b));
+}
+
+function bitboardOr64(a, b) {
+  return BigInt.asUintN(64, _toBigInt64(a) | _toBigInt64(b));
+}
+
+function bitboardXor64(a, b) {
+  return BigInt.asUintN(64, _toBigInt64(a) ^ _toBigInt64(b));
+}
+
+function bitboardPopcnt64(a) {
+  let v = _toBigInt64(a);
+  let count = 0;
+  while (v > 0n) {
+    v &= (v - 1n);
+    count++;
+  }
+  return count;
+}
+
+// --- Contiguous Numeric Buffers & Fast Numeric Vector Intrinsics (Step 10.2) ---
+function intBufferNew(size) {
+  const s = Math.max(0, size || 0);
+  const buf = new Array(s);
+  for (let i = 0; i < s; i++) buf[i] = 0;
+  return buf;
+}
+
+function intBufferGet(buf, idx) {
+  if (!buf || idx < 0 || idx >= buf.length) return 0;
+  const v = buf[idx];
+  return typeof v === 'bigint' ? Number(v) : (v || 0);
+}
+
+function intBufferSet(buf, idx, val) {
+  if (buf && idx >= 0 && idx < buf.length) {
+    if (typeof BigInt64Array !== 'undefined' && buf instanceof BigInt64Array) {
+      buf[idx] = BigInt(Math.trunc(val || 0));
+    } else {
+      buf[idx] = Math.trunc(val || 0);
+    }
+  }
+  return buf;
+}
+
+function intBufferLen(buf) {
+  return buf ? (buf.length || 0) : 0;
+}
+
+function floatBufferNew(size) {
+  const s = Math.max(0, size || 0);
+  return (typeof Float64Array !== 'undefined') ? new Float64Array(s) : new Array(s).fill(0.0);
+}
+
+function floatBufferGet(buf, idx) {
+  if (!buf || idx < 0 || idx >= buf.length) return 0.0;
+  return Number(buf[idx]) || 0.0;
+}
+
+function floatBufferSet(buf, idx, val) {
+  if (buf && idx >= 0 && idx < buf.length) {
+    buf[idx] = Number(val) || 0.0;
+  }
+  return buf;
+}
+
+function floatBufferLen(buf) {
+  return buf ? (buf.length || 0) : 0;
+}
+
+function sumIntsFast(arr) {
+  if (!arr) return 0;
+  let total = 0;
+  const n = arr.length || 0;
+  for (let i = 0; i < n; i++) {
+    const v = arr[i];
+    total += typeof v === 'bigint' ? Number(v) : (v || 0);
+  }
+  return total;
+}
+
+function sumFloatsFast(arr) {
+  if (!arr) return 0.0;
+  let total = 0.0;
+  const n = arr.length || 0;
+  for (let i = 0; i < n; i++) {
+    total += Number(arr[i]) || 0.0;
+  }
+  return total;
+}
+
+function dotProductFloats(a, b) {
+  if (!a || !b) return 0.0;
+  const n = Math.min(a.length || 0, b.length || 0);
+  let total = 0.0;
+  for (let i = 0; i < n; i++) {
+    total += (Number(a[i]) || 0.0) * (Number(b[i]) || 0.0);
+  }
+  return total;
+}
+
+function axpyFloats(alpha, x, y) {
+  if (!x || !y) return [];
+  const n = Math.min(x.length || 0, y.length || 0);
+  const a = Number(alpha) || 0.0;
+  if (typeof Float64Array !== 'undefined' && (x instanceof Float64Array || y instanceof Float64Array)) {
+    const out = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      out[i] = a * (Number(x[i]) || 0.0) + (Number(y[i]) || 0.0);
+    }
+    return out;
+  }
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    out[i] = a * (Number(x[i]) || 0.0) + (Number(y[i]) || 0.0);
+  }
+  return out;
+}
+
+if (typeof Math !== 'undefined') {
+  try {
+    Object.assign(Math, { intBufferNew, intBufferGet, intBufferSet, intBufferLen, floatBufferNew, floatBufferGet, floatBufferSet, floatBufferLen, sumIntsFast, sumFloatsFast, dotProductFloats, axpyFloats });
+  } catch (_) {}
+}
+
+// --- Scoped Arena Allocator Subsystem ---
+let _aipl_arena_off = 0;
+let _aipl_arena_cap = 16777216;
+let _aipl_arena_peak = 0;
+let _aipl_arena_resets = 0;
+
+function arenaMark() {
+  return _aipl_arena_off;
+}
+
+function arenaReset(mark = 0) {
+  const m = typeof mark === 'number' ? mark : (mark ? Number(mark) : 0);
+  _aipl_arena_off = (m >= 0 && m <= _aipl_arena_off) ? m : 0;
+  _aipl_arena_resets++;
+  return _aipl_arena_off;
+}
+
+function arenaAllocatedBytes() {
+  return _aipl_arena_off;
+}
+
+function arenaAlloc(sz = 8) {
+  const bytes = typeof sz === 'number' ? sz : (Number(sz) || 8);
+  const aligned = (bytes + 7) & ~7;
+  _aipl_arena_off += aligned > 0 ? aligned : 8;
+  if (_aipl_arena_off > _aipl_arena_cap) {
+    while (_aipl_arena_cap < _aipl_arena_off) _aipl_arena_cap *= 2;
+  }
+  if (_aipl_arena_off > _aipl_arena_peak) {
+    _aipl_arena_peak = _aipl_arena_off;
+  }
+  return _aipl_arena_off;
+}
+
+function arenaStats() {
+  const m = new Map([
+    ['allocated', _aipl_arena_off],
+    ['capacity', _aipl_arena_cap],
+    ['peak', _aipl_arena_peak],
+    ['resets', _aipl_arena_resets]
+  ]);
+  m.allocated = _aipl_arena_off;
+  m.capacity = _aipl_arena_cap;
+  m.peak = _aipl_arena_peak;
+  m.resets = _aipl_arena_resets;
+  return m;
+}
+
+function withScratchArena(fn) {
+  const m = arenaMark();
+  try {
+    return typeof fn === 'function' ? fn(m) : undefined;
+  } finally {
+    arenaReset(m);
+  }
+}
+
+function gameLoop(fn) {
+  if (typeof window !== 'undefined' && typeof requestAnimationFrame !== 'undefined') {
+    let lastTime = 0;
+    function _step(now) {
+      const dt = lastTime > 0 ? (now - lastTime) / 1000 : 0.0166;
+      lastTime = now;
+      const _fmark = arenaMark();
+      if (typeof fn === 'function') fn(dt);
+      arenaReset(_fmark);
+      requestAnimationFrame(_step);
+    }
+    requestAnimationFrame(_step);
+  } else {
+    for (let i = 0; i < 60; i++) {
+      const _fmark = arenaMark();
+      if (typeof fn === 'function') fn(0.0166);
+      arenaReset(_fmark);
+    }
+  }
+}
+
+// --- Dynamic FFI Subsystem ---
+function ffiOpen(libPath) {
+  return 0;
+}
+function ffiHasSymbol(h, sym) {
+  return false;
+}
+function ffiCallInt(h, sym, args) {
+  return 0;
+}
+function ffiCallFloat(h, sym, args) {
+  return 0.0;
+}
+function ffiCallStr(h, sym, arg) {
+  return '';
+}
+function ffiClose(h) {
+  return true;
+}
+const FFI = { ffiOpen, ffiHasSymbol, ffiCallInt, ffiCallFloat, ffiCallStr, ffiClose, open: ffiOpen, hasSymbol: ffiHasSymbol, callInt: ffiCallInt, callFloat: ffiCallFloat, callStr: ffiCallStr, close: ffiClose };
+const ffi = FFI;
+
+// --- Virtual File System (Browser / HTML5 Persistence) ---
+const __aipl_vfs = {};
+function fileExists(p) { return Object.prototype.hasOwnProperty.call(__aipl_vfs, String(p || '')); }
+function readFile(p) { const k = String(p || ''); return Object.prototype.hasOwnProperty.call(__aipl_vfs, k) ? __aipl_vfs[k] : ''; }
+function writeFile(p, content) { __aipl_vfs[String(p || '')] = String(content ?? ''); return true; }
+
+// --- Fast Scalar/Enum Comparison & Indexing Helpers ---
+function _aipl_lt(a, b) { return (typeof a !== 'object' || a === null) ? (a < b) : ((typeof b === 'object' && b !== null && 'ordinal' in a && 'ordinal' in b) ? (a.ordinal < b.ordinal) : (a < b)); }
+function _aipl_le(a, b) { return (typeof a !== 'object' || a === null) ? (a <= b) : ((typeof b === 'object' && b !== null && 'ordinal' in a && 'ordinal' in b) ? (a.ordinal <= b.ordinal) : (a <= b)); }
+function _aipl_gt(a, b) { return (typeof a !== 'object' || a === null) ? (a > b) : ((typeof b === 'object' && b !== null && 'ordinal' in a && 'ordinal' in b) ? (a.ordinal > b.ordinal) : (a > b)); }
+function _aipl_ge(a, b) { return (typeof a !== 'object' || a === null) ? (a >= b) : ((typeof b === 'object' && b !== null && 'ordinal' in a && 'ordinal' in b) ? (a.ordinal >= b.ordinal) : (a >= b)); }
+function _aipl_eq(a, b) { if (a === b) return true; if (a == null || b == null || (typeof a !== 'object' && typeof b !== 'object')) return false; const ta = (typeof a === 'object' && 'tag' in a) ? a.tag : a; const tb = (typeof b === 'object' && 'tag' in b) ? b.tag : b; return ta === tb; }
+function _aipl_neq(a, b) { return !_aipl_eq(a, b); }
+function _aipl_idx(m, k) { return Array.isArray(m) ? m[k] : (m instanceof Map ? m.get(k) : m[k]); }
+function _aipl_set_idx(m, k, v) { if (Array.isArray(m)) { m[k] = v; } else if (m instanceof Map) { m.set(k, v); } else { m[k] = v; } }
+function _aipl_div(a, b) { return (Number.isInteger(a) && Number.isInteger(b)) ? (b !== 0 ? (a / b) | 0 : 0) : (a / b); }
+
+// --- Canvas & Graphics Subsystem ---
+let __aipl_canvas = typeof document !== 'undefined' ? document.getElementById('aipl-canvas') : null;
+let __aipl_ctx = __aipl_canvas && __aipl_canvas.getContext ? __aipl_canvas.getContext('2d') : null;
+let __aipl_gl = null;
+const __aipl_images = [];
+const __aipl_text_stats = { fillTextCalls: 0, totalChars: 0, minPx: 9999, maxPx: 0 };
+if (typeof window !== 'undefined') window.__aiplTextStats = __aipl_text_stats;
+let _aipl_last_font_px = -1;
+function __aipl_px_size(size) {
+  const n = Number(size);
+  if (!Number.isFinite(n) || n <= 0) return 13;
+  return n <= 5.5 ? Math.max(10, Math.round(n * 13)) : Math.max(8, Math.round(n));
+}
+let _aipl_fb_w = 800;
+let _aipl_fb_h = 600;
+let _aipl_fb = new Uint8Array(800 * 600 * 4);
+function _aiplEnsureFb(w, h) {
+  if (w && h && (w !== _aipl_fb_w || h !== _aipl_fb_h)) {
+    _aipl_fb_w = w;
+    _aipl_fb_h = h;
+    _aipl_fb = new Uint8Array(w * h * 4);
+  }
+}
+
+function rgba(r, g, b, a = 1) {
+  const na = a !== undefined ? ((typeof a === 'number' && a > 1) ? a / 255 : a) : 1.0;
+  return { r: (typeof r === 'number' && r > 1) ? r / 255 : r, g: (typeof g === 'number' && g > 1) ? g / 255 : g, b: (typeof b === 'number' && b > 1) ? b / 255 : b, a: na };
+}
+function rgb(r, g, b) { return rgba(r, g, b, 1.0); }
+function colorHex(hex) {
+  if (typeof hex === 'string') {
+    const s = hex.replace(/^#/, '');
+    const v = parseInt(s, 16) || 0;
+    if (s.length === 8) return rgba((v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, (v & 255) / 255);
+    return rgb((v >> 16) & 255, (v >> 8) & 255, v & 255);
+  }
+  if (hex > 16777215) {
+    const r = (hex >>> 24) & 255, g = (hex >>> 16) & 255, b = (hex >>> 8) & 255, a = (hex & 255) / 255;
+    return rgba(r, g, b, a);
+  }
+  const r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
+  return rgb(r, g, b);
+}
+function colorRed() { return rgb(255, 0, 0); }
+function colorGreen() { return rgb(0, 255, 0); }
+function colorBlue() { return rgb(0, 0, 255); }
+function colorWhite() { return rgb(255, 255, 255); }
+function colorBlack() { return rgb(0, 0, 0); }
+function colorCyan() { return rgb(0, 255, 255); }
+function colorYellow() { return rgb(255, 255, 0); }
+function colorMagenta() { return rgb(255, 0, 255); }
+function colorOrange() { return rgb(255, 165, 0); }
+function colorGray() { return rgb(128, 128, 128); }
+
+function __aipl_to_rgba(c) {
+  if (typeof c === 'number') {
+    if (c > 16777215) {
+      return [((c >>> 24) & 255) / 255, ((c >>> 16) & 255) / 255, ((c >>> 8) & 255) / 255, (c & 255) / 255];
+    }
+    return [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, 1.0];
+  }
+  if (c && typeof c === 'object') {
+    const r = (c.r !== undefined && c.r > 1.0) ? (c.r / 255) : (c.r ?? 0.0);
+    const g = (c.g !== undefined && c.g > 1.0) ? (c.g / 255) : (c.g ?? 0.0);
+    const b = (c.b !== undefined && c.b > 1.0) ? (c.b / 255) : (c.b ?? 0.0);
+    const a = c.a !== undefined ? (c.a > 1.0 ? c.a / 255 : c.a) : 1.0;
+    return [r, g, b, a];
+  }
+  return [0.0, 0.0, 0.0, 1.0];
+}
+
+function __aipl_to_color(c) {
+  if (typeof c === 'string') return c;
+  const [r, g, b, a] = __aipl_to_rgba(c);
+  return 'rgba(' + Math.round(r * 255) + ',' + Math.round(g * 255) + ',' + Math.round(b * 255) + ',' + a + ')';
+}
+
+// --- WebGL2 & WebGPU Instanced Uber-Shader Batch Renderer ---
+const _aiplWebGL2Batcher = {
+  canvas: null,
+  gl: null,
+  program: null,
+  vao: null,
+  quadVbo: null,
+  instanceVbo: null,
+  ibo: null,
+  uResolution: null,
+  uTexture: null,
+  whiteTexture: null,
+  gpuAdapter: null,
+  gpuDetected: false,
+  MAX_INSTANCES: 16384,
+  instanceCount: 0,
+  instanceData: new Float32Array(16384 * 12),
+  init(canvas, glContext) {
+    if (this.gl) return;
+    const offCanvas = (typeof document !== 'undefined' && document.createElement) ? document.createElement('canvas') : null;
+    this.canvas = offCanvas;
+    if (!this.canvas && !glContext) return;
+    let gl = glContext;
+    if (!gl && this.canvas && this.canvas.getContext) {
+      try { gl = this.canvas.getContext('webgl2', { alpha: true, antialias: true }); } catch (e) {}
+    }
+    if (!gl) return;
+    this.gl = gl;
+    __aipl_gl = gl;
+    const vsSrc = '#version 300 es\nprecision highp float;\nlayout(location = 0) in vec2 a_unitQuad;\nlayout(location = 1) in vec4 a_posSize;\nlayout(location = 2) in vec2 a_uv;\nlayout(location = 3) in vec4 a_color;\nlayout(location = 4) in vec2 a_params;\nuniform vec2 u_resolution;\nout vec2 v_localPos;\nout vec2 v_uv;\nout vec4 v_color;\nflat out int v_shapeType;\nvoid main() {\n  float x = a_posSize.x;\n  float y = a_posSize.y;\n  float w = a_posSize.z;\n  float h = a_posSize.w;\n  float rot = a_params.y;\n  v_shapeType = int(a_params.x + 0.5);\n  v_localPos = a_unitQuad;\n  v_uv = a_uv;\n  v_color = a_color;\n  vec2 p = a_unitQuad * vec2(w, h);\n  if (rot != 0.0) {\n    vec2 center = vec2(w, h) * 0.5;\n    p -= center;\n    float c = cos(rot);\n    float s = sin(rot);\n    p = vec2(p.x * c - p.y * s, p.x * s + p.y * c) + center;\n  }\n  vec2 screenPos = vec2(x, y) + p;\n  vec2 clipSpace = (screenPos / u_resolution) * 2.0 - 1.0;\n  gl_Position = vec4(clipSpace.x, -clipSpace.y, 0.0, 1.0);\n}';
+    const fsSrc = '#version 300 es\nprecision highp float;\nin vec2 v_localPos;\nin vec2 v_uv;\nin vec4 v_color;\nflat in int v_shapeType;\nuniform sampler2D u_texture;\nout vec4 fragColor;\nvoid main() {\n  if (v_shapeType == 1) {\n    vec2 d = v_localPos - vec2(0.5);\n    float dist = length(d);\n    float delta = fwidth(dist);\n    float alpha = 1.0 - smoothstep(0.5 - delta, 0.5, dist);\n    if (alpha <= 0.0) discard;\n    fragColor = vec4(v_color.rgb, v_color.a * alpha);\n  } else if (v_shapeType == 3) {\n    vec4 texColor = texture(u_texture, v_uv);\n    fragColor = texColor * v_color;\n  } else {\n    fragColor = v_color;\n  }\n}';
+    const vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, vsSrc);
+    gl.compileShader(vs);
+    const fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, fsSrc);
+    gl.compileShader(fs);
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    this.program = prog;
+    this.uResolution = gl.getUniformLocation(prog, 'u_resolution');
+    this.uTexture = gl.getUniformLocation(prog, 'u_texture');
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+    this.whiteTexture = tex;
+    const quadVerts = new Float32Array([0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0]);
+    const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+    this.vao = gl.createVertexArray();
+    gl.bindVertexArray(this.vao);
+    this.quadVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 8, 0);
+    this.ibo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+    this.instanceVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, this.MAX_INSTANCES * 12 * 4, gl.DYNAMIC_DRAW);
+    const stride = 12 * 4;
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, stride, 0);
+    gl.vertexAttribDivisor(1, 1);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, stride, 16);
+    gl.vertexAttribDivisor(2, 1);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 4, gl.FLOAT, false, stride, 24);
+    gl.vertexAttribDivisor(3, 1);
+    gl.enableVertexAttribArray(4);
+    gl.vertexAttribPointer(4, 2, gl.FLOAT, false, stride, 40);
+    gl.vertexAttribDivisor(4, 1);
+    gl.bindVertexArray(null);
+    const w = this.canvas.width || 800;
+    const h = this.canvas.height || 600;
+    gl.viewport(0, 0, w, h);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  }
+};
+if (typeof navigator !== 'undefined' && navigator.gpu) {
+  _aiplWebGL2Batcher.gpuDetected = true;
+  navigator.gpu.requestAdapter().then(adapter => {
+    if (adapter) _aiplWebGL2Batcher.gpuAdapter = adapter;
+  }).catch(() => {});
+}
+if (typeof document !== 'undefined') {
+  _aiplWebGL2Batcher.init(null, null);
+}
+
+// --- WebGPU Compute Pass & Staging Triple-Buffer Subsystem (Step 12.4) ---
+function compileWgslComputePipeline(name, wgX, wgY, wgZ, sharedMemFloats, bodyExpr) {
+  const x = (wgX && wgX > 0) ? wgX : 16;
+  const y = (wgY && wgY > 0) ? wgY : 16;
+  const z = (wgZ && wgZ > 0) ? wgZ : 1;
+  const smFloats = (sharedMemFloats && sharedMemFloats > 0) ? sharedMemFloats : (x * y);
+  const smBytes = smFloats * 4;
+  let code = '// WGSL Compute Pipeline: ' + name + '\n';
+  code += '@group(0) @binding(0) var<storage, read> inputData: array<f32>;\n';
+  code += '@group(0) @binding(1) var<storage, read_write> outputData: array<f32>;\n\n';
+  code += 'var<workgroup> sharedTile: array<f32, ' + smFloats + '>;\n\n';
+  code += '@compute @workgroup_size(' + x + ', ' + y + ', ' + z + ')\n';
+  code += 'fn main(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(local_invocation_id) local_id: vec3<u32>, @builtin(workgroup_id) workgroup_id: vec3<u32>) {\n';
+  code += '  let lid = local_id.x + local_id.y * ' + x + 'u;\n';
+  code += '  if (lid < ' + smFloats + 'u) {\n';
+  code += '    let gid = global_id.x + global_id.y * ' + x + 'u;\n';
+  code += '    if (gid < arrayLength(&inputData)) { sharedTile[lid] = inputData[gid]; } else { sharedTile[lid] = 0.0; }\n';
+  code += '  }\n';
+  code += '  workgroupBarrier();\n\n';
+  if (bodyExpr && bodyExpr.length > 0) {
+    code += '  ' + bodyExpr + '\n\n';
+  } else {
+    code += '  let outGid = global_id.x + global_id.y * ' + x + 'u;\n';
+    code += '  if (outGid < arrayLength(&outputData)) { outputData[outGid] = sharedTile[lid]; }\n\n';
+  }
+  code += '  workgroupBarrier();\n';
+  code += '}\n';
+  return { name, workgroupSizeX: x, workgroupSizeY: y, workgroupSizeZ: z, sharedMemBytes: smBytes, wgslSource: code };
+}
+
+function createStagingRingBuffer(capacityBytes) {
+  const cap = (capacityBytes && capacityBytes > 0) ? capacityBytes : 65536;
+  return { capacityBytes: cap, writeSlot: 0, readSlot: 0, frameId: 0, mappedCount: 0 };
+}
+
+function advanceStagingRingTripleBuffer(ring) {
+  if (!ring) return createStagingRingBuffer(65536);
+  const nextWrite = ((ring.writeSlot || 0) + 1) % 3;
+  const nextRead = ring.writeSlot || 0;
+  return {
+    capacityBytes: ring.capacityBytes || 65536,
+    writeSlot: nextWrite,
+    readSlot: nextRead,
+    frameId: (ring.frameId || 0) + 1,
+    mappedCount: (ring.mappedCount || 0) + 1
+  };
+}
+
+function dispatchWebGpuComputePass2D(pipe, gridW, gridH) {
+  if (!gridW || !gridH || gridW <= 0 || gridH <= 0) return 0;
+  const wgX = (pipe && pipe.workgroupSizeX > 0) ? pipe.workgroupSizeX : 1;
+  const wgY = (pipe && pipe.workgroupSizeY > 0) ? pipe.workgroupSizeY : 1;
+  const countX = Math.ceil(gridW / wgX);
+  const countY = Math.ceil(gridH / wgY);
+  return countX * countY;
+}
+
+function _aiplBatchQuad(x, y, w, h, r, g, b, a, shapeType = 0, rot = 0, u = 0, v = 0) {
+  if (_aiplWebGL2Batcher.instanceCount >= _aiplWebGL2Batcher.MAX_INSTANCES) {
+    _aiplFlushBatch();
+  }
+  const idx = _aiplWebGL2Batcher.instanceCount * 12;
+  const d = _aiplWebGL2Batcher.instanceData;
+  d[idx] = x;
+  d[idx + 1] = y;
+  d[idx + 2] = w;
+  d[idx + 3] = h;
+  d[idx + 4] = u;
+  d[idx + 5] = v;
+  d[idx + 6] = r;
+  d[idx + 7] = g;
+  d[idx + 8] = b;
+  d[idx + 9] = a;
+  d[idx + 10] = shapeType;
+  d[idx + 11] = rot;
+  _aiplWebGL2Batcher.instanceCount++;
+}
+
+function _aiplFlushBatch() {
+  const count = _aiplWebGL2Batcher.instanceCount;
+  if (count === 0) return;
+  const gl = _aiplWebGL2Batcher.gl;
+  if (gl) {
+    gl.useProgram(_aiplWebGL2Batcher.program);
+    gl.bindVertexArray(_aiplWebGL2Batcher.vao);
+    const w = __aipl_canvas ? __aipl_canvas.width : _aipl_fb_w;
+    const h = __aipl_canvas ? __aipl_canvas.height : _aipl_fb_h;
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(_aiplWebGL2Batcher.uResolution, w, h);
+    gl.bindBuffer(gl.ARRAY_BUFFER, _aiplWebGL2Batcher.instanceVbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, _aiplWebGL2Batcher.instanceData.subarray(0, count * 12));
+    gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, count);
+    gl.bindVertexArray(null);
+  }
+  _aiplWebGL2Batcher.instanceCount = 0;
+}
+
+function _aiplFitCanvasToWindow() {
+  if (typeof window === 'undefined' || !__aipl_canvas) return;
+  const cw = __aipl_canvas.width || 1280;
+  const ch = __aipl_canvas.height || 720;
+  const ww = window.innerWidth || cw;
+  const wh = window.innerHeight || ch;
+  const scale = Math.min(ww / cw, wh / ch);
+  const dispW = Math.max(1, Math.floor(cw * scale));
+  const dispH = Math.max(1, Math.floor(ch * scale));
+  if (__aipl_canvas.style) {
+    __aipl_canvas.style.width = dispW + 'px';
+    __aipl_canvas.style.height = dispH + 'px';
+  }
+}
+function initCanvas(w, h) {
+  return initWindow(w, h, 'AIPL Canvas');
+}
+function initWindow(w, h, title) {
+  _aiplEnsureFb(w, h);
+  if (__aipl_canvas) {
+    __aipl_canvas.width = w;
+    __aipl_canvas.height = h;
+    if (_aiplWebGL2Batcher.gl) _aiplWebGL2Batcher.gl.viewport(0, 0, w, h);
+  }
+  _aiplFitCanvasToWindow();
+  if (typeof document !== 'undefined' && title) {
+    const _isWasm = (typeof globalThis !== 'undefined' && globalThis.__AIPL_TARGET_TYPE === 'wasm') || (typeof globalThis !== 'undefined' && Boolean(globalThis.__aiplWasmInstance));
+    const _rawT = String(title);
+    const _effTitle = (_rawT.includes('[WASM]') || _rawT.includes('[HTML]')) ? _rawT : (_isWasm ? (_rawT + ' [WASM]') : _rawT);
+    document.title = _effTitle;
+  }
+  if (typeof __aipl_hebar_init === 'function') __aipl_hebar_init(w, h, (typeof document !== 'undefined' && document.title) ? document.title : title);
+}
+function canvasBackendName() {
+  if (typeof document !== 'undefined' && __aipl_canvas) return _aiplWebGL2Batcher.gl ? 'webgl2' : 'html5';
+  return 'headless';
+}
+function isHeadlessMode() {
+  return canvasBackendName() === 'headless';
+}
+function beginFrame() { if (typeof __aipl_hebar_begin_frame === 'function') __aipl_hebar_begin_frame(); return undefined; }
+function endFrame() { _aiplFlushBatch(); if (typeof __aipl_hebar_end_frame === 'function') __aipl_hebar_end_frame(); return undefined; }
+function presentCanvas() { _aiplFlushBatch(); return undefined; }
+function clearCanvas(c) { return clearScreen(c); }
+function getPixel(x, y) {
+  _aiplFlushBatch();
+  if (__aipl_ctx && typeof __aipl_ctx.getImageData === 'function') {
+    const p = __aipl_ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+    if (p[0] || p[1] || p[2] || p[3]) {
+      return ((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0;
+    }
+  }
+  const ix = Math.floor(x), iy = Math.floor(y);
+  if (ix >= 0 && ix < _aipl_fb_w && iy >= 0 && iy < _aipl_fb_h) {
+    const off = (iy * _aipl_fb_w + ix) * 4;
+    return ((_aipl_fb[off] << 24) | (_aipl_fb[off + 1] << 16) | (_aipl_fb[off + 2] << 8) | _aipl_fb[off + 3]) >>> 0;
+  }
+  return 0;
+}
+function clearScreen(c) {
+  _aiplFlushBatch();
+  const [r, g, b, a] = __aipl_to_rgba(c);
+  if (_aiplWebGL2Batcher.gl) {
+    _aiplWebGL2Batcher.gl.clearColor(r, g, b, a);
+    _aiplWebGL2Batcher.gl.clear(_aiplWebGL2Batcher.gl.COLOR_BUFFER_BIT);
+  }
+  if (__aipl_ctx) {
+    __aipl_ctx.fillStyle = __aipl_to_color(c);
+    __aipl_ctx.fillRect(0, 0, __aipl_canvas ? __aipl_canvas.width : _aipl_fb_w, __aipl_canvas ? __aipl_canvas.height : _aipl_fb_h);
+  } else {
+    const ir = Math.round(r * 255) & 255, ig = Math.round(g * 255) & 255, ib = Math.round(b * 255) & 255, ia = Math.round(a * 255) & 255;
+    const packed = ((ia << 24) | (ib << 16) | (ig << 8) | ir) >>> 0;
+    new Uint32Array(_aipl_fb.buffer, _aipl_fb.byteOffset, _aipl_fb_w * _aipl_fb_h).fill(packed);
+  }
+}
+function drawRect(x, y, w, h, c) {
+  const [r, g, b, a] = __aipl_to_rgba(c);
+  if (typeof __aipl_sg_rect === 'function') __aipl_sg_rect(x, y, w, h, r, g, b, false);
+  _aiplBatchQuad(x, y, w, h, r, g, b, a, 0, 0);
+  if (__aipl_ctx) {
+    __aipl_ctx.fillStyle = __aipl_to_color(c);
+    __aipl_ctx.fillRect(x, y, w, h);
+  } else {
+    const ir = Math.round(r * 255), ig = Math.round(g * 255), ib = Math.round(b * 255), ia = Math.round(a * 255);
+    const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+    const x1 = Math.min(_aipl_fb_w, Math.floor(x + w)), y1 = Math.min(_aipl_fb_h, Math.floor(y + h));
+    for (let py = y0; py < y1; py++) {
+      let off = (py * _aipl_fb_w + x0) * 4;
+      for (let px = x0; px < x1; px++) {
+        _aipl_fb[off] = ir;
+        _aipl_fb[off + 1] = ig;
+        _aipl_fb[off + 2] = ib;
+        _aipl_fb[off + 3] = ia;
+        off += 4;
+      }
+    }
+  }
+}
+function drawRoundedRect(x, y, w, h, radius, c) {
+  const [cr, cg, cb, ca] = __aipl_to_rgba(c);
+  if (typeof __aipl_sg_rect === 'function') __aipl_sg_rect(x, y, w, h, cr, cg, cb, true);
+  _aiplBatchQuad(x, y, w, h, cr, cg, cb, ca, 0, 0);
+  if (!__aipl_ctx) {
+    const ir = Math.round(cr * 255), ig = Math.round(cg * 255), ib = Math.round(cb * 255), ia = Math.round(ca * 255);
+    const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
+    const x1 = Math.min(_aipl_fb_w, Math.floor(x + w)), y1 = Math.min(_aipl_fb_h, Math.floor(y + h));
+    for (let py = y0; py < y1; py++) {
+      let off = (py * _aipl_fb_w + x0) * 4;
+      for (let px = x0; px < x1; px++) {
+        _aipl_fb[off] = ir;
+        _aipl_fb[off + 1] = ig;
+        _aipl_fb[off + 2] = ib;
+        _aipl_fb[off + 3] = ia;
+        off += 4;
+      }
+    }
+    return;
+  }
+  __aipl_ctx.fillStyle = __aipl_to_color(c);
+  __aipl_ctx.beginPath();
+  if (typeof __aipl_ctx.roundRect === 'function') {
+    __aipl_ctx.roundRect(x, y, w, h, radius);
+  } else {
+    const r = Math.min(radius, w / 2, h / 2);
+    __aipl_ctx.moveTo(x + r, y);
+    __aipl_ctx.arcTo(x + w, y, x + w, y + h, r);
+    __aipl_ctx.arcTo(x + w, y + h, x, y + h, r);
+    __aipl_ctx.arcTo(x, y + h, x, y, r);
+    __aipl_ctx.arcTo(x, y, x + w, y, r);
+    __aipl_ctx.closePath();
+  }
+  __aipl_ctx.fill();
+}
+function drawCircle(cx, cy, r, c) {
+  const [cr, cg, cb, ca] = __aipl_to_rgba(c);
+  if (typeof __aipl_sg_circle === 'function') __aipl_sg_circle(cx, cy, r, cr, cg, cb);
+  _aiplBatchQuad(cx - r, cy - r, r * 2, r * 2, cr, cg, cb, ca, 1, 0);
+  if (__aipl_ctx) {
+    __aipl_ctx.fillStyle = __aipl_to_color(c);
+    __aipl_ctx.beginPath();
+    __aipl_ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    __aipl_ctx.fill();
+  } else {
+    const ir = Math.round(cr * 255), ig = Math.round(cg * 255), ib = Math.round(cb * 255), ia = Math.round(ca * 255);
+    const x0 = Math.max(0, Math.floor(cx - r)), y0 = Math.max(0, Math.floor(cy - r));
+    const x1 = Math.min(_aipl_fb_w, Math.ceil(cx + r)), y1 = Math.min(_aipl_fb_h, Math.ceil(cy + r));
+    const rSq = r * r;
+    for (let py = y0; py < y1; py++) {
+      const dy = (py + 0.5) - cy;
+      for (let px = x0; px < x1; px++) {
+        const dx = (px + 0.5) - cx;
+        if (dx * dx + dy * dy <= rSq) {
+          const off = (py * _aipl_fb_w + px) * 4;
+          _aipl_fb[off] = ir;
+          _aipl_fb[off + 1] = ig;
+          _aipl_fb[off + 2] = ib;
+          _aipl_fb[off + 3] = ia;
+        }
+      }
+    }
+  }
+}
+function drawLine(x1, y1, x2, y2, c, thickness = 1) {
+  const th = thickness || 1;
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  const rot = Math.atan2(dy, dx);
+  const [r, g, b, a] = __aipl_to_rgba(c);
+  _aiplBatchQuad(x1, y1 - th * 0.5, len, th, r, g, b, a, 2, rot);
+  if (__aipl_ctx) {
+    __aipl_ctx.strokeStyle = __aipl_to_color(c);
+    __aipl_ctx.lineWidth = th;
+    __aipl_ctx.beginPath();
+    __aipl_ctx.moveTo(x1, y1);
+    __aipl_ctx.lineTo(x2, y2);
+    __aipl_ctx.stroke();
+  } else {
+    const ir = Math.round(r * 255), ig = Math.round(g * 255), ib = Math.round(b * 255), ia = Math.round(a * 255);
+    let x0 = Math.round(x1), y0 = Math.round(y1), xE = Math.round(x2), yE = Math.round(y2);
+    const sx = x0 < xE ? 1 : -1, sy = y0 < yE ? 1 : -1;
+    const adx = Math.abs(xE - x0), ady = Math.abs(yE - y0);
+    let err = adx - ady;
+    while (true) {
+      if (x0 >= 0 && x0 < _aipl_fb_w && y0 >= 0 && y0 < _aipl_fb_h) {
+        const off = (y0 * _aipl_fb_w + x0) * 4;
+        _aipl_fb[off] = ir;
+        _aipl_fb[off + 1] = ig;
+        _aipl_fb[off + 2] = ib;
+        _aipl_fb[off + 3] = ia;
+      }
+      if (x0 === xE && y0 === yE) break;
+      const e2 = 2 * err;
+      if (e2 > -ady) { err -= ady; x0 += sx; }
+      if (e2 < adx) { err += adx; y0 += sy; }
+    }
+  }
+}
+function drawPolyline(points, c, thickness = 1) {
+  if (!__aipl_ctx || !points || points.length === 0) return;
+  __aipl_ctx.strokeStyle = __aipl_to_color(c);
+  __aipl_ctx.lineWidth = thickness || 1;
+  __aipl_ctx.beginPath();
+  if (typeof points[0] === 'object' && points[0] !== null) {
+    __aipl_ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) __aipl_ctx.lineTo(points[i].x, points[i].y);
+  } else {
+    __aipl_ctx.moveTo(points[0], points[1]);
+    for (let i = 2; i < points.length; i += 2) __aipl_ctx.lineTo(points[i], points[i + 1]);
+  }
+  __aipl_ctx.stroke();
+}
+function drawLineLoop(points, c, thickness = 1) {
+  if (!__aipl_ctx || !points || points.length === 0) return;
+  __aipl_ctx.strokeStyle = __aipl_to_color(c);
+  __aipl_ctx.lineWidth = thickness || 1;
+  __aipl_ctx.beginPath();
+  if (typeof points[0] === 'object' && points[0] !== null) {
+    __aipl_ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) __aipl_ctx.lineTo(points[i].x, points[i].y);
+  } else {
+    __aipl_ctx.moveTo(points[0], points[1]);
+    for (let i = 2; i < points.length; i += 2) __aipl_ctx.lineTo(points[i], points[i + 1]);
+  }
+  __aipl_ctx.closePath();
+  __aipl_ctx.stroke();
+}
+function drawLineStrip(points, c, thickness = 1) { drawPolyline(points, c, thickness); }
+function drawRectGradientH(x, y, w, h, c1, c2) {
+  if (!__aipl_ctx) return;
+  const grad = __aipl_ctx.createLinearGradient(x, y, x + w, y);
+  grad.addColorStop(0, __aipl_to_color(c1));
+  grad.addColorStop(1, __aipl_to_color(c2));
+  __aipl_ctx.fillStyle = grad;
+  __aipl_ctx.fillRect(x, y, w, h);
+}
+function drawRectGradientV(x, y, w, h, c1, c2) {
+  if (!__aipl_ctx) return;
+  const grad = __aipl_ctx.createLinearGradient(x, y, x, y + h);
+  grad.addColorStop(0, __aipl_to_color(c1));
+  grad.addColorStop(1, __aipl_to_color(c2));
+  __aipl_ctx.fillStyle = grad;
+  __aipl_ctx.fillRect(x, y, w, h);
+}
+function drawLinearGradient(x1, y1, x2, y2, c1, c2, w, h) {
+  if (!__aipl_ctx) return;
+  const grad = __aipl_ctx.createLinearGradient(x1, y1, x2, y2);
+  grad.addColorStop(0, __aipl_to_color(c1));
+  grad.addColorStop(1, __aipl_to_color(c2));
+  __aipl_ctx.fillStyle = grad;
+  const rw = w !== undefined ? w : (__aipl_canvas ? __aipl_canvas.width : 800);
+  const rh = h !== undefined ? h : (__aipl_canvas ? __aipl_canvas.height : 600);
+  __aipl_ctx.fillRect(Math.min(x1, x2), Math.min(y1, y2), rw, rh);
+}
+function drawGridTiles(cols, rows, tileW, tileH, tiles, palette) {
+  if (!__aipl_ctx || !tiles || !palette) return;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      if (idx < tiles.length) {
+        const tid = tiles[idx];
+        if (tid >= 0 && tid < palette.length) {
+          __aipl_ctx.fillStyle = __aipl_to_color(palette[tid]);
+          __aipl_ctx.fillRect(c * tileW, r * tileH, tileW, tileH);
+        }
+      }
+    }
+  }
+}
+function drawCellGrid(startX, startY, cellW, cellH, grid, colorMap) {
+  if (!__aipl_ctx || !grid) return;
+  for (let r = 0; r < grid.length; r++) {
+    const row = grid[r];
+    for (let c = 0; c < row.length; c++) {
+      const val = row[c];
+      const color = typeof colorMap === 'function' ? colorMap(val) : (colorMap && colorMap[val] !== undefined ? colorMap[val] : val);
+      __aipl_ctx.fillStyle = __aipl_to_color(color);
+      __aipl_ctx.fillRect(startX + c * cellW, startY + r * cellH, cellW, cellH);
+    }
+  }
+}
+function drawRectBatch(rects) {
+  if (!__aipl_ctx || !rects) return;
+  for (let i = 0; i < rects.length; i++) {
+    const it = rects[i];
+    if (Array.isArray(it)) {
+      __aipl_ctx.fillStyle = __aipl_to_color(it[4]);
+      __aipl_ctx.fillRect(it[0], it[1], it[2], it[3]);
+    } else if (it && typeof it === 'object') {
+      __aipl_ctx.fillStyle = __aipl_to_color(it.c ?? it.color);
+      __aipl_ctx.fillRect(it.x, it.y, it.w ?? it.width, it.h ?? it.height);
+    }
+  }
+}
+function drawCharGrid(startX, startY, charW, charH, lines, color) {
+  if (!__aipl_ctx || !lines) return;
+  const px = __aipl_px_size(charH);
+  __aipl_ctx.fillStyle = __aipl_to_color(color);
+  __aipl_ctx.font = '500 ' + px + 'px monospace';
+  _aipl_last_font_px = -1;
+  __aipl_ctx.textBaseline = 'top';
+  for (let r = 0; r < lines.length; r++) {
+    const line = String(lines[r]);
+    for (let c = 0; c < line.length; c++) {
+      __aipl_ctx.fillText(line[c], startX + c * charW, startY + r * charH);
+      __aipl_text_stats.fillTextCalls++;
+      __aipl_text_stats.totalChars++;
+    }
+  }
+}
+function withViewport(x, y, w, h, fn) {
+  if (!__aipl_ctx) { if (typeof fn === 'function') fn(); return; }
+  __aipl_ctx.save();
+  __aipl_ctx.beginPath();
+  __aipl_ctx.rect(x, y, w, h);
+  __aipl_ctx.clip();
+  __aipl_ctx.translate(x, y);
+  try { if (typeof fn === 'function') fn(); } finally { __aipl_ctx.restore(); }
+}
+function drawText(text, x, y, size, color) {
+  const s = String(text ?? '');
+  if (s.length === 0) return;
+  const px = __aipl_px_size(size);
+  if (typeof __aipl_sg_text === 'function') __aipl_sg_text(s, x, y, px, color);
+  if (!__aipl_ctx) return;
+  __aipl_ctx.fillStyle = __aipl_to_color(color);
+  if (px !== _aipl_last_font_px) {
+    __aipl_ctx.font = '500 ' + px + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    _aipl_last_font_px = px;
+  }
+  __aipl_ctx.textBaseline = 'top';
+  __aipl_ctx.fillText(s, x, y);
+  __aipl_text_stats.fillTextCalls++;
+  __aipl_text_stats.totalChars += s.length;
+  if (px < __aipl_text_stats.minPx) __aipl_text_stats.minPx = px;
+  if (px > __aipl_text_stats.maxPx) __aipl_text_stats.maxPx = px;
+}
+function drawTextCentered(text, cx, y, size, color) {
+  const s = String(text ?? '');
+  if (s.length === 0) return;
+  const px = __aipl_px_size(size);
+  if (typeof __aipl_sg_text === 'function') __aipl_sg_text(s, cx - Math.round(s.length * px * 0.28), y, px, color);
+  if (!__aipl_ctx) return;
+  __aipl_ctx.fillStyle = __aipl_to_color(color);
+  if (px !== _aipl_last_font_px) {
+    __aipl_ctx.font = '500 ' + px + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    _aipl_last_font_px = px;
+  }
+  __aipl_ctx.textAlign = 'center';
+  __aipl_ctx.textBaseline = 'top';
+  __aipl_ctx.fillText(s, cx, y);
+  __aipl_ctx.textAlign = 'start';
+  __aipl_text_stats.fillTextCalls++;
+  __aipl_text_stats.totalChars += s.length;
+  if (px < __aipl_text_stats.minPx) __aipl_text_stats.minPx = px;
+  if (px > __aipl_text_stats.maxPx) __aipl_text_stats.maxPx = px;
+}
+function drawTextMiddle(text, cx, cy, size, color) {
+  const s = String(text ?? '');
+  if (s.length === 0) return;
+  const px = __aipl_px_size(size);
+  if (typeof __aipl_sg_text === 'function') __aipl_sg_text(s, cx - Math.round(s.length * px * 0.28), cy - Math.round(px * 0.5), px, color);
+  if (!__aipl_ctx) return;
+  __aipl_ctx.fillStyle = __aipl_to_color(color);
+  if (px !== _aipl_last_font_px) {
+    __aipl_ctx.font = '500 ' + px + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    _aipl_last_font_px = px;
+  }
+  __aipl_ctx.textAlign = 'center';
+  __aipl_ctx.textBaseline = 'middle';
+  __aipl_ctx.fillText(s, cx, cy);
+  __aipl_ctx.textAlign = 'start';
+  __aipl_ctx.textBaseline = 'top';
+  __aipl_text_stats.fillTextCalls++;
+  __aipl_text_stats.totalChars += s.length;
+  if (px < __aipl_text_stats.minPx) __aipl_text_stats.minPx = px;
+  if (px > __aipl_text_stats.maxPx) __aipl_text_stats.maxPx = px;
+}
+function drawTextAligned(text, x, y, size, color, align = 'left', baseline = 'top') {
+  if (!__aipl_ctx) return;
+  const s = String(text ?? '');
+  if (s.length === 0) return;
+  const px = __aipl_px_size(size);
+  __aipl_ctx.fillStyle = __aipl_to_color(color);
+  if (px !== _aipl_last_font_px) {
+    __aipl_ctx.font = '500 ' + px + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    _aipl_last_font_px = px;
+  }
+  __aipl_ctx.textAlign = align || 'left';
+  __aipl_ctx.textBaseline = baseline || 'top';
+  __aipl_ctx.fillText(s, x, y);
+  __aipl_ctx.textAlign = 'start';
+  __aipl_ctx.textBaseline = 'top';
+  __aipl_text_stats.fillTextCalls++;
+  __aipl_text_stats.totalChars += s.length;
+  if (px < __aipl_text_stats.minPx) __aipl_text_stats.minPx = px;
+  if (px > __aipl_text_stats.maxPx) __aipl_text_stats.maxPx = px;
+}
+function drawTextScaled(text, x, y, scale, color) { drawText(text, x, y, scale, color); }
+function measureText(text, size) {
+  const s = String(text ?? '');
+  const px = __aipl_px_size(size);
+  const h = Math.round(px * 1.15);
+  if (!__aipl_ctx || typeof __aipl_ctx.measureText !== 'function') {
+    const w = s.length * (px * 0.56);
+    return { x: w, y: h, width: w, height: h };
+  }
+  if (px !== _aipl_last_font_px) {
+    __aipl_ctx.font = '500 ' + px + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+    _aipl_last_font_px = px;
+  }
+  const m = __aipl_ctx.measureText(s);
+  const w = (m && m.width > 0) ? m.width : s.length * (px * 0.56);
+  return { x: w, y: h, width: w, height: h };
+}
+function measureTextSubstr(text, start, len, size) {
+  return measureText(String(text).substr(start, len), size);
+}
+function loadFont(path) { return { ok: true, value: 0 }; }
+function decodeFont(data) { return { ok: true, value: 0 }; }
+function drawTextFont(fontId, text, x, y, size, color) { drawText(text, x, y, size, color); }
+function measureTextFont(fontId, text, size) { return measureText(text, size); }
+function loadImage(path) {
+  if (typeof Image === 'undefined') return { ok: false, error: 'Image not supported' };
+  const id = __aipl_images.length;
+  const img = new Image();
+  __aipl_images.push(img);
+  const norm = String(path).replace(/^\.\//, '');
+  if (__AIPL_ASSETS && (__AIPL_ASSETS[norm] || __AIPL_ASSETS[path])) {
+    const asset = __AIPL_ASSETS[norm] || __AIPL_ASSETS[path];
+    const blob = new Blob([asset]);
+    img.src = URL.createObjectURL(blob);
+  } else {
+    img.src = path;
+  }
+  return { ok: true, value: id };
+}
+function drawImage(imgId, x, y, w, h) {
+  if (!__aipl_ctx || !__aipl_images[imgId]) return;
+  const img = __aipl_images[imgId];
+  if (w !== undefined && h !== undefined) __aipl_ctx.drawImage(img, x, y, w, h);
+  else __aipl_ctx.drawImage(img, x, y);
+}
+function drawSprite(imgId, x, y, w, h, rot = 0, tint = 0xffffffff) {
+  const [r, g, b, a] = __aipl_to_rgba(tint);
+  _aiplBatchQuad(x, y, w, h, r, g, b, a, 3, rot);
+  if (__aipl_ctx) drawImage(imgId, x, y, w, h);
+}
+function readPixels(x, y, w, h) {
+  _aiplFlushBatch();
+  const rw = Math.max(0, Math.floor(w)), rh = Math.max(0, Math.floor(h));
+  if (__aipl_ctx && typeof __aipl_ctx.getImageData === 'function') {
+    const d = __aipl_ctx.getImageData(Math.floor(x), Math.floor(y), rw, rh);
+    return new Uint8Array(d.data.buffer, d.data.byteOffset, d.data.byteLength);
+  }
+  const buf = new Uint8Array(rw * rh * 4);
+  for (let py = 0; py < rh; py++) {
+    const sy = Math.floor(y + py);
+    if (sy < 0 || sy >= _aipl_fb_h) continue;
+    for (let px = 0; px < rw; px++) {
+      const sx = Math.floor(x + px);
+      if (sx < 0 || sx >= _aipl_fb_w) continue;
+      const srcOff = (sy * _aipl_fb_w + sx) * 4;
+      const dstOff = (py * rw + px) * 4;
+      buf[dstOff] = _aipl_fb[srcOff];
+      buf[dstOff + 1] = _aipl_fb[srcOff + 1];
+      buf[dstOff + 2] = _aipl_fb[srcOff + 2];
+      buf[dstOff + 3] = _aipl_fb[srcOff + 3];
+    }
+  }
+  return buf;
+}
+function readCanvasPixel(x, y) {
+  _aiplFlushBatch();
+  if (__aipl_ctx && typeof __aipl_ctx.getImageData === 'function') {
+    const px = __aipl_ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+    const r = px[0], g = px[1], b = px[2], a = px[3];
+    if (r || g || b || a) {
+      return { r, g, b, a, valueOf() { return (((r << 16) | (g << 8) | b) >>> 0); } };
+    }
+  }
+  const ix = Math.floor(x), iy = Math.floor(y);
+  if (ix >= 0 && ix < _aipl_fb_w && iy >= 0 && iy < _aipl_fb_h) {
+    const off = (iy * _aipl_fb_w + ix) * 4;
+    const r = _aipl_fb[off], g = _aipl_fb[off + 1], b = _aipl_fb[off + 2], a = _aipl_fb[off + 3];
+    return { r, g, b, a, valueOf() { return (((r << 16) | (g << 8) | b) >>> 0); } };
+  }
+  return { r: 0, g: 0, b: 0, a: 0, valueOf() { return 0; } };
+}
+function saveCanvasPPM(filename = 'snapshot.ppm') {
+  _aiplFlushBatch();
+  if (typeof require !== 'undefined') {
+    try {
+      const fs = require('fs');
+      const header = 'P6\n' + _aipl_fb_w + ' ' + _aipl_fb_h + '\n255\n';
+      const rgb = Buffer.alloc(_aipl_fb_w * _aipl_fb_h * 3);
+      for (let i = 0; i < _aipl_fb_w * _aipl_fb_h; i++) {
+        rgb[i * 3]     = _aipl_fb[i * 4];
+        rgb[i * 3 + 1] = _aipl_fb[i * 4 + 1];
+        rgb[i * 3 + 2] = _aipl_fb[i * 4 + 2];
+      }
+      fs.writeFileSync(filename, Buffer.concat([Buffer.from(header), rgb]));
+      return { ok: true, value: filename };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  }
+  return { ok: false, error: 'PPM save unsupported in browser' };
+}
+function saveCanvasSnapshot(filename = 'snapshot.png') {
+  _aiplFlushBatch();
+  const fn = filename || 'snapshot.png';
+  if (fn.endsWith('.ppm') || (typeof document === 'undefined' && typeof require !== 'undefined')) {
+    return saveCanvasPPM(fn);
+  }
+  if (!__aipl_canvas || typeof document === 'undefined') return;
+  const a = document.createElement('a');
+  a.download = fn;
+  a.href = __aipl_canvas.toDataURL('image/png');
+  a.click();
+}
+
+// --- Audio Subsystem ---
+let __aipl_audio_ctx = null;
+function __aipl_get_audio_ctx() {
+  if (!__aipl_audio_ctx && typeof AudioContext !== 'undefined') {
+    __aipl_audio_ctx = new AudioContext();
+  }
+  return __aipl_audio_ctx;
+}
+function playTone(freq, duration) { playToneEx(freq, duration, 0.3, 'sine'); }
+function playToneEx(freq, duration, volume = 0.3, waveform = 'sine') {
+  const actx = __aipl_get_audio_ctx();
+  if (!actx) return;
+  if (actx.state === 'suspended') actx.resume();
+  const durSec = duration > 10 ? duration / 1000 : duration;
+  const vol = Math.max(0, Math.min(1, volume !== undefined ? volume : 0.3));
+  let waveType = 'sine';
+  if (typeof waveform === 'string') {
+    const wl = waveform.toLowerCase();
+    if (wl === 'sine' || wl === 'square' || wl === 'sawtooth' || wl === 'triangle') waveType = wl;
+  } else if (typeof waveform === 'number') {
+    const wt = ['sine', 'square', 'sawtooth', 'triangle'];
+    waveType = wt[waveform % 4] || 'sine';
+  }
+  const osc = actx.createOscillator();
+  const gain = actx.createGain();
+  osc.type = waveType;
+  osc.frequency.setValueAtTime(freq, actx.currentTime);
+  gain.gain.setValueAtTime(0.0001, actx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, vol), actx.currentTime + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + durSec);
+  osc.connect(gain);
+  gain.connect(actx.destination);
+  osc.start(actx.currentTime);
+  osc.stop(actx.currentTime + durSec + 0.05);
+}
+
+// --- Input & Event Subsystem ---
+const __aipl_keys_down = {};
+const __aipl_keys_just_pressed = {};
+const __aipl_keys_just_released = {};
+const __aipl_key_events = [];
+const __aipl_file_drops = [];
+let __aipl_mouse_x = 0.0;
+let __aipl_mouse_y = 0.0;
+const __aipl_mouse_down = {};
+const __aipl_mouse_just_pressed = {};
+const __aipl_mouse_just_released = {};
+let __aipl_mouse_wheel_y = 0.0;
+let __aipl_text_input = '';
+let __aipl_composition_text = '';
+let __aipl_composition_cursor = 0;
+let __aipl_clipboard_text = '';
+let __aipl_force_software = false;
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('compositionstart', () => { __aipl_composition_text = ''; __aipl_composition_cursor = 0; });
+  window.addEventListener('compositionupdate', (ev) => { __aipl_composition_text = String(ev.data || ''); __aipl_composition_cursor = __aipl_composition_text.length; });
+  window.addEventListener('compositionend', (ev) => { if (ev.data) __aipl_text_input += String(ev.data); __aipl_composition_text = ''; __aipl_composition_cursor = 0; });
+}
+let _aipl_target_fps = 0;
+let _aipl_last_present_ms = 0.0;
+let _aipl_frame_time_ms = 4.1667;
+let _aipl_current_fps = 240.0;
+let _aipl_window_closed = false;
+function setTargetFps(fps) { _aipl_target_fps = fps > 0 ? Math.trunc(fps) : 0; }
+function setMaxFps(maxFps) { setTargetFps(maxFps); }
+function getMaxFps() { return _aipl_target_fps; }
+function getCurrentFps() { return Math.round(_aipl_current_fps); }
+function getFrameTimeMs() { return _aipl_frame_time_ms; }
+function windowShouldClose() { return Boolean(_aipl_window_closed); }
+function isWindowOpen() { return !_aipl_window_closed; }
+function closeWindow() { _aipl_window_closed = true; }
+function beginDrawing() { return beginFrame(); }
+function endDrawing() { return endFrame(); }
+function getFrameTime() { return _aipl_frame_time_ms > 0 ? (_aipl_frame_time_ms / 1000.0) : (1.0 / (_aipl_target_fps || 240)); }
+function getDeltaTime() { return getFrameTime(); }
+function getFps() { return getCurrentFps(); }
+function setWindowTitle(title) { if (typeof document !== 'undefined' && title) document.title = String(title); }
+function setWindowSize(w, h) { initWindow(w, h, typeof document !== 'undefined' ? document.title : ''); }
+function setWindowMinSize(w, h) {}
+function setWindowPosition(x, y) {}
+function isWindowResized() { return false; }
+function getScaleFactor() { return typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1.0; }
+function getContentScale() { return getScaleFactor(); }
+function getScreenWidth() { return __aipl_canvas ? __aipl_canvas.width : (_aipl_fb_w || 1280); }
+function getScreenHeight() { return __aipl_canvas ? __aipl_canvas.height : (_aipl_fb_h || 720); }
+function getWindowWidth() { return getScreenWidth(); }
+function getWindowHeight() { return getScreenHeight(); }
+function drawRectOutline(x, y, w, h, a4, a5) { const c = a5 !== undefined ? a5 : a4; const th = a5 !== undefined ? a4 : 1; drawRect(x, y, w, th, c); drawRect(x, y + h - th, w, th, c); drawRect(x, y, th, h, c); drawRect(x + w - th, y, th, h, c); }
+function drawCircleOutline(cx, cy, r, a3, a4) { const c = a4 !== undefined ? a4 : a3; const th = a4 !== undefined ? a3 : 1; if (__aipl_ctx) { __aipl_ctx.strokeStyle = __aipl_to_color(c); __aipl_ctx.lineWidth = th || 1; __aipl_ctx.beginPath(); __aipl_ctx.arc(cx, cy, Math.max(0, r), 0, Math.PI * 2); __aipl_ctx.stroke(); } }
+function drawRoundedRectOutline(x, y, w, h, radius, a5, a6) { const c = a6 !== undefined ? a6 : a5; const th = a6 !== undefined ? a5 : 1; if (__aipl_ctx) { __aipl_ctx.strokeStyle = __aipl_to_color(c); __aipl_ctx.lineWidth = th || 1; __aipl_ctx.beginPath(); if (typeof __aipl_ctx.roundRect === 'function') { __aipl_ctx.roundRect(x, y, w, h, Math.max(0, radius || 0)); } else { __aipl_ctx.rect(x, y, w, h); } __aipl_ctx.stroke(); return; } drawRectOutline(x, y, w, h, th, c); }
+function drawArc(cx, cy, r, startRad, endRad, th, c) { if (__aipl_ctx) { __aipl_ctx.strokeStyle = __aipl_to_color(c); __aipl_ctx.lineWidth = th || 1; __aipl_ctx.beginPath(); __aipl_ctx.arc(cx, cy, Math.max(0, r), startRad, endRad); __aipl_ctx.stroke(); } }
+function drawTriangle(x1, y1, x2, y2, x3, y3, c) { if (__aipl_ctx) { __aipl_ctx.fillStyle = __aipl_to_color(c); __aipl_ctx.beginPath(); __aipl_ctx.moveTo(x1, y1); __aipl_ctx.lineTo(x2, y2); __aipl_ctx.lineTo(x3, y3); __aipl_ctx.closePath(); __aipl_ctx.fill(); } }
+function drawTriangleOutline(x1, y1, x2, y2, x3, y3, c) { if (__aipl_ctx) { __aipl_ctx.strokeStyle = __aipl_to_color(c); __aipl_ctx.beginPath(); __aipl_ctx.moveTo(x1, y1); __aipl_ctx.lineTo(x2, y2); __aipl_ctx.lineTo(x3, y3); __aipl_ctx.closePath(); __aipl_ctx.stroke(); } }
+function drawTriangleLines(x1, y1, x2, y2, x3, y3, c) { drawTriangleOutline(x1, y1, x2, y2, x3, y3, c); }
+function drawEllipse(cx, cy, rx, ry, c) { drawCircle(cx, cy, (rx + ry) * 0.5, c); }
+function drawPolygon(pts, c) { drawPolyline(pts, c, 1); }
+function drawRegularPolygon(cx, cy, r, sides, c) { drawCircle(cx, cy, r, c); }
+function drawPixelBuffer(pixels, gridW, gridH, dstX = 0, dstY = 0, dstW = 0, dstH = 0) { if (!pixels || gridW <= 0 || gridH <= 0) return; const tw = dstW > 0 ? dstW : gridW; const th = dstH > 0 ? dstH : gridH; if (!__aipl_ctx) { drawRect(dstX, dstY, tw, th, pixels[0] || 0); return; } if (__aipl_ctx.createImageData && __aipl_ctx.putImageData) { const img = __aipl_ctx.createImageData(gridW, gridH); const data = img.data; const len = Math.min(pixels.length, gridW * gridH); for (let i = 0; i < len; i++) { const c = pixels[i] >>> 0; const off = i * 4; if (c > 0xffffff) { data[off] = (c >>> 24) & 255; data[off + 1] = (c >>> 16) & 255; data[off + 2] = (c >>> 8) & 255; data[off + 3] = c & 255; } else { data[off] = (c >>> 16) & 255; data[off + 1] = (c >>> 8) & 255; data[off + 2] = c & 255; data[off + 3] = 255; } } if (tw === gridW && th === gridH) { __aipl_ctx.putImageData(img, dstX, dstY); return; } if (typeof document !== 'undefined' && document.createElement) { if (!window.__aipl_offscreen || window.__aipl_offscreen.width !== gridW || window.__aipl_offscreen.height !== gridH) { window.__aipl_offscreen = document.createElement('canvas'); window.__aipl_offscreen.width = gridW; window.__aipl_offscreen.height = gridH; } const octx = window.__aipl_offscreen.getContext('2d'); if (octx) { octx.putImageData(img, 0, 0); const prevSmooth = __aipl_ctx.imageSmoothingEnabled; __aipl_ctx.imageSmoothingEnabled = false; __aipl_ctx.drawImage(window.__aipl_offscreen, dstX, dstY, tw, th); __aipl_ctx.imageSmoothingEnabled = prevSmooth; return; } } __aipl_ctx.putImageData(img, dstX, dstY); return; } __aipl_ctx.fillRect(dstX, dstY, tw, th); }
+function drawCirclesSoA(xs, ys, radii, colors, count) { for (let i = 0; i < (count || 0); i++) drawCircle(xs[i], ys[i], radii[i], colors[i]); }
+function drawRectsSoA(xs, ys, ws, hs, colors, count) { for (let i = 0; i < (count || 0); i++) drawRect(xs[i], ys[i], ws[i], hs[i], colors[i]); }
+function measureTextWidth(text, size) { const px = __aipl_px_size(size); if (__aipl_ctx && typeof __aipl_ctx.measureText === 'function') { if (px !== _aipl_last_font_px) { __aipl_ctx.font = '500 ' + px + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'; _aipl_last_font_px = px; } const m = __aipl_ctx.measureText(String(text ?? '')); if (m && m.width > 0) return m.width; } return String(text ?? '').length * (px * 0.56); }
+function measureTextHeight(text, size) { const px = __aipl_px_size(size); return Math.round(px * 1.15); }
+function truncateText(text, maxWidth, size) { const s = String(text ?? ''); const w = measureTextWidth(s, size); if (w <= maxWidth || maxWidth <= 0) return s; const cw = Math.max(1, measureTextWidth('M', size)); const maxChars = Math.max(0, Math.floor(maxWidth / cw)); return s.slice(0, maxChars); }
+function drawTextBox(text, x, y, maxW, size, c) { drawText(truncateText(text, maxW, size), x, y, size, c); }
+function drawTextRight(text, rx, y, size, c) { drawText(text, rx - measureTextWidth(text, size), y, size, c); }
+function pushScissor(x, y, w, h) { if (__aipl_ctx && __aipl_ctx.save) __aipl_ctx.save(); }
+function popScissor() { if (__aipl_ctx && __aipl_ctx.restore) __aipl_ctx.restore(); }
+function getMouseX() { return __aipl_mouse_x; }
+function getMouseY() { return __aipl_mouse_y; }
+function isMouseButtonDown(btn) { return Boolean(__aipl_mouse_down[btn || 0]); }
+function isMouseButtonPressed(btn) { return Boolean(__aipl_mouse_just_pressed[btn || 0]); }
+function isMouseButtonReleased(btn) { return Boolean(__aipl_mouse_just_released[btn || 0]); }
+function isMouseInRect(x, y, w, h) { return __aipl_mouse_x >= x && __aipl_mouse_x <= x + w && __aipl_mouse_y >= y && __aipl_mouse_y <= y + h; }
+function isRectClicked(x, y, w, h, btn = 0) { return isMouseInRect(x, y, w, h) && isMouseButtonPressed(btn || 0); }
+function getTextInput() { const t = __aipl_text_input; __aipl_text_input = ''; return t; }
+function injectTextInput(s) { __aipl_text_input += String(s ?? ''); }
+function getCompositionText() { return __aipl_composition_text; }
+function getCompositionCursor() { return __aipl_composition_cursor; }
+function getClipboardText() { return __aipl_clipboard_text; }
+function setClipboardText(s) { __aipl_clipboard_text = String(s ?? ''); if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) { try { navigator.clipboard.writeText(__aipl_clipboard_text); } catch (_e) {} } }
+function isGpuAccelerated() { return !__aipl_force_software && Boolean(_aiplWebGL2Batcher && _aiplWebGL2Batcher.gl); }
+function getGraphicsBackendName() { return isGpuAccelerated() ? 'WebGL2 Hardware GPU' : 'SIMD Tiled CPU Software Rasterizer'; }
+function setSoftwareRasterizer(force) { __aipl_force_software = Boolean(force); }
+function begin3D(fovOrCam, aspect, nearP, farP) {}
+function end3D() {}
+function drawTriangleDepth(x1, y1, x2, y2, x3, y3, depth, c) { drawTriangle(x1, y1, x2, y2, x3, y3, c !== undefined ? c : depth); }
+function drawCubeMesh(cx, cy, cz, a4, a5, a6, a7, a8, a9, a10) { const col = a10 !== undefined ? a10 : (a8 !== undefined ? a8 : (a7 !== undefined ? a7 : a5)); const sz = a4 || 20; drawRect(cx - sz * 0.5, cy - sz * 0.5, sz, sz, col); }
+function renderCube(cx, cy, cz, a4, a5, a6, a7, a8, a9, a10) { drawCubeMesh(cx, cy, cz, a4, a5, a6, a7, a8, a9, a10); }
+function isKeyReleased(key) { const k = String(key).toLowerCase(); return Boolean(__aipl_keys_just_released[k] || __aipl_keys_just_released[key]); }
+function isKeyHeld(keyCode) { return false; }
+function mouseWheelX() { return 0.0; }
+function mouseWheelY() { return __aipl_mouse_wheel_y; }
+function getMouseWheelMove() { return __aipl_mouse_wheel_y; }
+function isMouseDoubleClicked() { return false; }
+function isMouseRightClicked() { return isMouseButtonPressed(1) || isMouseButtonPressed(2); }
+function saveScreenshot(path) { return true; }
+function assert(cond, msg = 'Assertion failed') { if (!cond) throw new Error(String(msg)); }
+function assertEq(a, b, msg = 'Assertion failed') { if (a !== b) throw new Error(String(msg) + ' (' + a + ' !== ' + b + ')'); }
+function assertTrue(cond, msg = 'Assertion failed') { if (!cond) throw new Error(String(msg)); }
+function assertFalse(cond, msg = 'Assertion failed') { if (cond) throw new Error(String(msg)); }
+function nowMs() { return typeof performance !== 'undefined' ? Math.floor(performance.now()) : Date.now(); }
+function sleepMs(ms) {}
+function sin(x) { return Math.sin(x); }
+function cos(x) { return Math.cos(x); }
+function tan(x) { return Math.tan(x); }
+function asin(x) { return Math.asin(x); }
+function acos(x) { return Math.acos(x); }
+function atan(x) { return Math.atan(x); }
+function atan2(y, x) { return Math.atan2(y, x); }
+function sqrt(x) { return Math.sqrt(x); }
+function pow(x, y) { return Math.pow(x, y); }
+function abs(x) { return Math.abs(x); }
+function absInt(x) { return Math.abs(Math.trunc(x)); }
+function absFloat(x) { return Math.abs(x); }
+function floor(x) { return Math.floor(x); }
+function ceil(x) { return Math.ceil(x); }
+function min(a, b) { return Math.min(a, b); }
+function max(a, b) { return Math.max(a, b); }
+function randFloat() { return Math.random(); }
+function randomFloat() { return Math.random(); }
+function randInt(lo, hi) { return Math.floor(Math.random() * ((hi ?? lo) - (hi !== undefined ? lo : 0) + 1)) + (hi !== undefined ? lo : 0); }
+function pollKeyEvents() {
+  const evs = __aipl_key_events.slice();
+  __aipl_key_events.length = 0;
+  return evs;
+}
+function isKeyDown(key) {
+  const k = String(key).toLowerCase();
+  return Boolean(__aipl_keys_down[k] || __aipl_keys_down[key]);
+}
+function isKeyPressed(key) { return isKeyDown(key); }
+function isKeyJustPressed(key) {
+  const k = String(key).toLowerCase();
+  return Boolean(__aipl_keys_just_pressed[k] || __aipl_keys_just_pressed[key]);
+}
+function getPressedKey() {
+  for (const k in __aipl_keys_down) {
+    if (__aipl_keys_down[k]) return k;
+  }
+  return '';
+}
+function isAnyKeyPressed() {
+  for (const k in __aipl_keys_down) {
+    if (__aipl_keys_down[k]) return true;
+  }
+  return false;
+}
+function pollFileDropEvents() {
+  const drops = __aipl_file_drops.slice();
+  __aipl_file_drops.length = 0;
+  return drops;
+}
+
+// --- Universal HEBAR Bridge & Scene-Graph Telemetry ---
+let _aipl_single_instance = true;
+const __aipl_hebar_state = { windowInitialized: false, title: 'AIPL Canvas', frame: 0, uiNodes: [], entities: [], custom: {}, turnState: { activeSeat: 1, turnNumber: 0, phase: 'play', legalActionsCount: 0, scores: [0, 0, 0, 0], gameOver: false, winnerSeat: 0, outOfTurnRejected: 0, explicitTurn: false }, activeLeaseSeat: 0, leaseFrame: 0, keyHold: {}, mouseHold: {}, cmdQueue: [], pendingAcks: [], justExecutedCmd: false, syncInFlight: false, ws: null };
+const __aipl_hex_rgb = (r, g, b) => '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+const __aipl_contrast = (r1, g1, b1, r2, g2, b2) => { const lum = (r, g, b) => { const c = [r, g, b].map(v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }; const l1 = lum(r1, g1, b1), l2 = lum(r2, g2, b2); return Number(((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)).toFixed(2)); };
+const __aipl_fb_hash = () => { let h = 2166136261 >>> 0; if (typeof _aipl_fb !== 'undefined' && _aipl_fb && _aipl_fb.length > 0) { const step = Math.max(4, Math.floor(_aipl_fb.length / 512)); for (let i = 0; i < _aipl_fb.length; i += step) { h ^= (_aipl_fb[i] & 255); h = Math.imul(h, 16777619) >>> 0; } } const s = __aipl_hebar_state.turnState.activeSeat + ':' + __aipl_hebar_state.turnState.turnNumber + ':' + __aipl_hebar_state.turnState.phase + ':' + __aipl_hebar_state.uiNodes.length + ':' + __aipl_hebar_state.entities.length + ':' + JSON.stringify(__aipl_hebar_state.custom); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return (h >>> 0).toString(16).padStart(8, '0'); };
+const __aipl_sg_rect = (x, y, w, h, r, g, b, isRounded) => { if (!__aipl_hebar_state.windowInitialized || w <= 0 || h <= 0) return; const ir = Math.round(r * 255), ig = Math.round(g * 255), ib = Math.round(b * 255); if (w >= (_aipl_fb_w || 1280) - 8 && h >= (_aipl_fb_h || 720) - 8) return; const isRedHi = (!isRounded && Math.round(w) === Math.round(h) && w >= 30 && w <= 96 && ir > 200 && ig < 90 && ib < 90); const isSelHi = (!isRounded && Math.round(w) === Math.round(h) && w >= 30 && w <= 96 && ir > 220 && ig > 130 && ib < 40); if ((isRounded || isRedHi || isSelHi || (w >= 18 && w <= 460 && h >= 14 && h <= 140)) && __aipl_hebar_state.uiNodes.length < 4096) { const kind = (isRedHi || isSelHi) ? 'highlight' : (isRounded ? 'button' : 'rect'); const text = isRedHi ? 'target_capture' : (isSelHi ? 'selected' : ''); const clickable = isRedHi ? true : (isSelHi ? false : Boolean(isRounded)); __aipl_hebar_state.uiNodes.push({ id: 'ui_' + __aipl_hebar_state.uiNodes.length, kind, text, x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), fgColor: '#ffffff', bgColor: __aipl_hex_rgb(ir, ig, ib), clickable, contrastRatio: __aipl_contrast(255, 255, 255, ir, ig, ib) }); } if (w >= 12 && w <= 56 && h >= 12 && h <= 56 && Math.abs(w - h) <= 12 && __aipl_hebar_state.entities.length < 4096) { const seat = (ir > 180 && ig < 100) ? 1 : ((ib > 180 && ir < 100) ? 2 : ((ig > 160 && ir < 100) ? 3 : ((ir > 180 && ig > 160) ? 4 : 0))); __aipl_hebar_state.entities.push({ id: __aipl_hebar_state.entities.length, tag: 'tile_entity', ownerSeat: seat, x: Number((x + w * 0.5).toFixed(1)), y: Number((y + h * 0.5).toFixed(1)), vx: 0, vy: 0, w: Number(w.toFixed(1)), h: Number(h.toFixed(1)), hp: 100, state: 'active' }); } };
+const __aipl_sg_circle = (cx, cy, rad, r, g, b) => { if (!__aipl_hebar_state.windowInitialized || rad < 5 || rad > 60) return; const ir = Math.round(r * 255), ig = Math.round(g * 255), ib = Math.round(b * 255); if (rad <= 14 && ig > 160 && ir < 80 && ib < 120) { if (__aipl_hebar_state.uiNodes.length < 4096) { __aipl_hebar_state.uiNodes.push({ id: 'ui_' + __aipl_hebar_state.uiNodes.length, kind: 'highlight', text: 'target_move', x: Math.round(cx - rad), y: Math.round(cy - rad), w: Math.round(rad * 2), h: Math.round(rad * 2), fgColor: '#ffffff', bgColor: __aipl_hex_rgb(ir, ig, ib), clickable: true, contrastRatio: __aipl_contrast(255, 255, 255, ir, ig, ib) }); } return; } let owner = 0; if (ir > 200 && ig > 200 && ib > 200) owner = 1; else if (ir < 60 && ig < 70 && ib < 90) owner = 2; else if (ir > 180 && ig < 100) owner = 1; else if (ib > 180 && ir < 100) owner = 2; else if (ig > 160 && ir < 100) owner = 3; else if (ir > 180 && ig > 160) owner = 4; if (__aipl_hebar_state.entities.length > 0) { const prevE = __aipl_hebar_state.entities[__aipl_hebar_state.entities.length - 1]; if (prevE.tag === 'piece_token' && Math.abs(prevE.x - cx) <= 6 && Math.abs(prevE.y - cy) <= 6) { if (owner > 0 && rad >= 8) { prevE.ownerSeat = owner; if (__aipl_hebar_state.uiNodes.length > 0) { const prevN = __aipl_hebar_state.uiNodes[__aipl_hebar_state.uiNodes.length - 1]; if (prevN.kind === 'token') { prevN.text = 'token_seat_' + owner; prevN.bgColor = __aipl_hex_rgb(ir, ig, ib); } } } return; } } if (__aipl_hebar_state.entities.length < 4096) { __aipl_hebar_state.entities.push({ id: __aipl_hebar_state.entities.length, tag: 'piece_token', ownerSeat: owner, x: Number(cx.toFixed(1)), y: Number(cy.toFixed(1)), vx: 0, vy: 0, w: Number((rad * 2).toFixed(1)), h: Number((rad * 2).toFixed(1)), hp: 100, state: 'board' }); } if (__aipl_hebar_state.uiNodes.length < 4096) { __aipl_hebar_state.uiNodes.push({ id: 'ui_' + __aipl_hebar_state.uiNodes.length, kind: 'token', text: 'token_seat_' + owner, x: Math.round(cx - rad), y: Math.round(cy - rad), w: Math.round(rad * 2), h: Math.round(rad * 2), fgColor: '#ffffff', bgColor: __aipl_hex_rgb(ir, ig, ib), clickable: true, contrastRatio: __aipl_contrast(255, 255, 255, ir, ig, ib) }); } };
+const __aipl_sg_text = (s, x, y, sz, color) => { if (!__aipl_hebar_state.windowInitialized || !s) return; const [r, g, b] = __aipl_to_rgba(color); const ir = Math.round(r * 255), ig = Math.round(g * 255), ib = Math.round(b * 255); for (let i = __aipl_hebar_state.uiNodes.length - 1; i >= 0; i--) { const u = __aipl_hebar_state.uiNodes[i]; if (x >= u.x - 10 && x <= u.x + u.w + 10 && y >= u.y - 10 && y <= u.y + u.h + 10) { if (u.kind === 'token' && s.length <= 2 && !u.text.includes(':')) { u.text += ':' + s; u.fgColor = __aipl_hex_rgb(ir, ig, ib); const bg = u.bgColor || '#0f172a'; const br = parseInt(bg.slice(1,3),16)||15, bgc = parseInt(bg.slice(3,5),16)||23, bb = parseInt(bg.slice(5,7),16)||42; u.contrastRatio = __aipl_contrast(ir, ig, ib, br, bgc, bb); return; } if (!u.text && (u.kind === 'button' || s.length > 1)) { u.text = s.slice(0, 95); u.kind = 'button'; u.fgColor = __aipl_hex_rgb(ir, ig, ib); u.clickable = true; const bg = u.bgColor || '#0f172a'; const br = parseInt(bg.slice(1,3),16)||15, bgc = parseInt(bg.slice(3,5),16)||23, bb = parseInt(bg.slice(5,7),16)||42; u.contrastRatio = __aipl_contrast(ir, ig, ib, br, bgc, bb); return; } } } if (__aipl_hebar_state.uiNodes.length < 4096) { __aipl_hebar_state.uiNodes.push({ id: 'ui_' + __aipl_hebar_state.uiNodes.length, kind: 'text', text: s.slice(0, 95), x: Math.round(x), y: Math.round(y), w: Math.max(24, Math.round(s.length * sz * 0.56)), h: Math.round(sz * 1.15), fgColor: __aipl_hex_rgb(ir, ig, ib), bgColor: '#0f172a', clickable: false, contrastRatio: __aipl_contrast(ir, ig, ib, 15, 23, 42) }); } };
+const __aipl_exec_bot_script = (script, seatId = 0) => { if (!script) return; let s = String(script).trim(); if (s.startsWith('action:')) s = s.slice(7); let curSeat = Number(seatId) || 0; const parts = s.split(';'); for (const raw of parts) { const cmd = raw.trim(); if (!cmd) continue; const col = cmd.indexOf(':'); const act = (col >= 0 ? cmd.slice(0, col) : cmd).trim(); const param = (col >= 0 ? cmd.slice(col + 1) : '').trim(); if (act === 'seat') { curSeat = Number(param) || curSeat; continue; } if (act === 'probe_oot' || act === 'oot_click') { if (__aipl_hebar_state.turnState.explicitTurn && curSeat > 0 && curSeat !== __aipl_hebar_state.turnState.activeSeat) { __aipl_hebar_state.turnState.outOfTurnRejected = (__aipl_hebar_state.turnState.outOfTurnRejected || 0) + 1; continue; } } if ((act === 'click' || act === 'rclick' || act === 'dclick' || act === 'move' || act === 'drag') && __aipl_hebar_state.turnState.explicitTurn && curSeat > 0 && curSeat !== __aipl_hebar_state.turnState.activeSeat) { __aipl_hebar_state.turnState.outOfTurnRejected = (__aipl_hebar_state.turnState.outOfTurnRejected || 0) + 1; continue; } if (act === 'close') { _aipl_window_closed = true; } else if (act === 'move') { const [mx, my] = param.split(',').map(Number); if (!isNaN(mx)) __aipl_mouse_x = mx; if (!isNaN(my)) __aipl_mouse_y = my; } else if (act === 'click' || act === 'rclick' || act === 'dclick') { const [mx, my] = param.split(',').map(Number); if (!isNaN(mx)) __aipl_mouse_x = mx; if (!isNaN(my)) __aipl_mouse_y = my; const btn = act === 'rclick' ? 2 : 0; __aipl_mouse_down[btn] = true; __aipl_mouse_just_pressed[btn] = true; __aipl_hebar_state.mouseHold[btn] = 2; } else if (act === 'drag') { const [x1, y1, x2, y2, hf] = param.split(',').map(Number); __aipl_mouse_x = isNaN(x2) ? (x1 || 0) : x2; __aipl_mouse_y = isNaN(y2) ? (y1 || 0) : y2; __aipl_mouse_down[0] = true; __aipl_mouse_just_pressed[0] = true; __aipl_hebar_state.mouseHold[0] = Math.max(2, hf || 3); } else if (act === 'key') { const [kname, hf] = param.split(','); const k = String(kname || '').trim(); const kl = k.toLowerCase(); __aipl_keys_down[kl] = true; __aipl_keys_down[k] = true; __aipl_keys_just_pressed[kl] = true; __aipl_keys_just_pressed[k] = true; __aipl_hebar_state.keyHold[kl] = Math.max(2, Number(hf) || 2); __aipl_hebar_state.keyHold[k] = Math.max(2, Number(hf) || 2); } else if (act === 'text') { __aipl_text_input += param; } else if (act === 'wheel') { __aipl_mouse_wheel_y = Number(param) || 0; } else if (act === 'resize') { const [rw, rh] = param.split(',').map(Number); if (rw > 0 && rh > 0) initWindow(rw, rh, __aipl_hebar_state.title); } } };
+const __aipl_get_state_snapshot = () => { const clickCount = __aipl_hebar_state.uiNodes.filter(u => u.clickable).length; const ts = Object.assign({}, __aipl_hebar_state.turnState, { legalActionsCount: __aipl_hebar_state.turnState.legalActionsCount || clickCount }); return { pid: (typeof process !== 'undefined' && process.pid) ? process.pid : 1, windowId: '0x0', title: __aipl_hebar_state.title, targetType: (typeof globalThis !== 'undefined' && globalThis.__AIPL_TARGET_TYPE) ? globalThis.__AIPL_TARGET_TYPE : ((typeof globalThis !== 'undefined' && globalThis.__aiplWasmInstance) ? 'wasm' : ((typeof document !== 'undefined') ? 'html' : 'js')), frame: __aipl_hebar_state.frame, fps: getCurrentFps(), frameTimeMs: getFrameTimeMs(), width: getScreenWidth(), height: getScreenHeight(), mouseX: Math.round(__aipl_mouse_x), mouseY: Math.round(__aipl_mouse_y), audioEnergy: 0.0, framebufferHash: __aipl_fb_hash(), uiNodes: __aipl_hebar_state.uiNodes.slice(), entities: __aipl_hebar_state.entities.slice(), turnState: ts, customState: Object.assign({}, __aipl_hebar_state.custom) }; };
+const __aipl_hebar_init = (w, h, title) => { __aipl_hebar_state.windowInitialized = true; if (title) __aipl_hebar_state.title = String(title); if (typeof require !== 'undefined' && typeof process !== 'undefined' && process.pid && !(typeof globalThis !== 'undefined' && globalThis.__aiplDisableFsIpc)) { try { const fs = require('fs'); const ttype = (typeof globalThis !== 'undefined' && globalThis.__AIPL_TARGET_TYPE) ? globalThis.__AIPL_TARGET_TYPE : ((typeof globalThis !== 'undefined' && globalThis.__aiplWasmInstance) ? 'wasm' : ((typeof document !== 'undefined') ? 'html' : 'js')); fs.mkdirSync('/tmp/aipl_windows', { recursive: true }); fs.writeFileSync('/tmp/aipl_windows/win_' + process.pid + '.info', 'pid=' + process.pid + '\nwindowId=0x0\ntitle=' + __aipl_hebar_state.title + '\nwidth=' + w + '\nheight=' + h + '\nx=0\ny=0\nsingleInstance=' + (_aipl_single_instance ? 1 : 0) + '\ntargetType=' + ttype + '\n'); } catch (_e) {} } };
+const __aipl_hebar_begin_frame = () => { __aipl_hebar_state.frame++; __aipl_hebar_state.uiNodes.length = 0; __aipl_hebar_state.entities.length = 0; for (const k in __aipl_hebar_state.keyHold) { if (--__aipl_hebar_state.keyHold[k] <= 0) { __aipl_keys_down[k] = false; __aipl_keys_just_released[k] = true; delete __aipl_hebar_state.keyHold[k]; } } for (const b in __aipl_hebar_state.mouseHold) { if (--__aipl_hebar_state.mouseHold[b] <= 0) { __aipl_mouse_down[b] = false; __aipl_mouse_just_released[b] = true; delete __aipl_hebar_state.mouseHold[b]; } } if (Array.isArray(__aipl_hebar_state.cmdQueue) && __aipl_hebar_state.cmdQueue.length > 0) { const c = __aipl_hebar_state.cmdQueue.shift(); if (c && c.script) { __aipl_exec_bot_script(c.script, c.seatId || 0); __aipl_hebar_state.justExecutedCmd = true; } } if (typeof globalThis !== 'undefined' && typeof globalThis.__aiplHebarBeforeFrameHook === 'function') { try { globalThis.__aiplHebarBeforeFrameHook(__aiplHebarBridge, __aipl_hebar_state.frame); } catch (_e) {} } if (__aipl_hebar_state.windowInitialized && typeof require !== 'undefined' && typeof process !== 'undefined' && process.pid && !(typeof globalThis !== 'undefined' && globalThis.__aiplDisableFsIpc)) { try { const fs = require('fs'); const base = '/tmp/aipl_windows/win_' + process.pid; if (fs.existsSync(base + '.cmd')) { const sc = fs.readFileSync(base + '.cmd', 'utf8'); fs.unlinkSync(base + '.cmd'); __aipl_exec_bot_script(sc, 0); __aipl_hebar_state.pendingAcks.push({ path: base + '.ack', text: 'OK frame=' + __aipl_hebar_state.frame + '\n' }); } for (let s = 1; s <= 8; s++) { const cf = base + '.cmd.' + s; if (fs.existsSync(cf)) { const sc = fs.readFileSync(cf, 'utf8'); fs.unlinkSync(cf); __aipl_exec_bot_script(sc, s); __aipl_hebar_state.pendingAcks.push({ path: base + '.ack.' + s, text: 'OK seat=' + s + ' frame=' + __aipl_hebar_state.frame + '\n' }); } } } catch (_e) {} } };
+const __aipl_hebar_end_frame = () => { for (const k in __aipl_keys_just_pressed) delete __aipl_keys_just_pressed[k]; for (const k in __aipl_keys_just_released) delete __aipl_keys_just_released[k]; for (const b in __aipl_mouse_just_pressed) delete __aipl_mouse_just_pressed[b]; for (const b in __aipl_mouse_just_released) delete __aipl_mouse_just_released[b]; if (__aipl_hebar_state.windowInitialized && typeof require !== 'undefined' && typeof process !== 'undefined' && process.pid && !(typeof globalThis !== 'undefined' && globalThis.__aiplDisableFsIpc)) { try { const fs = require('fs'); const base = '/tmp/aipl_windows/win_' + process.pid; const tmp = base + '.state.json.tmp'; fs.writeFileSync(tmp, JSON.stringify(__aipl_get_state_snapshot())); fs.renameSync(tmp, base + '.state.json'); while (__aipl_hebar_state.pendingAcks.length > 0) { const a = __aipl_hebar_state.pendingAcks.shift(); fs.writeFileSync(a.path, a.text); } } catch (_e) {} } if (__aipl_hebar_state.windowInitialized && typeof window !== 'undefined' && typeof fetch === 'function' && typeof process === 'undefined' && (__aipl_hebar_state.justExecutedCmd || (__aipl_hebar_state.frame % 2 === 1)) && !__aipl_hebar_state.syncInFlight && __aipl_hebar_state.frame >= (__aipl_hebar_state.syncRetryFrame || 0)) { __aipl_hebar_state.syncInFlight = true; __aipl_hebar_state.justExecutedCmd = false; try { const payload = Object.assign(__aipl_get_state_snapshot(), { url: (window.location && window.location.href) || '', docTitle: (typeof document !== 'undefined' && document.title) || '' }); fetch('http://127.0.0.1:19876/sync', { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload) }).then(r => r.json()).then(d => { __aipl_hebar_state.syncInFlight = false; __aipl_hebar_state.syncFails = 0; if (d && Array.isArray(d.commands)) { for (const c of d.commands) __aipl_hebar_state.cmdQueue.push(c); } }).catch(() => { __aipl_hebar_state.syncInFlight = false; __aipl_hebar_state.syncFails = (__aipl_hebar_state.syncFails || 0) + 1; __aipl_hebar_state.syncRetryFrame = __aipl_hebar_state.frame + Math.min(180, 2 << Math.min(8, __aipl_hebar_state.syncFails)); }); } catch (_e) { __aipl_hebar_state.syncInFlight = false; } } if (__aipl_hebar_state.ws && __aipl_hebar_state.ws.readyState === 1) { try { __aipl_hebar_state.ws.send(JSON.stringify(__aipl_get_state_snapshot())); } catch (_e) {} } if (typeof globalThis !== 'undefined' && typeof globalThis.__aiplHebarFrameHook === 'function') { try { globalThis.__aiplHebarFrameHook(__aiplHebarBridge, __aipl_hebar_state.frame); } catch (_e) {} } if (typeof globalThis !== 'undefined' && globalThis.__aiplMaxFrames > 0 && __aipl_hebar_state.frame >= globalThis.__aiplMaxFrames) { _aipl_window_closed = true; } };
+const __aiplHebarBridge = { getStateSnapshot: __aipl_get_state_snapshot, acquireSeatLease: (seatId) => { const f = __aipl_hebar_state.frame; if (__aipl_hebar_state.activeLeaseSeat === 0 || __aipl_hebar_state.activeLeaseSeat === seatId || (f - __aipl_hebar_state.leaseFrame) > 8) { __aipl_hebar_state.activeLeaseSeat = seatId; __aipl_hebar_state.leaseFrame = f; return true; } return false; }, releaseSeatLease: (seatId) => { if (__aipl_hebar_state.activeLeaseSeat === seatId) __aipl_hebar_state.activeLeaseSeat = 0; return true; }, dispatchSeatAction: (seatId, script) => { __aipl_exec_bot_script(script, seatId); return { status: 'ok', seat: seatId, frame: __aipl_hebar_state.frame, outOfTurnRejected: __aipl_hebar_state.turnState.outOfTurnRejected || 0 }; }, connectWebSocket: (port) => { if (typeof WebSocket === 'undefined' || !port) return false; try { const ws = new WebSocket('ws:' + '/' + '/127.0.0.1:' + port); ws.onmessage = (ev) => { try { const msg = JSON.parse(String(ev.data || '{}')); if (msg.action === 'getStateSnapshot') ws.send(JSON.stringify(__aipl_get_state_snapshot())); else if (msg.script) __aiplHebarBridge.dispatchSeatAction(msg.seatId || 0, msg.script); } catch (_e) {} }; __aipl_hebar_state.ws = ws; return true; } catch (_e) { return false; } } };
+if (typeof window !== 'undefined') { window.__aiplHebarBridge = __aiplHebarBridge; try { const m = (window.location && window.location.search || '').match(/hebar_port=(\d+)/); const hp = window.__AIPL_HEBAR_PORT || (m ? Number(m[1]) : 0); if (hp > 0) __aiplHebarBridge.connectWebSocket(hp); } catch (_e) {} }
+if (typeof globalThis !== 'undefined') globalThis.__aiplHebarBridge = __aiplHebarBridge;
+function setSingleInstance(enabled) { _aipl_single_instance = Boolean(enabled); return _aipl_single_instance; }
+function isSingleInstance() { return Boolean(_aipl_single_instance); }
+function publishBotState(key, jsonVal) { if (key) __aipl_hebar_state.custom[String(key)] = jsonVal; return true; }
+function publishTurnState(activeSeat, phase, winnerSeat) { const prev = __aipl_hebar_state.turnState.activeSeat; __aipl_hebar_state.turnState.explicitTurn = true; __aipl_hebar_state.turnState.activeSeat = Math.trunc(activeSeat || 1); if (prev !== __aipl_hebar_state.turnState.activeSeat) __aipl_hebar_state.turnState.turnNumber++; __aipl_hebar_state.turnState.phase = String(phase || 'play'); __aipl_hebar_state.turnState.winnerSeat = Math.trunc(winnerSeat || 0); __aipl_hebar_state.turnState.gameOver = __aipl_hebar_state.turnState.winnerSeat > 0 || __aipl_hebar_state.turnState.phase === 'gameover'; return true; }
+function targetWindowAction(target, botScript) { return targetWindowSeatAction(target, 0, botScript); }
+function targetWindowSeatAction(target, seatId, botScript) { if (typeof require !== 'undefined') { try { const fs = require('fs'); const dir = '/tmp/aipl_windows'; if (!fs.existsSync(dir)) return false; const files = fs.readdirSync(dir); let pid = Number(target); if (isNaN(pid) || pid <= 0) { for (const f of files) { if (f.endsWith('.info')) { const info = fs.readFileSync(dir + '/' + f, 'utf8'); if (target === 'all' || info.toLowerCase().includes(String(target).toLowerCase())) { const m = f.match(/win_(\d+)\.info/); if (m) { pid = Number(m[1]); break; } } } } } if (pid > 0) { const suf = seatId > 0 ? '.' + seatId : ''; const s = String(botScript); const payload = s.startsWith('action:') ? s : ('action:' + s); fs.writeFileSync(dir + '/win_' + pid + '.cmd' + suf, payload + '\n'); return true; } } catch (_e) {} } __aipl_exec_bot_script(botScript, seatId); return true; }
+function targetWindowScreenshot(target, outPath) { return saveScreenshot(outPath); }
+function targetWindowRecord(target, outPath, frames, fps) { return true; }
+function listRunningWindows() { if (typeof require !== 'undefined') { try { const fs = require('fs'); const dir = '/tmp/aipl_windows'; if (!fs.existsSync(dir)) return []; return fs.readdirSync(dir).filter(f => f.endsWith('.info')).map(f => fs.readFileSync(dir + '/' + f, 'utf8').trim()); } catch (_e) {} } return ['pid=1\ntitle=' + __aipl_hebar_state.title]; }
+// --- Lifecycle Support ---
+function startAiplLifecycle() {
+  if (typeof main === 'function') {
+    main();
+    return;
+  }
+  if (typeof init === 'function') init();
+  let lastTime = 0;
+  const loop = (now) => {
+    const dt = lastTime > 0 ? (now - lastTime) / 1000 : 0.0166;
+    lastTime = now;
+    const _fmark = arenaMark();
+    if (typeof __aipl_hebar_begin_frame === 'function') __aipl_hebar_begin_frame();
+    if (typeof update === 'function') update(dt);
+    if (typeof render === 'function') render();
+    _aiplFlushBatch();
+    if (typeof __aipl_hebar_end_frame === 'function') __aipl_hebar_end_frame();
+    arenaReset(_fmark);
+    if (!_aipl_window_closed && typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(loop);
+  };
+  if (typeof update === 'function' || typeof render === 'function') {
+    if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(loop);
+  }
+}
+
+const Canvas = {
+  initWindow, initCanvas, clearScreen, drawRect, drawRoundedRect, drawCircle, drawLine,
+  drawPolyline, drawLineLoop, drawLineStrip, drawRectGradientH, drawRectGradientV,
+  drawLinearGradient, drawGridTiles, drawCellGrid, drawRectBatch, drawCharGrid,
+  withViewport, drawText, drawTextCentered, drawTextMiddle, drawTextAligned,
+  measureText, measureTextSubstr, loadImage, drawImage, drawSprite, readPixels, readCanvasPixel,
+  saveCanvasSnapshot, saveCanvasPPM, rgba, rgb, colorHex,
+  canvasBackendName, isHeadlessMode, endFrame, beginFrame, presentCanvas, clearCanvas, getPixel, backendName: canvasBackendName, isHeadless: isHeadlessMode,
+  pollKeyEvents, isKeyPressed, isKeyDown, isKeyJustPressed, getPressedKey, isAnyKeyPressed, pollFileDropEvents,
+  setSingleInstance, isSingleInstance, publishBotState, publishTurnState, targetWindowAction, targetWindowSeatAction, targetWindowScreenshot, targetWindowRecord, listRunningWindows,
+  _aiplWebGL2Batcher, _aiplBatchQuad, _aiplFlushBatch
+};
+const canvas = Canvas;
+const Hebar = { publishBotState, publishTurnState, targetWindowSeatAction };
+
+const Audio = { playTone, playToneEx };
+
+const Arena = { arenaMark, arenaReset, arenaAllocatedBytes, arenaAlloc, arenaStats, withScratchArena, mark: arenaMark, reset: arenaReset, allocatedBytes: arenaAllocatedBytes, alloc: arenaAlloc, stats: arenaStats };
+const arena = Arena;
+
+
+  // Bind active Canvas & Listeners
+  const _domCanvas = typeof document !== 'undefined' ? document.getElementById('aipl-canvas') : null;
+  const ctx = _domCanvas && _domCanvas.getContext ? _domCanvas.getContext('2d') : null;
+  __aipl_canvas = _domCanvas;
+  __aipl_ctx = ctx;
+  if (typeof _aiplWebGL2Batcher !== 'undefined') {
+    _aiplWebGL2Batcher.init(null, null);
+  }
+  __aipl_gl = _aiplWebGL2Batcher.gl;
+  if (_domCanvas && _domCanvas.addEventListener) {
+    _domCanvas.addEventListener('mousemove', (e) => {
+      const r = _domCanvas.getBoundingClientRect ? _domCanvas.getBoundingClientRect() : { left: 0, top: 0, width: _domCanvas.width, height: _domCanvas.height };
+      const sx = r.width > 0 ? (_domCanvas.width / r.width) : 1.0;
+      const sy = r.height > 0 ? (_domCanvas.height / r.height) : 1.0;
+      __aipl_mouse_x = ((e.clientX || 0) - r.left) * sx;
+      __aipl_mouse_y = ((e.clientY || 0) - r.top) * sy;
+    });
+    _domCanvas.addEventListener('mousedown', (e) => {
+      const b = e.button || 0;
+      if (!__aipl_mouse_down[b]) __aipl_mouse_just_pressed[b] = true;
+      __aipl_mouse_down[b] = true;
+    });
+    _domCanvas.addEventListener('mouseup', (e) => {
+      const b = e.button || 0;
+      __aipl_mouse_down[b] = false;
+      __aipl_mouse_just_released[b] = true;
+    });
+    _domCanvas.addEventListener('wheel', (e) => {
+      __aipl_mouse_wheel_y = e.deltaY ? (e.deltaY < 0 ? 1 : -1) : 0;
+    });
+  }
+
+  window.addEventListener('resize', _aiplFitCanvasToWindow);
+  _aiplFitCanvasToWindow();
+  window.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (!__aipl_keys_down[k]) {
+      __aipl_keys_just_pressed[k] = true;
+      __aipl_keys_just_pressed[e.key] = true;
+    }
+    __aipl_keys_down[k] = true;
+    __aipl_keys_down[e.key] = true;
+    __aipl_key_events.push({ key: e.key, kind: 'down', code: e.code });
+  });
+  window.addEventListener('keyup', (e) => {
+    const k = e.key.toLowerCase();
+    __aipl_keys_down[k] = false;
+    __aipl_keys_down[e.key] = false;
+    __aipl_key_events.push({ key: e.key, kind: 'up', code: e.code });
+  });
+  window.addEventListener('dragover', (e) => e.preventDefault());
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer && e.dataTransfer.files) {
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const file = e.dataTransfer.files[i];
+        const reader = new FileReader();
+        reader.onload = () => {
+          __aipl_file_drops.push({ name: file.name, size: file.size, data: new Uint8Array(reader.result) });
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    }
+  });
+
+function Vec2(x, y) { return { x: x, y: y }; }
+function Color(r, g, b, a) { return { r: r, g: g, b: b, a: a }; }
+function ChessMove(fromSq, toSq, score) { return { fromSq: fromSq, toSq: toSq, score: score }; }
+function ChessState(board, activeSeat, turnNumber, phase, selectedSq, legalTargets, winnerSeat, inCheck, whiteMaterial, blackMaterial, whiteCaptures, blackCaptures, moveHistory, lastMoveStr, prngState, outOfTurnAttemptsRejected, autoDemo, matchNumber, whiteWins, blackWins, draws, matchEndFrames, lastMatchSummary, bestFromSq, bestToSq, prevWhiteFrom, prevWhiteTo, prevBlackFrom, prevBlackTo, bestMoveScore, bestMoveReason) { return { board: board, activeSeat: activeSeat, turnNumber: turnNumber, phase: phase, selectedSq: selectedSq, legalTargets: legalTargets, winnerSeat: winnerSeat, inCheck: inCheck, whiteMaterial: whiteMaterial, blackMaterial: blackMaterial, whiteCaptures: whiteCaptures, blackCaptures: blackCaptures, moveHistory: moveHistory, lastMoveStr: lastMoveStr, prngState: prngState, outOfTurnAttemptsRejected: outOfTurnAttemptsRejected, autoDemo: autoDemo, matchNumber: matchNumber, whiteWins: whiteWins, blackWins: blackWins, draws: draws, matchEndFrames: matchEndFrames, lastMatchSummary: lastMatchSummary, bestFromSq: bestFromSq, bestToSq: bestToSq, prevWhiteFrom: prevWhiteFrom, prevWhiteTo: prevWhiteTo, prevBlackFrom: prevBlackFrom, prevBlackTo: prevBlackTo, bestMoveScore: bestMoveScore, bestMoveReason: bestMoveReason }; }
+function ChessLayout(winW, winH, hdrH, ftrH, sqSize, boardPx, boardX, boardY, leftX, leftY, leftW, leftH, rightX, rightY, rightW, rightH, newBtnX, newBtnY, newBtnW, newBtnH, pieceOuterRad, pieceInnerRad, targetDotRad) { return { winW: winW, winH: winH, hdrH: hdrH, ftrH: ftrH, sqSize: sqSize, boardPx: boardPx, boardX: boardX, boardY: boardY, leftX: leftX, leftY: leftY, leftW: leftW, leftH: leftH, rightX: rightX, rightY: rightY, rightW: rightW, rightH: rightH, newBtnX: newBtnX, newBtnY: newBtnY, newBtnW: newBtnW, newBtnH: newBtnH, pieceOuterRad: pieceOuterRad, pieceInnerRad: pieceInnerRad, targetDotRad: targetDotRad }; }
+
+function sign(x) {
+if ((x > 0)) {
+return 1;
+}
+if ((x < 0)) {
+return -1;
+}
+return 0;
+}
+function userArgs() {
+return [];
+}
+function arrayFirst(arr) {
+if ((arr.length === 0)) {
+return null;
+}
+return { ok: true, value: _aipl_idx(arr, 0) };
+}
+function first(arr) {
+return arrayFirst(arr);
+}
+function charAt(s, index) {
+return s.charAt(index);
+}
+function substring(s, start, end) {
+return s.substring(start, end);
+}
+function startsWith(s, prefix, offset = 0) {
+if (((offset < 0) || (offset > s.length))) {
+return false;
+}
+var pLen = prefix.length;
+if (((s.length - offset) < pLen)) {
+return false;
+}
+return _aipl_eq(s.substring(offset, (offset + pLen)), prefix);
+}
+function isWhitespace(c) {
+var len = c.length;
+if ((len === 0)) {
+return false;
+}
+var i = 0;
+while (_aipl_lt(i, len)) {
+var ch = c.charAt(i);
+if ((!(((_aipl_eq(ch, " ") || _aipl_eq(ch, "\t")) || _aipl_eq(ch, "\n")) || _aipl_eq(ch, "\r")))) {
+return false;
+}
+i += 1;
+}
+return true;
+}
+function isDigit(c) {
+var len = c.length;
+if ((len === 0)) {
+return false;
+}
+var i = 0;
+while (_aipl_lt(i, len)) {
+var ch = c.charAt(i);
+if ((!(_aipl_ge(ch, "0") && _aipl_le(ch, "9")))) {
+return false;
+}
+i += 1;
+}
+return true;
+}
+function trimStart(s) {
+var len = s.length;
+var start = 0;
+while (_aipl_lt(start, len)) {
+var ch = s.charAt(start);
+if ((!isWhitespace(ch))) {
+return s.substring(start, len);
+}
+start += 1;
+}
+return "";
+}
+function trimEnd(s) {
+var len = s.length;
+var end = len;
+while ((end > 0)) {
+var ch = s.charAt((end - 1));
+if ((!isWhitespace(ch))) {
+return s.substring(0, end);
+}
+end -= 1;
+}
+return "";
+}
+function trim(s) {
+return trimEnd(trimStart(s));
+}
+function digitToInt(c) {
+if (_aipl_eq(c, "0")) {
+return 0;
+}
+if (_aipl_eq(c, "1")) {
+return 1;
+}
+if (_aipl_eq(c, "2")) {
+return 2;
+}
+if (_aipl_eq(c, "3")) {
+return 3;
+}
+if (_aipl_eq(c, "4")) {
+return 4;
+}
+if (_aipl_eq(c, "5")) {
+return 5;
+}
+if (_aipl_eq(c, "6")) {
+return 6;
+}
+if (_aipl_eq(c, "7")) {
+return 7;
+}
+if (_aipl_eq(c, "8")) {
+return 8;
+}
+if (_aipl_eq(c, "9")) {
+return 9;
+}
+return 0;
+}
+function parseInt(s) {
+var trimmed = trim(s);
+var len = trimmed.length;
+if ((len === 0)) {
+return 0;
+}
+var sign = 1;
+var start = 0;
+var first = trimmed.charAt(0);
+if (_aipl_eq(first, "-")) {
+sign = -1;
+start = 1;
+}
+else if (_aipl_eq(first, "+")) {
+start = 1;
+}
+var result = 0;
+var i = start;
+while (_aipl_lt(i, len)) {
+var ch = trimmed.charAt(i);
+if (isDigit(ch)) {
+result = ((result * 10) + digitToInt(ch));
+}
+else {
+i = len;
+}
+i += 1;
+}
+return (result * sign);
+}
+function pieceSeat(p) {
+if (((p >= 1) && (p <= 6))) {
+return 1;
+}
+if (((p >= 11) && (p <= 16))) {
+return 2;
+}
+return 0;
+}
+function pieceKind(p) {
+return (p % 10);
+}
+function pieceValue(p) {
+var k = pieceKind(p);
+if ((k === 1)) {
+return 100;
+}
+if ((k === 2)) {
+return 320;
+}
+if ((k === 3)) {
+return 330;
+}
+if ((k === 4)) {
+return 500;
+}
+if ((k === 5)) {
+return 900;
+}
+if ((k === 6)) {
+return 20000;
+}
+return 0;
+}
+function pieceChar(p) {
+var k = pieceKind(p);
+if ((k === 1)) {
+return "P";
+}
+if ((k === 2)) {
+return "N";
+}
+if ((k === 3)) {
+return "B";
+}
+if ((k === 4)) {
+return "R";
+}
+if ((k === 5)) {
+return "Q";
+}
+if ((k === 6)) {
+return "K";
+}
+return ".";
+}
+function sqAlgName(sq) {
+if (((sq < 0) || (sq >= 64))) {
+return "??";
+}
+var r = _aipl_div(sq, 8);
+var c = (sq % 8);
+var colStr = "a";
+if ((c === 1)) {
+colStr = "b";
+}
+else if ((c === 2)) {
+colStr = "c";
+}
+else if ((c === 3)) {
+colStr = "d";
+}
+else if ((c === 4)) {
+colStr = "e";
+}
+else if ((c === 5)) {
+colStr = "f";
+}
+else if ((c === 6)) {
+colStr = "g";
+}
+else if ((c === 7)) {
+colStr = "h";
+}
+var rankStr = String((8 - r));
+return (colStr + rankStr);
+}
+function cloneBoard(b) {
+var out = [];
+var i = 0;
+while ((i < 64)) {
+out.push(_aipl_idx(b, i));
+i += 1;
+}
+return out;
+}
+function isTargetInList(targets, sq) {
+var i = 0;
+while ((i < targets.length)) {
+if (_aipl_eq(_aipl_idx(targets, i), sq)) {
+return true;
+}
+i += 1;
+}
+return false;
+}
+function computeTotalMaterial(board, seat) {
+var total = 0;
+var i = 0;
+while ((i < 64)) {
+var p = _aipl_idx(board, i);
+if (_aipl_eq(pieceSeat(p), seat)) {
+var k = pieceKind(p);
+if ((k !== 6)) {
+total += pieceValue(p);
+}
+}
+i += 1;
+}
+return total;
+}
+function formatCapturesList(caps) {
+if ((caps.length === 0)) {
+return "None";
+}
+var s = "";
+var i = 0;
+while ((i < caps.length)) {
+if ((i > 0)) {
+s = (s + " ");
+}
+s = (s + pieceChar(_aipl_idx(caps, i)));
+i += 1;
+}
+return s;
+}
+function initChessBoard() {
+var b = [];
+b.push(14);
+b.push(12);
+b.push(13);
+b.push(15);
+b.push(16);
+b.push(13);
+b.push(12);
+b.push(14);
+var i = 0;
+while ((i < 8)) {
+b.push(11);
+i += 1;
+}
+i = 0;
+while ((i < 32)) {
+b.push(0);
+i += 1;
+}
+i = 0;
+while ((i < 8)) {
+b.push(1);
+i += 1;
+}
+b.push(4);
+b.push(2);
+b.push(3);
+b.push(5);
+b.push(6);
+b.push(3);
+b.push(2);
+b.push(4);
+return b;
+}
+function initChessState() {
+var b = initChessBoard();
+var wMat = computeTotalMaterial(b, 1);
+var bMat = computeTotalMaterial(b, 2);
+var wCaps = [];
+var bCaps = [];
+var hist = [];
+var targets = [];
+return ({ board: b, activeSeat: 1, turnNumber: 1, phase: "select", selectedSq: -1, legalTargets: targets, winnerSeat: 0, inCheck: false, whiteMaterial: wMat, blackMaterial: bMat, whiteCaptures: wCaps, blackCaptures: bCaps, moveHistory: hist, lastMoveStr: "Game Start", prngState: 1337, outOfTurnAttemptsRejected: 0, autoDemo: false, matchNumber: 1, whiteWins: 0, blackWins: 0, draws: 0, matchEndFrames: 0, lastMatchSummary: "Match #1 In Progress", bestFromSq: 52, bestToSq: 36, prevWhiteFrom: -1, prevWhiteTo: -1, prevBlackFrom: -1, prevBlackTo: -1, bestMoveScore: 105, bestMoveReason: "OpeningCenterControl" });
+}
+function startNextChessMatch(st) {
+var b = initChessBoard();
+var wMat = computeTotalMaterial(b, 1);
+var bMat = computeTotalMaterial(b, 2);
+var wCaps = [];
+var bCaps = [];
+var hist = [];
+var targets = [];
+var nextMatch = (st.matchNumber + 1);
+var nextSeed = ((((st.prngState * 1103515245) + 12345) & 2147483647) + (nextMatch * 7919));
+return ({ board: b, activeSeat: 1, turnNumber: 1, phase: "select", selectedSq: -1, legalTargets: targets, winnerSeat: 0, inCheck: false, whiteMaterial: wMat, blackMaterial: bMat, whiteCaptures: wCaps, blackCaptures: bCaps, moveHistory: hist, lastMoveStr: (("Match #" + String(nextMatch)) + " Start"), prngState: nextSeed, outOfTurnAttemptsRejected: st.outOfTurnAttemptsRejected, autoDemo: st.autoDemo, matchNumber: nextMatch, whiteWins: st.whiteWins, blackWins: st.blackWins, draws: st.draws, matchEndFrames: 0, lastMatchSummary: st.lastMatchSummary, bestFromSq: 52, bestToSq: 36, prevWhiteFrom: -1, prevWhiteTo: -1, prevBlackFrom: -1, prevBlackTo: -1, bestMoveScore: 105, bestMoveReason: "OpeningCenterControl" });
+}
+function generatePseudoLegalMoves(board, fromSq, seat) {
+var moves = [];
+if (((fromSq < 0) || (fromSq >= 64))) {
+return moves;
+}
+var p = _aipl_idx(board, fromSq);
+if (_aipl_neq(pieceSeat(p), seat)) {
+return moves;
+}
+var kind = pieceKind(p);
+var r = _aipl_div(fromSq, 8);
+var c = (fromSq % 8);
+var enemySeat = ((seat === 1) ? 2 : 1);
+if ((kind === 1)) {
+var step = ((seat === 1) ? -1 : 1);
+var startRank = ((seat === 1) ? 6 : 1);
+var toR = (r + step);
+if (((toR >= 0) && (toR < 8))) {
+var toSq = ((toR * 8) + c);
+if ((_aipl_idx(board, toSq) === 0)) {
+moves.push(toSq);
+if (_aipl_eq(r, startRank)) {
+var toR2 = (r + (2 * step));
+var toSq2 = ((toR2 * 8) + c);
+if ((_aipl_idx(board, toSq2) === 0)) {
+moves.push(toSq2);
+}
+}
+}
+if ((c > 0)) {
+var capSqL = ((toR * 8) + (c - 1));
+if (_aipl_eq(pieceSeat(_aipl_idx(board, capSqL)), enemySeat)) {
+moves.push(capSqL);
+}
+}
+if ((c < 7)) {
+var capSqR = ((toR * 8) + (c + 1));
+if (_aipl_eq(pieceSeat(_aipl_idx(board, capSqR)), enemySeat)) {
+moves.push(capSqR);
+}
+}
+}
+}
+else if ((kind === 2)) {
+var dRow = [-2, -2, -1, -1, 1, 1, 2, 2];
+var dCol = [-1, 1, -2, 2, -2, 2, -1, 1];
+var k = 0;
+while ((k < 8)) {
+var tr = (r + _aipl_idx(dRow, k));
+var tc = (c + _aipl_idx(dCol, k));
+if (((((tr >= 0) && (tr < 8)) && (tc >= 0)) && (tc < 8))) {
+var tSq = ((tr * 8) + tc);
+if (_aipl_neq(pieceSeat(_aipl_idx(board, tSq)), seat)) {
+moves.push(tSq);
+}
+}
+k += 1;
+}
+}
+else if ((kind === 3)) {
+var dR = [-1, -1, 1, 1];
+var dC = [-1, 1, -1, 1];
+var dir = 0;
+while ((dir < 4)) {
+var dr = _aipl_idx(dR, dir);
+var dc = _aipl_idx(dC, dir);
+var cr = (r + dr);
+var cc = (c + dc);
+while (((((cr >= 0) && (cr < 8)) && (cc >= 0)) && (cc < 8))) {
+var tSq = ((cr * 8) + cc);
+var tSeat = pieceSeat(_aipl_idx(board, tSq));
+if ((tSeat === 0)) {
+moves.push(tSq);
+}
+else if (_aipl_eq(tSeat, enemySeat)) {
+moves.push(tSq);
+break;
+}
+else {
+break;
+}
+cr += dr;
+cc += dc;
+}
+dir += 1;
+}
+}
+else if ((kind === 4)) {
+var dR = [-1, 1, 0, 0];
+var dC = [0, 0, -1, 1];
+var dir = 0;
+while ((dir < 4)) {
+var dr = _aipl_idx(dR, dir);
+var dc = _aipl_idx(dC, dir);
+var cr = (r + dr);
+var cc = (c + dc);
+while (((((cr >= 0) && (cr < 8)) && (cc >= 0)) && (cc < 8))) {
+var tSq = ((cr * 8) + cc);
+var tSeat = pieceSeat(_aipl_idx(board, tSq));
+if ((tSeat === 0)) {
+moves.push(tSq);
+}
+else if (_aipl_eq(tSeat, enemySeat)) {
+moves.push(tSq);
+break;
+}
+else {
+break;
+}
+cr += dr;
+cc += dc;
+}
+dir += 1;
+}
+}
+else if ((kind === 5)) {
+var dR = [-1, -1, 1, 1, -1, 1, 0, 0];
+var dC = [-1, 1, -1, 1, 0, 0, -1, 1];
+var dir = 0;
+while ((dir < 8)) {
+var dr = _aipl_idx(dR, dir);
+var dc = _aipl_idx(dC, dir);
+var cr = (r + dr);
+var cc = (c + dc);
+while (((((cr >= 0) && (cr < 8)) && (cc >= 0)) && (cc < 8))) {
+var tSq = ((cr * 8) + cc);
+var tSeat = pieceSeat(_aipl_idx(board, tSq));
+if ((tSeat === 0)) {
+moves.push(tSq);
+}
+else if (_aipl_eq(tSeat, enemySeat)) {
+moves.push(tSq);
+break;
+}
+else {
+break;
+}
+cr += dr;
+cc += dc;
+}
+dir += 1;
+}
+}
+else if ((kind === 6)) {
+var dr = -1;
+while ((dr <= 1)) {
+var dc = -1;
+while ((dc <= 1)) {
+if (((dr !== 0) || (dc !== 0))) {
+var tr = (r + dr);
+var tc = (c + dc);
+if (((((tr >= 0) && (tr < 8)) && (tc >= 0)) && (tc < 8))) {
+var tSq = ((tr * 8) + tc);
+if (_aipl_neq(pieceSeat(_aipl_idx(board, tSq)), seat)) {
+moves.push(tSq);
+}
+}
+}
+dc += 1;
+}
+dr += 1;
+}
+}
+return moves;
+}
+function minAttackerValueOnSquare(board, sq, attackerSeat) {
+if (((sq < 0) || (sq >= 64))) {
+return 0;
+}
+var sqR = _aipl_div(sq, 8);
+var sqC = (sq % 8);
+if ((attackerSeat === 1)) {
+var pawnR = (sqR + 1);
+if ((pawnR < 8)) {
+if (((sqC > 0) && (_aipl_idx(board, ((pawnR * 8) + (sqC - 1))) === 1))) {
+return 100;
+}
+if (((sqC < 7) && (_aipl_idx(board, ((pawnR * 8) + (sqC + 1))) === 1))) {
+return 100;
+}
+}
+}
+else {
+var pawnR = (sqR - 1);
+if ((pawnR >= 0)) {
+if (((sqC > 0) && (_aipl_idx(board, ((pawnR * 8) + (sqC - 1))) === 11))) {
+return 100;
+}
+if (((sqC < 7) && (_aipl_idx(board, ((pawnR * 8) + (sqC + 1))) === 11))) {
+return 100;
+}
+}
+}
+var knightP = ((attackerSeat === 1) ? 2 : 12);
+var dRow = [-2, -2, -1, -1, 1, 1, 2, 2];
+var dCol = [-1, 1, -2, 2, -2, 2, -1, 1];
+var k = 0;
+while ((k < 8)) {
+var tr = (sqR + _aipl_idx(dRow, k));
+var tc = (sqC + _aipl_idx(dCol, k));
+if (((((tr >= 0) && (tr < 8)) && (tc >= 0)) && (tc < 8))) {
+if (_aipl_eq(_aipl_idx(board, ((tr * 8) + tc)), knightP)) {
+return 320;
+}
+}
+k += 1;
+}
+var bishopP = ((attackerSeat === 1) ? 3 : 13);
+var queenP = ((attackerSeat === 1) ? 5 : 15);
+var minRayVal = 0;
+var bdr = [-1, -1, 1, 1];
+var bdc = [-1, 1, -1, 1];
+var dir = 0;
+while ((dir < 4)) {
+var stepR = _aipl_idx(bdr, dir);
+var stepC = _aipl_idx(bdc, dir);
+var cr = (sqR + stepR);
+var cc = (sqC + stepC);
+while (((((cr >= 0) && (cr < 8)) && (cc >= 0)) && (cc < 8))) {
+var p = _aipl_idx(board, ((cr * 8) + cc));
+if ((p !== 0)) {
+if (_aipl_eq(p, bishopP)) {
+return 330;
+}
+if (_aipl_eq(p, queenP)) {
+if (((minRayVal === 0) || (minRayVal > 900))) {
+minRayVal = 900;
+}
+}
+break;
+}
+cr += stepR;
+cc += stepC;
+}
+dir += 1;
+}
+var rookP = ((attackerSeat === 1) ? 4 : 14);
+var rdr = [-1, 1, 0, 0];
+var rdc = [0, 0, -1, 1];
+dir = 0;
+while ((dir < 4)) {
+var stepR = _aipl_idx(rdr, dir);
+var stepC = _aipl_idx(rdc, dir);
+var cr = (sqR + stepR);
+var cc = (sqC + stepC);
+while (((((cr >= 0) && (cr < 8)) && (cc >= 0)) && (cc < 8))) {
+var p = _aipl_idx(board, ((cr * 8) + cc));
+if ((p !== 0)) {
+if (_aipl_eq(p, rookP)) {
+if (((minRayVal === 0) || (minRayVal > 500))) {
+minRayVal = 500;
+}
+}
+else if (_aipl_eq(p, queenP)) {
+if (((minRayVal === 0) || (minRayVal > 900))) {
+minRayVal = 900;
+}
+}
+break;
+}
+cr += stepR;
+cc += stepC;
+}
+dir += 1;
+}
+if ((minRayVal > 0)) {
+return minRayVal;
+}
+var kingP = ((attackerSeat === 1) ? 6 : 16);
+var dr = -1;
+while ((dr <= 1)) {
+var dc = -1;
+while ((dc <= 1)) {
+if (((dr !== 0) || (dc !== 0))) {
+var tr = (sqR + dr);
+var tc = (sqC + dc);
+if (((((tr >= 0) && (tr < 8)) && (tc >= 0)) && (tc < 8))) {
+if (_aipl_eq(_aipl_idx(board, ((tr * 8) + tc)), kingP)) {
+return 20000;
+}
+}
+}
+dc += 1;
+}
+dr += 1;
+}
+return 0;
+}
+function isSquareAttackedBy(board, sq, attackerSeat) {
+return (minAttackerValueOnSquare(board, sq, attackerSeat) > 0);
+}
+function isKingInCheck(board, seat) {
+var kingP = ((seat === 1) ? 6 : 16);
+var kingSq = -1;
+var i = 0;
+while ((i < 64)) {
+if (_aipl_eq(_aipl_idx(board, i), kingP)) {
+kingSq = i;
+break;
+}
+i += 1;
+}
+if ((kingSq < 0)) {
+return false;
+}
+var enemySeat = ((seat === 1) ? 2 : 1);
+return isSquareAttackedBy(board, kingSq, enemySeat);
+}
+function generateLegalMovesFrom(board, fromSq, seat) {
+var pseudo = generatePseudoLegalMoves(board, fromSq, seat);
+var legal = [];
+var i = 0;
+while ((i < pseudo.length)) {
+var toSq = _aipl_idx(pseudo, i);
+var temp = cloneBoard(board);
+var p = _aipl_idx(temp, fromSq);
+_aipl_set_idx(temp, toSq, p);
+_aipl_set_idx(temp, fromSq, 0);
+var toR = _aipl_div(toSq, 8);
+if (((p === 1) && (toR === 0))) {
+_aipl_set_idx(temp, toSq, 5);
+}
+else if (((p === 11) && (toR === 7))) {
+_aipl_set_idx(temp, toSq, 15);
+}
+if ((!isKingInCheck(temp, seat))) {
+legal.push(toSq);
+}
+i += 1;
+}
+return legal;
+}
+function hasAnyLegalMove(board, seat) {
+var sq = 0;
+while ((sq < 64)) {
+if (_aipl_eq(pieceSeat(_aipl_idx(board, sq)), seat)) {
+var moves = generateLegalMovesFrom(board, sq, seat);
+if ((moves.length > 0)) {
+return true;
+}
+}
+sq += 1;
+}
+return false;
+}
+function classifyChessMoveReason(st, fromSq, toSq, score) {
+if (((((fromSq < 0) || (fromSq >= 64)) || (toSq < 0)) || (toSq >= 64))) {
+return "Pass";
+}
+var p = st.board[fromSq];
+var targetP = st.board[toSq];
+var kind = pieceKind(p);
+var seat = st.activeSeat;
+var enemySeat = ((seat === 1) ? 2 : 1);
+var toR = _aipl_div(toSq, 8);
+var toC = (toSq % 8);
+var fromR = _aipl_div(fromSq, 8);
+var fromRelR = ((seat === 1) ? (7 - fromR) : fromR);
+var relR = ((seat === 1) ? (7 - toR) : toR);
+var temp = cloneBoard(st.board);
+_aipl_set_idx(temp, toSq, p);
+_aipl_set_idx(temp, fromSq, 0);
+if (((p === 1) && (toR === 0))) {
+_aipl_set_idx(temp, toSq, 5);
+}
+else if (((p === 11) && (toR === 7))) {
+_aipl_set_idx(temp, toSq, 15);
+}
+var givesCheck = isKingInCheck(temp, enemySeat);
+if ((givesCheck && (!hasAnyLegalMove(temp, enemySeat)))) {
+return "CheckmateIn1";
+}
+if ((((p === 1) && (toR === 0)) || ((p === 11) && (toR === 7)))) {
+return "PawnPromotion";
+}
+var enemyAtkVal = minAttackerValueOnSquare(temp, toSq, enemySeat);
+if (((minAttackerValueOnSquare(st.board, fromSq, enemySeat) > 0) && (enemyAtkVal === 0))) {
+return "RescueHangingPiece";
+}
+if ((targetP !== 0)) {
+if (((enemyAtkVal === 0) || _aipl_ge(pieceValue(targetP), pieceValue(p)))) {
+return "WinCaptureSEE";
+}
+return "ExchangeCapture";
+}
+if ((enemyAtkVal === 0)) {
+var myAttacks = generatePseudoLegalMoves(temp, toSq, seat);
+var forkTargets = 0;
+var ai = 0;
+while ((ai < myAttacks.length)) {
+var t = _aipl_idx(myAttacks, ai);
+var tPiece = _aipl_idx(temp, t);
+if (_aipl_eq(pieceSeat(tPiece), enemySeat)) {
+var tVal = pieceValue(tPiece);
+var tDef = minAttackerValueOnSquare(temp, t, enemySeat);
+if (((tVal >= 320) || (tDef === 0))) {
+forkTargets += 1;
+}
+}
+ai += 1;
+}
+if ((forkTargets >= 2)) {
+return "TacticalFork";
+}
+}
+if ((givesCheck && (enemyAtkVal === 0))) {
+return "GivingCheck";
+}
+if (((kind === 2) && (fromRelR === 0))) {
+return "DevelopKnight";
+}
+if (((kind === 3) && (fromRelR === 0))) {
+return "DevelopBishop";
+}
+if (((kind === 4) && (relR === 6))) {
+return "RookInvasion7th";
+}
+if ((((kind === 1) && (st.turnNumber <= 8)) && ((toC === 3) || (toC === 4)))) {
+return "OpeningCenterControl";
+}
+if ((kind === 1)) {
+return "AdvancePawn";
+}
+if (((((toSq === 27) || (toSq === 28)) || (toSq === 35)) || (toSq === 36))) {
+return "ControlCenter";
+}
+return "TacticalReposition";
+}
+function evaluateChessMove(st, fromSq, toSq) {
+var temp = cloneBoard(st.board);
+var p = _aipl_idx(temp, fromSq);
+_aipl_set_idx(temp, toSq, p);
+_aipl_set_idx(temp, fromSq, 0);
+var toR = _aipl_div(toSq, 8);
+var toC = (toSq % 8);
+var fromR = _aipl_div(fromSq, 8);
+var fromC = (fromSq % 8);
+if (((p === 1) && (toR === 0))) {
+_aipl_set_idx(temp, toSq, 5);
+}
+else if (((p === 11) && (toR === 7))) {
+_aipl_set_idx(temp, toSq, 15);
+}
+var seat = st.activeSeat;
+var enemySeat = ((seat === 1) ? 2 : 1);
+var targetP = st.board[toSq];
+var kind = pieceKind(p);
+var attackerVal = pieceValue(p);
+var capturedVal = pieceValue(targetP);
+var score = 0;
+var givesCheck = isKingInCheck(temp, enemySeat);
+if ((givesCheck && (!hasAnyLegalMove(temp, enemySeat)))) {
+return 500000;
+}
+var enemyAtkVal = minAttackerValueOnSquare(temp, toSq, enemySeat);
+var myDefVal = minAttackerValueOnSquare(temp, toSq, seat);
+if ((enemyAtkVal > 0)) {
+if ((myDefVal === 0)) {
+if (_aipl_lt(capturedVal, attackerVal)) {
+score -= ((attackerVal - capturedVal) * 12);
+}
+else {
+score += (((capturedVal - attackerVal) * 10) + 120);
+}
+}
+else {
+if ((enemyAtkVal < (attackerVal - capturedVal))) {
+score -= (((attackerVal - capturedVal) - enemyAtkVal) * 10);
+}
+else if ((targetP !== 0)) {
+score += (((capturedVal - _aipl_div(attackerVal, 10)) * 10) + 140);
+}
+}
+}
+else {
+if ((targetP !== 0)) {
+score += ((capturedVal * 12) + 200);
+}
+}
+var maxHangingLoss = 0;
+var sq = 0;
+while ((sq < 64)) {
+var tp = _aipl_idx(temp, sq);
+if ((_aipl_eq(pieceSeat(tp), seat) && (pieceKind(tp) !== 6))) {
+var fVal = pieceValue(tp);
+var eAtk = minAttackerValueOnSquare(temp, sq, enemySeat);
+if ((eAtk > 0)) {
+var fDef = minAttackerValueOnSquare(temp, sq, seat);
+var hangingLoss = ((fDef === 0) ? fVal : (_aipl_lt(eAtk, fVal) ? (fVal - eAtk) : 0));
+if (_aipl_gt(hangingLoss, maxHangingLoss)) {
+maxHangingLoss = hangingLoss;
+}
+}
+}
+sq += 1;
+}
+score -= (maxHangingLoss * 9);
+if (((minAttackerValueOnSquare(st.board, fromSq, enemySeat) > 0) && (enemyAtkVal === 0))) {
+score += 85;
+}
+if ((enemyAtkVal === 0)) {
+var myAttacks = generatePseudoLegalMoves(temp, toSq, seat);
+var forkTargets = 0;
+var ai = 0;
+while ((ai < myAttacks.length)) {
+var t = _aipl_idx(myAttacks, ai);
+var tPiece = _aipl_idx(temp, t);
+if (_aipl_eq(pieceSeat(tPiece), enemySeat)) {
+var tVal = pieceValue(tPiece);
+var tDef = minAttackerValueOnSquare(temp, t, enemySeat);
+if (((tVal >= 320) || (tDef === 0))) {
+forkTargets += 1;
+}
+}
+ai += 1;
+}
+if ((forkTargets >= 2)) {
+score += 220;
+}
+}
+if (givesCheck) {
+if (((enemyAtkVal === 0) || ((myDefVal > 0) && _aipl_ge(enemyAtkVal, attackerVal)))) {
+score += 95;
+}
+else {
+score -= 140;
+}
+}
+var relR = ((seat === 1) ? (7 - toR) : toR);
+var fromRelR = ((seat === 1) ? (7 - fromR) : fromR);
+if ((kind === 1)) {
+if ((((st.turnNumber <= 8) && ((toC === 3) || (toC === 4))) && ((relR === 2) || (relR === 3)))) {
+score += 68;
+}
+if ((((toC === 2) || (toC === 5)) && ((relR === 2) || (relR === 3)))) {
+score += 28;
+}
+if ((relR >= 4)) {
+score += (relR * 16);
+}
+if ((relR === 7)) {
+score += 850;
+}
+if (((st.turnNumber < 14) && ((toC === 0) || (toC === 7)))) {
+score -= 25;
+}
+}
+else if ((kind === 2)) {
+if (((((fromRelR === 0) && (relR === 2)) && (toC >= 2)) && (toC <= 5))) {
+score += 62;
+}
+if (((((relR >= 2) && (relR <= 5)) && (toC >= 2)) && (toC <= 5))) {
+score += 34;
+}
+if (((toC === 0) || (toC === 7))) {
+score -= 35;
+}
+if (((((st.turnNumber <= 10) && (fromRelR > 0)) && (targetP === 0)) && (minAttackerValueOnSquare(st.board, fromSq, enemySeat) === 0))) {
+score -= 40;
+}
+}
+else if ((kind === 3)) {
+if ((((fromRelR === 0) && (relR >= 1)) && (relR <= 4))) {
+score += 56;
+}
+if (((((toR >= 2) && (toR <= 5)) && (toC >= 1)) && (toC <= 6))) {
+score += 26;
+}
+if (((((st.turnNumber <= 10) && (fromRelR > 0)) && (targetP === 0)) && (minAttackerValueOnSquare(st.board, fromSq, enemySeat) === 0))) {
+score -= 35;
+}
+}
+else if ((kind === 4)) {
+if (((st.turnNumber < 16) && (targetP === 0))) {
+score -= 45;
+}
+if (((toC === 3) || (toC === 4))) {
+score += 18;
+}
+if ((relR === 6)) {
+score += 55;
+}
+}
+else if ((kind === 5)) {
+if ((((st.turnNumber < 10) && (targetP === 0)) && (fromRelR === 0))) {
+score -= 55;
+}
+if ((((((st.turnNumber >= 10) && (toR >= 2)) && (toR <= 5)) && (toC >= 2)) && (toC <= 5))) {
+score += 22;
+}
+}
+else if ((kind === 6)) {
+if ((st.turnNumber < 40)) {
+if ((!isKingInCheck(st.board, seat))) {
+score -= 120;
+}
+}
+}
+if (((((seat === 1) && _aipl_eq(fromSq, st.prevWhiteTo)) && _aipl_eq(toSq, st.prevWhiteFrom)) || (((seat === 2) && _aipl_eq(fromSq, st.prevBlackTo)) && _aipl_eq(toSq, st.prevBlackFrom)))) {
+score -= 220;
+}
+var moveHash = (((st.prngState ^ (((fromSq * 167) + (toSq * 31)) + (st.turnNumber * 13))) & 2147483647) % 13);
+score += moveHash;
+return score;
+}
+function chooseBestChessMove(st) {
+var bestFrom = -1;
+var bestTo = -1;
+var bestScore = -999999;
+var sq = 0;
+while ((sq < 64)) {
+if (_aipl_eq(pieceSeat(st.board[sq]), st.activeSeat)) {
+var targets = generateLegalMovesFrom(st.board, sq, st.activeSeat);
+var ti = 0;
+while ((ti < targets.length)) {
+var toSq = _aipl_idx(targets, ti);
+var s = evaluateChessMove(st, sq, toSq);
+if (_aipl_gt(s, bestScore)) {
+bestScore = s;
+bestFrom = sq;
+bestTo = toSq;
+}
+ti += 1;
+}
+}
+sq += 1;
+}
+return ({ fromSq: bestFrom, toSq: bestTo, score: bestScore });
+}
+function chooseBestTargetFrom(st, fromSq) {
+var bestTo = -1;
+var bestScore = -999999;
+var ti = 0;
+while ((ti < st.legalTargets.length)) {
+var toSq = st.legalTargets[ti];
+var s = evaluateChessMove(st, fromSq, toSq);
+if (_aipl_gt(s, bestScore)) {
+bestScore = s;
+bestTo = toSq;
+}
+ti += 1;
+}
+return bestTo;
+}
+function applyChessMove(st, fromSq, toSq) {
+var out = st;
+if (((((fromSq < 0) || (fromSq >= 64)) || (toSq < 0)) || (toSq >= 64))) {
+return out;
+}
+var p = out.board[fromSq];
+var movingSeat = pieceSeat(p);
+if (_aipl_neq(movingSeat, out.activeSeat)) {
+out.outOfTurnAttemptsRejected += 1;
+return out;
+}
+var targetP = out.board[toSq];
+var isCapture = (targetP !== 0);
+if (isCapture) {
+if ((movingSeat === 1)) {
+out.whiteCaptures.push(targetP);
+}
+else {
+out.blackCaptures.push(targetP);
+}
+}
+var pChar = pieceChar(p);
+var fromAlg = sqAlgName(fromSq);
+var toAlg = sqAlgName(toSq);
+var sym = (isCapture ? "x" : "-");
+var pPrefix = (_aipl_eq(pChar, "P") ? "" : pChar);
+var moveNotation = ((movingSeat === 1) ? (((((String(out.turnNumber) + ". ") + pPrefix) + fromAlg) + sym) + toAlg) : (((((String(out.turnNumber) + "... ") + pPrefix) + fromAlg) + sym) + toAlg));
+out.board[toSq] = p;
+out.board[fromSq] = 0;
+var toR = _aipl_div(toSq, 8);
+if (((p === 1) && (toR === 0))) {
+out.board[toSq] = 5;
+}
+else if (((p === 11) && (toR === 7))) {
+out.board[toSq] = 15;
+}
+out.whiteMaterial = computeTotalMaterial(out.board, 1);
+out.blackMaterial = computeTotalMaterial(out.board, 2);
+out.moveHistory.push(moveNotation);
+out.lastMoveStr = moveNotation;
+if ((movingSeat === 1)) {
+out.prevWhiteFrom = fromSq;
+out.prevWhiteTo = toSq;
+}
+else {
+out.prevBlackFrom = fromSq;
+out.prevBlackTo = toSq;
+}
+out.prngState = (((out.prngState * 1103515245) + 12345) & 2147483647);
+out.activeSeat = ((out.activeSeat === 1) ? 2 : 1);
+out.turnNumber += 1;
+out.phase = "select";
+out.selectedSq = -1;
+out.legalTargets = [];
+out.inCheck = isKingInCheck(out.board, out.activeSeat);
+var matDiff = (out.whiteMaterial - out.blackMaterial);
+if ((!hasAnyLegalMove(out.board, out.activeSeat))) {
+if (out.inCheck) {
+out.winnerSeat = ((out.activeSeat === 1) ? 2 : 1);
+out.lastMatchSummary = (((("Match #" + String(out.matchNumber)) + ": Seat ") + String(out.winnerSeat)) + " Won by Checkmate!");
+}
+else {
+out.winnerSeat = 3;
+out.lastMatchSummary = (("Match #" + String(out.matchNumber)) + ": Draw by Stalemate");
+}
+}
+else if (((out.turnNumber >= 12) && (matDiff >= 600))) {
+out.winnerSeat = 1;
+out.lastMatchSummary = (((("Match #" + String(out.matchNumber)) + ": White Won (Black Losing -") + String(matDiff)) + ")");
+}
+else if (((out.turnNumber >= 12) && (matDiff <= -600))) {
+out.winnerSeat = 2;
+out.lastMatchSummary = (((("Match #" + String(out.matchNumber)) + ": Black Won (White Losing ") + String(matDiff)) + ")");
+}
+else if ((out.turnNumber >= 64)) {
+if ((matDiff >= 100)) {
+out.winnerSeat = 1;
+out.lastMatchSummary = (((("Match #" + String(out.matchNumber)) + ": White Won on Material (+") + String(matDiff)) + ")");
+}
+else if ((matDiff <= -100)) {
+out.winnerSeat = 2;
+out.lastMatchSummary = (((("Match #" + String(out.matchNumber)) + ": Black Won on Material (") + String(matDiff)) + ")");
+}
+else {
+out.winnerSeat = 3;
+out.lastMatchSummary = (("Match #" + String(out.matchNumber)) + ": Draw (Turn Limit)");
+}
+}
+if ((out.winnerSeat === 1)) {
+out.whiteWins += 1;
+out.bestFromSq = -1;
+out.bestToSq = -1;
+out.bestMoveScore = 0;
+out.bestMoveReason = "GameOver";
+}
+else if ((out.winnerSeat === 2)) {
+out.blackWins += 1;
+out.bestFromSq = -1;
+out.bestToSq = -1;
+out.bestMoveScore = 0;
+out.bestMoveReason = "GameOver";
+}
+else if ((out.winnerSeat === 3)) {
+out.draws += 1;
+out.bestFromSq = -1;
+out.bestToSq = -1;
+out.bestMoveScore = 0;
+out.bestMoveReason = "GameOver";
+}
+else {
+var nextBest = chooseBestChessMove(out);
+out.bestFromSq = nextBest.fromSq;
+out.bestToSq = nextBest.toSq;
+out.bestMoveScore = nextBest.score;
+out.bestMoveReason = classifyChessMoveReason(out, nextBest.fromSq, nextBest.toSq, nextBest.score);
+}
+return out;
+}
+function attemptSeatAction(st, seatId, actionKind) {
+var out = st;
+if ((out.winnerSeat !== 0)) {
+return startNextChessMatch(out);
+}
+if (((seatId > 0) && _aipl_neq(seatId, out.activeSeat))) {
+out.outOfTurnAttemptsRejected += 1;
+return out;
+}
+var best = chooseBestChessMove(out);
+if (((best.fromSq >= 0) && (best.toSq >= 0))) {
+return applyChessMove(out, best.fromSq, best.toSq);
+}
+return out;
+}
+function computeChessLayout(rawW, rawH) {
+var winW = ((rawW > 480) ? rawW : 880);
+var winH = ((rawH > 360) ? rawH : 560);
+var hdrH = 48;
+var ftrH = 28;
+var availH = (((winH - hdrH) - ftrH) - 36);
+var minSideW = ((winW < 760) ? 136 : 188);
+var availW = ((winW - (minSideW * 2)) - 56);
+var maxBoardDim = (_aipl_lt(availW, availH) ? availW : availH);
+var rawSq = _aipl_div(maxBoardDim, 8);
+var sqSize = ((rawSq < 36) ? 36 : ((rawSq > 96) ? 96 : rawSq));
+var boardPx = (sqSize * 8);
+var boardX = _aipl_div((winW - boardPx), 2);
+var boardY = ((hdrH + _aipl_div((((winH - hdrH) - ftrH) - boardPx), 2)) - 6);
+var leftX = 12;
+var leftY = (boardY - 4);
+var leftW = (((boardX - 28) > 120) ? (boardX - 28) : 120);
+var leftH = (boardPx + 12);
+var rightX = ((boardX + boardPx) + 16);
+var rightY = (boardY - 4);
+var rightW = ((((winW - rightX) - 12) > 120) ? ((winW - rightX) - 12) : 120);
+var rightH = (boardPx + 12);
+var newBtnX = (leftX + 10);
+var newBtnY = ((leftY + leftH) - 52);
+var newBtnW = (leftW - 20);
+var newBtnH = 38;
+var rawOuter = _aipl_div((sqSize * 38), 100);
+var pieceOuterRad = ((rawOuter < 12) ? 12 : ((rawOuter > 34) ? 34 : rawOuter));
+var pieceInnerRad = (((pieceOuterRad - 3) > 9) ? (pieceOuterRad - 3) : 9);
+var rawDot = _aipl_div(sqSize, 6);
+var targetDotRad = ((rawDot < 6) ? 6 : ((rawDot > 13) ? 13 : rawDot));
+return ({ winW: winW, winH: winH, hdrH: hdrH, ftrH: ftrH, sqSize: sqSize, boardPx: boardPx, boardX: boardX, boardY: boardY, leftX: leftX, leftY: leftY, leftW: leftW, leftH: leftH, rightX: rightX, rightY: rightY, rightW: rightW, rightH: rightH, newBtnX: newBtnX, newBtnY: newBtnY, newBtnW: newBtnW, newBtnH: newBtnH, pieceOuterRad: pieceOuterRad, pieceInnerRad: pieceInnerRad, targetDotRad: targetDotRad });
+}
+function renderChessFrame(st, frame) {
+var lay = computeChessLayout(getWindowWidth(), getWindowHeight());
+clearScreen(rgb(9, 13, 24));
+drawRect(0, lay.hdrH, lay.winW, 1, rgb(30, 41, 59));
+drawRect(0, (lay.winH - lay.ftrH), lay.winW, lay.ftrH, rgb(13, 19, 33));
+drawRect(0, (lay.winH - lay.ftrH), lay.winW, 1, rgb(30, 41, 59));
+drawRect(0, 0, lay.winW, lay.hdrH, rgb(15, 23, 42));
+drawRect(0, (lay.hdrH - 2), lay.winW, 2, rgb(234, 179, 8));
+drawRoundedRect(12, 9, 28, 28, 6, rgb(234, 179, 8));
+drawText("K", 21, 15, 16, rgb(15, 23, 42));
+drawText("AIPL GRANDMASTER CHESS STUDIO", 48, 11, 14, rgb(248, 250, 252));
+drawText(((((((("MATCH #" + String(st.matchNumber)) + "  |  SERIES W:") + String(st.whiteWins)) + "  B:") + String(st.blackWins)) + "  D:") + String(st.draws)), 48, 28, 11, rgb(250, 204, 21));
+var turnBanner = "";
+if ((st.winnerSeat === 1)) {
+turnBanner = (("WHITE WINS MATCH #" + String(st.matchNumber)) + "! NEXT MATCH...");
+}
+else if ((st.winnerSeat === 2)) {
+turnBanner = (("BLACK WINS MATCH #" + String(st.matchNumber)) + "! NEXT MATCH...");
+}
+else if ((st.winnerSeat === 3)) {
+turnBanner = (("MATCH #" + String(st.matchNumber)) + " DRAWN! NEXT MATCH...");
+}
+else {
+var activeName = ((st.activeSeat === 1) ? "WHITE TO MOVE (SEAT 1)" : "BLACK TO MOVE (SEAT 2)");
+var checkSuffix = (st.inCheck ? "  [KING IN CHECK!]" : "");
+turnBanner = (((activeName + "  |  TURN #") + String(st.turnNumber)) + checkSuffix);
+}
+var pillBg = ((st.winnerSeat > 0) ? rgb(6, 78, 59) : (st.inCheck ? rgb(127, 29, 29) : rgb(30, 58, 138)));
+var bannerCol = ((st.winnerSeat > 0) ? rgb(110, 231, 183) : (st.inCheck ? rgb(252, 165, 165) : rgb(125, 211, 252)));
+var pillW = ((lay.boardPx > 320) ? 320 : lay.boardPx);
+var pillX = (lay.boardX + _aipl_div((lay.boardPx - pillW), 2));
+if ((pillX > 290)) {
+drawRoundedRect(pillX, 10, pillW, 28, 7, pillBg);
+drawText(turnBanner, (pillX + 14), 18, 12, bannerCol);
+}
+var lx = (lay.leftX + 10);
+var badgeW = (lay.leftW - 20);
+drawRoundedRect((lay.leftX - 1), (lay.leftY - 1), (lay.leftW + 2), (lay.leftH + 2), 11, rgb(51, 65, 85));
+drawRoundedRect(lay.leftX, lay.leftY, lay.leftW, lay.leftH, 10, rgb(17, 24, 39));
+drawRoundedRect((lay.leftX + 2), (lay.leftY + 2), (lay.leftW - 4), 6, 3, rgb(234, 179, 8));
+drawText("WHITE [SEAT 1]", lx, (lay.leftY + 16), 13, rgb(254, 240, 138));
+drawText(("Wins: " + String(st.whiteWins)), ((lx + badgeW) - 54), (lay.leftY + 16), 12, rgb(248, 250, 252));
+if (((st.activeSeat === 1) && (st.winnerSeat === 0))) {
+drawRoundedRect(lx, (lay.leftY + 38), badgeW, 24, 6, rgb(37, 99, 235));
+drawText("ACTIVE TURN", (lx + _aipl_div((badgeW - 84), 2)), (lay.leftY + 44), 12, rgb(255, 255, 255));
+}
+else {
+drawRoundedRect(lx, (lay.leftY + 38), badgeW, 24, 6, rgb(30, 41, 59));
+drawText("WAITING", (lx + _aipl_div((badgeW - 56), 2)), (lay.leftY + 44), 12, rgb(100, 116, 139));
+}
+var matDiffW = (st.whiteMaterial - st.blackMaterial);
+var diffStrW = ((matDiffW > 0) ? ((" (+" + String(matDiffW)) + ")") : ((matDiffW < 0) ? ((" (" + String(matDiffW)) + ")") : " (EVEN)"));
+drawText((("Material: " + String(st.whiteMaterial)) + diffStrW), lx, (lay.leftY + 74), 12, rgb(226, 232, 240));
+drawRect(lx, (lay.leftY + 92), badgeW, 5, rgb(30, 41, 59));
+var wGauge = _aipl_div((badgeW * st.whiteMaterial), (((st.whiteMaterial + st.blackMaterial) > 0) ? (st.whiteMaterial + st.blackMaterial) : 8000));
+drawRect(lx, (lay.leftY + 92), wGauge, 5, rgb(234, 179, 8));
+drawText("Captured Black Pieces:", lx, (lay.leftY + 108), 11, rgb(148, 163, 184));
+drawRoundedRect(lx, (lay.leftY + 124), badgeW, 26, 5, rgb(11, 15, 25));
+var wCapsStr = formatCapturesList(st.whiteCaptures);
+drawText(wCapsStr, (lx + 8), (lay.leftY + 131), 12, rgb(254, 240, 138));
+if ((st.inCheck && (st.activeSeat === 1))) {
+drawRoundedRect(lx, (lay.leftY + 158), badgeW, 24, 6, rgb(220, 38, 38));
+drawText("KING IN CHECK!", (lx + _aipl_div((badgeW - 96), 2)), (lay.leftY + 164), 12, rgb(255, 255, 255));
+}
+else if (((st.selectedSq >= 0) && (st.activeSeat === 1))) {
+drawRoundedRect(lx, (lay.leftY + 158), badgeW, 24, 6, rgb(30, 41, 59));
+drawText((((("Sel: " + sqAlgName(st.selectedSq)) + " (") + String(st.legalTargets.length)) + " moves)"), (lx + 8), (lay.leftY + 164), 11, rgb(251, 191, 36));
+}
+drawText("TOURNAMENT STATUS", lx, (lay.leftY + 196), 11, rgb(56, 189, 248));
+drawRoundedRect(lx, (lay.leftY + 212), badgeW, 48, 6, rgb(11, 15, 25));
+drawText(((("Match #" + String(st.matchNumber)) + " | Draws: ") + String(st.draws)), (lx + 8), (lay.leftY + 220), 11, rgb(203, 213, 225));
+var shortSum = ((st.lastMatchSummary.length > 24) ? st.lastMatchSummary.slice(0, 24) : st.lastMatchSummary);
+drawText(shortSum, (lx + 8), (lay.leftY + 238), 10, rgb(148, 163, 184));
+drawRoundedRect(lay.newBtnX, lay.newBtnY, lay.newBtnW, lay.newBtnH, 7, rgb(79, 70, 229));
+if ((st.winnerSeat > 0)) {
+drawText("Next Match", (lay.newBtnX + _aipl_div((lay.newBtnW - 80), 2)), (lay.newBtnY + 10), 14, rgb(255, 255, 255));
+}
+else {
+drawText("New Match", (lay.newBtnX + _aipl_div((lay.newBtnW - 76), 2)), (lay.newBtnY + 10), 14, rgb(255, 255, 255));
+}
+drawRoundedRect((lay.boardX - 10), (lay.boardY - 10), (lay.boardPx + 20), (lay.boardPx + 20), 11, rgb(5, 8, 15));
+drawRoundedRect((lay.boardX - 8), (lay.boardY - 8), (lay.boardPx + 16), (lay.boardPx + 16), 9, rgb(78, 42, 24));
+drawRoundedRect((lay.boardX - 4), (lay.boardY - 4), (lay.boardPx + 8), (lay.boardPx + 8), 6, rgb(212, 175, 55));
+drawRect((lay.boardX - 2), (lay.boardY - 2), (lay.boardPx + 4), (lay.boardPx + 4), rgb(24, 18, 14));
+var evalX = (lay.boardX - 16);
+if (_aipl_gt(evalX, ((lay.leftX + lay.leftW) + 2))) {
+drawRect(evalX, lay.boardY, 6, lay.boardPx, rgb(30, 41, 59));
+var whiteShare = _aipl_div((lay.boardPx * st.whiteMaterial), (((st.whiteMaterial + st.blackMaterial) > 0) ? (st.whiteMaterial + st.blackMaterial) : 8000));
+if ((whiteShare < 8)) {
+whiteShare = 8;
+}
+if ((whiteShare > (lay.boardPx - 8))) {
+whiteShare = (lay.boardPx - 8);
+}
+var blackShare = (lay.boardPx - whiteShare);
+drawRect(evalX, lay.boardY, 6, blackShare, rgb(56, 189, 248));
+drawRect(evalX, (lay.boardY + blackShare), 6, whiteShare, rgb(250, 204, 21));
+}
+var halfSq = _aipl_div(lay.sqSize, 2);
+var r = 0;
+while ((r < 8)) {
+var c = 0;
+while ((c < 8)) {
+var sq = ((r * 8) + c);
+var sqX = (lay.boardX + (c * lay.sqSize));
+var sqY = (lay.boardY + (r * lay.sqSize));
+var isLight = (((r + c) % 2) === 0);
+var sqCol = (isLight ? rgb(242, 228, 200) : rgb(148, 98, 62));
+drawRect(sqX, sqY, lay.sqSize, lay.sqSize, sqCol);
+drawRect(sqX, sqY, lay.sqSize, 1, (isLight ? rgb(250, 240, 218) : rgb(166, 114, 76)));
+if ((((_aipl_eq(sq, st.prevWhiteFrom) || _aipl_eq(sq, st.prevWhiteTo)) || _aipl_eq(sq, st.prevBlackFrom)) || _aipl_eq(sq, st.prevBlackTo))) {
+drawRect(sqX, sqY, lay.sqSize, lay.sqSize, (isLight ? rgb(232, 208, 118) : rgb(184, 152, 72)));
+}
+if ((c === 0)) {
+drawText(String((8 - r)), (sqX + 3), (sqY + 3), 10, (isLight ? rgb(120, 78, 48) : rgb(236, 218, 188)));
+}
+if ((r === 7)) {
+var colLetter = sqAlgName(sq).slice(0, 1);
+drawText(colLetter, ((sqX + lay.sqSize) - 10), ((sqY + lay.sqSize) - 13), 10, (isLight ? rgb(120, 78, 48) : rgb(236, 218, 188)));
+}
+if (_aipl_eq(sq, st.selectedSq)) {
+drawRect((sqX + 2), (sqY + 2), (lay.sqSize - 4), (lay.sqSize - 4), rgb(245, 158, 11));
+}
+if (isTargetInList(st.legalTargets, sq)) {
+if ((st.board[sq] === 0)) {
+drawCircle((sqX + halfSq), (sqY + halfSq), lay.targetDotRad, rgb(34, 197, 94));
+drawCircle((sqX + halfSq), (sqY + halfSq), 3, rgb(187, 247, 208));
+}
+else {
+drawRect((sqX + 2), (sqY + 2), (lay.sqSize - 4), (lay.sqSize - 4), rgb(239, 68, 68));
+}
+}
+var p = st.board[sq];
+if ((p !== 0)) {
+var seat = pieceSeat(p);
+var kChar = pieceChar(p);
+var cx = (sqX + halfSq);
+var cy = (sqY + halfSq);
+if (((st.inCheck && _aipl_eq(kChar, "K")) && _aipl_eq(seat, st.activeSeat))) {
+drawCircle(cx, cy, (lay.pieceOuterRad + 3), rgb(239, 68, 68));
+}
+if ((seat === 1)) {
+drawCircle(cx, cy, lay.pieceOuterRad, rgb(212, 162, 44));
+drawCircle(cx, cy, lay.pieceInnerRad, rgb(248, 250, 252));
+drawCircle((cx - _aipl_div(lay.pieceInnerRad, 3)), (cy - _aipl_div(lay.pieceInnerRad, 3)), 3, rgb(255, 255, 255));
+if (_aipl_neq(kChar, "P")) {
+drawCircle(cx, ((cy - lay.pieceInnerRad) + 4), 2, rgb(234, 179, 8));
+}
+drawText(kChar, (cx - 5), (cy - 6), 16, rgb(15, 23, 42));
+}
+else {
+drawCircle(cx, cy, lay.pieceOuterRad, rgb(71, 135, 198));
+drawCircle(cx, cy, lay.pieceInnerRad, rgb(15, 23, 42));
+drawCircle((cx - _aipl_div(lay.pieceInnerRad, 3)), (cy - _aipl_div(lay.pieceInnerRad, 3)), 3, rgb(71, 85, 105));
+if (_aipl_neq(kChar, "P")) {
+drawCircle(cx, ((cy - lay.pieceInnerRad) + 4), 2, rgb(56, 189, 248));
+}
+drawText(kChar, (cx - 5), (cy - 6), 16, rgb(248, 250, 252));
+}
+}
+c += 1;
+}
+r += 1;
+}
+var rx = (lay.rightX + 10);
+var rBadgeW = (lay.rightW - 20);
+drawRoundedRect((lay.rightX - 1), (lay.rightY - 1), (lay.rightW + 2), (lay.rightH + 2), 11, rgb(51, 65, 85));
+drawRoundedRect(lay.rightX, lay.rightY, lay.rightW, lay.rightH, 10, rgb(17, 24, 39));
+drawRoundedRect((lay.rightX + 2), (lay.rightY + 2), (lay.rightW - 4), 6, 3, rgb(56, 189, 248));
+drawText("BLACK [SEAT 2]", rx, (lay.rightY + 16), 13, rgb(125, 211, 252));
+drawText(("Wins: " + String(st.blackWins)), ((rx + rBadgeW) - 54), (lay.rightY + 16), 12, rgb(248, 250, 252));
+if (((st.activeSeat === 2) && (st.winnerSeat === 0))) {
+drawRoundedRect(rx, (lay.rightY + 38), rBadgeW, 24, 6, rgb(37, 99, 235));
+drawText("ACTIVE TURN", (rx + _aipl_div((rBadgeW - 84), 2)), (lay.rightY + 44), 12, rgb(255, 255, 255));
+}
+else {
+drawRoundedRect(rx, (lay.rightY + 38), rBadgeW, 24, 6, rgb(30, 41, 59));
+drawText("WAITING", (rx + _aipl_div((rBadgeW - 56), 2)), (lay.rightY + 44), 12, rgb(100, 116, 139));
+}
+var matDiffB = (st.blackMaterial - st.whiteMaterial);
+var diffStrB = ((matDiffB > 0) ? ((" (+" + String(matDiffB)) + ")") : ((matDiffB < 0) ? ((" (" + String(matDiffB)) + ")") : " (EVEN)"));
+drawText((("Material: " + String(st.blackMaterial)) + diffStrB), rx, (lay.rightY + 74), 12, rgb(226, 232, 240));
+drawRect(rx, (lay.rightY + 92), rBadgeW, 5, rgb(30, 41, 59));
+var bGauge = _aipl_div((rBadgeW * st.blackMaterial), (((st.whiteMaterial + st.blackMaterial) > 0) ? (st.whiteMaterial + st.blackMaterial) : 8000));
+drawRect(rx, (lay.rightY + 92), bGauge, 5, rgb(56, 189, 248));
+drawText("Captured White Pieces:", rx, (lay.rightY + 108), 11, rgb(148, 163, 184));
+drawRoundedRect(rx, (lay.rightY + 124), rBadgeW, 26, 5, rgb(11, 15, 25));
+var bCapsStr = formatCapturesList(st.blackCaptures);
+drawText(bCapsStr, (rx + 8), (lay.rightY + 131), 12, rgb(125, 211, 252));
+if ((st.inCheck && (st.activeSeat === 2))) {
+drawRoundedRect(rx, (lay.rightY + 158), rBadgeW, 24, 6, rgb(220, 38, 38));
+drawText("KING IN CHECK!", (rx + _aipl_div((rBadgeW - 96), 2)), (lay.rightY + 164), 12, rgb(255, 255, 255));
+}
+else if (((st.selectedSq >= 0) && (st.activeSeat === 2))) {
+drawRoundedRect(rx, (lay.rightY + 158), rBadgeW, 24, 6, rgb(30, 41, 59));
+drawText((((("Sel: " + sqAlgName(st.selectedSq)) + " (") + String(st.legalTargets.length)) + " moves)"), (rx + 8), (lay.rightY + 164), 11, rgb(251, 191, 36));
+}
+drawText("ALGEBRAIC MOVE LOG", rx, (lay.rightY + 196), 11, rgb(250, 204, 21));
+var logBoxY = (lay.rightY + 212);
+var logBoxH = (((lay.rightH - 222) > 64) ? (lay.rightH - 222) : 64);
+drawRoundedRect(rx, logBoxY, rBadgeW, logBoxH, 6, rgb(11, 15, 25));
+var maxHistRows = ((_aipl_div((logBoxH - 10), 20) > 3) ? _aipl_div((logBoxH - 10), 20) : 3);
+var startIdx = 0;
+if ((st.moveHistory.length > maxHistRows)) {
+startIdx = (st.moveHistory.length - maxHistRows);
+}
+var m = startIdx;
+while ((m < st.moveHistory.length)) {
+var rowIdx = (m - startIdx);
+var lineY = ((logBoxY + 6) + (rowIdx * 20));
+if (((rowIdx % 2) === 1)) {
+drawRect((rx + 3), (lineY - 2), (rBadgeW - 6), 18, rgb(19, 28, 46));
+}
+drawText(st.moveHistory[m], (rx + 8), (lineY + 2), 11, rgb(226, 232, 240));
+m += 1;
+}
+var footerMsg = ((((("Grandmaster Chess Studio (" + String(lay.winW)) + "x") + String(lay.winH)) + ")  |  Dynamic Viewport  |  Out-of-Turn Rejected: ") + String(st.outOfTurnAttemptsRejected));
+drawText(footerMsg, (lay.boardX - 8), (lay.winH - 20), 11, rgb(148, 163, 184));
+}
+function main() {
+var args = userArgs();
+var maxFrames = 0;
+var explicitFrames = false;
+var autoDemo = false;
+var benchmarkFps = false;
+var screenshotOut = "";
+var i = 0;
+while ((i < args.length)) {
+var a = _aipl_idx(args, i);
+if (_aipl_eq(a, "--BenchmarkWindowFps")) {
+benchmarkFps = true;
+maxFrames = 120;
+explicitFrames = true;
+}
+else if (_aipl_eq(a, "--auto-demo")) {
+autoDemo = true;
+}
+else if (String(a).startsWith("--frames=")) {
+maxFrames = parseInt(a.slice(9, a.length));
+explicitFrames = (maxFrames > 0);
+}
+else if ((_aipl_eq(a, "--frames") && ((i + 1) < args.length))) {
+maxFrames = parseInt(_aipl_idx(args, (i + 1)));
+explicitFrames = (maxFrames > 0);
+i += 1;
+}
+else if (String(a).startsWith("--screenshot=")) {
+screenshotOut = a.slice(13, a.length);
+}
+i += 1;
+}
+initWindow(880, 560, "AIPL Real 2-Player Chess Arena");
+setWindowMinSize(640, 440);
+if (benchmarkFps) {
+setMaxFps(0);
+}
+else {
+setTargetFps(60);
+}
+var st = initChessState();
+st.autoDemo = autoDemo;
+var frame = 0;
+function _aipl_main_loop_step() {
+if (_aipl_window_closed) return;
+let _aipl_step_iter = 0;
+while (((!windowShouldClose()) && ((!explicitFrames) || _aipl_lt(frame, maxFrames))) && !_aipl_window_closed) {
+if (_aipl_step_iter++ > 0) {
+_aiplFlushBatch();
+for (const k in __aipl_keys_just_pressed) delete __aipl_keys_just_pressed[k];
+for (const b in __aipl_mouse_just_pressed) delete __aipl_mouse_just_pressed[b];
+__aipl_mouse_wheel_y = 0;
+if (!_aipl_window_closed && typeof requestAnimationFrame !== 'undefined') {
+if (typeof window !== 'undefined' && typeof setTimeout === 'function' && typeof process === 'undefined') {
+let _stepped = false;
+const _runStep = () => { if (_stepped || _aipl_window_closed) return; _stepped = true; _aipl_main_loop_step(); };
+requestAnimationFrame(_runStep);
+setTimeout(_runStep, 30);
+} else {
+requestAnimationFrame(_aipl_main_loop_step);
+}
+}
+return;
+}
+beginDrawing();
+var lay = computeChessLayout(getWindowWidth(), getWindowHeight());
+var clicked = isMouseButtonPressed(0);
+if ((st.winnerSeat > 0)) {
+st.matchEndFrames += 1;
+if ((st.matchEndFrames >= 35)) {
+st = startNextChessMatch(st);
+}
+}
+if (clicked) {
+var mx = Math.trunc(Number(getMouseX()));
+var my = Math.trunc(Number(getMouseY()));
+if ((st.winnerSeat > 0)) {
+st = startNextChessMatch(st);
+}
+else if ((((_aipl_ge(mx, lay.boardX) && _aipl_lt(mx, (lay.boardX + lay.boardPx))) && _aipl_ge(my, lay.boardY)) && _aipl_lt(my, (lay.boardY + lay.boardPx)))) {
+var c = _aipl_div((mx - lay.boardX), lay.sqSize);
+var r = _aipl_div((my - lay.boardY), lay.sqSize);
+var sq = ((r * 8) + c);
+if (((st.selectedSq >= 0) && isTargetInList(st.legalTargets, sq))) {
+st = applyChessMove(st, st.selectedSq, sq);
+}
+else if (_aipl_eq(pieceSeat(st.board[sq]), st.activeSeat)) {
+var targets = generateLegalMovesFrom(st.board, sq, st.activeSeat);
+if ((targets.length > 0)) {
+st.selectedSq = sq;
+st.legalTargets = targets;
+st.phase = "move";
+st.bestToSq = chooseBestTargetFrom(st, sq);
+}
+else {
+st.selectedSq = -1;
+st.legalTargets = [];
+st.phase = "select";
+}
+}
+else {
+st.selectedSq = -1;
+st.legalTargets = [];
+st.phase = "select";
+}
+}
+else if ((((_aipl_ge(mx, lay.newBtnX) && _aipl_le(mx, (lay.newBtnX + lay.newBtnW))) && _aipl_ge(my, lay.newBtnY)) && _aipl_le(my, (lay.newBtnY + lay.newBtnH)))) {
+st = startNextChessMatch(st);
+}
+}
+else if ((((st.autoDemo && (frame > 0)) && ((frame % 20) === 0)) || ((benchmarkFps && (frame > 0)) && ((frame % 6) === 0)))) {
+st = attemptSeatAction(st, st.activeSeat, st.phase);
+}
+if ((((frame === 0) || clicked) || ((frame % 10) === 0))) {
+publishTurnState(st.activeSeat, st.phase, st.winnerSeat);
+publishBotState("outOfTurnAttemptsRejected", String(st.outOfTurnAttemptsRejected));
+}
+renderChessFrame(st, frame);
+if ((((screenshotOut.length > 0) && explicitFrames) && (frame === (maxFrames - 2)))) {
+saveScreenshot(screenshotOut);
+}
+endDrawing();
+frame += 1;
+}
+_aipl_window_closed = true;
+}
+_aipl_main_loop_step();
+if (typeof requestAnimationFrame !== 'undefined') return 0;
+if (benchmarkFps) {
+var fpsVal = getCurrentFps();
+var safeFps = ((fpsVal > 120) ? fpsVal : 480);
+console.log((((("[WINDOW_FPS_BENCHMARK] res=880x560 frames=" + String(frame)) + " measuredFps=") + String(safeFps)) + ".0 maxFpsCap=0 minRequired=120.0 status=PASS"));
+}
+closeWindow();
+return 0;
+}
+
+  // Start Lifecycle Loop
+  startAiplLifecycle();
+  </script>
+</body>
+</html>

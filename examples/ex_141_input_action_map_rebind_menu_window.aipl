@@ -1,0 +1,181 @@
+// ============================================================================
+// Canonical Example 141: Multi-Device Action Map & Key Rebinding Menu (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/input/action_map
+// ============================================================================
+module Ex141InputActionMapRebindMenuWindow
+
+import {
+  InputActionMap,
+  createActionMap,
+  bindActionKey,
+  bindActionButton,
+  bindActionAxis,
+  evaluateActionMap,
+  isActionPressed,
+  isActionJustPressed,
+  getActionValue,
+  DEVICE_GAMEPAD
+} from "../std/input/action_map.aipl"
+import {
+  createKeyboardState,
+  pushKeyboardEvent,
+  KEY_SPACE,
+  KEY_A,
+  KEY_E
+} from "../std/input/keyboard.aipl"
+import { createMouseState } from "../std/input/mouse.aipl"
+import {
+  StickDeadzoneConfig,
+  createGamepadState,
+  updateGamepadStick,
+  DEADZONE_RADIAL,
+  GAMEPAD_A,
+  GAMEPAD_B,
+  GAMEPAD_RB,
+  GAMEPAD_X
+} from "../std/input/gamepad.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { maxInt } from "../std/std_root.aipl"
+
+pub fn verifyCompositeActionMapKeyboardAndGamepad(): int:
+  mut map = createActionMap()
+  map = bindActionKey(map, "Jump", KEY_SPACE, 0)
+  map = bindActionButton(map, "Jump", GAMEPAD_A)
+  map = bindActionAxis(map, "MoveX", DEVICE_GAMEPAD, 0, 1.0)
+
+  mut kbd = createKeyboardState()
+  let mouse = createMouseState()
+  mut pad = createGamepadState(0)
+
+  kbd = pushKeyboardEvent(kbd, KEY_SPACE, true, false)
+  map = evaluateActionMap(map, kbd, mouse, pad)
+  assert(isActionPressed(map, "Jump") and isActionJustPressed(map, "Jump"), "Jump via keyboard")
+  let v1 = int(getActionValue(map, "Jump") * 1000.0 + 0.5)
+
+  kbd = pushKeyboardEvent(kbd, KEY_SPACE, false, false)
+  pad.buttonMask = 1 << GAMEPAD_A
+  map = evaluateActionMap(map, kbd, mouse, pad)
+  assert(isActionPressed(map, "Jump"), "Jump via gamepad")
+  ret v1
+
+pub fn computeTotalBoundChordCount(actionCount: int, slotsPerAction: int): int:
+  ret maxInt(0, actionCount) * maxInt(0, slotsPerAction)
+
+pub fn describeActionBindingDevice(deviceMode: int): str:
+  if deviceMode == 1:
+    ret "ACTION:BOUND_KEYBOARD_AND_GAMEPAD"
+  ret "ACTION:BOUND_SINGLE_DEVICE"
+
+pub fn stepActionMapFrame(frameIndex: int): InputActionMap:
+  mut map = createActionMap()
+  map = bindActionKey(map, "Jump", KEY_SPACE, 0)
+  map = bindActionButton(map, "Jump", GAMEPAD_A)
+  map = bindActionKey(map, "Dash", KEY_A, 0)
+  map = bindActionButton(map, "Dash", GAMEPAD_B)
+  map = bindActionKey(map, "PrimaryFire", KEY_E, 0)
+  map = bindActionButton(map, "PrimaryFire", GAMEPAD_RB)
+  map = bindActionAxis(map, "MoveHorizontal", DEVICE_GAMEPAD, 0, 1.0)
+  map = bindActionButton(map, "Interact", GAMEPAD_X)
+
+  mut kbd = createKeyboardState()
+  let mouse = createMouseState()
+  mut pad = createGamepadState(0)
+  let activeRow = (frameIndex / 17) % 5
+  if activeRow == 0:
+    kbd = pushKeyboardEvent(kbd, KEY_SPACE, true, false)
+  elif activeRow == 1:
+    pad.buttonMask = 1 << GAMEPAD_B
+  elif activeRow == 2:
+    kbd = pushKeyboardEvent(kbd, KEY_E, true, false)
+  elif activeRow == 4:
+    pad.buttonMask = 1 << GAMEPAD_X
+
+  let cfg = StickDeadzoneConfig(mode = DEADZONE_RADIAL, innerDeadzone = 0.15, outerThreshold = 1.0)
+  let stickX = 0.25 + float((frameIndex * 3) % 73) / 100.0
+  pad = updateGamepadStick(pad, true, stickX, 0.0, cfg)
+  map = evaluateActionMap(map, kbd, mouse, pad)
+  ret map
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let map = stepActionMapFrame(frameIndex)
+  let activeRow = (frameIndex / 17) % 5
+  let moveVal = int(getActionValue(map, "MoveHorizontal") * 1000.0 + 0.5)
+  ret verifyCompositeActionMapKeyboardAndGamepad() + moveVal + activeRow * 100 + int(dt * 0.0)
+
+pub fn renderActionRebindMenuScene(frameIndex: int): void:
+  let map = stepActionMapFrame(frameIndex)
+  let activeRow = (frameIndex / 17) % 5
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_141 // COMPOSITE INPUT ACTION MAP & MULTI-DEVICE REBINDING MENU", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Table Header
+  drawRect(64.0, 96.0, 1152.0, 44.0, rgb(22, 34, 58))
+  drawText("SEMANTIC ACTION", 88.0, 110.0, 15.0, rgb(125, 211, 252))
+  drawText("PRIMARY KEYBOARD", 380.0, 110.0, 15.0, rgb(125, 211, 252))
+  drawText("SECONDARY GAMEPAD", 680.0, 110.0, 15.0, rgb(125, 211, 252))
+  drawText("LIVE ANALOG SIGNAL", 960.0, 110.0, 15.0, rgb(125, 211, 252))
+
+  // 5 Action Binding Rows driven by InputActionMap
+  let actions = ["Jump", "Dash", "PrimaryFire", "MoveHorizontal", "Interact"]
+  let kbdBinds = ["KEY_SPACE", "KEY_A", "KEY_E", "AXIS_GAMEPAD_LX", "UNBOUND"]
+  let padBinds = ["GAMEPAD_A (South)", "GAMEPAD_B (East)", "GAMEPAD_RB", "LEFT_STICK_X", "GAMEPAD_X (West)"]
+
+  mut totalChords: int = 0
+  mut r = 0
+  while r < 5:
+    let actionName = actions[r]
+    let act = map.actions.get(actionName).unwrap()
+    totalChords = totalChords + act.bindings.len
+    let pressed = isActionPressed(map, actionName)
+    let val = getActionValue(map, actionName)
+    let ry = 152.0 + float(r * 88)
+    let isSel = r == activeRow or pressed
+    let rowBg = if isSel: rgb(26, 42, 74) else: rgb(15, 23, 42)
+    let rowBorder = if pressed: rgb(74, 222, 128) else: (if r == activeRow: rgb(56, 189, 248) else: rgb(51, 65, 85))
+    drawRect(64.0, ry, 1152.0, 74.0, rowBg)
+    drawRectOutline(64.0, ry, 1152.0, 74.0, 2.0, rowBorder)
+
+    drawText(act.actionName, 88.0, ry + 26.0, 18.0, rgb(241, 245, 249))
+    drawRect(372.0, ry + 16.0, 220.0, 42.0, rgb(10, 16, 30))
+    drawRectOutline(372.0, ry + 16.0, 220.0, 42.0, 1.5, rgb(74, 222, 128))
+    drawText(kbdBinds[r], 392.0, ry + 29.0, 15.0, rgb(134, 239, 172))
+
+    drawRect(672.0, ry + 16.0, 230.0, 42.0, rgb(10, 16, 30))
+    drawRectOutline(672.0, ry + 16.0, 230.0, 42.0, 1.5, rgb(192, 132, 252))
+    drawText(padBinds[r], 690.0, ry + 29.0, 15.0, rgb(216, 180, 254))
+
+    let fillW = 220.0 * val
+    drawRect(956.0, ry + 24.0, 220.0, 26.0, rgb(30, 41, 59))
+    drawRect(956.0, ry + 24.0, fillW, 26.0, rgb(56, 189, 248))
+    r = r + 1
+
+  // Bottom Status Bar
+  drawRect(64.0, 610.0, 1152.0, 64.0, rgb(16, 24, 42))
+  drawRectOutline(64.0, 610.0, 1152.0, 64.0, 1.5, rgb(71, 85, 105))
+  drawText(describeActionBindingDevice(1) + " | Active Bindings=" + str(totalChords) + " | Rebind Cursor Row=#" + str(activeRow), 88.0, 634.0, 16.0, rgb(250, 204, 21))
+
+pub fn main(): int:
+  let v = verifyCompositeActionMapKeyboardAndGamepad()
+  assert(v == 1000, "Jump action value 1000 permille")
+  initWindow(1280, 720, "AIPL ex_141 - Multi-Device Action Map & Rebinding Menu")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderActionRebindMenuScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

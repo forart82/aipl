@@ -1,0 +1,40 @@
+// ============================================================================
+// Twin Test Suite 081: ISO/IEC 18004 QR Code Matrix & Reed-Solomon ECC Window
+// Verifies examples/ex_081_encoding_qrcode_matrix_window.aipl
+// ============================================================================
+module Ex081EncodingQrcodeMatrixWindowTest
+
+import {
+  QrMatrixWindowState,
+  evaluateQrMatrixAndReedSolomon,
+  describeQrEccFormatProfile,
+  buildQrMatrixWindowState,
+  renderFrameStep
+} from "../../examples/ex_081_encoding_qrcode_matrix_window.aipl"
+
+pub fn test_qrcode_matrix_and_reed_solomon(): int:
+  assert(evaluateQrMatrixAndReedSolomon("https://aipl.dev") == 32, "qr.size(21) + eccLen(5) + gfMul(6) == 32")
+  assert(describeQrEccFormatProfile(1) == "QR:VERSION_1_21X21_RS_GF256", "Version 1 QR descriptor")
+  ret 0
+
+pub fn test_qrcode_matrix_window_state(): int:
+  let st0 = buildQrMatrixWindowState(0)
+  let st1 = buildQrMatrixWindowState(1)
+  let st20 = buildQrMatrixWindowState(20)
+  let st100 = buildQrMatrixWindowState(100)
+  assert(st0.matrixDim == 21, "matrixDim == 21")
+  assert(st0.darkModuleCount > 100, "21x21 QR code has >100 dark modules")
+  assert(st1.bchFormatBits != st0.bchFormatBits, "BCH format bits vary with mask pattern")
+  assert(st20.scanRow != st100.scanRow, "scanRow progresses between frame 20 and 100")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m0 < m1 and m1 < m20 and m20 < m100, "renderFrameStep advances across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_qrcode_matrix_and_reed_solomon()
+  test_qrcode_matrix_window_state()
+  println("PASS: ex_081_encoding_qrcode_matrix_window_test")
+  ret 0

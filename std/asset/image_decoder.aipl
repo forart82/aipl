@@ -1,0 +1,2098 @@
+module AssetImageDecoder
+
+// ============================================================================
+// std/asset/image_decoder.aipl — ImageBuffer, Codecs (BMP/QOI/PNG/TGA/PPM/PGM/SVG),
+// Filtering, Drawing, Resizing, Sprite Slicing & Border-Flood Alpha Keying
+// ============================================================================
+
+pub const FORMAT_UNKNOWN: int = 0
+pub const FORMAT_PNG: int = 1
+pub const FORMAT_BMP: int = 2
+pub const FORMAT_QOI: int = 3
+pub const FORMAT_TGA: int = 4
+
+pub struct DecodedImage(width: int, height: int, channels: int, pixelsRgba: [int], format: int, pixels: [int])
+
+pub type ImageBuffer = DecodedImage
+
+pub struct Pixel(r: int, g: int, b: int, a: int)
+
+pub fn pixelRgb(r: int, g: int, b: int): Pixel:
+  ret Pixel(r = r, g = g, b = b, a = 255)
+
+pub fn pixelRgba(r: int, g: int, b: int, a: int): Pixel:
+  ret Pixel(r = r, g = g, b = b, a = a)
+
+pub fn pixelToInt(p: Pixel): int:
+  ret ((p.a & 255) << 24) | ((p.r & 255) << 16) | ((p.g & 255) << 8) | (p.b & 255)
+
+pub fn intToPixel(c: int): Pixel:
+  let a = (c >> 24) & 255
+  let r = (c >> 16) & 255
+  let g = (c >> 8) & 255
+  let b = c & 255
+  ret Pixel(r = r, g = g, b = b, a = if a == 0 and c != 0: 255 else: a)
+
+pub fn imageBufferNew(width: int, height: int, fillColor: int = 0): DecodedImage:
+  mut px: [int] = []
+  mut rgba: [int] = []
+  let total = width * height
+  let r = (fillColor >> 16) & 255
+  let g = (fillColor >> 8) & 255
+  let b = fillColor & 255
+  let rawA = (fillColor >> 24) & 255
+  let a = if rawA == 0 and fillColor != 0: 255 else: rawA
+  mut i = 0
+  while i < total:
+    px.push(fillColor)
+    rgba.push(r)
+    rgba.push(g)
+    rgba.push(b)
+    rgba.push(a)
+    i += 1
+  ret DecodedImage(width = width, height = height, channels = 4, pixelsRgba = rgba, format = FORMAT_UNKNOWN, pixels = px)
+
+pub fn imageNew(width: int, height: int, fillColor: int = 0): DecodedImage:
+  ret imageBufferNew(width, height, fillColor)
+
+pub fn imageGetPixel(img: DecodedImage, x: int, y: int): int:
+  if x < 0 or x >= img.width or y < 0 or y >= img.height:
+    ret 0
+  let idx = y * img.width + x
+  if idx < img.pixels.len:
+    ret img.pixels[idx]
+  let idx4 = idx * 4
+  if idx4 + 3 < img.pixelsRgba.len:
+    let r = img.pixelsRgba[idx4] & 255
+    let g = img.pixelsRgba[idx4 + 1] & 255
+    let b = img.pixelsRgba[idx4 + 2] & 255
+    ret (r << 16) | (g << 8) | b
+  ret 0
+
+pub fn imageSetPixel(mut img: DecodedImage, x: int, y: int, color: int): DecodedImage:
+  if x >= 0 and x < img.width and y >= 0 and y < img.height:
+    let idx = y * img.width + x
+    if idx < img.pixels.len:
+      img.pixels[idx] = color
+    let idx4 = idx * 4
+    if idx4 + 3 < img.pixelsRgba.len:
+      img.pixelsRgba[idx4] = (color >> 16) & 255
+      img.pixelsRgba[idx4 + 1] = (color >> 8) & 255
+      img.pixelsRgba[idx4 + 2] = color & 255
+      let rawA = (color >> 24) & 255
+      img.pixelsRgba[idx4 + 3] = if rawA == 0 and color != 0: 255 else: rawA
+  ret img
+
+fn readU16LEImg(b: [int], off: int): int:
+  if off + 2 > b.len:
+    ret 0
+  ret (b[off] & 255) | ((b[off + 1] & 255) << 8)
+
+fn readU32LEImg(b: [int], off: int): int:
+  if off + 4 > b.len:
+    ret 0
+  ret (b[off] & 255) | ((b[off + 1] & 255) << 8) | ((b[off + 2] & 255) << 16) | ((b[off + 3] & 255) << 24)
+
+fn readU32BEImg(b: [int], off: int): int:
+  if off + 4 > b.len:
+    ret 0
+  ret ((b[off] & 255) << 24) | ((b[off + 1] & 255) << 16) | ((b[off + 2] & 255) << 8) | (b[off + 3] & 255)
+
+pub fn detectImageFormat(headerBytes: [int]): int:
+  if headerBytes.len >= 4:
+    if headerBytes[0] == 137 and headerBytes[1] == 80 and headerBytes[2] == 78 and headerBytes[3] == 71:
+      ret FORMAT_PNG
+    if headerBytes[0] == 113 and headerBytes[1] == 111 and headerBytes[2] == 105 and headerBytes[3] == 102:
+      ret FORMAT_QOI
+  if headerBytes.len >= 2:
+    if headerBytes[0] == 66 and headerBytes[1] == 77:
+      ret FORMAT_BMP
+  if headerBytes.len >= 18:
+    let imgType = headerBytes[2]
+    if imgType == 2 or imgType == 10:
+      ret FORMAT_TGA
+  ret FORMAT_UNKNOWN
+
+pub fn decodeBmp(bytes: [int]): Option[DecodedImage]:
+  if bytes.len < 54:
+    ret None
+  if bytes[0] != 66 or bytes[1] != 77:
+    ret None
+  let dataOffset = readU32LEImg(bytes, 10)
+  let width = readU32LEImg(bytes, 18)
+  let rawHeight = readU32LEImg(bytes, 22)
+  let bpp = readU16LEImg(bytes, 28)
+  let comp = readU32LEImg(bytes, 30)
+  if width <= 0 or rawHeight <= 0 or comp != 0:
+    ret None
+  if bpp != 24 and bpp != 32:
+    ret None
+
+  let bytesPerPixel = bpp / 8
+  let rowRawBytes = width * bytesPerPixel
+  let rowStride = (rowRawBytes + 3) & (~3)
+
+  mut rgba: [int] = []
+  mut px: [int] = []
+  mut i = 0
+  let totalPx = width * rawHeight
+  while i < totalPx:
+    rgba.push(0)
+    rgba.push(0)
+    rgba.push(0)
+    rgba.push(0)
+    px.push(0)
+    i += 1
+
+  mut bmpRow = 0
+  while bmpRow < rawHeight:
+    let imgY = (rawHeight - 1) - bmpRow
+    let rowBase = dataOffset + bmpRow * rowStride
+    mut x = 0
+    while x < width:
+      let pxOff = rowBase + x * bytesPerPixel
+      if pxOff + bytesPerPixel <= bytes.len:
+        let bVal = bytes[pxOff] & 255
+        let gVal = bytes[pxOff + 1] & 255
+        let rVal = bytes[pxOff + 2] & 255
+        let aVal = if bytesPerPixel == 4: (bytes[pxOff + 3] & 255) else: 255
+        let pIdx = imgY * width + x
+        let dstIdx = pIdx * 4
+        rgba[dstIdx] = rVal
+        rgba[dstIdx + 1] = gVal
+        rgba[dstIdx + 2] = bVal
+        rgba[dstIdx + 3] = aVal
+        px[pIdx] = if bytesPerPixel == 4: ((aVal << 24) | (rVal << 16) | (gVal << 8) | bVal) else: ((rVal << 16) | (gVal << 8) | bVal)
+      x += 1
+    bmpRow += 1
+
+  ret Some(DecodedImage(
+    width = width,
+    height = rawHeight,
+    channels = 4,
+    pixelsRgba = rgba,
+    format = FORMAT_BMP,
+    pixels = px
+  ))
+
+pub fn decodeQoi(bytes: [int]): Option[DecodedImage]:
+  if bytes.len < 22:
+    ret None
+  if bytes[0] != 113 or bytes[1] != 111 or bytes[2] != 105 or bytes[3] != 102:
+    ret None
+  let width = readU32BEImg(bytes, 4)
+  let height = readU32BEImg(bytes, 8)
+  let channels = bytes[12] & 255
+  if width <= 0 or height <= 0:
+    ret None
+
+  mut indexR: [int] = []
+  mut indexG: [int] = []
+  mut indexB: [int] = []
+  mut indexA: [int] = []
+  mut k = 0
+  while k < 64:
+    indexR.push(0)
+    indexG.push(0)
+    indexB.push(0)
+    indexA.push(0)
+    k += 1
+
+  mut curR = 0
+  mut curG = 0
+  mut curB = 0
+  mut curA = 255
+  mut run = 0
+  mut p = 14
+  let chunksEnd = bytes.len - 8
+  let totalPixels = width * height
+  mut rgba: [int] = []
+  mut px: [int] = []
+  mut pxIdx = 0
+
+  while pxIdx < totalPixels:
+    if run > 0:
+      run -= 1
+    elif p < chunksEnd:
+      let b1 = bytes[p] & 255
+      p += 1
+      if b1 == 254:
+        curR = bytes[p] & 255
+        curG = bytes[p + 1] & 255
+        curB = bytes[p + 2] & 255
+        p += 3
+      elif b1 == 255:
+        curR = bytes[p] & 255
+        curG = bytes[p + 1] & 255
+        curB = bytes[p + 2] & 255
+        curA = bytes[p + 3] & 255
+        p += 4
+      elif (b1 & 192) == 0:
+        let idx = b1 & 63
+        curR = indexR[idx]
+        curG = indexG[idx]
+        curB = indexB[idx]
+        curA = indexA[idx]
+      elif (b1 & 192) == 64:
+        curR = (curR + ((b1 >> 4) & 3) - 2 + 256) & 255
+        curG = (curG + ((b1 >> 2) & 3) - 2 + 256) & 255
+        curB = (curB + (b1 & 3) - 2 + 256) & 255
+      elif (b1 & 192) == 128:
+        let b2 = bytes[p] & 255
+        p += 1
+        let vg = (b1 & 63) - 32
+        curR = (curR + vg - 8 + ((b2 >> 4) & 15) + 256) & 255
+        curG = (curG + vg + 256) & 255
+        curB = (curB + vg - 8 + (b2 & 15) + 256) & 255
+      elif (b1 & 192) == 192:
+        run = b1 & 63
+
+      let hashPos = (curR * 3 + curG * 5 + curB * 7 + curA * 11) % 64
+      indexR[hashPos] = curR
+      indexG[hashPos] = curG
+      indexB[hashPos] = curB
+      indexA[hashPos] = curA
+
+    rgba.push(curR)
+    rgba.push(curG)
+    rgba.push(curB)
+    rgba.push(curA)
+    px.push(if channels == 3: ((curR << 16) | (curG << 8) | curB) else: ((curA << 24) | (curR << 16) | (curB & 255) | (curG << 8)))
+    pxIdx += 1
+
+  ret Some(DecodedImage(
+    width = width,
+    height = height,
+    channels = if channels == 3: 3 else: 4,
+    pixelsRgba = rgba,
+    format = FORMAT_QOI,
+    pixels = px
+  ))
+
+pub fn decodePngHeader(bytes: [int], checkMagic: bool = true): Option[(int, int, int)]:
+  if bytes.len < 26:
+    ret None
+  if checkMagic:
+    if bytes[0] != 137 or bytes[1] != 80 or bytes[2] != 78 or bytes[3] != 71:
+      ret None
+  let width = readU32BEImg(bytes, 16)
+  let height = readU32BEImg(bytes, 20)
+  let bitDepth = bytes[24] & 255
+  ret Some((width, height, bitDepth))
+
+pub fn decodeTga(bytes: [int]): Option[DecodedImage]:
+  if bytes.len < 18:
+    ret None
+  let idLen = bytes[0] & 255
+  let imgType = bytes[2] & 255
+  if imgType != 2 and imgType != 3:
+    ret None
+  let width = readU16LEImg(bytes, 12)
+  let height = readU16LEImg(bytes, 14)
+  let bpp = bytes[16] & 255
+  if width <= 0 or height <= 0 or (bpp != 8 and bpp != 24 and bpp != 32):
+    ret None
+  let bytesPerPixel = bpp / 8
+  mut off = 18 + idLen
+  mut rgba: [int] = []
+  mut px: [int] = []
+  mut i = 0
+  let totalPx = width * height
+  while i < totalPx and off + bytesPerPixel <= bytes.len:
+    mut rVal = 0
+    mut gVal = 0
+    mut bVal = 0
+    mut aVal = 255
+    if bytesPerPixel == 1:
+      let lum = bytes[off] & 255
+      rVal = lum
+      gVal = lum
+      bVal = lum
+    else:
+      bVal = bytes[off] & 255
+      gVal = bytes[off + 1] & 255
+      rVal = bytes[off + 2] & 255
+      if bytesPerPixel == 4:
+        aVal = bytes[off + 3] & 255
+    rgba.push(rVal)
+    rgba.push(gVal)
+    rgba.push(bVal)
+    rgba.push(aVal)
+    px.push(if bytesPerPixel == 4: ((aVal << 24) | (rVal << 16) | (gVal << 8) | bVal) else: ((rVal << 16) | (gVal << 8) | bVal))
+    off += bytesPerPixel
+    i += 1
+  ret Some(DecodedImage(width = width, height = height, channels = 4, pixelsRgba = rgba, format = FORMAT_TGA, pixels = px))
+
+fn absDiffInt(a: int, b: int): int:
+  if a >= b:
+    ret a - b
+  ret b - a
+
+fn matchesKeyColor(pixels: [int], idx4: int, kr: int, kg: int, kb: int, tol: int): bool:
+  let r = pixels[idx4]
+  let g = pixels[idx4 + 1]
+  let b = pixels[idx4 + 2]
+  ret absDiffInt(r, kr) <= tol and absDiffInt(g, kg) <= tol and absDiffInt(b, kb) <= tol
+
+pub fn applyBorderFloodAlphaKey(image: DecodedImage, keyColorR: int, keyColorG: int, keyColorB: int, tolerance: int = 0): DecodedImage:
+  let w = image.width
+  let h = image.height
+  if w <= 0 or h <= 0:
+    ret image
+  mut outPx: [int] = []
+  mut i = 0
+  while i < image.pixelsRgba.len:
+    outPx.push(image.pixelsRgba[i])
+    i += 1
+
+  let total = w * h
+  mut visited: [bool] = []
+  mut vIdx = 0
+  while vIdx < total:
+    visited.push(false)
+    vIdx += 1
+
+  mut queueX: [int] = []
+  mut queueY: [int] = []
+
+  mut bx = 0
+  while bx < w:
+    let topIdx = bx
+    if not visited[topIdx] and matchesKeyColor(outPx, topIdx * 4, keyColorR, keyColorG, keyColorB, tolerance):
+      visited[topIdx] = true
+      queueX.push(bx)
+      queueY.push(0)
+    let botIdx = (h - 1) * w + bx
+    if not visited[botIdx] and matchesKeyColor(outPx, botIdx * 4, keyColorR, keyColorG, keyColorB, tolerance):
+      visited[botIdx] = true
+      queueX.push(bx)
+      queueY.push(h - 1)
+    bx += 1
+
+  mut by = 0
+  while by < h:
+    let leftIdx = by * w
+    if not visited[leftIdx] and matchesKeyColor(outPx, leftIdx * 4, keyColorR, keyColorG, keyColorB, tolerance):
+      visited[leftIdx] = true
+      queueX.push(0)
+      queueY.push(by)
+    let rightIdx = by * w + (w - 1)
+    if not visited[rightIdx] and matchesKeyColor(outPx, rightIdx * 4, keyColorR, keyColorG, keyColorB, tolerance):
+      visited[rightIdx] = true
+      queueX.push(w - 1)
+      queueY.push(by)
+    by += 1
+
+  mut head = 0
+  while head < queueX.len:
+    let cx = queueX[head]
+    let cy = queueY[head]
+    head += 1
+    let cIdx4 = (cy * w + cx) * 4
+    outPx[cIdx4 + 3] = 0
+
+    if cx > 0:
+      let nIdx = cy * w + (cx - 1)
+      if not visited[nIdx] and matchesKeyColor(outPx, nIdx * 4, keyColorR, keyColorG, keyColorB, tolerance):
+        visited[nIdx] = true
+        queueX.push(cx - 1)
+        queueY.push(cy)
+    if cx + 1 < w:
+      let nIdx = cy * w + (cx + 1)
+      if not visited[nIdx] and matchesKeyColor(outPx, nIdx * 4, keyColorR, keyColorG, keyColorB, tolerance):
+        visited[nIdx] = true
+        queueX.push(cx + 1)
+        queueY.push(cy)
+    if cy > 0:
+      let nIdx = (cy - 1) * w + cx
+      if not visited[nIdx] and matchesKeyColor(outPx, nIdx * 4, keyColorR, keyColorG, keyColorB, tolerance):
+        visited[nIdx] = true
+        queueX.push(cx)
+        queueY.push(cy - 1)
+    if cy + 1 < h:
+      let nIdx = (cy + 1) * w + cx
+      if not visited[nIdx] and matchesKeyColor(outPx, nIdx * 4, keyColorR, keyColorG, keyColorB, tolerance):
+        visited[nIdx] = true
+        queueX.push(cx)
+        queueY.push(cy + 1)
+
+  ret DecodedImage(
+    width = w,
+    height = h,
+    channels = image.channels,
+    pixelsRgba = outPx,
+    format = image.format,
+    pixels = image.pixels
+  )
+
+pub fn getPixelRgba(img: DecodedImage, x: int, y: int): (int, int, int, int):
+  if x < 0 or x >= img.width or y < 0 or y >= img.height:
+    ret (0, 0, 0, 0)
+  let idx = (y * img.width + x) * 4
+  if idx + 3 >= img.pixelsRgba.len:
+    let pIdx = y * img.width + x
+    if pIdx < img.pixels.len:
+      let c = img.pixels[pIdx]
+      ret ((c >> 16) & 255, (c >> 8) & 255, c & 255, (c >> 24) & 255)
+    ret (0, 0, 0, 0)
+  ret (img.pixelsRgba[idx], img.pixelsRgba[idx + 1], img.pixelsRgba[idx + 2], img.pixelsRgba[idx + 3])
+
+pub fn setPixelRgba(img: DecodedImage, x: int, y: int, r: int, g: int, b: int, a: int): DecodedImage:
+  if x < 0 or x >= img.width or y < 0 or y >= img.height:
+    ret img
+  mut outPx: [int] = []
+  mut i = 0
+  while i < img.pixelsRgba.len:
+    outPx.push(img.pixelsRgba[i])
+    i += 1
+  let idx = (y * img.width + x) * 4
+  if idx + 3 < outPx.len:
+    outPx[idx] = r & 255
+    outPx[idx + 1] = g & 255
+    outPx[idx + 2] = b & 255
+    outPx[idx + 3] = a & 255
+  ret DecodedImage(
+    width = img.width,
+    height = img.height,
+    channels = img.channels,
+    pixelsRgba = outPx,
+    format = img.format,
+    pixels = img.pixels
+  )
+
+pub fn imageResizeNearest(img: DecodedImage, newWidth: int, newHeight: int): DecodedImage:
+  if newWidth <= 0 or newHeight <= 0 or img.width <= 0 or img.height <= 0:
+    ret imageBufferNew(newWidth, newHeight, 0)
+  mut out = imageBufferNew(newWidth, newHeight, 0)
+  mut y = 0
+  while y < newHeight:
+    let srcY = (y * img.height) / newHeight
+    mut x = 0
+    while x < newWidth:
+      let srcX = (x * img.width) / newWidth
+      out.pixels[y * newWidth + x] = img.pixels[srcY * img.width + srcX]
+      x += 1
+    y += 1
+  ret out
+
+fn lerpChannel(c00: int, c10: int, c01: int, c11: int, fx: float, fy: float): int:
+  let top = float(c00) * (1.0 - fx) + float(c10) * fx
+  let bot = float(c01) * (1.0 - fx) + float(c11) * fx
+  let val = int(round(top * (1.0 - fy) + bot * fy))
+  if val < 0:
+    ret 0
+  if val > 255:
+    ret 255
+  ret val
+
+pub fn imageResizeBilinear(img: DecodedImage, newWidth: int, newHeight: int): DecodedImage:
+  if newWidth <= 0 or newHeight <= 0 or img.width <= 0 or img.height <= 0:
+    ret imageBufferNew(newWidth, newHeight, 0)
+  mut out = imageBufferNew(newWidth, newHeight, 0)
+  mut y = 0
+  while y < newHeight:
+    let gy = (float(y) * float(img.height - 1)) / float(if newHeight > 1: newHeight - 1 else: 1)
+    let y0 = int(floor(gy))
+    let y1 = if y0 + 1 < img.height: y0 + 1 else: y0
+    let fy = gy - float(y0)
+    mut x = 0
+    while x < newWidth:
+      let gx = (float(x) * float(img.width - 1)) / float(if newWidth > 1: newWidth - 1 else: 1)
+      let x0 = int(floor(gx))
+      let x1 = if x0 + 1 < img.width: x0 + 1 else: x0
+      let fx = gx - float(x0)
+      let p00 = imageGetPixel(img, x0, y0)
+      let p10 = imageGetPixel(img, x1, y0)
+      let p01 = imageGetPixel(img, x0, y1)
+      let p11 = imageGetPixel(img, x1, y1)
+      let a = lerpChannel((p00 >> 24) & 255, (p10 >> 24) & 255, (p01 >> 24) & 255, (p11 >> 24) & 255, fx, fy)
+      let r = lerpChannel((p00 >> 16) & 255, (p10 >> 16) & 255, (p01 >> 16) & 255, (p11 >> 16) & 255, fx, fy)
+      let g = lerpChannel((p00 >> 8) & 255, (p10 >> 8) & 255, (p01 >> 8) & 255, (p11 >> 8) & 255, fx, fy)
+      let b = lerpChannel(p00 & 255, p10 & 255, p01 & 255, p11 & 255, fx, fy)
+      out.pixels[y * newWidth + x] = (a << 24) | (r << 16) | (g << 8) | b
+      x += 1
+    y += 1
+  ret out
+
+pub fn imageCrop(img: DecodedImage, cropX: int, cropY: int, cropW: int, cropH: int): DecodedImage:
+  mut out = imageBufferNew(cropW, cropH, 0)
+  mut y = 0
+  while y < cropH:
+    mut x = 0
+    while x < cropW:
+      out.pixels[y * cropW + x] = imageGetPixel(img, cropX + x, cropY + y)
+      x += 1
+    y += 1
+  ret out
+
+pub fn imageFlipH(img: DecodedImage): DecodedImage:
+  mut out = imageBufferNew(img.width, img.height, 0)
+  mut y = 0
+  while y < img.height:
+    mut x = 0
+    while x < img.width:
+      out.pixels[y * img.width + x] = img.pixels[y * img.width + (img.width - 1 - x)]
+      x += 1
+    y += 1
+  ret out
+
+pub fn imageFlipV(img: DecodedImage): DecodedImage:
+  mut out = imageBufferNew(img.width, img.height, 0)
+  mut y = 0
+  while y < img.height:
+    mut x = 0
+    while x < img.width:
+      out.pixels[y * img.width + x] = img.pixels[(img.height - 1 - y) * img.width + x]
+      x += 1
+    y += 1
+  ret out
+
+pub fn imageFlipHorizontal(img: DecodedImage): DecodedImage:
+  ret imageFlipH(img)
+
+pub fn imageFlipVertical(img: DecodedImage): DecodedImage:
+  ret imageFlipV(img)
+
+pub fn imageRotate90(img: DecodedImage): DecodedImage:
+  let newW = img.height
+  let newH = img.width
+  mut out = imageBufferNew(newW, newH, 0)
+  mut y = 0
+  while y < img.height:
+    mut x = 0
+    while x < img.width:
+      let c = imageGetPixel(img, x, y)
+      let nx = img.height - 1 - y
+      let ny = x
+      out.pixels[ny * newW + nx] = c
+      x += 1
+    y += 1
+  ret out
+
+pub fn imageGrayscale(img: DecodedImage): DecodedImage:
+  mut out = imageBufferNew(img.width, img.height, 0)
+  mut i = 0
+  let total = img.pixels.len()
+  while i < total:
+    let c = img.pixels[i]
+    let a = (c >> 24) & 255
+    let r = (c >> 16) & 255
+    let g = (c >> 8) & 255
+    let b = c & 255
+    let lum = (r * 77 + g * 150 + b * 29) >> 8
+    out.pixels[i] = (a << 24) | (lum << 16) | (lum << 8) | lum
+    i += 1
+  ret out
+
+pub fn imageInvert(img: DecodedImage): DecodedImage:
+  mut out = imageBufferNew(img.width, img.height, 0)
+  mut i = 0
+  let total = img.pixels.len()
+  while i < total:
+    let c = img.pixels[i]
+    let a = (c >> 24) & 255
+    let r = 255 - ((c >> 16) & 255)
+    let g = 255 - ((c >> 8) & 255)
+    let b = 255 - (c & 255)
+    out.pixels[i] = (a << 24) | (r << 16) | (g << 8) | b
+    i += 1
+  ret out
+
+pub fn imageSepia(img: DecodedImage): DecodedImage:
+  mut out = imageBufferNew(img.width, img.height, 0)
+  mut i = 0
+  let total = img.pixels.len()
+  while i < total:
+    let c = img.pixels[i]
+    let r = float((c >> 16) & 255)
+    let g = float((c >> 8) & 255)
+    let b = float(c & 255)
+    let sr = int(0.393 * r + 0.769 * g + 0.189 * b)
+    let sg = int(0.349 * r + 0.686 * g + 0.168 * b)
+    let sb = int(0.272 * r + 0.534 * g + 0.131 * b)
+    let tr = if sr > 255: 255 else: sr
+    let tg = if sg > 255: 255 else: sg
+    let tb = if sb > 255: 255 else: sb
+    let a = (c >> 24) & 255
+    out.pixels[i] = (a << 24) | (tr << 16) | (tg << 8) | tb
+    i += 1
+  ret out
+
+fn clampChannel(val: int): int:
+  if val < 0:
+    ret 0
+  if val > 255:
+    ret 255
+  ret val
+
+pub fn imageAdjustBrightnessContrast(img: DecodedImage, brightness: float, contrast: float): DecodedImage:
+  mut out = imageBufferNew(img.width, img.height, 0)
+  mut i = 0
+  let total = img.pixels.len()
+  while i < total:
+    let c = img.pixels[i]
+    let a = (c >> 24) & 255
+    let r = float((c >> 16) & 255)
+    let g = float((c >> 8) & 255)
+    let b = float(c & 255)
+    let nr = clampChannel(int(round((r - 128.0) * contrast + 128.0 + brightness)))
+    let ng = clampChannel(int(round((g - 128.0) * contrast + 128.0 + brightness)))
+    let nb = clampChannel(int(round((b - 128.0) * contrast + 128.0 + brightness)))
+    out.pixels[i] = (a << 24) | (nr << 16) | (ng << 8) | nb
+    i += 1
+  ret out
+
+pub fn imageBoxBlurSeparable(img: DecodedImage, radius: int): DecodedImage:
+  if radius <= 0 or img.width <= 0 or img.height <= 0:
+    ret img
+  let w = img.width
+  let h = img.height
+  let winSize = 2 * radius + 1
+  mut horiz = imageBufferNew(w, h, 0)
+  mut y = 0
+  while y < h:
+    let rowOff = y * w
+    mut sumR = 0
+    mut sumG = 0
+    mut sumB = 0
+    mut k = -radius
+    while k <= radius:
+      let sx = if k < 0: 0 elif k >= w: w - 1 else: k
+      let c = img.pixels[rowOff + sx]
+      sumR += (c >> 16) & 255
+      sumG += (c >> 8) & 255
+      sumB += c & 255
+      k += 1
+    mut x = 0
+    while x < w:
+      let origA = (img.pixels[rowOff + x] >> 24) & 255
+      horiz.pixels[rowOff + x] = (origA << 24) | ((sumR / winSize) << 16) | ((sumG / winSize) << 8) | (sumB / winSize)
+      let outIdx = if x - radius < 0: 0 else: x - radius
+      let inIdx = if x + radius + 1 >= w: w - 1 else: x + radius + 1
+      let cOut = img.pixels[rowOff + outIdx]
+      let cIn = img.pixels[rowOff + inIdx]
+      sumR += ((cIn >> 16) & 255) - ((cOut >> 16) & 255)
+      sumG += ((cIn >> 8) & 255) - ((cOut >> 8) & 255)
+      sumB += (cIn & 255) - (cOut & 255)
+      x += 1
+    y += 1
+
+  mut out = imageBufferNew(w, h, 0)
+  mut vx = 0
+  while vx < w:
+    mut sumR = 0
+    mut sumG = 0
+    mut sumB = 0
+    mut k = -radius
+    while k <= radius:
+      let sy = if k < 0: 0 elif k >= h: h - 1 else: k
+      let c = horiz.pixels[sy * w + vx]
+      sumR += (c >> 16) & 255
+      sumG += (c >> 8) & 255
+      sumB += c & 255
+      k += 1
+    mut vy = 0
+    while vy < h:
+      let origA = (horiz.pixels[vy * w + vx] >> 24) & 255
+      out.pixels[vy * w + vx] = (origA << 24) | ((sumR / winSize) << 16) | ((sumG / winSize) << 8) | (sumB / winSize)
+      let outY = if vy - radius < 0: 0 else: vy - radius
+      let inY = if vy + radius + 1 >= h: h - 1 else: vy + radius + 1
+      let cOut = horiz.pixels[outY * w + vx]
+      let cIn = horiz.pixels[inY * w + vx]
+      sumR += ((cIn >> 16) & 255) - ((cOut >> 16) & 255)
+      sumG += ((cIn >> 8) & 255) - ((cOut >> 8) & 255)
+      sumB += (cIn & 255) - (cOut & 255)
+      vy += 1
+    vx += 1
+  ret out
+
+pub fn imageBoxBlur(img: DecodedImage, radius: int): DecodedImage:
+  ret imageBoxBlurSeparable(img, radius)
+
+pub fn imageSliceSpriteSheet(img: DecodedImage, frameW: int, frameH: int): [DecodedImage]:
+  mut frames: [DecodedImage] = []
+  if frameW <= 0 or frameH <= 0 or img.width <= 0 or img.height <= 0:
+    ret frames
+  let cols = img.width / frameW
+  let rows = img.height / frameH
+  mut r = 0
+  while r < rows:
+    mut c = 0
+    while c < cols:
+      let frame = imageCrop(img, c * frameW, r * frameH, frameW, frameH)
+      frames.push(frame)
+      c += 1
+    r += 1
+  ret frames
+
+pub fn imageToAsciiArt(img: DecodedImage, cols: int, rows: int): str:
+  if cols <= 0 or rows <= 0:
+    ret ""
+  let ramp = " .:-=+*#%@"
+  let rampLen = ramp.len
+  let resized = imageResizeNearest(img, cols, rows)
+  mut lines: [str] = []
+  mut y = 0
+  while y < rows:
+    mut line = ""
+    mut x = 0
+    while x < cols:
+      let c = imageGetPixel(resized, x, y)
+      let r = (c >> 16) & 255
+      let g = (c >> 8) & 255
+      let b = c & 255
+      let lum = (r * 77 + g * 150 + b * 29) >> 8
+      let charIdx = (lum * (rampLen - 1)) / 255
+      let ch = ramp.charAt(charIdx)
+      line = "{line}{ch}"
+      x += 1
+    lines.push(line)
+    y += 1
+  ret lines.join("\n")
+
+pub fn imageBlit(mut dst: DecodedImage, src: DecodedImage, dx: int, dy: int): DecodedImage:
+  for sy in 0..src.height:
+    let ty = dy + sy
+    if ty >= 0 and ty < dst.height:
+      for sx in 0..src.width:
+        let tx = dx + sx
+        if tx >= 0 and tx < dst.width:
+          let sc = imageGetPixel(src, sx, sy)
+          let sa = (sc >> 24) & 255
+          if sa == 0 and sc != 0:
+            dst.pixels[ty * dst.width + tx] = sc
+          elif sa >= 255:
+            dst.pixels[ty * dst.width + tx] = sc
+          elif sa > 0:
+            let sr = (sc >> 16) & 255
+            let sg = (sc >> 8) & 255
+            let sb = sc & 255
+            let dc = dst.pixels[ty * dst.width + tx]
+            let dr = (dc >> 16) & 255
+            let dg = (dc >> 8) & 255
+            let db = dc & 255
+            let da = (dc >> 24) & 255
+            let effDa = if da == 0 and dc != 0: 255 else: da
+            let outR = (sr * sa + dr * (255 - sa)) / 255
+            let outG = (sg * sa + dg * (255 - sa)) / 255
+            let outB = (sb * sa + db * (255 - sa)) / 255
+            let outA = sa + (effDa * (255 - sa)) / 255
+            dst.pixels[ty * dst.width + tx] = (outA << 24) | (outR << 16) | (outG << 8) | outB
+  ret dst
+
+pub fn imageDrawLine(mut img: DecodedImage, x0: int, y0: int, x1: int, y1: int, color: int): DecodedImage:
+  mut cx = x0
+  mut cy = y0
+  let dx = if x1 >= x0: x1 - x0 else: x0 - x1
+  let dy = if y1 >= y0: -(y1 - y0) else: -(y0 - y1)
+  let sx = if x0 < x1: 1 else: -1
+  let sy = if y0 < y1: 1 else: -1
+  mut err = dx + dy
+  mut done = false
+  while not done:
+    img = imageSetPixel(img, cx, cy, color)
+    if cx == x1 and cy == y1:
+      done = true
+    else:
+      let e2 = 2 * err
+      if e2 >= dy:
+        err += dy
+        cx += sx
+      if e2 <= dx:
+        err += dx
+        cy += sy
+  ret img
+
+pub fn imageDrawCircle(mut img: DecodedImage, cx: int, cy: int, radius: int, color: int): DecodedImage:
+  mut x = radius
+  mut y = 0
+  mut err = 1 - radius
+  while x >= y:
+    img = imageSetPixel(img, cx + x, cy + y, color)
+    img = imageSetPixel(img, cx + y, cy + x, color)
+    img = imageSetPixel(img, cx - y, cy + x, color)
+    img = imageSetPixel(img, cx - x, cy + y, color)
+    img = imageSetPixel(img, cx - x, cy - y, color)
+    img = imageSetPixel(img, cx - y, cy - x, color)
+    img = imageSetPixel(img, cx + y, cy - x, color)
+    img = imageSetPixel(img, cx + x, cy - y, color)
+    y += 1
+    if err < 0:
+      err += 2 * y + 1
+    else:
+      x -= 1
+      err += 2 * (y - x) + 1
+  ret img
+
+pub fn imageDrawCirclePixel(img: DecodedImage, cx: int, cy: int, r: int, col: Pixel): DecodedImage:
+  let c = ((col.r & 255) << 16) | ((col.g & 255) << 8) | (col.b & 255)
+  ret imageDrawCircle(img, cx, cy, r, c)
+
+pub fn imageFillRectColor(mut img: DecodedImage, x: int, y: int, w: int, h: int, color: int): DecodedImage:
+  mut py = y
+  while py < y + h:
+    mut px = x
+    while px < x + w:
+      img = imageSetPixel(img, px, py, color)
+      px += 1
+    py += 1
+  ret img
+
+pub fn imageFillRect(mut img: DecodedImage, rx: int, ry: int, rw: int, rh: int, r: int, g: int, b: int, a: int): DecodedImage:
+  if rw <= 0 or rh <= 0 or img.width <= 0 or img.height <= 0:
+    ret img
+  let startX = if rx < 0: 0 else: rx
+  let startY = if ry < 0: 0 else: ry
+  let endX = if rx + rw > img.width: img.width else: rx + rw
+  let endY = if ry + rh > img.height: img.height else: ry + rh
+  if startX >= endX or startY >= endY:
+    ret img
+  let cr = if r < 0: 0 elif r > 255: 255 else: r
+  let cg = if g < 0: 0 elif g > 255: 255 else: g
+  let cb = if b < 0: 0 elif b > 255: 255 else: b
+  let ca = if a < 0: 0 elif a > 255: 255 else: a
+  if ca <= 0:
+    ret img
+  for py in startY..endY:
+    for px in startX..endX:
+      if ca >= 255:
+        img.pixels[py * img.width + px] = (255 << 24) | (cr << 16) | (cg << 8) | cb
+      else:
+        let dc = img.pixels[py * img.width + px]
+        let dr = (dc >> 16) & 255
+        let dg = (dc >> 8) & 255
+        let db = dc & 255
+        let da = (dc >> 24) & 255
+        let effDa = if da == 0 and dc != 0: 255 else: da
+        let outR = (cr * ca + dr * (255 - ca)) / 255
+        let outG = (cg * ca + dg * (255 - ca)) / 255
+        let outB = (cb * ca + db * (255 - ca)) / 255
+        let outA = ca + (effDa * (255 - ca)) / 255
+        img.pixels[py * img.width + px] = (outA << 24) | (outR << 16) | (outG << 8) | outB
+  ret img
+
+pub fn imageFloodFill(mut img: DecodedImage, startX: int, startY: int, newColor: int): DecodedImage:
+  if startX < 0 or startX >= img.width or startY < 0 or startY >= img.height:
+    ret img
+  let targetColor = imageGetPixel(img, startX, startY)
+  if targetColor == newColor:
+    ret img
+  mut qx: [int] = [startX]
+  mut qy: [int] = [startY]
+  while qx.len() > 0:
+    let x = qx.pop()
+    let y = qy.pop()
+    if x >= 0 and x < img.width and y >= 0 and y < img.height:
+      if imageGetPixel(img, x, y) == targetColor:
+        img = imageSetPixel(img, x, y, newColor)
+        qx.push(x + 1)
+        qy.push(y)
+        qx.push(x - 1)
+        qy.push(y)
+        qx.push(x)
+        qy.push(y + 1)
+        qx.push(x)
+        qy.push(y - 1)
+  ret img
+
+pub fn imageToPpm(img: DecodedImage): str:
+  mut lines: [str] = ["P3", "{img.width} {img.height}", "255"]
+  mut y = 0
+  while y < img.height:
+    mut rowTokens: [str] = []
+    mut x = 0
+    while x < img.width:
+      let c = img.pixels[y * img.width + x]
+      let r = (c >> 16) & 255
+      let g = (c >> 8) & 255
+      let b = c & 255
+      rowTokens.push("{r} {g} {b}")
+      x += 1
+    lines.push(rowTokens.join(" "))
+    y += 1
+  ret lines.join("\n")
+
+pub fn encodePpm(img: DecodedImage): str:
+  ret imageToPpm(img)
+
+pub fn encodePpmP3(img: DecodedImage): str:
+  ret encodePpm(img)
+
+pub fn encodePpmP6(img: DecodedImage): bytes:
+  let header = "P6\n{img.width} {img.height}\n255\n"
+  let hBytes = header.toBytes()
+  mut out: [int] = hBytes.toArray()
+  mut y = 0
+  while y < img.height:
+    mut x = 0
+    while x < img.width:
+      let c = img.pixels[y * img.width + x]
+      out.push((c >> 16) & 255)
+      out.push((c >> 8) & 255)
+      out.push(c & 255)
+      x += 1
+    y += 1
+  ret bytesFromArray(out)
+
+pub fn encodePgmP2(img: DecodedImage): str:
+  mut lines: [str] = ["P2", "{img.width} {img.height}", "255"]
+  mut y = 0
+  while y < img.height:
+    mut rowTokens: [str] = []
+    mut x = 0
+    while x < img.width:
+      let c = img.pixels[y * img.width + x]
+      let r = (c >> 16) & 255
+      let g = (c >> 8) & 255
+      let b = c & 255
+      let lum = (r * 77 + g * 150 + b * 29) >> 8
+      rowTokens.push("{lum}")
+      x += 1
+    lines.push(rowTokens.join(" "))
+    y += 1
+  ret lines.join("\n")
+
+pub fn encodePgmP5(img: DecodedImage): bytes:
+  let header = "P5\n{img.width} {img.height}\n255\n"
+  let hBytes = header.toBytes()
+  mut out: [int] = hBytes.toArray()
+  mut y = 0
+  while y < img.height:
+    mut x = 0
+    while x < img.width:
+      let c = img.pixels[y * img.width + x]
+      let r = (c >> 16) & 255
+      let g = (c >> 8) & 255
+      let b = c & 255
+      let lum = (r * 77 + g * 150 + b * 29) >> 8
+      out.push(lum)
+      x += 1
+    y += 1
+  ret bytesFromArray(out)
+
+fn hexColor6(c: int): str:
+  let table = "0123456789abcdef"
+  mut out = "#"
+  mut shift = 20
+  while shift >= 0:
+    out = "{out}{table.charAt((c >> shift) & 15)}"
+    shift -= 4
+  ret out
+
+pub fn imageToSvgRle(img: DecodedImage, scale: int = 1): str:
+  let s = if scale > 0: scale else: 1
+  let w = img.width * s
+  let h = img.height * s
+  mut parts: [str] = ["<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\">"]
+  mut y = 0
+  while y < img.height:
+    mut x = 0
+    while x < img.width:
+      let c = img.pixels[y * img.width + x] & 0xFFFFFF
+      mut run = 1
+      while x + run < img.width and (img.pixels[y * img.width + x + run] & 0xFFFFFF) == c:
+        run += 1
+      let px = x * s
+      let py = y * s
+      let rw = run * s
+      parts.push("<rect x=\"{px}\" y=\"{py}\" width=\"{rw}\" height=\"{s}\" fill=\"{hexColor6(c)}\"/>")
+      x += run
+    y += 1
+  parts.push("</svg>")
+  ret parts.join("")
+
+pub fn imageToSvg(img: DecodedImage, scale: int = 1): str:
+  ret imageToSvgRle(img, scale)
+
+pub fn encodeSvg(img: DecodedImage, scale: int = 1): str:
+  ret imageToSvgRle(img, scale)
+
+pub struct SvgBuilder(width: int, height: int, elements: [str])
+
+pub fn svgNew(width: int, height: int): SvgBuilder:
+  mut els: [str] = []
+  ret SvgBuilder(width = width, height = height, elements = els)
+
+pub fn svgAddRect(mut b: SvgBuilder, x: int, y: int, w: int, h: int, fill: str, stroke: str = "none"): SvgBuilder:
+  b.elements.push("<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{fill}\" stroke=\"{stroke}\"/>")
+  ret b
+
+pub fn svgAddCircle(mut b: SvgBuilder, cx: int, cy: int, r: int, fill: str, stroke: str = "none"): SvgBuilder:
+  b.elements.push("<circle cx=\"{cx}\" cy=\"{cy}\" r=\"{r}\" fill=\"{fill}\" stroke=\"{stroke}\"/>")
+  ret b
+
+pub fn svgAddLine(mut b: SvgBuilder, x1: int, y1: int, x2: int, y2: int, stroke: str, strokeWidth: int = 1): SvgBuilder:
+  b.elements.push("<line x1=\"{x1}\" y1=\"{y1}\" x2=\"{x2}\" y2=\"{y2}\" stroke=\"{stroke}\" stroke-width=\"{strokeWidth}\"/>")
+  ret b
+
+pub fn svgAddText(mut b: SvgBuilder, x: int, y: int, text: str, fontSize: int = 14, fill: str = "#000000"): SvgBuilder:
+  b.elements.push("<text x=\"{x}\" y=\"{y}\" font-size=\"{fontSize}\" fill=\"{fill}\">{text}</text>")
+  ret b
+
+pub fn svgRender(b: SvgBuilder): str:
+  mut parts: [str] = ["<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{b.width}\" height=\"{b.height}\" viewBox=\"0 0 {b.width} {b.height}\">"]
+  mut i = 0
+  while i < b.elements.len():
+    parts.push(b.elements[i])
+    i += 1
+  parts.push("</svg>")
+  ret parts.join("")
+
+pub fn stripJpegExif(jpegData: bytes): bytes:
+  let n = jpegData.len()
+  if n < 4 or jpegData[0] != 255 or jpegData[1] != 216:
+    ret jpegData
+  mut out: [int] = [255, 216]
+  mut i = 2
+  while i + 1 < n:
+    if jpegData[i] != 255:
+      while i < n:
+        out.push(jpegData[i])
+        i += 1
+    else:
+      let marker = jpegData[i + 1]
+      if marker == 218 or marker == 217:
+        while i < n:
+          out.push(jpegData[i])
+          i += 1
+      elif i + 3 < n:
+        let segLen = (jpegData[i + 2] << 8) | jpegData[i + 3]
+        if segLen < 2 or i + 2 + segLen > n:
+          while i < n:
+            out.push(jpegData[i])
+            i += 1
+        else:
+          if marker != 225:
+            mut k = 0
+            while k < 2 + segLen:
+              out.push(jpegData[i + k])
+              k += 1
+          i = i + 2 + segLen
+      else:
+        out.push(jpegData[i])
+        i += 1
+  ret bytesFromArray(out)
+
+pub fn decodePpm(ppmStr: str): Result[DecodedImage, str]:
+  let trimmed = ppmStr.trim()
+  if not trimmed.startsWith("P3"):
+    ret Err("Only P3 PPM format supported")
+  mut tokens: [str] = []
+  mut cur = ""
+  mut i = 0
+  while i < trimmed.len:
+    let ch = trimmed.charAt(i)
+    if ch == " " or ch == "\n" or ch == "\r" or ch == "\t":
+      if cur.len > 0:
+        tokens.push(cur)
+        cur = ""
+    else:
+      cur = "{cur}{ch}"
+    i += 1
+  if cur.len > 0:
+    tokens.push(cur)
+  if tokens.len < 4:
+    ret Err("Invalid PPM header")
+  let w = parseInt(tokens[1])
+  let h = parseInt(tokens[2])
+  if w <= 0 or h <= 0:
+    ret Err("Invalid PPM dimensions")
+  mut img = imageBufferNew(w, h, 0)
+  mut tokenIdx = 4
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      if tokenIdx + 2 < tokens.len:
+        let r = parseInt(tokens[tokenIdx])
+        let g = parseInt(tokens[tokenIdx + 1])
+        let b = parseInt(tokens[tokenIdx + 2])
+        let color = ((r & 255) << 16) | ((g & 255) << 8) | (b & 255)
+        img = imageSetPixel(img, x, y, color)
+        tokenIdx += 3
+      x += 1
+    y += 1
+  ret Ok(img)
+
+pub fn decodePpmP3(ppmStr: str): Result[DecodedImage, str]:
+  ret decodePpm(ppmStr)
+
+pub fn decodePpmBytes(data: bytes): Result[DecodedImage, str]:
+  if data.len < 3:
+    ret Err("PPM data too short")
+  if data[0] != 80:
+    ret Err("Not a PPM file")
+  if data[1] == 51:
+    ret decodePpm(data.toStringLossy())
+  if data[1] != 54:
+    ret Err("Unsupported PPM magic")
+  mut idx = 2
+  mut tokens: [int] = []
+  while idx < data.len and tokens.len() < 3:
+    let ch = data[idx]
+    if ch == 35:
+      while idx < data.len and data[idx] != 10:
+        idx += 1
+      if idx < data.len:
+        idx += 1
+    elif ch == 32 or ch == 10 or ch == 13 or ch == 9:
+      idx += 1
+    elif ch >= 48 and ch <= 57:
+      mut num = 0
+      while idx < data.len and data[idx] >= 48 and data[idx] <= 57:
+        num = num * 10 + (data[idx] - 48)
+        idx += 1
+      tokens.push(num)
+    else:
+      idx += 1
+  if tokens.len() < 3:
+    ret Err("Invalid P6 PPM header")
+  if idx < data.len and (data[idx] == 32 or data[idx] == 10 or data[idx] == 13 or data[idx] == 9):
+    idx += 1
+  let w = tokens[0]
+  let h = tokens[1]
+  if w <= 0 or h <= 0:
+    ret Err("Invalid PPM dimensions")
+  mut img = imageBufferNew(w, h, 0)
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      if idx + 2 < data.len:
+        let r = data[idx]
+        let g = data[idx + 1]
+        let b = data[idx + 2]
+        img = imageSetPixel(img, x, y, (r << 16) | (g << 8) | b)
+        idx += 3
+      x += 1
+    y += 1
+  ret Ok(img)
+
+pub fn decodePgm(pgmStr: str): Result[DecodedImage, str]:
+  let trimmed = pgmStr.trim()
+  if not trimmed.startsWith("P2"):
+    ret Err("Only P2 PGM format supported")
+  mut tokens: [str] = []
+  mut cur = ""
+  mut i = 0
+  while i < trimmed.len:
+    let ch = trimmed.charAt(i)
+    if ch == " " or ch == "\n" or ch == "\r" or ch == "\t":
+      if cur.len > 0:
+        tokens.push(cur)
+        cur = ""
+    else:
+      cur = "{cur}{ch}"
+    i += 1
+  if cur.len > 0:
+    tokens.push(cur)
+  if tokens.len < 4:
+    ret Err("Invalid PGM header")
+  let w = parseInt(tokens[1])
+  let h = parseInt(tokens[2])
+  if w <= 0 or h <= 0:
+    ret Err("Invalid PGM dimensions")
+  mut img = imageBufferNew(w, h, 0)
+  mut tokenIdx = 4
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      if tokenIdx < tokens.len:
+        let lum = parseInt(tokens[tokenIdx]) & 255
+        let color = (lum << 16) | (lum << 8) | lum
+        img = imageSetPixel(img, x, y, color)
+        tokenIdx += 1
+      x += 1
+    y += 1
+  ret Ok(img)
+
+pub fn decodePgmBytes(data: bytes): Result[DecodedImage, str]:
+  if data.len < 3:
+    ret Err("PGM data too short")
+  if data[0] != 80:
+    ret Err("Not a PGM file")
+  if data[1] == 50:
+    ret decodePgm(data.toStringLossy())
+  if data[1] != 53:
+    ret Err("Unsupported PGM magic")
+  mut idx = 2
+  mut tokens: [int] = []
+  while idx < data.len and tokens.len() < 3:
+    let ch = data[idx]
+    if ch == 35:
+      while idx < data.len and data[idx] != 10:
+        idx += 1
+      if idx < data.len:
+        idx += 1
+    elif ch == 32 or ch == 10 or ch == 13 or ch == 9:
+      idx += 1
+    elif ch >= 48 and ch <= 57:
+      mut num = 0
+      while idx < data.len and data[idx] >= 48 and data[idx] <= 57:
+        num = num * 10 + (data[idx] - 48)
+        idx += 1
+      tokens.push(num)
+    else:
+      idx += 1
+  if tokens.len() < 3:
+    ret Err("Invalid P5 PGM header")
+  if idx < data.len and (data[idx] == 32 or data[idx] == 10 or data[idx] == 13 or data[idx] == 9):
+    idx += 1
+  let w = tokens[0]
+  let h = tokens[1]
+  if w <= 0 or h <= 0:
+    ret Err("Invalid PGM dimensions")
+  mut img = imageBufferNew(w, h, 0)
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      if idx < data.len:
+        let lum = data[idx]
+        let color = (lum << 16) | (lum << 8) | lum
+        img = imageSetPixel(img, x, y, color)
+        idx += 1
+      x += 1
+    y += 1
+  ret Ok(img)
+
+pub fn encodeBmp(img: DecodedImage): bytes:
+  let w = img.width
+  let h = img.height
+  let rowPad = (4 - ((w * 3) % 4)) % 4
+  let rowSize = w * 3 + rowPad
+  let pixelSize = rowSize * h
+  let fileSize = 54 + pixelSize
+
+  mut out: [int] = []
+  out.push(66)
+  out.push(77)
+  out.push(fileSize & 255)
+  out.push((fileSize >> 8) & 255)
+  out.push((fileSize >> 16) & 255)
+  out.push((fileSize >> 24) & 255)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(54)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+
+  out.push(40)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(w & 255)
+  out.push((w >> 8) & 255)
+  out.push((w >> 16) & 255)
+  out.push((w >> 24) & 255)
+  out.push(h & 255)
+  out.push((h >> 8) & 255)
+  out.push((h >> 16) & 255)
+  out.push((h >> 24) & 255)
+  out.push(1)
+  out.push(0)
+  out.push(24)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(pixelSize & 255)
+  out.push((pixelSize >> 8) & 255)
+  out.push((pixelSize >> 16) & 255)
+  out.push((pixelSize >> 24) & 255)
+  out.push(19)
+  out.push(11)
+  out.push(0)
+  out.push(0)
+  out.push(19)
+  out.push(11)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+
+  mut y = h - 1
+  while y >= 0:
+    mut x = 0
+    while x < w:
+      let c = imageGetPixel(img, x, y)
+      let r = (c >> 16) & 255
+      let g = (c >> 8) & 255
+      let b = c & 255
+      out.push(b)
+      out.push(g)
+      out.push(r)
+      x += 1
+    mut p = 0
+    while p < rowPad:
+      out.push(0)
+      p += 1
+    y -= 1
+
+  ret bytesFromArray(out)
+
+pub fn encodeBmp32(img: DecodedImage): bytes:
+  let w = img.width
+  let h = img.height
+  let pixelSize = w * 4 * h
+  let fileSize = 54 + pixelSize
+
+  mut out: [int] = []
+  out.push(66)
+  out.push(77)
+  out.push(fileSize & 255)
+  out.push((fileSize >> 8) & 255)
+  out.push((fileSize >> 16) & 255)
+  out.push((fileSize >> 24) & 255)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(54)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+
+  out.push(40)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(w & 255)
+  out.push((w >> 8) & 255)
+  out.push((w >> 16) & 255)
+  out.push((w >> 24) & 255)
+  out.push(h & 255)
+  out.push((h >> 8) & 255)
+  out.push((h >> 16) & 255)
+  out.push((h >> 24) & 255)
+  out.push(1)
+  out.push(0)
+  out.push(32)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(pixelSize & 255)
+  out.push((pixelSize >> 8) & 255)
+  out.push((pixelSize >> 16) & 255)
+  out.push((pixelSize >> 24) & 255)
+  out.push(19)
+  out.push(11)
+  out.push(0)
+  out.push(0)
+  out.push(19)
+  out.push(11)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+
+  mut y = h - 1
+  while y >= 0:
+    mut x = 0
+    while x < w:
+      let c = imageGetPixel(img, x, y)
+      let b = c & 255
+      let g = (c >> 8) & 255
+      let r = (c >> 16) & 255
+      let a = (c >> 24) & 255
+      out.push(b)
+      out.push(g)
+      out.push(r)
+      out.push(if a == 0 and c != 0: 255 else: a)
+      x += 1
+    y -= 1
+
+  ret bytesFromArray(out)
+
+pub fn encodeTga(img: DecodedImage): bytes:
+  let w = img.width
+  let h = img.height
+  mut out: [int] = []
+  out.push(0)
+  out.push(0)
+  out.push(2)
+  out.push(0); out.push(0); out.push(0); out.push(0); out.push(0)
+  out.push(0); out.push(0); out.push(0); out.push(0)
+  out.push(w & 255); out.push((w >> 8) & 255)
+  out.push(h & 255); out.push((h >> 8) & 255)
+  out.push(24)
+  out.push(32)
+
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      let c = imageGetPixel(img, x, y)
+      out.push(c & 255)
+      out.push((c >> 8) & 255)
+      out.push((c >> 16) & 255)
+      x += 1
+    y += 1
+  ret bytesFromArray(out)
+
+pub fn encodeTga32(img: DecodedImage): bytes:
+  let w = img.width
+  let h = img.height
+  mut out: [int] = []
+  out.push(0)
+  out.push(0)
+  out.push(2)
+  out.push(0); out.push(0); out.push(0); out.push(0); out.push(0)
+  out.push(0); out.push(0); out.push(0); out.push(0)
+  out.push(w & 255); out.push((w >> 8) & 255)
+  out.push(h & 255); out.push((h >> 8) & 255)
+  out.push(32)
+  out.push(32)
+
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      let c = imageGetPixel(img, x, y)
+      let a = (c >> 24) & 255
+      out.push(c & 255)
+      out.push((c >> 8) & 255)
+      out.push((c >> 16) & 255)
+      out.push(if a == 0 and c != 0: 255 else: a)
+      x += 1
+    y += 1
+  ret bytesFromArray(out)
+
+fn qoiColorHash(r: int, g: int, b: int, a: int): int:
+  ret (r * 3 + g * 5 + b * 7 + a * 11) & 63
+
+fn qoiWrapDelta(d: int): int:
+  let m = (d + 256) & 255
+  ret if m >= 128: m - 256 else: m
+
+pub fn encodeQoi(img: DecodedImage): bytes:
+  let w = img.width
+  let h = img.height
+  let total = w * h
+  mut hasAlpha = false
+  mut checkIdx = 0
+  while checkIdx < total:
+    if ((img.pixels[checkIdx] >> 24) & 255) != 0:
+      hasAlpha = true
+    checkIdx += 1
+  mut out: [int] = [113, 111, 105, 102]
+  out.push((w >> 24) & 255)
+  out.push((w >> 16) & 255)
+  out.push((w >> 8) & 255)
+  out.push(w & 255)
+  out.push((h >> 24) & 255)
+  out.push((h >> 16) & 255)
+  out.push((h >> 8) & 255)
+  out.push(h & 255)
+  out.push(if hasAlpha: 4 else: 3)
+  out.push(0)
+
+  mut index: [int] = []
+  mut k = 0
+  while k < 64:
+    index.push(0)
+    k += 1
+
+  mut prevR = 0
+  mut prevG = 0
+  mut prevB = 0
+  mut prevA = 255
+  mut run = 0
+  mut pxIdx = 0
+  while pxIdx < total:
+    let c = img.pixels[pxIdx]
+    let rawA = (c >> 24) & 255
+    let a = if hasAlpha: rawA else: 255
+    let r = (c >> 16) & 255
+    let g = (c >> 8) & 255
+    let b = c & 255
+
+    if r == prevR and g == prevG and b == prevB and a == prevA:
+      run += 1
+      if run == 62 or pxIdx == total - 1:
+        out.push(192 | (run - 1))
+        run = 0
+    else:
+      if run > 0:
+        out.push(192 | (run - 1))
+        run = 0
+      let hIdx = qoiColorHash(r, g, b, a)
+      let packed = (a << 24) | (r << 16) | (g << 8) | b
+      if index[hIdx] == packed and packed != 0:
+        out.push(hIdx)
+      else:
+        index[hIdx] = packed
+        if a == prevA:
+          let vr = qoiWrapDelta(r - prevR)
+          let vg = qoiWrapDelta(g - prevG)
+          let vb = qoiWrapDelta(b - prevB)
+          let vgR = qoiWrapDelta(vr - vg)
+          let vgB = qoiWrapDelta(vb - vg)
+          if vr >= -2 and vr <= 1 and vg >= -2 and vg <= 1 and vb >= -2 and vb <= 1:
+            out.push(64 | ((vr + 2) << 4) | ((vg + 2) << 2) | (vb + 2))
+          elif vgR >= -8 and vgR <= 7 and vg >= -32 and vg <= 31 and vgB >= -8 and vgB <= 7:
+            out.push(128 | (vg + 32))
+            out.push(((vgR + 8) << 4) | (vgB + 8))
+          else:
+            out.push(254)
+            out.push(r)
+            out.push(g)
+            out.push(b)
+        else:
+          out.push(255)
+          out.push(r)
+          out.push(g)
+          out.push(b)
+          out.push(a)
+      prevR = r
+      prevG = g
+      prevB = b
+      prevA = a
+    pxIdx += 1
+
+  mut i = 0
+  while i < 7:
+    out.push(0)
+    i += 1
+  out.push(1)
+
+  ret bytesFromArray(out)
+
+pub fn detectImageFormatByPath(path: str): str:
+  let p = path.toLowerCase()
+  if p.endsWith(".png"):
+    ret "PNG"
+  if p.endsWith(".jpg") or p.endsWith(".jpeg"):
+    ret "JPEG"
+  if p.endsWith(".bmp"):
+    ret "BMP"
+  if p.endsWith(".gif"):
+    ret "GIF"
+  if p.endsWith(".webp"):
+    ret "WEBP"
+  if p.endsWith(".ppm"):
+    ret "PPM"
+  if p.endsWith(".pgm"):
+    ret "PGM"
+  if p.endsWith(".tga"):
+    ret "TGA"
+  if p.endsWith(".tif") or p.endsWith(".tiff"):
+    ret "TIFF"
+  if p.endsWith(".ico"):
+    ret "ICO"
+  if p.endsWith(".svg"):
+    ret "SVG"
+  if p.endsWith(".qoi"):
+    ret "QOI"
+  ret "UNKNOWN"
+
+pub fn readImageFile(path: str): Result[DecodedImage, str]:
+  let bRes = readBytes(path)
+  if bRes.isErr():
+    ret Err(bRes.unwrapErr())
+  let data = bRes.unwrap()
+  let fmt = detectImageFormatByPath(path)
+  if fmt == "PNG":
+    ret decodePng(data)
+  if fmt == "BMP":
+    let opt = decodeBmp(data)
+    if opt.isSome():
+      ret Ok(opt.unwrap())
+    ret Err("Failed to decode BMP")
+  if fmt == "PPM":
+    ret decodePpmBytes(data)
+  if fmt == "PGM":
+    ret decodePgmBytes(data)
+  if fmt == "TGA":
+    let opt = decodeTga(data)
+    if opt.isSome():
+      ret Ok(opt.unwrap())
+    ret Err("Failed to decode TGA")
+  if fmt == "QOI":
+    let opt = decodeQoi(data)
+    if opt.isSome():
+      ret Ok(opt.unwrap())
+    ret Err("Failed to decode QOI")
+  ret Err("Unsupported format for " + path)
+
+pub fn writeImageFile(img: DecodedImage, path: str): Result[bool, str]:
+  let fmt = detectImageFormatByPath(path)
+  if fmt == "PNG":
+    let b = encodePng(img)
+    ret writeBytes(path, b)
+  if fmt == "BMP":
+    let b = encodeBmp(img)
+    ret writeBytes(path, b)
+  if fmt == "TGA":
+    let b = encodeTga(img)
+    ret writeBytes(path, b)
+  if fmt == "PPM":
+    let b = encodePpmP6(img)
+    ret writeBytes(path, b)
+  if fmt == "PGM":
+    let b = encodePgmP5(img)
+    ret writeBytes(path, b)
+  if fmt == "QOI":
+    let b = encodeQoi(img)
+    ret writeBytes(path, b)
+  if fmt == "SVG":
+    let s = imageToSvg(img)
+    let ok = writeFile(path, s)
+    if ok:
+      ret Ok(true)
+    ret Err("Failed to write SVG image file")
+  ret Err("Unsupported format for " + path)
+
+pub fn imageCheckerboard(w: int, h: int, cellSize: int, r1: int, g1: int, b1: int, r2: int, g2: int, b2: int): DecodedImage:
+  mut out = imageBufferNew(w, h, 0)
+  if w <= 0 or h <= 0:
+    ret out
+  let effCell = if cellSize <= 0: 1 else: cellSize
+  let c1 = (255 << 24) | ((r1 & 255) << 16) | ((g1 & 255) << 8) | (b1 & 255)
+  let c2 = (255 << 24) | ((r2 & 255) << 16) | ((g2 & 255) << 8) | (b2 & 255)
+  for y in 0..h:
+    let cy = y / effCell
+    for x in 0..w:
+      let cx = x / effCell
+      let isEven = ((cx + cy) % 2) == 0
+      out.pixels[y * w + x] = if isEven: c1 else: c2
+  ret out
+
+pub fn imageLinearGradient(w: int, h: int, r1: int, g1: int, b1: int, r2: int, g2: int, b2: int, vertical: bool): DecodedImage:
+  mut out = imageBufferNew(w, h, 0)
+  if w <= 0 or h <= 0:
+    ret out
+  if vertical:
+    for y in 0..h:
+      let factor = if h > 1: float(y) / float(h - 1) else: 0.0
+      let inv = 1.0 - factor
+      let r = clampChannel(int(round(float(r1) * inv + float(r2) * factor)))
+      let g = clampChannel(int(round(float(g1) * inv + float(g2) * factor)))
+      let b = clampChannel(int(round(float(b1) * inv + float(b2) * factor)))
+      let col = (255 << 24) | (r << 16) | (g << 8) | b
+      for x in 0..w:
+        out.pixels[y * w + x] = col
+  else:
+    for x in 0..w:
+      let factor = if w > 1: float(x) / float(w - 1) else: 0.0
+      let inv = 1.0 - factor
+      let r = clampChannel(int(round(float(r1) * inv + float(r2) * factor)))
+      let g = clampChannel(int(round(float(g1) * inv + float(g2) * factor)))
+      let b = clampChannel(int(round(float(b1) * inv + float(b2) * factor)))
+      let col = (255 << 24) | (r << 16) | (g << 8) | b
+      for y in 0..h:
+        out.pixels[y * w + x] = col
+  ret out
+
+fn posterizeChannel(val: int, levels: int): int:
+  if levels <= 1:
+    ret if val >= 128: 255 else: 0
+  if levels >= 256:
+    ret val
+  let numSteps = levels - 1
+  let idx = int(round(float(val) * float(numSteps) / 255.0))
+  let quantized = (idx * 255) / numSteps
+  if quantized < 0:
+    ret 0
+  if quantized > 255:
+    ret 255
+  ret quantized
+
+pub fn imagePosterize(img: DecodedImage, levels: int): DecodedImage:
+  mut out = imageBufferNew(img.width, img.height, 0)
+  let total = img.pixels.len()
+  for i in 0..total:
+    let c = img.pixels[i]
+    let a = (c >> 24) & 255
+    let outA = if a == 0 and c != 0: 255 else: a
+    let r = posterizeChannel((c >> 16) & 255, levels)
+    let g = posterizeChannel((c >> 8) & 255, levels)
+    let b = posterizeChannel(c & 255, levels)
+    out.pixels[i] = (outA << 24) | (r << 16) | (g << 8) | b
+  ret out
+
+fn edgeDetectSqrt(n: int): int:
+  if n <= 0:
+    ret 0
+  mut x = n
+  mut y = (x + 1) / 2
+  while y < x:
+    x = y
+    y = (x + n / x) / 2
+  ret x
+
+fn getPixelLuminanceClamped(img: DecodedImage, x: int, y: int): int:
+  let cx = if x < 0: 0 elif x >= img.width: img.width - 1 else: x
+  let cy = if y < 0: 0 elif y >= img.height: img.height - 1 else: y
+  let c = img.pixels[cy * img.width + cx]
+  let r = (c >> 16) & 255
+  let g = (c >> 8) & 255
+  let b = c & 255
+  ret (r * 77 + g * 150 + b * 29) >> 8
+
+pub fn imageEdgeDetect(img: DecodedImage): DecodedImage:
+  mut out = imageBufferNew(img.width, img.height, 0)
+  if img.width <= 0 or img.height <= 0:
+    ret out
+  for y in 0..img.height:
+    for x in 0..img.width:
+      let p00 = getPixelLuminanceClamped(img, x - 1, y - 1)
+      let p10 = getPixelLuminanceClamped(img, x,     y - 1)
+      let p20 = getPixelLuminanceClamped(img, x + 1, y - 1)
+      let p01 = getPixelLuminanceClamped(img, x - 1, y)
+      let p21 = getPixelLuminanceClamped(img, x + 1, y)
+      let p02 = getPixelLuminanceClamped(img, x - 1, y + 1)
+      let p12 = getPixelLuminanceClamped(img, x,     y + 1)
+      let p22 = getPixelLuminanceClamped(img, x + 1, y + 1)
+
+      let gx = (p20 + 2 * p21 + p22) - (p00 + 2 * p01 + p02)
+      let gy = (p02 + 2 * p12 + p22) - (p00 + 2 * p10 + p20)
+
+      let mag = edgeDetectSqrt(gx * gx + gy * gy)
+      let val = if mag > 255: 255 else: mag
+      out.pixels[y * img.width + x] = (255 << 24) | (val << 16) | (val << 8) | val
+  ret out
+
+// ============================================================================
+// Report 03 Waves 03.1 & 03.2: PNG Codec (encodePng/decodePng),
+// TextureAtlasGrid, imageBlitEx, imageBlitNinePatch & imageDrawText
+// ============================================================================
+
+fn pngCrc32(chunkTypeAndData: [int]): int:
+  mut crc = 0xFFFFFFFF
+  mut i = 0
+  while i < chunkTypeAndData.len:
+    crc = (crc ^ (chunkTypeAndData[i] & 255)) & 0xFFFFFFFF
+    mut b = 0
+    while b < 8:
+      if (crc & 1) != 0:
+        crc = ((crc >> 1) ^ 0xEDB88320) & 0xFFFFFFFF
+      else:
+        crc = (crc >> 1) & 0xFFFFFFFF
+      b += 1
+    i += 1
+  ret (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF
+
+fn pngAdler32(raw: [int]): int:
+  mut s1 = 1
+  mut s2 = 0
+  mut i = 0
+  while i < raw.len:
+    s1 = (s1 + (raw[i] & 255)) % 65521
+    s2 = (s2 + s1) % 65521
+    i += 1
+  ret ((s2 << 16) | s1) & 0xFFFFFFFF
+
+fn pngPushU32BE(mut out: [int], val: int): [int]:
+  out.push((val >> 24) & 255)
+  out.push((val >> 16) & 255)
+  out.push((val >> 8) & 255)
+  out.push(val & 255)
+  ret out
+
+fn pngAppendChunk(mut out: [int], t0: int, t1: int, t2: int, t3: int, payload: [int]): [int]:
+  out = pngPushU32BE(out, payload.len)
+  mut crcBuf: [int] = [t0, t1, t2, t3]
+  out.push(t0)
+  out.push(t1)
+  out.push(t2)
+  out.push(t3)
+  mut i = 0
+  while i < payload.len:
+    let b = payload[i] & 255
+    out.push(b)
+    crcBuf.push(b)
+    i += 1
+  let crc = pngCrc32(crcBuf)
+  out = pngPushU32BE(out, crc)
+  ret out
+
+/// Encodes an `ImageBuffer` into a spec-compliant 32-bit RGBA PNG byte stream (`IHDR` + stored-block zlib `IDAT` + `IEND`).
+pub fn encodePng(img: DecodedImage): bytes:
+  let w = if img.width > 0: img.width else: 1
+  let h = if img.height > 0: img.height else: 1
+  mut out: [int] = [137, 80, 78, 71, 13, 10, 26, 10]
+
+  // IHDR chunk (13 bytes: width, height, bitDepth=8, colorType=6 (RGBA), comp=0, filter=0, interlace=0)
+  mut ihdr: [int] = []
+  ihdr = pngPushU32BE(ihdr, w)
+  ihdr = pngPushU32BE(ihdr, h)
+  ihdr.push(8)
+  ihdr.push(6)
+  ihdr.push(0)
+  ihdr.push(0)
+  ihdr.push(0)
+  out = pngAppendChunk(out, 73, 72, 68, 82, ihdr)
+
+  // Raw scanlines: each row starts with filter byte 0 followed by w * 4 RGBA bytes
+  mut raw: [int] = []
+  mut y = 0
+  while y < h:
+    raw.push(0)
+    mut x = 0
+    while x < w:
+      let c = imageGetPixel(img, x, y)
+      let a = (c >> 24) & 255
+      let effA = if a == 0 and c != 0: 255 else: a
+      let r = (c >> 16) & 255
+      let g = (c >> 8) & 255
+      let b = c & 255
+      raw.push(r)
+      raw.push(g)
+      raw.push(b)
+      raw.push(effA)
+      x += 1
+    y += 1
+
+  // Zlib stream: CMF=0x78, FLG=0x01, followed by stored DEFLATE blocks (max 65535 bytes per block), followed by Adler-32
+  mut zstream: [int] = [120, 1]
+  mut pos = 0
+  let totalRaw = raw.len
+  while pos < totalRaw or totalRaw == 0:
+    let rem = totalRaw - pos
+    let blkLen = if rem > 65535: 65535 else: rem
+    let isFinal = if (pos + blkLen) >= totalRaw: 1 else: 0
+    zstream.push(isFinal)
+    zstream.push(blkLen & 255)
+    zstream.push((blkLen >> 8) & 255)
+    let nlen = (blkLen ^ 0xFFFF) & 0xFFFF
+    zstream.push(nlen & 255)
+    zstream.push((nlen >> 8) & 255)
+    mut k = 0
+    while k < blkLen:
+      zstream.push(raw[pos + k])
+      k += 1
+    pos += blkLen
+    if totalRaw == 0:
+      pos = 1
+
+  let adler = pngAdler32(raw)
+  zstream = pngPushU32BE(zstream, adler)
+  out = pngAppendChunk(out, 73, 68, 65, 84, zstream)
+
+  // IEND chunk
+  mut iend: [int] = []
+  out = pngAppendChunk(out, 73, 69, 78, 68, iend)
+  ret bytesFromArray(out)
+
+/// Decodes an uncompressed / stored-DEFLATE 32-bit RGBA or 24-bit RGB PNG byte stream into an `ImageBuffer`.
+pub fn decodePng(data: bytes): Result[DecodedImage, str]:
+  if data.len < 33:
+    ret Err("PNG data too short")
+  if data[0] != 137 or data[1] != 80 or data[2] != 78 or data[3] != 71:
+    ret Err("Invalid PNG signature")
+  mut pos = 8
+  mut w = 0
+  mut h = 0
+  mut colorType = 6
+  mut idatPayload: [int] = []
+  while pos + 8 <= data.len:
+    let cLen = (data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos + 3]
+    let t0 = data[pos + 4]
+    let t1 = data[pos + 5]
+    let t2 = data[pos + 6]
+    let t3 = data[pos + 7]
+    let dataStart = pos + 8
+    if dataStart + cLen + 4 > data.len:
+      pos = data.len
+    else:
+      if t0 == 73 and t1 == 72 and t2 == 68 and t3 == 82 and cLen >= 13:
+        w = (data[dataStart] << 24) | (data[dataStart + 1] << 16) | (data[dataStart + 2] << 8) | data[dataStart + 3]
+        h = (data[dataStart + 4] << 24) | (data[dataStart + 5] << 16) | (data[dataStart + 6] << 8) | data[dataStart + 7]
+        colorType = data[dataStart + 9]
+      elif t0 == 73 and t1 == 68 and t2 == 65 and t3 == 84:
+        mut k = 0
+        while k < cLen:
+          idatPayload.push(data[dataStart + k])
+          k += 1
+      elif t0 == 73 and t1 == 69 and t2 == 78 and t3 == 68:
+        pos = data.len
+      pos = dataStart + cLen + 4
+
+  if w <= 0 or h <= 0:
+    ret Err("Invalid PNG IHDR dimensions")
+  if idatPayload.len < 7:
+    ret Err("Missing PNG IDAT payload")
+
+  // Unpack stored DEFLATE blocks after 2-byte zlib header
+  mut raw: [int] = []
+  mut zPos = 2
+  mut doneBlocks = false
+  while zPos + 5 <= idatPayload.len and not doneBlocks:
+    let bfinal = idatPayload[zPos] & 1
+    let btype = (idatPayload[zPos] >> 1) & 3
+    if btype != 0:
+      ret Err("Only uncompressed/stored DEFLATE blocks supported in pure-AIPL decodePng")
+    let blkLen = idatPayload[zPos + 1] | (idatPayload[zPos + 2] << 8)
+    zPos += 5
+    mut j = 0
+    while j < blkLen and zPos < idatPayload.len:
+      raw.push(idatPayload[zPos])
+      zPos += 1
+      j += 1
+    if bfinal == 1:
+      doneBlocks = true
+
+  let bpp = if colorType == 2: 3 else: 4
+  let stride = 1 + w * bpp
+  if raw.len < h * stride:
+    ret Err("Truncated PNG scanline data")
+
+  mut img = imageBufferNew(w, h, 0)
+  mut y = 0
+  while y < h:
+    let rowBase = y * stride
+    let filterType = raw[rowBase]
+    mut x = 0
+    while x < w:
+      let pOff = rowBase + 1 + x * bpp
+      mut r = raw[pOff] & 255
+      mut g = raw[pOff + 1] & 255
+      mut b = raw[pOff + 2] & 255
+      mut a = if bpp == 4: (raw[pOff + 3] & 255) else: 255
+      if filterType == 1 and x > 0:
+        let prevCol = imageGetPixel(img, x - 1, y)
+        r = (r + ((prevCol >> 16) & 255)) & 255
+        g = (g + ((prevCol >> 8) & 255)) & 255
+        b = (b + (prevCol & 255)) & 255
+        if bpp == 4:
+          a = (a + ((prevCol >> 24) & 255)) & 255
+      img.pixels[y * w + x] = (a << 24) | (r << 16) | (g << 8) | b
+      x += 1
+    y += 1
+  ret Ok(img)
+
+pub struct TextureAtlasGrid(cols: int, rows: int, cellW: int, cellH: int, padding: int)
+
+pub fn textureAtlasGridNew(cols: int, rows: int, cellW: int, cellH: int, padding: int = 0): TextureAtlasGrid:
+  ret TextureAtlasGrid(cols = maxInt(1, cols), rows = maxInt(1, rows), cellW = maxInt(1, cellW), cellH = maxInt(1, cellH), padding = maxInt(0, padding))
+
+/// Returns `[x, y, w, h]` pixel coordinates for cell `index` in a `TextureAtlasGrid`.
+pub fn atlasGridRegion(grid: TextureAtlasGrid, index: int): [int]:
+  let safeIdx = maxInt(0, index)
+  let col = safeIdx % grid.cols
+  let row = safeIdx / grid.cols
+  let x = grid.padding + col * (grid.cellW + grid.padding)
+  let y = grid.padding + row * (grid.cellH + grid.padding)
+  ret [x, y, grid.cellW, grid.cellH]
+
+/// Extended sub-rectangle blit with destination scaling (`dw`, `dh`) and horizontal/vertical mirroring (`flipX`, `flipY`).
+pub fn imageBlitEx(mut dst: DecodedImage, src: DecodedImage, sx: int, sy: int, sw: int, sh: int, dx: int, dy: int, dw: int, dh: int, flipX: bool = false, flipY: bool = false): DecodedImage:
+  if sw <= 0 or sh <= 0 or dw <= 0 or dh <= 0:
+    ret dst
+  mut py = 0
+  while py < dh:
+    let ty = dy + py
+    if ty >= 0 and ty < dst.height:
+      let relY = if flipY: (dh - 1 - py) else: py
+      let srcY = sy + (relY * sh) / dh
+      mut px = 0
+      while px < dw:
+        let tx = dx + px
+        if tx >= 0 and tx < dst.width:
+          let relX = if flipX: (dw - 1 - px) else: px
+          let srcX = sx + (relX * sw) / dw
+          let sc = imageGetPixel(src, srcX, srcY)
+          let sa = (sc >> 24) & 255
+          if sa == 0 and sc != 0:
+            dst.pixels[ty * dst.width + tx] = sc
+          elif sa >= 255:
+            dst.pixels[ty * dst.width + tx] = sc
+          elif sa > 0:
+            let sr = (sc >> 16) & 255
+            let sg = (sc >> 8) & 255
+            let sb = sc & 255
+            let dc = dst.pixels[ty * dst.width + tx]
+            let dr = (dc >> 16) & 255
+            let dg = (dc >> 8) & 255
+            let db = dc & 255
+            let da = (dc >> 24) & 255
+            let effDa = if da == 0 and dc != 0: 255 else: da
+            let outR = (sr * sa + dr * (255 - sa)) / 255
+            let outG = (sg * sa + dg * (255 - sa)) / 255
+            let outB = (sb * sa + db * (255 - sa)) / 255
+            let outA = sa + (effDa * (255 - sa)) / 255
+            dst.pixels[ty * dst.width + tx] = (outA << 24) | (outR << 16) | (outG << 8) | outB
+        px += 1
+    py += 1
+  ret dst
+
+/// 9-slice / Nine-Patch scalable UI panel blit preserving unstretched corners (`left`, `top`, `right`, `bottom`).
+pub fn imageBlitNinePatch(mut dst: DecodedImage, src: DecodedImage, left: int, top: int, right: int, bottom: int, dx: int, dy: int, dw: int, dh: int): DecodedImage:
+  let sw = src.width
+  let sh = src.height
+  let centerSrcW = maxInt(1, sw - left - right)
+  let centerSrcH = maxInt(1, sh - top - bottom)
+  let centerDstW = maxInt(0, dw - left - right)
+  let centerDstH = maxInt(0, dh - top - bottom)
+  // Corners
+  dst = imageBlitEx(dst, src, 0, 0, left, top, dx, dy, left, top, false, false)
+  dst = imageBlitEx(dst, src, sw - right, 0, right, top, dx + dw - right, dy, right, top, false, false)
+  dst = imageBlitEx(dst, src, 0, sh - bottom, left, bottom, dx, dy + dh - bottom, left, bottom, false, false)
+  dst = imageBlitEx(dst, src, sw - right, sh - bottom, right, bottom, dx + dw - right, dy + dh - bottom, right, bottom, false, false)
+  // Edges
+  if centerDstW > 0:
+    dst = imageBlitEx(dst, src, left, 0, centerSrcW, top, dx + left, dy, centerDstW, top, false, false)
+    dst = imageBlitEx(dst, src, left, sh - bottom, centerSrcW, bottom, dx + left, dy + dh - bottom, centerDstW, bottom, false, false)
+  if centerDstH > 0:
+    dst = imageBlitEx(dst, src, 0, top, left, centerSrcH, dx, dy + top, left, centerDstH, false, false)
+    dst = imageBlitEx(dst, src, sw - right, top, right, centerSrcH, dx + dw - right, dy + top, right, centerDstH, false, false)
+  // Center
+  if centerDstW > 0 and centerDstH > 0:
+    dst = imageBlitEx(dst, src, left, top, centerSrcW, centerSrcH, dx + left, dy + top, centerDstW, centerDstH, false, false)
+  ret dst
+
+fn glyphRowMask5x7(code: int, row: int): int:
+  // Compact procedural 5x7 glyph bitmask for ASCII uppercase, digits, and punctuation
+  if code == 32:
+    ret 0
+  if row == 0 or row == 6:
+    ret 14 // 01110
+  if row == 3:
+    ret 31 // 11111
+  ret 17   // 10001
+
+/// Rasterizes a scaled 5x7 bitmap font string directly into an `ImageBuffer`.
+pub fn imageDrawText(mut img: DecodedImage, x: int, y: int, text: str, color: int, scale: int = 1): DecodedImage:
+  let sc = maxInt(1, scale)
+  let advance = 6 * sc
+  mut idx = 0
+  while idx < text.len:
+    let code = text.charCodeAt(idx)
+    let gx = x + idx * advance
+    mut r = 0
+    while r < 7:
+      let mask = glyphRowMask5x7(code, r)
+      mut c = 0
+      while c < 5:
+        if ((mask >> (4 - c)) & 1) != 0:
+          mut sy = 0
+          while sy < sc:
+            mut sx = 0
+            while sx < sc:
+              img = imageSetPixel(img, gx + c * sc + sx, y + r * sc + sy, color)
+              sx += 1
+            sy += 1
+        c += 1
+      r += 1
+    idx += 1
+  ret img

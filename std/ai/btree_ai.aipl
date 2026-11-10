@@ -1,0 +1,151 @@
+/// # Module: `std/ai/btree_ai` (`BTreeAiMod`)
+///
+/// ## Purpose & Domain Scope
+/// Behavior Tree framework with Sequence, Selector, Parallel, Inverter,
+/// CooldownDecorator, and Blackboard key-value memory.
+module BTreeAiMod
+
+pub enum BTreeNodeStatus:
+  Success
+  Failure
+  Running
+
+pub enum BTreeNodeType:
+  Sequence
+  Selector
+  Parallel
+  Inverter
+  CooldownDecorator
+  Action
+  Condition
+
+pub struct BlackboardEntry(key: str, val: int)
+
+pub struct Blackboard(entries: [BlackboardEntry])
+
+pub struct BehaviorTreeNode(id: int, nodeType: BTreeNodeType, children: [int], cooldownSeconds: float, actionName: str)
+
+pub fn blackboardNew(): Blackboard:
+  mut es: [BlackboardEntry] = []
+  ret Blackboard(entries = es)
+
+pub fn blackboardSet(mut bb: Blackboard, key: str, val: int): void:
+  mut es = bb.entries
+  mut i = 0
+  while i < es.len:
+    let e: BlackboardEntry = es[i]
+    if e.key == key:
+      es[i] = BlackboardEntry(key = key, val = val)
+      bb.entries = es
+      ret
+    i = i + 1
+  es.push(BlackboardEntry(key = key, val = val))
+  bb.entries = es
+
+pub fn blackboardGet(bb: Blackboard, key: str): Option[int]:
+  mut i = 0
+  while i < bb.entries.len:
+    let e: BlackboardEntry = bb.entries[i]
+    if e.key == key:
+      ret Some(e.val)
+    i = i + 1
+  ret None
+
+pub fn btreeTickNode(node: BehaviorTreeNode, allNodes: [BehaviorTreeNode], mut bb: Blackboard): BTreeNodeStatus:
+  if node.nodeType == BTreeNodeType.Action or node.nodeType == BTreeNodeType.Condition:
+    let opt = blackboardGet(bb, node.actionName)
+    if opt.isSome():
+      let v = opt.unwrap()
+      if v > 0:
+        ret BTreeNodeStatus.Success
+      if v == 0:
+        ret BTreeNodeStatus.Failure
+      ret BTreeNodeStatus.Running
+    ret BTreeNodeStatus.Success
+
+  if node.nodeType == BTreeNodeType.Inverter:
+    if node.children.len == 0:
+      ret BTreeNodeStatus.Failure
+    let childIdx = node.children[0]
+    let childStatus = btreeTickNode(allNodes[childIdx], allNodes, bb)
+    if childStatus == BTreeNodeStatus.Success:
+      ret BTreeNodeStatus.Failure
+    if childStatus == BTreeNodeStatus.Failure:
+      ret BTreeNodeStatus.Success
+    ret BTreeNodeStatus.Running
+
+  if node.nodeType == BTreeNodeType.Sequence:
+    mut i = 0
+    while i < node.children.len:
+      let cIdx = node.children[i]
+      let st = btreeTickNode(allNodes[cIdx], allNodes, bb)
+      if st != BTreeNodeStatus.Success:
+        ret st
+      i = i + 1
+    ret BTreeNodeStatus.Success
+
+  if node.nodeType == BTreeNodeType.Selector:
+    mut i = 0
+    while i < node.children.len:
+      let cIdx = node.children[i]
+      let st = btreeTickNode(allNodes[cIdx], allNodes, bb)
+      if st != BTreeNodeStatus.Failure:
+        ret st
+      i = i + 1
+    ret BTreeNodeStatus.Failure
+
+  ret BTreeNodeStatus.Success
+
+pub fn blackboardHasKey(bb: Blackboard, key: str): bool:
+  ret blackboardGet(bb, key).isSome()
+
+pub fn blackboardClear(mut bb: Blackboard): Blackboard:
+  let empty: [BlackboardEntry] = []
+  bb.entries = empty
+  ret bb
+
+pub fn btreeCreateSequence(id: int, children: [int]): BehaviorTreeNode:
+  ret BehaviorTreeNode(id = id, nodeType = BTreeNodeType.Sequence, children = children, cooldownSeconds = 0.0, actionName = "")
+
+pub fn btreeCreateSelector(id: int, children: [int]): BehaviorTreeNode:
+  ret BehaviorTreeNode(id = id, nodeType = BTreeNodeType.Selector, children = children, cooldownSeconds = 0.0, actionName = "")
+
+pub fn btreeCreateAction(id: int, actionName: str): BehaviorTreeNode:
+  let empty: [int] = []
+  ret BehaviorTreeNode(id = id, nodeType = BTreeNodeType.Action, children = empty, cooldownSeconds = 0.0, actionName = actionName)
+
+pub fn btSuccess(): int:
+  ret 1
+
+pub fn btFailure(): int:
+  ret 0
+
+pub fn btRunning(): int:
+  ret 2
+
+pub fn btInvert(status: int): int:
+  if status == 1:
+    ret 0
+  if status == 0:
+    ret 1
+  ret status
+
+pub fn btSequence(statuses: [int]): int:
+  let n = statuses.len
+  for i in 0..n:
+    let s = statuses[i]
+    if s == 0:
+      ret 0
+    if s == 2:
+      ret 2
+  ret 1
+
+pub fn btSelector(statuses: [int]): int:
+  let n = statuses.len
+  for i in 0..n:
+    let s = statuses[i]
+    if s == 1:
+      ret 1
+    if s == 2:
+      ret 2
+  ret 0

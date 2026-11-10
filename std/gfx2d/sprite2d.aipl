@@ -1,0 +1,498 @@
+module Gfx2dSpriteMod
+
+// ============================================================================
+// std/gfx2d/sprite2d.aipl — 2D Sprites, UV Sub-Rects, Pivots & Transforms
+// ============================================================================
+
+import { Vec2 } from "../math/vec_math"
+import { ColorRgba8 } from "../gfx/color"
+import { Color, rgba } from "./shape2d"
+import { pi, absFloat, maxFloat } from "../math/consts"
+import { easeLinear, easeSmoothstep, easeSmootherstep, easeInQuad, easeOutQuad, easeInOutQuad, easeInCubic, easeOutCubic, easeInOutCubic, easeInQuart, easeOutQuart, easeInOutQuart, easeInBack, easeOutBack, easeInOutBack, easeOutElastic, easeInElastic, easeInOutElastic, easeInBounce, easeOutBounce, easeInOutBounce } from "../math/ease"
+
+pub struct UvRect(u0: float, v0: float, u1: float, v1: float)
+
+pub struct SpriteOrigin(xRatio: float, yRatio: float)
+
+pub struct Sprite2D(textureId: int, uv: UvRect, size: Vec2, origin: SpriteOrigin, position: Vec2, rotationRad: float, scale: Vec2, tint: ColorRgba8, flipX: bool, flipY: bool, zOrder: int)
+
+pub fn createSprite2D(textureId: int, w: float, h: float): Sprite2D:
+  ret Sprite2D(
+    textureId = textureId,
+    uv = UvRect(u0 = 0.0, v0 = 0.0, u1 = 1.0, v1 = 1.0),
+    size = Vec2(x = w, y = h),
+    origin = SpriteOrigin(xRatio = 0.5, yRatio = 0.5),
+    position = Vec2(x = 0.0, y = 0.0),
+    rotationRad = 0.0,
+    scale = Vec2(x = 1.0, y = 1.0),
+    tint = ColorRgba8(r = 255, g = 255, b = 255, a = 255),
+    flipX = false,
+    flipY = false,
+    zOrder = 0
+  )
+
+pub fn setSpriteUv(sprite: Sprite2D, uv: UvRect): Sprite2D:
+  ret Sprite2D(
+    textureId = sprite.textureId,
+    uv = uv,
+    size = sprite.size,
+    origin = sprite.origin,
+    position = sprite.position,
+    rotationRad = sprite.rotationRad,
+    scale = sprite.scale,
+    tint = sprite.tint,
+    flipX = sprite.flipX,
+    flipY = sprite.flipY,
+    zOrder = sprite.zOrder
+  )
+
+pub fn computeSpriteCorners(sprite: Sprite2D): [Vec2]:
+  let sw = sprite.size.x * sprite.scale.x
+  let sh = sprite.size.y * sprite.scale.y
+  let ox = sw * sprite.origin.xRatio
+  let oy = sh * sprite.origin.yRatio
+  let x0 = -ox
+  let y0 = -oy
+  let x1 = sw - ox
+  let y1 = sh - oy
+  let c = cos(sprite.rotationRad)
+  let s = sin(sprite.rotationRad)
+  let px = sprite.position.x
+  let py = sprite.position.y
+
+  let p0 = Vec2(x = px + (x0 * c - y0 * s), y = py + (x0 * s + y0 * c))
+  let p1 = Vec2(x = px + (x1 * c - y0 * s), y = py + (x1 * s + y0 * c))
+  let p2 = Vec2(x = px + (x1 * c - y1 * s), y = py + (x1 * s + y1 * c))
+  let p3 = Vec2(x = px + (x0 * c - y1 * s), y = py + (x0 * s + y1 * c))
+  ret [p0, p1, p2, p3]
+
+pub fn clamp01(t: float): float:
+  if t < 0.0:
+    ret 0.0
+  if t > 1.0:
+    ret 1.0
+  ret t
+
+pub fn lerpFloat(a: float, b: float, t: float): float:
+  ret a + (b - a) * t
+
+pub fn easeTypeLinear(): int:
+  ret 0
+
+pub fn easeTypeInQuad(): int:
+  ret 1
+
+pub fn easeTypeOutQuad(): int:
+  ret 2
+
+pub fn easeTypeInOutQuad(): int:
+  ret 3
+
+pub fn easeTypeInCubic(): int:
+  ret 4
+
+pub fn easeTypeOutCubic(): int:
+  ret 5
+
+pub fn easeTypeInOutCubic(): int:
+  ret 6
+
+pub fn easeTypeInSine(): int:
+  ret 7
+
+pub fn easeTypeOutSine(): int:
+  ret 8
+
+pub fn easeTypeInOutSine(): int:
+  ret 9
+
+pub fn easeTypeOutBounce(): int:
+  ret 10
+
+pub fn easeTypeInBounce(): int:
+  ret 11
+
+pub fn easeTypeInOutBounce(): int:
+  ret 12
+
+pub fn easeTypeOutElastic(): int:
+  ret 13
+
+pub fn easeTypeInElastic(): int:
+  ret 14
+
+pub fn easeTypeInOutElastic(): int:
+  ret 15
+
+pub fn easeInSine(t: float): float:
+  let u = clamp01(t)
+  ret 1.0 - cos((u * pi()) / 2.0)
+
+pub fn easeOutSine(t: float): float:
+  let u = clamp01(t)
+  ret sin((u * pi()) / 2.0)
+
+pub fn easeInOutSine(t: float): float:
+  let u = clamp01(t)
+  ret -0.5 * (cos(pi() * u) - 1.0)
+
+pub fn easeByName(name: str, t: float): float:
+  if name == "linear":
+    ret easeLinear(t)
+  if name == "inQuad":
+    ret easeInQuad(t)
+  if name == "outQuad":
+    ret easeOutQuad(t)
+  if name == "inOutQuad":
+    ret easeInOutQuad(t)
+  if name == "inCubic":
+    ret easeInCubic(t)
+  if name == "outCubic":
+    ret easeOutCubic(t)
+  if name == "inOutCubic":
+    ret easeInOutCubic(t)
+  if name == "smoothstep":
+    ret easeSmoothstep(t)
+  if name == "smootherstep":
+    ret easeSmootherstep(t)
+  if name == "outBack":
+    ret easeOutBack(t)
+  if name == "outBounce":
+    ret easeOutBounce(t)
+  ret easeLinear(t)
+
+pub struct Tween(startVal: float, endVal: float, durationMs: float, elapsedMs: float, easing: str, looping: bool, pingPong: bool, forward: bool, finished: bool)
+
+pub fn tweenNew(startVal: float, endVal: float, durationMs: float, easing: str, looping: bool = false, pingPong: bool = false): Tween:
+  ret Tween(
+    startVal = startVal,
+    endVal = endVal,
+    durationMs = durationMs,
+    elapsedMs = 0.0,
+    easing = easing,
+    looping = looping,
+    pingPong = pingPong,
+    forward = true,
+    finished = false
+  )
+
+pub fn tweenUpdate(tw: Tween, dtMs: float): Tween:
+  if tw.finished:
+    ret tw
+  let dur = tw.durationMs
+  if dur <= 0.0:
+    ret Tween(
+      startVal = tw.startVal,
+      endVal = tw.endVal,
+      durationMs = dur,
+      elapsedMs = 0.0,
+      easing = tw.easing,
+      looping = tw.looping,
+      pingPong = tw.pingPong,
+      forward = tw.forward,
+      finished = true
+    )
+  if tw.forward:
+    let nextElapsed = tw.elapsedMs + dtMs
+    if nextElapsed >= dur:
+      if tw.pingPong:
+        let cycles = int(nextElapsed / dur)
+        let rem = nextElapsed - float(cycles) * dur
+        if not tw.looping and cycles >= 2:
+          ret Tween(
+            startVal = tw.startVal,
+            endVal = tw.endVal,
+            durationMs = dur,
+            elapsedMs = 0.0,
+            easing = tw.easing,
+            looping = tw.looping,
+            pingPong = tw.pingPong,
+            forward = false,
+            finished = true
+          )
+        if cycles % 2 == 1:
+          mut rev = dur - rem
+          if rev < 0.0:
+            rev = 0.0
+          ret Tween(
+            startVal = tw.startVal,
+            endVal = tw.endVal,
+            durationMs = dur,
+            elapsedMs = rev,
+            easing = tw.easing,
+            looping = tw.looping,
+            pingPong = tw.pingPong,
+            forward = false,
+            finished = false
+          )
+        else:
+          mut fwd = rem
+          if fwd > dur:
+            fwd = dur
+          ret Tween(
+            startVal = tw.startVal,
+            endVal = tw.endVal,
+            durationMs = dur,
+            elapsedMs = fwd,
+            easing = tw.easing,
+            looping = tw.looping,
+            pingPong = tw.pingPong,
+            forward = true,
+            finished = false
+          )
+      if tw.looping:
+        let cycles = int(nextElapsed / dur)
+        mut rem = nextElapsed - float(cycles) * dur
+        if rem < 0.0:
+          rem = 0.0
+        ret Tween(
+          startVal = tw.startVal,
+          endVal = tw.endVal,
+          durationMs = dur,
+          elapsedMs = rem,
+          easing = tw.easing,
+          looping = tw.looping,
+          pingPong = tw.pingPong,
+          forward = true,
+          finished = false
+        )
+      ret Tween(
+        startVal = tw.startVal,
+        endVal = tw.endVal,
+        durationMs = dur,
+        elapsedMs = dur,
+        easing = tw.easing,
+        looping = tw.looping,
+        pingPong = tw.pingPong,
+        forward = true,
+        finished = true
+      )
+    ret Tween(
+      startVal = tw.startVal,
+      endVal = tw.endVal,
+      durationMs = dur,
+      elapsedMs = nextElapsed,
+      easing = tw.easing,
+      looping = tw.looping,
+      pingPong = tw.pingPong,
+      forward = true,
+      finished = false
+    )
+  else:
+    let nextElapsed = tw.elapsedMs - dtMs
+    if nextElapsed <= 0.0:
+      if tw.pingPong:
+        let overshoot = -nextElapsed
+        let cycles = int(overshoot / dur)
+        let rem = overshoot - float(cycles) * dur
+        if not tw.looping:
+          ret Tween(
+            startVal = tw.startVal,
+            endVal = tw.endVal,
+            durationMs = dur,
+            elapsedMs = 0.0,
+            easing = tw.easing,
+            looping = tw.looping,
+            pingPong = tw.pingPong,
+            forward = false,
+            finished = true
+          )
+        if cycles % 2 == 0:
+          mut fwd = rem
+          if fwd > dur:
+            fwd = dur
+          ret Tween(
+            startVal = tw.startVal,
+            endVal = tw.endVal,
+            durationMs = dur,
+            elapsedMs = fwd,
+            easing = tw.easing,
+            looping = tw.looping,
+            pingPong = tw.pingPong,
+            forward = true,
+            finished = false
+          )
+        else:
+          mut rev = dur - rem
+          if rev < 0.0:
+            rev = 0.0
+          ret Tween(
+            startVal = tw.startVal,
+            endVal = tw.endVal,
+            durationMs = dur,
+            elapsedMs = rev,
+            easing = tw.easing,
+            looping = tw.looping,
+            pingPong = tw.pingPong,
+            forward = false,
+            finished = false
+          )
+      if tw.looping:
+        let overshoot = -nextElapsed
+        let cycles = int(overshoot / dur)
+        mut rem = overshoot - float(cycles) * dur
+        if rem < 0.0:
+          rem = 0.0
+        ret Tween(
+          startVal = tw.startVal,
+          endVal = tw.endVal,
+          durationMs = dur,
+          elapsedMs = rem,
+          easing = tw.easing,
+          looping = tw.looping,
+          pingPong = tw.pingPong,
+          forward = true,
+          finished = false
+        )
+      ret Tween(
+        startVal = tw.startVal,
+        endVal = tw.endVal,
+        durationMs = dur,
+        elapsedMs = 0.0,
+        easing = tw.easing,
+        looping = tw.looping,
+        pingPong = tw.pingPong,
+        forward = false,
+        finished = true
+      )
+    ret Tween(
+      startVal = tw.startVal,
+      endVal = tw.endVal,
+      durationMs = dur,
+      elapsedMs = nextElapsed,
+      easing = tw.easing,
+      looping = tw.looping,
+      pingPong = tw.pingPong,
+      forward = false,
+      finished = false
+    )
+
+pub fn tweenValue(tw: Tween): float:
+  if tw.durationMs <= 0.0:
+    ret tw.endVal
+  let t = clamp01(tw.elapsedMs / tw.durationMs)
+  let factor = easeByName(tw.easing, t)
+  ret lerpFloat(tw.startVal, tw.endVal, factor)
+
+pub fn applyEasing(t: float, easingType: int): float:
+  if easingType == 1:
+    ret easeInQuad(t)
+  if easingType == 2:
+    ret easeOutQuad(t)
+  if easingType == 3:
+    ret easeInOutQuad(t)
+  if easingType == 4:
+    ret easeInCubic(t)
+  if easingType == 5:
+    ret easeOutCubic(t)
+  if easingType == 6:
+    ret easeInOutCubic(t)
+  if easingType == 7:
+    ret easeInSine(t)
+  if easingType == 8:
+    ret easeOutSine(t)
+  if easingType == 9:
+    ret easeInOutSine(t)
+  if easingType == 10:
+    ret easeOutBounce(t)
+  if easingType == 11:
+    ret easeInBounce(t)
+  if easingType == 12:
+    ret easeInOutBounce(t)
+  if easingType == 13:
+    ret easeOutElastic(t)
+  if easingType == 14:
+    ret easeInElastic(t)
+  if easingType == 15:
+    ret easeInOutElastic(t)
+  ret easeLinear(t)
+
+pub fn tweenFloat(startVal: float, endVal: float, t: float, easingType: int): float:
+  let clampedT = clamp01(t)
+  let easedT = applyEasing(clampedT, easingType)
+  ret lerpFloat(startVal, endVal, easedT)
+
+pub fn tweenColor(c1: Color, c2: Color, t: float): Color:
+  let clampedT = clamp01(t)
+  let r = c1.r + (c2.r - c1.r) * clampedT
+  let g = c1.g + (c2.g - c1.g) * clampedT
+  let b = c1.b + (c2.b - c1.b) * clampedT
+  let a = c1.a + (c2.a - c1.a) * clampedT
+  ret Color(r = r, g = g, b = b, a = a)
+
+pub fn polarSquareRadius(halfSide: float, angle: float): float:
+  let denom = maxFloat(absFloat(cos(angle)), absFloat(sin(angle)))
+  if denom <= 0.00001:
+    ret halfSide
+  ret halfSide / denom
+
+pub fn polarStarRadius(baseRadius: float, spikeAmp: float, points: int, angle: float): float:
+  ret baseRadius + spikeAmp * cos(angle * float(points))
+
+// =============================================================================
+// Sequenced Multi-Step Tween Timelines & Mode-Dispatched Stepping
+// =============================================================================
+
+pub struct TweenSequence(steps: [Tween], currentIndex: int, looping: bool, finished: bool)
+
+pub fn tweenSequenceNew(looping: bool): TweenSequence:
+  let emptySteps: [Tween] = []
+  ret TweenSequence(steps = emptySteps, currentIndex = 0, looping = looping, finished = false)
+
+pub fn tweenSequenceAdd(mut seq: TweenSequence, tw: Tween): TweenSequence:
+  seq.steps.push(tw)
+  ret seq
+
+pub fn stepTweenSequence(mut seq: TweenSequence, dtMs: float): TweenSequence:
+  let n = seq.steps.len
+  if n == 0 or seq.finished:
+    ret seq
+  mut remDt = maxFloat(0.0, dtMs)
+  mut guard = 0
+  while remDt > 0.0 and not seq.finished and guard < 32:
+    guard += 1
+    let idx = clampInt(seq.currentIndex, 0, n - 1)
+    let cur = seq.steps[idx]
+    let dur = maxFloat(0.001, cur.durationMs)
+    let needed = maxFloat(0.0, dur - cur.elapsedMs)
+    if remDt < needed or cur.looping or cur.pingPong:
+      seq.steps[idx] = tweenUpdate(cur, remDt)
+      remDt = 0.0
+    else:
+      seq.steps[idx] = tweenUpdate(cur, needed)
+      remDt = remDt - needed
+      if idx + 1 < n:
+        seq.currentIndex = idx + 1
+      elif seq.looping:
+        mut r = 0
+        while r < n:
+          let item = seq.steps[r]
+          seq.steps[r] = Tween(
+            startVal = item.startVal,
+            endVal = item.endVal,
+            durationMs = item.durationMs,
+            elapsedMs = 0.0,
+            easing = item.easing,
+            looping = item.looping,
+            pingPong = item.pingPong,
+            forward = true,
+            finished = false
+          )
+          r += 1
+        seq.currentIndex = 0
+      else:
+        seq.finished = true
+  ret seq
+
+pub fn tweenSequenceValue(seq: TweenSequence): float:
+  if seq.steps.len == 0:
+    ret 0.0
+  let idx = clampInt(seq.currentIndex, 0, seq.steps.len - 1)
+  ret tweenValue(seq.steps[idx])
+
+pub fn stepTweenWithMode(tw: Tween, dtMs: float, easingType: int): float:
+  let updated = tweenUpdate(tw, dtMs)
+  if updated.durationMs <= 0.0:
+    ret updated.endVal
+  let t = clamp01(updated.elapsedMs / updated.durationMs)
+  ret tweenFloat(updated.startVal, updated.endVal, t, easingType)

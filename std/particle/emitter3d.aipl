@@ -1,0 +1,163 @@
+/// # Module: `std/particle/emitter3d` (`Emitter3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 3D particle simulation pool with volumetric sphere, cone, and box emission shapes
+/// and 3D force affector advection.
+module Emitter3DMod
+
+import { TAU, maxFloat, clampFloat } from "std/math/consts"
+import { sin, cos, sqrt, cbrt } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { ColorRgba8 } from "std/gfx/color"
+import {
+  ParticleAffector,
+  AFFECTOR_GRAVITY, AFFECTOR_DRAG, AFFECTOR_VORTEX, AFFECTOR_CURL_NOISE,
+  evaluateVortexForce, evaluateCurlNoiseForce
+} from "std/particle/affector"
+
+pub struct Particle3D(pos: Vec3, vel: Vec3, color: ColorRgba8, size: float, ageSec: float, lifetimeSec: float, isAlive: bool)
+
+pub struct EmissionShape3D(shapeType: int, radius: float, coneAngleRad: float, boxExtents: Vec3)
+
+pub struct ParticlePool3D(particles: [Particle3D], maxParticles: int, liveCount: int, emissionRate: float, emissionAccumulator: float)
+
+pub fn createParticlePool3D(maxParticles: int = 4096, emissionRate: float = 250.0): ParticlePool3D:
+  let cap = if maxParticles > 0: maxParticles else: 1
+  mut parts: [Particle3D] = []
+  ret ParticlePool3D(
+    particles = parts,
+    maxParticles = cap,
+    liveCount = 0,
+    emissionRate = maxFloat(emissionRate, 0.0),
+    emissionAccumulator = 0.0
+  )
+
+pub fn sampleEmissionPosition3D(shape: EmissionShape3D, r1: float, r2: float, r3: float): Vec3:
+  let u1 = clampFloat(r1, 0.0, 1.0)
+  let u2 = clampFloat(r2, 0.0, 1.0)
+  let u3 = clampFloat(r3, 0.0, 1.0)
+  if shape.shapeType == 0:
+    ret Vec3(x = 0.0, y = 0.0, z = 0.0)
+  // shapeType == 1: sphere volume
+  if shape.shapeType == 1:
+    let theta = u1 * TAU
+    let cosPhi = 1.0 - 2.0 * u2
+    let sinPhi = sqrt(maxFloat(0.0, 1.0 - cosPhi * cosPhi))
+    let rad = shape.radius * cbrt(u3)
+    ret Vec3(
+      x = rad * sinPhi * cos(theta),
+      y = rad * cosPhi,
+      z = rad * sinPhi * sin(theta)
+    )
+  // shapeType == 2: cone
+  if shape.shapeType == 2:
+    let theta = u1 * TAU
+    let h = u2 * shape.radius
+    let coneR = h * sin(shape.coneAngleRad) * sqrt(u3)
+    ret Vec3(x = coneR * cos(theta), y = h, z = coneR * sin(theta))
+  // shapeType == 3: box
+  ret Vec3(
+    x = (u1 * 2.0 - 1.0) * shape.boxExtents.x,
+    y = (u2 * 2.0 - 1.0) * shape.boxExtents.y,
+    z = (u3 * 2.0 - 1.0) * shape.boxExtents.z
+  )
+
+pub fn stepParticlePool3D(pool: ParticlePool3D, dt: float, affectors: [ParticleAffector]): ParticlePool3D:
+  mut nextParticles: [Particle3D] = []
+  mut aliveCount = 0
+
+  mut i = 0
+  while i < pool.particles.len:
+    let p: Particle3D = pool.particles[i]
+    let nextAge = p.ageSec + dt
+    if p.isAlive and nextAge < p.lifetimeSec:
+      mut vel: Vec3 = p.vel
+      mut ai = 0
+      while ai < affectors.len:
+        let aff: ParticleAffector = affectors[ai]
+        if aff.affectorType == AFFECTOR_GRAVITY:
+          let gDir: Vec3 = aff.direction
+          vel = vel.add(gDir.scale(aff.strength * dt))
+        elif aff.affectorType == AFFECTOR_DRAG:
+          let damp = maxFloat(0.0, 1.0 - aff.strength * dt)
+          vel = vel.scale(damp)
+        elif aff.affectorType == AFFECTOR_VORTEX:
+          let vf: Vec3 = evaluateVortexForce(aff, p.pos)
+          vel = vel.add(vf.scale(dt))
+        elif aff.affectorType == AFFECTOR_CURL_NOISE:
+          let cf: Vec3 = evaluateCurlNoiseForce(aff, p.pos)
+          vel = vel.add(cf.scale(dt))
+        ai = ai + 1
+
+      let curPos: Vec3 = p.pos
+      let nextPos: Vec3 = curPos.add(vel.scale(dt))
+      nextParticles.push(Particle3D(
+        pos = nextPos,
+        vel = vel,
+        color = p.color,
+        size = p.size,
+        ageSec = nextAge,
+        lifetimeSec = p.lifetimeSec,
+        isAlive = true
+      ))
+      aliveCount = aliveCount + 1
+    i = i + 1
+
+  ret ParticlePool3D(
+    particles = nextParticles,
+    maxParticles = pool.maxParticles,
+    liveCount = aliveCount,
+    emissionRate = pool.emissionRate,
+    emissionAccumulator = pool.emissionAccumulator + pool.emissionRate * dt
+  )
+
+pub fn spawnParticle3D(pool: ParticlePool3D, p: Particle3D): ParticlePool3D:
+  if pool.particles.len >= pool.maxParticles:
+    ret pool
+  mut next: [Particle3D] = []
+  mut i = 0
+  while i < pool.particles.len:
+    next.push(pool.particles[i])
+    i = i + 1
+  next.push(p)
+  ret ParticlePool3D(
+    particles = next,
+    maxParticles = pool.maxParticles,
+    liveCount = next.len,
+    emissionRate = pool.emissionRate,
+    emissionAccumulator = pool.emissionAccumulator
+  )
+
+pub fn emitParticleBurst3D(pool: ParticlePool3D, origin: Vec3, count: int, speed: float, lifetimeSec: float, color: ColorRgba8): ParticlePool3D:
+  mut cur = pool
+  let n = if count > 0: count else: 0
+  mut i = 0
+  while i < n and cur.particles.len < cur.maxParticles:
+    let angle = (float(i) / float(if n > 0: n else: 1)) * TAU
+    let p = Particle3D(
+      pos = origin,
+      vel = Vec3(x = cos(angle) * speed, y = speed * 0.5, z = sin(angle) * speed),
+      color = color,
+      size = 1.0,
+      ageSec = 0.0,
+      lifetimeSec = maxFloat(lifetimeSec, 0.01),
+      isAlive = true
+    )
+    cur = spawnParticle3D(cur, p)
+    i = i + 1
+  ret cur
+
+pub fn particleNormalizedAge3D(p: Particle3D): float:
+  if p.lifetimeSec <= 0.0:
+    ret 1.0
+  ret clampFloat(p.ageSec / p.lifetimeSec, 0.0, 1.0)
+
+pub fn clearParticlePool3D(pool: ParticlePool3D): ParticlePool3D:
+  mut empty: [Particle3D] = []
+  ret ParticlePool3D(
+    particles = empty,
+    maxParticles = pool.maxParticles,
+    liveCount = 0,
+    emissionRate = pool.emissionRate,
+    emissionAccumulator = 0.0
+  )

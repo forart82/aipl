@@ -1,0 +1,55 @@
+// ============================================================================
+// Example 048: DynamicBitSet Algebra & Probabilistic Bloom Filter (CLI)
+// Demonstrates: bitsetNew, .set(), .toggle(), .test(), .countOnes(),
+//               .countZeros(), .bitwiseOr(), .bitwiseAnd(), .bitwiseXor(),
+//               bloomHashStr, and bloomFilterNew from std/collections/bitset.
+// ============================================================================
+module Ex048CollectionsBitsetBloomFilterCli
+
+import {
+  bitsetNew,
+  bloomHashStr,
+  bloomFilterNew
+} from "../std/collections/bitset"
+
+pub fn evaluateBitSetAlgebraCounts(): int:
+  mut bsA = bitsetNew(128)
+  bsA.set(5)
+  bsA.toggle(10)
+
+  mut bsB = bitsetNew(128)
+  bsB.set(5)
+  bsB.set(20)
+
+  bsA.bitwiseOr(bsB)
+  let orOnes = bsA.countOnes()
+  let orZeros = bsA.countZeros()
+
+  bsA.bitwiseAnd(bsB)
+  // After OR {5,10,20} then AND {5,20}, bits {5,20} remain; clear 20 to isolate intersection {5}
+  bsA.clear(20)
+  let andOnes = bsA.countOnes()
+
+  if orZeros == 125 and bsA.test(5):
+    ret orOnes * 100 + andOnes
+  ret -1
+
+pub fn verifyBloomFilterMembership(presentKey: str, absentKey: str): int:
+  let h = bloomHashStr(presentKey, 42)
+  mut bf = bloomFilterNew(64, 0.01)
+  bf.add(presentKey)
+  if h >= 0 and bf.contains(presentKey) and not bf.contains(absentKey):
+    ret 1
+  ret 0
+
+pub fn describeBloomFilterGuarantee(modeId: int): str:
+  if modeId == 0:
+    ret "BLOOM:ZERO_FALSE_NEGATIVES"
+  ret "BLOOM:K_HASH_PROBABILISTIC_SET"
+
+pub fn main(): int:
+  let bsMetric = evaluateBitSetAlgebraCounts()
+  let bfOk = verifyBloomFilterMembership("user_session_42", "unseen_ghost_99")
+  println("DynamicBitSet OR/AND Count Metric: " + str(bsMetric))
+  println("BloomFilter Membership Verified: " + str(bfOk) + " (" + describeBloomFilterGuarantee(0) + ")")
+  ret 0

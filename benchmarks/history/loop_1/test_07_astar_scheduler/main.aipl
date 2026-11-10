@@ -1,0 +1,25 @@
+struct ScheduledJob(id, priority, durationMs, pathCost)
+
+fn scheduleJobsByPriority(jobs):
+  mut idxs = [i for i in 0..jobs.len]
+  for a in 0..idxs.len:
+    for b in (a + 1)..idxs.len:
+      let ja = jobs[idxs[a]]
+      let jb = jobs[idxs[b]]
+      if jb.priority > ja.priority or (jb.priority == ja.priority and jb.pathCost < ja.pathCost):
+        let tmp = idxs[a]
+        idxs[a] = idxs[b]
+        idxs[b] = tmp
+  ret idxs.map(|idx| jobs[idx].id)
+
+mut g = grid2dNew(6, 6, 0)
+g = grid2dSet(g, 2, 0, 1)
+g = grid2dSet(g, 2, 1, 1)
+g = grid2dSet(g, 2, 2, 1)
+let r1 = gridAStar(g, 0, 0, 5, 0, true)
+let r2 = gridAStar(g, 0, 5, 5, 5, true)
+assert(r1.found and r2.found and r1.cost > r2.cost)
+let jobs = [ScheduledJob(101, 5, 50, r1.cost), ScheduledJob(102, 10, 30, r1.cost), ScheduledJob(103, 5, 40, r2.cost)]
+let order = scheduleJobsByPriority(jobs)
+assert(order[0] == 102 and order[1] == 103 and order[2] == 101)
+println("Order={order[0]},{order[1]},{order[2]}\nBENCH_07_OK")

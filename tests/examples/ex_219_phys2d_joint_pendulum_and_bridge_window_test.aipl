@@ -1,0 +1,49 @@
+module Ex219Phys2dJointPendulumAndBridgeWindowTest
+
+import {
+  buildPhys2dJointAudit, stepBridgeLoadPlankIdx
+} from "../../examples/ex_219_phys2d_joint_pendulum_and_bridge_window"
+import { Vec2 } from "../../std/math/vec_math"
+import {
+  BodyType2D, rigidBody2dNew, rigidBody2dIntegrateVelocity, rigidBody2dIntegratePosition
+} from "../../std/phys2d/rigid_body2d"
+import {
+  JointType2D, distanceJointNew, springJointNew, revoluteJointNew,
+  jointSolveVelocity, jointSolvePosition
+} from "../../std/phys2d/joint2d"
+
+pub fn test_phys2d_joint_pendulum_and_bridge(): void:
+  mut ba = rigidBody2dNew(0, BodyType2D.Dynamic, Vec2(x = 0.0, y = 0.0), 0.0)
+  mut bb = rigidBody2dNew(1, BodyType2D.Dynamic, Vec2(x = 20.0, y = 0.0), 0.0)
+  let dj = distanceJointNew(0, 1, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 10.0)
+  let sj = springJointNew(0, 1, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 10.0, 20.0, 1.0)
+  let rj = revoluteJointNew(0, 1, Vec2(x = 5.0, y = 0.0))
+
+  assert(dj.targetDistance == 10.0 and sj.springStiffness == 20.0, "Distance and Spring joints initialized")
+  assert(rj.jointType == JointType2D.Revolute, "Revolute joint type verified")
+
+  jointSolveVelocity(sj, ba, bb, 0.1)
+  jointSolvePosition(dj, ba, bb)
+  assert(ba.position.x > 0.0 and bb.position.x < 20.0, "jointSolvePosition pulls stretched bodies together")
+
+  mut pivot = rigidBody2dNew(10, BodyType2D.Static, Vec2(x = 280.0, y = 170.0), 0.0)
+  mut bob = rigidBody2dNew(11, BodyType2D.Dynamic, Vec2(x = 400.0, y = 260.0), 0.0)
+  let pendJ = distanceJointNew(10, 11, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 150.0)
+  rigidBody2dIntegrateVelocity(bob, Vec2(x = 0.0, y = 180.0), 0.016)
+  jointSolveVelocity(pendJ, pivot, bob, 0.016)
+  rigidBody2dIntegratePosition(bob, 0.016)
+  jointSolvePosition(pendJ, pivot, bob)
+  assert(bob.position.y > 260.0 and pivot.position.x == 280.0, "Pendulum bob swings downward under gravity while static pivot stays anchored")
+  assert(buildPhys2dJointAudit() == 31, "buildPhys2dJointAudit returns 10 + 20 + 1 == 31")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let pl0 = stepBridgeLoadPlankIdx(0)
+  let pl20 = stepBridgeLoadPlankIdx(20)
+  let pl100 = stepBridgeLoadPlankIdx(100)
+  assert(pl0 >= 1 and pl0 <= 7 and pl20 >= 1 and pl20 <= 7, "bridge load plank index stays in [1..7]")
+  assert(pl0 != pl20 and pl20 != pl100, "rolling bridge load advances across t=0,20,100")
+
+pub fn main(): int:
+  test_phys2d_joint_pendulum_and_bridge()
+  println("PASS: ex_219_phys2d_joint_pendulum_and_bridge_window_test")
+  ret 0

@@ -1,0 +1,76 @@
+module Ex230Phys3dDominoChainReactionWindowTest
+
+import {
+  PhysWorldSettings3D, PhysicsWorld3D, physWorld3dNew,
+  physWorld3dAddBody, physWorld3dAddCollider, physWorld3dAddJoint, physWorld3dStep
+} from "../../std/phys3d/phys_world3d"
+import { BodyType3D, RigidBody3D, rigidBody3dNew, rigidBody3dSetBoxInertia } from "../../std/phys3d/rigid_body3d"
+import { PhysicsMaterial3D, boxCollider3dNew } from "../../std/phys3d/collider3d"
+import { hingeJointNew } from "../../std/phys3d/joint3d"
+import { Vec3 } from "../../std/math/vec_math"
+import { Quat } from "../../std/math/quat"
+import {
+  DominoScene, createDominoScene, stepScene, auditPhys3dDominoChainReaction
+} from "../../examples/ex_230_phys3d_domino_chain_reaction_window"
+
+pub fn test_phys3d_domino_chain_reaction(): void:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut world = physWorld3dNew(Vec3(x = 0.0, y = -9.81, z = 0.0))
+  let mat = PhysicsMaterial3D(restitution = 0.1, staticFriction = 0.5, dynamicFriction = 0.3, density = 1.0)
+  mut d0 = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 2.0, z = 0.0), idRot)
+  rigidBody3dSetBoxInertia(d0, 2.0, Vec3(x = 0.4, y = 2.0, z = 1.0))
+  let b0 = physWorld3dAddBody(world, d0)
+  let b1 = physWorld3dAddBody(world, rigidBody3dNew(1, BodyType3D.Dynamic, Vec3(x = 1.2, y = 2.0, z = 0.0), idRot))
+  physWorld3dAddCollider(world, b0, boxCollider3dNew(Vec3(x = 0.2, y = 1.0, z = 0.5), mat))
+  physWorld3dAddCollider(world, b1, boxCollider3dNew(Vec3(x = 0.2, y = 1.0, z = 0.5), mat))
+  physWorld3dAddJoint(world, hingeJointNew(b0, b1, Vec3(x = 0.6, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 1.0)))
+  physWorld3dStep(world, 0.1)
+  let stepped0: RigidBody3D = world.bodies[b0]
+  assert(stepped0.position.y < 2.0, "3D world stepped domino body")
+
+  mut scene: DominoScene = createDominoScene()
+  let dom0Init: RigidBody3D = scene.world.bodies[0]
+  let rz0 = dom0Init.rotation.z
+  assert(scene.toppledCount == 1, "Initially only domino 0 is tipped")
+  stepScene(scene, 0, 0.08)
+  let dom0Step1: RigidBody3D = scene.world.bodies[0]
+  let rz1 = dom0Step1.rotation.z
+  assert(rz1 < rz0, "t=0 -> t=1 tilts domino 0 clockwise via quaternion integration")
+
+  mut f = 1
+  while f <= 25:
+    stepScene(scene, f, 0.08)
+    f = f + 1
+  let dom3Step25: RigidBody3D = scene.world.bodies[3]
+  let rz25 = dom3Step25.rotation.z
+  let top25 = scene.toppledCount
+  assert(top25 >= 4 and rz25 < 0.0, "t=1 -> t=25 cascades angular impulse across multiple dominoes")
+
+  while f <= 100:
+    stepScene(scene, f, 0.06)
+    f = f + 1
+  let dom3Step100: RigidBody3D = scene.world.bodies[3]
+  let rz100 = dom3Step100.rotation.z
+  assert(scene.waveCount >= 2 and (rz100 != rz25 or scene.toppledCount != top25), "t=25 -> t=100 stands dominoes back up and repeats chain reaction cascade")
+
+  while f <= 185:
+    stepScene(scene, f, 0.06)
+    f = f + 1
+  let top185 = scene.toppledCount
+  let dom2Step185: RigidBody3D = scene.world.bodies[2]
+  let rz185 = dom2Step185.rotation.z
+  while f <= 225:
+    stepScene(scene, f, 0.06)
+    f = f + 1
+  let top225 = scene.toppledCount
+  let dom2Step225: RigidBody3D = scene.world.bodies[2]
+  let rz225 = dom2Step225.rotation.z
+  assert(top185 != top225 or rz185 != rz225, "t=185 -> t=225 continues toppling without long settled freeze")
+
+  let audit = auditPhys3dDominoChainReaction()
+  assert(audit == 65, "3D domino chain reaction audit")
+
+pub fn main(): int:
+  test_phys3d_domino_chain_reaction()
+  println("PASS: ex_230_phys3d_domino_chain_reaction_window_test")
+  ret 0

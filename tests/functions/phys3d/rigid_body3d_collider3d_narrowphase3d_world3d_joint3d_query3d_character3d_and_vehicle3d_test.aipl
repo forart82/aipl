@@ -1,0 +1,540 @@
+module tests.functions.phys3d.rigid_body3d_collider3d_narrowphase3d_world3d_joint3d_query3d_character3d_and_vehicle3d_test
+
+import * from "std/phys3d/character3d"
+import { minFloat } from "std/math/consts"
+import { Vec3 } from "std/math/vec_math"
+import { PhysicsWorld3D } from "std/phys3d/phys_world3d"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import * from "std/phys3d/collider3d"
+import { maxFloat } from "std/math/consts"
+import { Quat } from "std/math/quat"
+import { AABB3D } from "std/math/geom3d"
+import { Transform3D } from "std/spatial/continuous_world3d"
+import * from "std/phys3d/joint3d"
+import { RigidBody3D } from "std/phys3d/rigid_body3d"
+import * from "std/phys3d/narrowphase3d"
+import { absFloat, minFloat, clampFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Collider3D, ColliderShapeType3D, collider3dComputeAABB } from "std/phys3d/collider3d"
+import * from "std/phys3d/phys_query3d"
+import { absFloat, minFloat } from "std/math/consts"
+import { Ray3D } from "std/math/geom3d"
+import { Collider3D, ColliderShapeType3D } from "std/phys3d/collider3d"
+import * from "std/phys3d/phys_world3d"
+import { RigidBody3D, rigidBody3dIntegrate } from "std/phys3d/rigid_body3d"
+import { Collider3D } from "std/phys3d/collider3d"
+import { Joint3D, joint3dSolveVelocity } from "std/phys3d/joint3d"
+import * from "std/phys3d/rigid_body3d"
+import { Mat3 } from "std/math/mat"
+import * from "std/phys3d/vehicle3d"
+import { RigidBody3D, rigidBody3dApplyForceAtPoint } from "std/phys3d/rigid_body3d"
+
+pub fn test_character3d_characterControllerNew_1(): int:
+  let arg_settings = CharacterControllerSettings3D(stepHeight = 2.0, slopeLimitRadians = 0.0, skinWidth = 2.0, gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), groundFriction = 1.0, airControl = 1.0)
+  let edge_settings = CharacterControllerSettings3D(stepHeight = 1.0, slopeLimitRadians = 0.0, skinWidth = 1.0, gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), groundFriction = 0.5, airControl = 0.5)
+  let arg_height = 2.0
+  let edge_height = 1.0
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let resNom = characterControllerNew(arg_settings, arg_height, arg_radius)
+  let resEdge = characterControllerNew(edge_settings, edge_height, edge_radius)
+  assertApproxEq(resNom.height, 2.0, 0.001, "characterControllerNew nominal resNom.height ~= 2.0")
+  assertApproxEq(resEdge.height, 1.0, 0.001, "characterControllerNew boundary resEdge.height ~= 1.0")
+  ret 0
+
+pub fn test_character3d_characterMoveAndSlide_2(): int:
+  let arg_controller = KinematicCharacterController3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), velocity = Vec3(x = 1.0, y = 1.0, z = 1.0), height = 2.0, radius = 2.0, isGrounded = true, groundNormal = Vec3(x = 1.0, y = 1.0, z = 1.0), settings = CharacterControllerSettings3D(stepHeight = 2.0, slopeLimitRadians = 0.0, skinWidth = 2.0, gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), groundFriction = 1.0, airControl = 1.0))
+  let edge_controller = KinematicCharacterController3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), velocity = Vec3(x = 0.5, y = 0.5, z = 0.5), height = 1.0, radius = 1.0, isGrounded = false, groundNormal = Vec3(x = 0.5, y = 0.5, z = 0.5), settings = CharacterControllerSettings3D(stepHeight = 1.0, slopeLimitRadians = 0.0, skinWidth = 1.0, gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), groundFriction = 0.5, airControl = 0.5))
+  let arg_desiredVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_desiredVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = characterMoveAndSlide(arg_controller, arg_desiredVelocity, arg_world, arg_dt)
+  let resEdge = characterMoveAndSlide(edge_controller, edge_desiredVelocity, edge_world, edge_dt)
+  assertApproxEq(resNom.x, 3.0, 0.001, "characterMoveAndSlide nominal resNom.x ~= 3.0")
+  assertApproxEq(resEdge.x, 1.5, 0.001, "characterMoveAndSlide boundary resEdge.x ~= 1.5")
+  ret 0
+
+pub fn test_character3d_computeAirAccelerateVelocity_3(): int:
+  let arg_velocity = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_velocity = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_wishDir = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_wishDir = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_wishSpeed = 2.0
+  let edge_wishSpeed = 1.0
+  let arg_accel = 1.0
+  let edge_accel = 0.5
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = computeAirAccelerateVelocity(arg_velocity, arg_wishDir, arg_wishSpeed, arg_accel, arg_dt)
+  let resEdge = computeAirAccelerateVelocity(edge_velocity, edge_wishDir, edge_wishSpeed, edge_accel, edge_dt)
+  assertApproxEq(resNom.x, 1.0, 0.001, "computeAirAccelerateVelocity nominal resNom.x ~= 1.0")
+  assertApproxEq(resEdge.x, 0.625, 0.001, "computeAirAccelerateVelocity boundary resEdge.x ~= 0.625")
+  ret 0
+
+pub fn test_collider3d_identityTransform3D_1(): int:
+  let resNom = identityTransform3D()
+  let resEdge = identityTransform3D()
+  assertApproxEq(resNom.position.x, 0.0, 0.001, "identityTransform3D nominal resNom.position.x ~= 0.0")
+  assertApproxEq(resEdge.position.x, 0.0, 0.001, "identityTransform3D boundary resEdge.position.x ~= 0.0")
+  ret 0
+
+pub fn test_collider3d_sphereColliderNew_2(): int:
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let arg_material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0)
+  let edge_material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5)
+  let resNom = sphereColliderNew(arg_radius, arg_material)
+  let resEdge = sphereColliderNew(edge_radius, edge_material)
+  assertApproxEq(resNom.sphereRadius, 2.0, 0.001, "sphereColliderNew nominal resNom.sphereRadius ~= 2.0")
+  assertApproxEq(resEdge.sphereRadius, 1.0, 0.001, "sphereColliderNew boundary resEdge.sphereRadius ~= 1.0")
+  ret 0
+
+pub fn test_collider3d_boxCollider3dNew_3(): int:
+  let arg_halfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_halfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0)
+  let edge_material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5)
+  let resNom = boxCollider3dNew(arg_halfExtents, arg_material)
+  let resEdge = boxCollider3dNew(edge_halfExtents, edge_material)
+  assertApproxEq(resNom.sphereRadius, 0.0, 0.001, "boxCollider3dNew nominal resNom.sphereRadius ~= 0.0")
+  assertApproxEq(resEdge.sphereRadius, 0.0, 0.001, "boxCollider3dNew boundary resEdge.sphereRadius ~= 0.0")
+  ret 0
+
+pub fn test_collider3d_capsuleCollider3dNew_4(): int:
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let arg_height = 2.0
+  let edge_height = 1.0
+  let arg_material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0)
+  let edge_material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5)
+  let resNom = capsuleCollider3dNew(arg_radius, arg_height, arg_material)
+  let resEdge = capsuleCollider3dNew(edge_radius, edge_height, edge_material)
+  assertApproxEq(resNom.sphereRadius, 2.0, 0.001, "capsuleCollider3dNew nominal resNom.sphereRadius ~= 2.0")
+  assertApproxEq(resEdge.sphereRadius, 1.0, 0.001, "capsuleCollider3dNew boundary resEdge.sphereRadius ~= 1.0")
+  ret 0
+
+pub fn test_collider3d_collider3dComputeAABB_5(): int:
+  let arg_collider = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0)), sphereRadius = 2.0, boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0), capsuleRadius = 2.0, capsuleHeight = 2.0, cylinderRadius = 2.0, cylinderHeight = 2.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)
+  let edge_collider = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5)), sphereRadius = 1.0, boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5), capsuleRadius = 1.0, capsuleHeight = 1.0, cylinderRadius = 1.0, cylinderHeight = 1.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5), isSensor = false, collisionLayer = 1, collisionMask = 1)
+  let arg_bodyTransform = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let edge_bodyTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5))
+  let resNom = collider3dComputeAABB(arg_collider, arg_bodyTransform)
+  let resEdge = collider3dComputeAABB(edge_collider, edge_bodyTransform)
+  assertApproxEq(resNom.min.x, 0.0, 0.001, "collider3dComputeAABB nominal resNom.min.x ~= 0.0")
+  assertApproxEq(resEdge.min.x, 0.0, 0.001, "collider3dComputeAABB boundary resEdge.min.x ~= 0.0")
+  ret 0
+
+pub fn test_joint3d_ballSocketJointNew_1(): int:
+  let arg_bodyA = 4
+  let edge_bodyA = 1
+  let arg_bodyB = 4
+  let edge_bodyB = 1
+  let arg_worldAnchor = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_worldAnchor = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = ballSocketJointNew(arg_bodyA, arg_bodyB, arg_worldAnchor)
+  let resEdge = ballSocketJointNew(edge_bodyA, edge_bodyB, edge_worldAnchor)
+  assertEqInt(resNom.id, 0, "ballSocketJointNew nominal resNom.id == 0")
+  assertEqInt(resEdge.id, 0, "ballSocketJointNew boundary resEdge.id == 0")
+  ret 0
+
+pub fn test_joint3d_hingeJointNew_2(): int:
+  let arg_bodyA = 4
+  let edge_bodyA = 1
+  let arg_bodyB = 4
+  let edge_bodyB = 1
+  let arg_worldAnchor = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_worldAnchor = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_worldAxis = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_worldAxis = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = hingeJointNew(arg_bodyA, arg_bodyB, arg_worldAnchor, arg_worldAxis)
+  let resEdge = hingeJointNew(edge_bodyA, edge_bodyB, edge_worldAnchor, edge_worldAxis)
+  assertEqInt(resNom.id, 0, "hingeJointNew nominal resNom.id == 0")
+  assertEqInt(resEdge.id, 0, "hingeJointNew boundary resEdge.id == 0")
+  ret 0
+
+pub fn test_joint3d_sixDofJointNew_3(): int:
+  let arg_bodyA = 4
+  let edge_bodyA = 1
+  let arg_bodyB = 4
+  let edge_bodyB = 1
+  let arg_anchorA = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_anchorA = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_anchorB = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_anchorB = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = sixDofJointNew(arg_bodyA, arg_bodyB, arg_anchorA, arg_anchorB)
+  let resEdge = sixDofJointNew(edge_bodyA, edge_bodyB, edge_anchorA, edge_anchorB)
+  assertEqInt(resNom.id, 0, "sixDofJointNew nominal resNom.id == 0")
+  assertEqInt(resEdge.id, 0, "sixDofJointNew boundary resEdge.id == 0")
+  ret 0
+
+pub fn test_joint3d_joint3dSolveVelocity_4(): int:
+  let arg_joint = Joint3D(id = 1, jointType = JointType3D.BallSocket, bodyIdA = 4, bodyIdB = 4, localAnchorA = Vec3(x = 1.0, y = 1.0, z = 1.0), localAnchorB = Vec3(x = 1.0, y = 1.0, z = 1.0), localAxisA = Vec3(x = 1.0, y = 1.0, z = 1.0), localAxisB = Vec3(x = 1.0, y = 1.0, z = 1.0), minLimits = Vec3(x = 1.0, y = 1.0, z = 1.0), maxLimits = Vec3(x = 1.0, y = 1.0, z = 1.0), enableMotor = true, motorTargetVelocity = 0.0, motorMaxForce = 2.0)
+  let edge_joint = Joint3D(id = 0, jointType = JointType3D.BallSocket, bodyIdA = 1, bodyIdB = 1, localAnchorA = Vec3(x = 0.5, y = 0.5, z = 0.5), localAnchorB = Vec3(x = 0.5, y = 0.5, z = 0.5), localAxisA = Vec3(x = 0.5, y = 0.5, z = 0.5), localAxisB = Vec3(x = 0.5, y = 0.5, z = 0.5), minLimits = Vec3(x = 0.5, y = 0.5, z = 0.5), maxLimits = Vec3(x = 0.5, y = 0.5, z = 0.5), enableMotor = false, motorTargetVelocity = 0.0, motorMaxForce = 1.0)
+  let arg_bodyA = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_bodyA = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let arg_bodyB = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_bodyB = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  joint3dSolveVelocity(arg_joint, arg_bodyA, arg_bodyB, arg_dt)
+  joint3dSolveVelocity(edge_joint, edge_bodyA, edge_bodyB, edge_dt)
+  assertEqInt(arg_bodyA.id, 1, "joint3dSolveVelocity nominal arg_bodyA.id == 1")
+  assertEqInt(edge_bodyA.id, 0, "joint3dSolveVelocity boundary edge_bodyA.id == 0")
+  ret 0
+
+pub fn test_narrowphase3d_testSphereSphere3D_1(): int:
+  let arg_posA = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_posA = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_radA = 1.0
+  let edge_radA = 0.5
+  let arg_posB = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_posB = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_radB = 1.0
+  let edge_radB = 0.5
+  let resNom = testSphereSphere3D(arg_posA, arg_radA, arg_posB, arg_radB)
+  let resEdge = testSphereSphere3D(edge_posA, edge_radA, edge_posB, edge_radB)
+  assert(resNom.isSome() == true, "testSphereSphere3D nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "testSphereSphere3D boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_narrowphase3d_testSphereBox3D_2(): int:
+  let arg_spherePos = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_spherePos = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let arg_boxPos = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_boxPos = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_boxRot = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0)
+  let edge_boxRot = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0)
+  let arg_boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = testSphereBox3D(arg_spherePos, arg_radius, arg_boxPos, arg_boxRot, arg_boxHalfExtents)
+  let resEdge = testSphereBox3D(edge_spherePos, edge_radius, edge_boxPos, edge_boxRot, edge_boxHalfExtents)
+  assert(resNom.isSome() == true, "testSphereBox3D nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "testSphereBox3D boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_narrowphase3d_testGjkEpa3D_3(): int:
+  let arg_colliderA = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0)), sphereRadius = 2.0, boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0), capsuleRadius = 2.0, capsuleHeight = 2.0, cylinderRadius = 2.0, cylinderHeight = 2.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)
+  let edge_colliderA = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5)), sphereRadius = 1.0, boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5), capsuleRadius = 1.0, capsuleHeight = 1.0, cylinderRadius = 1.0, cylinderHeight = 1.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5), isSensor = false, collisionLayer = 1, collisionMask = 1)
+  let arg_transformA = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let edge_transformA = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5))
+  let arg_colliderB = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0)), sphereRadius = 2.0, boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0), capsuleRadius = 2.0, capsuleHeight = 2.0, cylinderRadius = 2.0, cylinderHeight = 2.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)
+  let edge_colliderB = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5)), sphereRadius = 1.0, boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5), capsuleRadius = 1.0, capsuleHeight = 1.0, cylinderRadius = 1.0, cylinderHeight = 1.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5), isSensor = false, collisionLayer = 1, collisionMask = 1)
+  let arg_transformB = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let edge_transformB = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5))
+  let resNom = testGjkEpa3D(arg_colliderA, arg_transformA, arg_colliderB, arg_transformB)
+  let resEdge = testGjkEpa3D(edge_colliderA, edge_transformA, edge_colliderB, edge_transformB)
+  assert(resNom.isSome() == true, "testGjkEpa3D nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "testGjkEpa3D boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_narrowphase3d_contactManifold3dCache_4(): int:
+  let arg_existing = ContactManifold3D(bodyIdA = 4, bodyIdB = 4, points = [], isColliding = true)
+  let edge_existing = ContactManifold3D(bodyIdA = 1, bodyIdB = 1, points = [], isColliding = false)
+  let arg_newManifold = ContactManifold3D(bodyIdA = 4, bodyIdB = 4, points = [], isColliding = true)
+  let edge_newManifold = ContactManifold3D(bodyIdA = 1, bodyIdB = 1, points = [], isColliding = false)
+  contactManifold3dCache(arg_existing, arg_newManifold)
+  contactManifold3dCache(edge_existing, edge_newManifold)
+  assertEqInt(arg_existing.bodyIdA, 4, "contactManifold3dCache nominal arg_existing.bodyIdA == 4")
+  assertEqInt(edge_existing.bodyIdA, 1, "contactManifold3dCache boundary edge_existing.bodyIdA == 1")
+  ret 0
+
+pub fn test_phys_query3d_extractRayDir3D_1(): int:
+  let arg_ray = Ray3D(origin = Vec3(x = 1.0, y = 1.0, z = 1.0), dir = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), maxDistance = 2.0)
+  let edge_ray = Ray3D(origin = Vec3(x = 0.5, y = 0.5, z = 0.5), dir = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), maxDistance = 1.0)
+  let resNom = extractRayDir3D(arg_ray)
+  let resEdge = extractRayDir3D(edge_ray)
+  assertApproxEq(resNom.x, 0.57735, 0.001, "extractRayDir3D nominal resNom.x ~= 0.57735")
+  assertApproxEq(resEdge.x, 0.57735, 0.001, "extractRayDir3D boundary resEdge.x ~= 0.57735")
+  ret 0
+
+pub fn test_phys_query3d_raycast3dSphere_2(): int:
+  let arg_ray = Ray3D(origin = Vec3(x = 1.0, y = 1.0, z = 1.0), dir = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), maxDistance = 2.0)
+  let edge_ray = Ray3D(origin = Vec3(x = 0.5, y = 0.5, z = 0.5), dir = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), maxDistance = 1.0)
+  let arg_sphereCenter = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_sphereCenter = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let resNom = raycast3dSphere(arg_ray, arg_sphereCenter, arg_radius)
+  let resEdge = raycast3dSphere(edge_ray, edge_sphereCenter, edge_radius)
+  assert(resNom.isSome() == false, "raycast3dSphere nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "raycast3dSphere boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_phys_query3d_raycast3dBox_3(): int:
+  let arg_ray = Ray3D(origin = Vec3(x = 1.0, y = 1.0, z = 1.0), dir = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), maxDistance = 2.0)
+  let edge_ray = Ray3D(origin = Vec3(x = 0.5, y = 0.5, z = 0.5), dir = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), maxDistance = 1.0)
+  let arg_boxPos = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_boxPos = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_boxRot = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0)
+  let edge_boxRot = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0)
+  let arg_boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = raycast3dBox(arg_ray, arg_boxPos, arg_boxRot, arg_boxHalfExtents)
+  let resEdge = raycast3dBox(edge_ray, edge_boxPos, edge_boxRot, edge_boxHalfExtents)
+  assert(resNom.isSome() == true, "raycast3dBox nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "raycast3dBox boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_phys_query3d_sphereCast3D_4(): int:
+  let arg_ray = Ray3D(origin = Vec3(x = 1.0, y = 1.0, z = 1.0), dir = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), maxDistance = 2.0)
+  let edge_ray = Ray3D(origin = Vec3(x = 0.5, y = 0.5, z = 0.5), dir = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), maxDistance = 1.0)
+  let arg_sphereRadius = 2.0
+  let edge_sphereRadius = 1.0
+  let arg_colliders = [Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5)), sphereRadius = 2.0, boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0), capsuleRadius = 2.0, capsuleHeight = 2.0, cylinderRadius = 2.0, cylinderHeight = 2.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)]
+  let edge_colliders = []
+  let resNom = sphereCast3D(arg_ray, arg_sphereRadius, arg_colliders)
+  let resEdge = sphereCast3D(edge_ray, edge_sphereRadius, edge_colliders)
+  assert(resNom.isSome() == false, "sphereCast3D nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "sphereCast3D boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_phys_world3d_physWorld3dNew_1(): int:
+  let arg_gravity = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_gravity = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = physWorld3dNew(arg_gravity)
+  let resEdge = physWorld3dNew(edge_gravity)
+  assertEqInt(resNom.bodies.len(), 0, "physWorld3dNew nominal resNom.bodies.len() == 0")
+  assertEqInt(resEdge.bodies.len(), 0, "physWorld3dNew boundary resEdge.bodies.len() == 0")
+  ret 0
+
+pub fn test_phys_world3d_physWorld3dAddBody_2(): int:
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_body = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_body = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let resNom = physWorld3dAddBody(arg_world, arg_body)
+  let resEdge = physWorld3dAddBody(edge_world, edge_body)
+  assertEqInt(resNom, 0, "physWorld3dAddBody nominal resNom == 0")
+  assertEqInt(resEdge, 0, "physWorld3dAddBody boundary resEdge == 0")
+  ret 0
+
+pub fn test_phys_world3d_physWorld3dAddCollider_3(): int:
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_bodyId = 4
+  let edge_bodyId = 1
+  let arg_collider = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0)), sphereRadius = 2.0, boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0), capsuleRadius = 2.0, capsuleHeight = 2.0, cylinderRadius = 2.0, cylinderHeight = 2.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)
+  let edge_collider = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5)), sphereRadius = 1.0, boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5), capsuleRadius = 1.0, capsuleHeight = 1.0, cylinderRadius = 1.0, cylinderHeight = 1.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5), isSensor = false, collisionLayer = 1, collisionMask = 1)
+  let resNom = physWorld3dAddCollider(arg_world, arg_bodyId, arg_collider)
+  let resEdge = physWorld3dAddCollider(edge_world, edge_bodyId, edge_collider)
+  assertEqInt(resNom, 0, "physWorld3dAddCollider nominal resNom == 0")
+  assertEqInt(resEdge, 0, "physWorld3dAddCollider boundary resEdge == 0")
+  ret 0
+
+pub fn test_phys_world3d_physWorld3dAddJoint_4(): int:
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_joint = Joint3D(id = 1, jointType = JointType3D.BallSocket, bodyIdA = 4, bodyIdB = 4, localAnchorA = Vec3(x = 1.0, y = 1.0, z = 1.0), localAnchorB = Vec3(x = 1.0, y = 1.0, z = 1.0), localAxisA = Vec3(x = 1.0, y = 1.0, z = 1.0), localAxisB = Vec3(x = 1.0, y = 1.0, z = 1.0), minLimits = Vec3(x = 1.0, y = 1.0, z = 1.0), maxLimits = Vec3(x = 1.0, y = 1.0, z = 1.0), enableMotor = true, motorTargetVelocity = 0.0, motorMaxForce = 2.0)
+  let edge_joint = Joint3D(id = 0, jointType = JointType3D.BallSocket, bodyIdA = 1, bodyIdB = 1, localAnchorA = Vec3(x = 0.5, y = 0.5, z = 0.5), localAnchorB = Vec3(x = 0.5, y = 0.5, z = 0.5), localAxisA = Vec3(x = 0.5, y = 0.5, z = 0.5), localAxisB = Vec3(x = 0.5, y = 0.5, z = 0.5), minLimits = Vec3(x = 0.5, y = 0.5, z = 0.5), maxLimits = Vec3(x = 0.5, y = 0.5, z = 0.5), enableMotor = false, motorTargetVelocity = 0.0, motorMaxForce = 1.0)
+  let resNom = physWorld3dAddJoint(arg_world, arg_joint)
+  let resEdge = physWorld3dAddJoint(edge_world, edge_joint)
+  assertEqInt(resNom, 0, "physWorld3dAddJoint nominal resNom == 0")
+  assertEqInt(resEdge, 0, "physWorld3dAddJoint boundary resEdge == 0")
+  ret 0
+
+pub fn test_phys_world3d_physWorld3dStep_5(): int:
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  physWorld3dStep(arg_world, arg_dt)
+  physWorld3dStep(edge_world, edge_dt)
+  assertEqInt(arg_world.bodies.len(), 0, "physWorld3dStep nominal arg_world.bodies.len() == 0")
+  assertEqInt(edge_world.bodies.len(), 0, "physWorld3dStep boundary edge_world.bodies.len() == 0")
+  ret 0
+
+pub fn test_rigid_body3d_rigidBody3dNew_1(): int:
+  let arg_id = 1
+  let edge_id = 0
+  let arg_bodyType = BodyType3D.Static
+  let edge_bodyType = BodyType3D.Static
+  let arg_pos = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_pos = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_rot = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0)
+  let edge_rot = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0)
+  let resNom = rigidBody3dNew(arg_id, arg_bodyType, arg_pos, arg_rot)
+  let resEdge = rigidBody3dNew(edge_id, edge_bodyType, edge_pos, edge_rot)
+  assertEqInt(resNom.id, 1, "rigidBody3dNew nominal resNom.id == 1")
+  assertEqInt(resEdge.id, 0, "rigidBody3dNew boundary resEdge.id == 0")
+  ret 0
+
+pub fn test_rigid_body3d_rigidBody3dSetBoxInertia_2(): int:
+  let arg_body = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_body = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let arg_mass = 2.0
+  let edge_mass = 1.0
+  let arg_extents = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_extents = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  rigidBody3dSetBoxInertia(arg_body, arg_mass, arg_extents)
+  rigidBody3dSetBoxInertia(edge_body, edge_mass, edge_extents)
+  assertApproxEq(arg_body.mass, 0.0, 0.0001, "rigidBody3dSetBoxInertia nominal arg_body.mass approx 0.0")
+  assertApproxEq(edge_body.mass, 0.0, 0.0001, "rigidBody3dSetBoxInertia boundary edge_body.mass approx 0.0")
+  ret 0
+
+pub fn test_rigid_body3d_rigidBody3dSetSphereInertia_3(): int:
+  let arg_body = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_body = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let arg_mass = 2.0
+  let edge_mass = 1.0
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  rigidBody3dSetSphereInertia(arg_body, arg_mass, arg_radius)
+  rigidBody3dSetSphereInertia(edge_body, edge_mass, edge_radius)
+  assertApproxEq(arg_body.mass, 0.0, 0.0001, "rigidBody3dSetSphereInertia nominal arg_body.mass approx 0.0")
+  assertApproxEq(edge_body.mass, 0.0, 0.0001, "rigidBody3dSetSphereInertia boundary edge_body.mass approx 0.0")
+  ret 0
+
+pub fn test_rigid_body3d_rigidBody3dApplyForceAtPoint_4(): int:
+  let arg_body = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_body = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let arg_force = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_force = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_worldPoint = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_worldPoint = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  rigidBody3dApplyForceAtPoint(arg_body, arg_force, arg_worldPoint)
+  rigidBody3dApplyForceAtPoint(edge_body, edge_force, edge_worldPoint)
+  assertEqInt(arg_body.id, 1, "rigidBody3dApplyForceAtPoint nominal arg_body.id == 1")
+  assertEqInt(edge_body.id, 0, "rigidBody3dApplyForceAtPoint boundary edge_body.id == 0")
+  ret 0
+
+pub fn test_rigid_body3d_rigidBody3dApplyLinearImpulse_5(): int:
+  let arg_body = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_body = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let arg_impulse = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_impulse = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  rigidBody3dApplyLinearImpulse(arg_body, arg_impulse)
+  rigidBody3dApplyLinearImpulse(edge_body, edge_impulse)
+  assertEqInt(arg_body.id, 1, "rigidBody3dApplyLinearImpulse nominal arg_body.id == 1")
+  assertEqInt(edge_body.id, 0, "rigidBody3dApplyLinearImpulse boundary edge_body.id == 0")
+  ret 0
+
+pub fn test_rigid_body3d_rigidBody3dApplyAngularImpulse_6(): int:
+  let arg_body = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_body = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let arg_impulse = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_impulse = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  rigidBody3dApplyAngularImpulse(arg_body, arg_impulse)
+  rigidBody3dApplyAngularImpulse(edge_body, edge_impulse)
+  assertEqInt(arg_body.id, 1, "rigidBody3dApplyAngularImpulse nominal arg_body.id == 1")
+  assertEqInt(edge_body.id, 0, "rigidBody3dApplyAngularImpulse boundary edge_body.id == 0")
+  ret 0
+
+pub fn test_rigid_body3d_rigidBody3dIntegrate_7(): int:
+  let arg_body = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_body = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let arg_gravity = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_gravity = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  rigidBody3dIntegrate(arg_body, arg_gravity, arg_dt)
+  rigidBody3dIntegrate(edge_body, edge_gravity, edge_dt)
+  assertEqInt(arg_body.id, 1, "rigidBody3dIntegrate nominal arg_body.id == 1")
+  assertEqInt(edge_body.id, 0, "rigidBody3dIntegrate boundary edge_body.id == 0")
+  ret 0
+
+pub fn test_vehicle3d_raycastVehicleNew_1(): int:
+  let arg_chassisBodyId = 4
+  let edge_chassisBodyId = 1
+  let resNom = raycastVehicleNew(arg_chassisBodyId)
+  let resEdge = raycastVehicleNew(edge_chassisBodyId)
+  assertEqInt(resNom.chassisBodyId, 4, "raycastVehicleNew nominal resNom.chassisBodyId == 4")
+  assertEqInt(resEdge.chassisBodyId, 1, "raycastVehicleNew boundary resEdge.chassisBodyId == 1")
+  ret 0
+
+pub fn test_vehicle3d_vehicleAddWheel_2(): int:
+  let arg_vehicle = RaycastVehicle3D(chassisBodyId = 4, wheels = [])
+  let edge_vehicle = RaycastVehicle3D(chassisBodyId = 1, wheels = [])
+  let arg_wheel = RaycastWheel3D(connectionPoint = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), axle = Vec3(x = 1.0, y = 1.0, z = 1.0), suspensionRestLength = 2.0, currentSuspensionLength = 2.0, springStiffness = 1.0, dampingCompression = 1.0, dampingRelaxation = 1.0, wheelRadius = 2.0, steeringAngle = 1.0, driveTorque = 1.0, brakeTorque = 1.0, isGrounded = true, contactPoint = Vec3(x = 1.0, y = 1.0, z = 1.0), contactNormal = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let edge_wheel = RaycastWheel3D(connectionPoint = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), axle = Vec3(x = 0.5, y = 0.5, z = 0.5), suspensionRestLength = 1.0, currentSuspensionLength = 1.0, springStiffness = 0.5, dampingCompression = 0.5, dampingRelaxation = 0.5, wheelRadius = 1.0, steeringAngle = 0.5, driveTorque = 0.5, brakeTorque = 0.5, isGrounded = false, contactPoint = Vec3(x = 0.5, y = 0.5, z = 0.5), contactNormal = Vec3(x = 0.5, y = 0.5, z = 0.5))
+  let resNom = vehicleAddWheel(arg_vehicle, arg_wheel)
+  let resEdge = vehicleAddWheel(edge_vehicle, edge_wheel)
+  assertEqInt(resNom, 0, "vehicleAddWheel nominal resNom == 0")
+  assertEqInt(resEdge, 0, "vehicleAddWheel boundary resEdge == 0")
+  ret 0
+
+pub fn test_vehicle3d_vehicleStepSimulation_3(): int:
+  let body = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 1.0, z = 0.0), Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0))
+  let settings = PhysWorldSettings3D(gravity = Vec3(x = 0.0, y = -9.8, z = 0.0), iterations = 4, subSteps = 1, sleepLinearThresholdSq = 0.01, sleepAngularThresholdSq = 0.01)
+  mut world = PhysicsWorld3D(settings = settings, bodies = [body], colliders = [], colliderBodyIds = [], joints = [])
+  mut veh = raycastVehicleNew(0)
+  let groundWheel = RaycastWheel3D(
+    connectionPoint = Vec3(x = 0.5, y = -0.2, z = 0.5),
+    direction = Vec3(x = 0.0, y = -1.0, z = 0.0),
+    axle = Vec3(x = 1.0, y = 0.0, z = 0.0),
+    suspensionRestLength = 1.0,
+    currentSuspensionLength = 1.0,
+    springStiffness = 50.0,
+    dampingCompression = 5.0,
+    dampingRelaxation = 5.0,
+    wheelRadius = 0.3,
+    steeringAngle = 0.0,
+    driveTorque = 10.0,
+    brakeTorque = 0.0,
+    isGrounded = false,
+    contactPoint = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    contactNormal = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  )
+  vehicleAddWheel(veh, groundWheel)
+  vehicleStepSimulation(veh, world, 0.016)
+  assertEqInt(veh.wheels.len, 1, "veh has 1 wheel")
+  let updatedWheel: RaycastWheel3D = veh.wheels[0]
+  assert(updatedWheel.isGrounded == true, "ground wheel is grounded")
+  assertApproxEq(updatedWheel.currentSuspensionLength, 0.5, 0.001, "suspension compressed to 0.5")
+
+  // Airborne vehicle test
+  let highBody = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 10.0, z = 0.0), Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0))
+  mut highWorld = PhysicsWorld3D(settings = settings, bodies = [highBody], colliders = [], colliderBodyIds = [], joints = [])
+  mut airVeh = raycastVehicleNew(0)
+  vehicleAddWheel(airVeh, groundWheel)
+  vehicleStepSimulation(airVeh, highWorld, 0.016)
+  let airWheel: RaycastWheel3D = airVeh.wheels[0]
+  assert(airWheel.isGrounded == false, "airborne wheel is not grounded")
+  assertApproxEq(airWheel.currentSuspensionLength, 1.0, 0.001, "airborne suspension at rest length 1.0")
+
+  // Empty world boundary test (should not crash)
+  let emptyWorld = PhysicsWorld3D(settings = settings, bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  vehicleStepSimulation(veh, emptyWorld, 0.016)
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_character3d_characterControllerNew_1(), 0, "test_character3d_characterControllerNew_1")
+  assertEqInt(test_character3d_characterMoveAndSlide_2(), 0, "test_character3d_characterMoveAndSlide_2")
+  assertEqInt(test_character3d_computeAirAccelerateVelocity_3(), 0, "test_character3d_computeAirAccelerateVelocity_3")
+  assertEqInt(test_collider3d_identityTransform3D_1(), 0, "test_collider3d_identityTransform3D_1")
+  assertEqInt(test_collider3d_sphereColliderNew_2(), 0, "test_collider3d_sphereColliderNew_2")
+  assertEqInt(test_collider3d_boxCollider3dNew_3(), 0, "test_collider3d_boxCollider3dNew_3")
+  assertEqInt(test_collider3d_capsuleCollider3dNew_4(), 0, "test_collider3d_capsuleCollider3dNew_4")
+  assertEqInt(test_collider3d_collider3dComputeAABB_5(), 0, "test_collider3d_collider3dComputeAABB_5")
+  assertEqInt(test_joint3d_ballSocketJointNew_1(), 0, "test_joint3d_ballSocketJointNew_1")
+  assertEqInt(test_joint3d_hingeJointNew_2(), 0, "test_joint3d_hingeJointNew_2")
+  assertEqInt(test_joint3d_sixDofJointNew_3(), 0, "test_joint3d_sixDofJointNew_3")
+  assertEqInt(test_joint3d_joint3dSolveVelocity_4(), 0, "test_joint3d_joint3dSolveVelocity_4")
+  assertEqInt(test_narrowphase3d_testSphereSphere3D_1(), 0, "test_narrowphase3d_testSphereSphere3D_1")
+  assertEqInt(test_narrowphase3d_testSphereBox3D_2(), 0, "test_narrowphase3d_testSphereBox3D_2")
+  assertEqInt(test_narrowphase3d_testGjkEpa3D_3(), 0, "test_narrowphase3d_testGjkEpa3D_3")
+  assertEqInt(test_narrowphase3d_contactManifold3dCache_4(), 0, "test_narrowphase3d_contactManifold3dCache_4")
+  assertEqInt(test_phys_query3d_extractRayDir3D_1(), 0, "test_phys_query3d_extractRayDir3D_1")
+  assertEqInt(test_phys_query3d_raycast3dSphere_2(), 0, "test_phys_query3d_raycast3dSphere_2")
+  assertEqInt(test_phys_query3d_raycast3dBox_3(), 0, "test_phys_query3d_raycast3dBox_3")
+  assertEqInt(test_phys_query3d_sphereCast3D_4(), 0, "test_phys_query3d_sphereCast3D_4")
+  assertEqInt(test_phys_world3d_physWorld3dNew_1(), 0, "test_phys_world3d_physWorld3dNew_1")
+  assertEqInt(test_phys_world3d_physWorld3dAddBody_2(), 0, "test_phys_world3d_physWorld3dAddBody_2")
+  assertEqInt(test_phys_world3d_physWorld3dAddCollider_3(), 0, "test_phys_world3d_physWorld3dAddCollider_3")
+  assertEqInt(test_phys_world3d_physWorld3dAddJoint_4(), 0, "test_phys_world3d_physWorld3dAddJoint_4")
+  assertEqInt(test_phys_world3d_physWorld3dStep_5(), 0, "test_phys_world3d_physWorld3dStep_5")
+  assertEqInt(test_rigid_body3d_rigidBody3dNew_1(), 0, "test_rigid_body3d_rigidBody3dNew_1")
+  assertEqInt(test_rigid_body3d_rigidBody3dSetBoxInertia_2(), 0, "test_rigid_body3d_rigidBody3dSetBoxInertia_2")
+  assertEqInt(test_rigid_body3d_rigidBody3dSetSphereInertia_3(), 0, "test_rigid_body3d_rigidBody3dSetSphereInertia_3")
+  assertEqInt(test_rigid_body3d_rigidBody3dApplyForceAtPoint_4(), 0, "test_rigid_body3d_rigidBody3dApplyForceAtPoint_4")
+  assertEqInt(test_rigid_body3d_rigidBody3dApplyLinearImpulse_5(), 0, "test_rigid_body3d_rigidBody3dApplyLinearImpulse_5")
+  assertEqInt(test_rigid_body3d_rigidBody3dApplyAngularImpulse_6(), 0, "test_rigid_body3d_rigidBody3dApplyAngularImpulse_6")
+  assertEqInt(test_rigid_body3d_rigidBody3dIntegrate_7(), 0, "test_rigid_body3d_rigidBody3dIntegrate_7")
+  assertEqInt(test_vehicle3d_raycastVehicleNew_1(), 0, "test_vehicle3d_raycastVehicleNew_1")
+  assertEqInt(test_vehicle3d_vehicleAddWheel_2(), 0, "test_vehicle3d_vehicleAddWheel_2")
+  assertEqInt(test_vehicle3d_vehicleStepSimulation_3(), 0, "test_vehicle3d_vehicleStepSimulation_3")
+  ret 0

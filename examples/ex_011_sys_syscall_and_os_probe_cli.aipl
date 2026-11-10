@@ -1,0 +1,52 @@
+// ============================================================================
+// Example 011: Linux x86_64 Syscall ABI & Kernel Probe CLI
+// Demonstrates: Low-level syscall0/syscall1 dispatch, sysClose, sysRead, and
+//               errno return conventions from std/sys/sys_syscall.
+// ============================================================================
+module Ex011SysSyscallAndOsProbeCli
+
+import { maxInt } from "../std/prelude"
+import {
+  syscall0,
+  syscall1,
+  sysRead,
+  SYS_CLOSE
+} from "../std/sys/sys_syscall"
+
+pub struct SyscallProbeReport:
+  pid: int
+  closeInvalidFd: int
+  readInvalidFd: int
+  statusTag: str
+
+pub fn probeProcessIdSyscall(): int:
+  let rawPid = syscall0(39)
+  ret maxInt(rawPid, 1)
+
+pub fn probeInvalidFdClose(fd: int): int:
+  ret syscall1(SYS_CLOSE, fd)
+
+pub fn classifySyscallReturn(retCode: int): str:
+  if retCode == 0:
+    ret "SYSCALL:OK_ZERO"
+  elif retCode > 0:
+    ret "SYSCALL:OK_VALUE"
+  else:
+    ret "SYSCALL:ERRNO_NEG"
+
+pub fn buildSyscallProbeReport(): SyscallProbeReport:
+  let curPid = probeProcessIdSyscall()
+  let badClose = probeInvalidFdClose(-1)
+  let badRead = sysRead(-1, 0, 0)
+  ret SyscallProbeReport(
+    pid = curPid,
+    closeInvalidFd = badClose,
+    readInvalidFd = badRead,
+    statusTag = classifySyscallReturn(curPid)
+  )
+
+pub fn main(): int:
+  let rep = buildSyscallProbeReport()
+  println("[ex_011_sys_syscall_and_os_probe_cli] SyscallProbeReport(pid=" + str(rep.pid) + ", closeInvalidFd=" + str(rep.closeInvalidFd) + ", readInvalidFd=" + str(rep.readInvalidFd) + ")")
+  println("[ex_011_sys_syscall_and_os_probe_cli] status=" + rep.statusTag + " | errStatus=" + classifySyscallReturn(rep.closeInvalidFd))
+  ret 0

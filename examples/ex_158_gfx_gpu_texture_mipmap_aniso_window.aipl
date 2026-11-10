@@ -1,0 +1,109 @@
+module Ex158GfxGpuTextureMipmapAnisoWindow
+
+import { createGpuDevice } from "../std/gfx/gpu_device"
+import {
+  TextureFormat, createTexture2D, computeMaxMipLevels,
+  computeMipDimension, createLinearSampler, createAnisotropicSampler
+} from "../std/gfx/gpu_texture"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawEllipse, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn buildGpuTextureMipAnisoAudit(): int:
+  let dev = createGpuDevice(1)
+  let mips = computeMaxMipLevels(1024, 512)
+  let mip3Dim = computeMipDimension(1024, 3)
+  let fmt = TextureFormat(id = 1, bytesPerPixel = 4, hasAlpha = true, isDepth = false, isCompressed = false)
+  let _ = createTexture2D(dev, 1024, 512, fmt, mips)
+  let lin = createLinearSampler()
+  let aniso = createAnisotropicSampler(16)
+  ret mips + mip3Dim + lin.maxAnisotropy + aniso.maxAnisotropy
+
+pub fn stepTextureMipAnisoFrame(frame: int): int:
+  let activeLod = (frame * 3 + (frame / 19)) % 8
+  let anisoExp = ((frame / 6) + (frame / 19)) % 5
+  let aniso = createAnisotropicSampler(1 << anisoExp)
+  let lodW = computeMipDimension(1024, activeLod)
+  ret lodW + aniso.maxAnisotropy * 10 + activeLod
+
+pub fn main(): int:
+  let dev = createGpuDevice(1)
+  let mips = computeMaxMipLevels(1024, 512)
+  let fmt = TextureFormat(id = 1, bytesPerPixel = 4, hasAlpha = true, isDepth = false, isCompressed = false)
+  let tex = createTexture2D(dev, 1024, 512, fmt, mips)
+  let linSampler = createLinearSampler()
+  mut anisoSampler = createAnisotropicSampler(16)
+  let audit = buildGpuTextureMipAnisoAudit()
+
+  initWindow(1280, 720, "AIPL ex_158: GPU Texture Mipmap Chain & 16x Anisotropic Filtering")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let activeLod = (frame * 3 + (frame / 19)) % 8
+    let anisoExp = ((frame / 6) + (frame / 19)) % 5
+    anisoSampler = createAnisotropicSampler(1 << anisoExp)
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_158: GPU TEXTURE MIPMAP PYRAMID & 16x ANISOTROPIC SAMPLER", 40.0, 28.0, 22.0, rgb(248, 250, 252))
+    drawText("std/gfx/gpu_texture: computeMaxMipLevels | computeMipDimension | createAnisotropicSampler | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: 8-Level Mipmap Pyramid Cascade Grid
+    drawRect(40.0, 96.0, 620.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 620.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("MIPMAP PYRAMID CASCADE (" + str(tex.width) + "x" + str(tex.height) + " -> " + str(tex.mipLevels) + " Levels, Active LOD=L" + str(activeLod) + ")", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    mut lvl: int = 0
+    while lvl < 8:
+      let mw = computeMipDimension(tex.width, lvl)
+      let mh = computeMipDimension(tex.height, lvl)
+      let col = lvl % 4
+      let row = lvl / 4
+      let cellX = 58.0 + float(col) * 146.0
+      let cellY = 154.0 + float(row) * 166.0
+      let isActiveLod = lvl == activeLod
+      drawRect(cellX, cellY, 134.0, 150.0, if isActiveLod: rgb(22, 42, 68) else: rgb(20, 30, 50))
+      drawRectOutline(cellX, cellY, 134.0, 150.0, 2.0, if isActiveLod: rgb(250, 204, 21) else: rgb(51, 65, 85))
+      drawText("L" + str(lvl) + " " + str(mw) + "x" + str(mh), cellX + 10.0, cellY + 12.0, 13.0, if isActiveLod: rgb(253, 224, 71) else: rgb(226, 232, 240))
+      let boxW = float(96 - lvl * 10)
+      let boxH = boxW * 0.65
+      let bx = cellX + (134.0 - boxW) * 0.5
+      let by = cellY + 42.0 + (96.0 - boxH) * 0.5
+      drawRect(bx, by, boxW, boxH, rgb(14 + lvl * 22, 165 - lvl * 15, 233 - lvl * 18))
+      drawRectOutline(bx, by, boxW, boxH, 1.5, rgb(248, 250, 252))
+      lvl = lvl + 1
+
+    // Right Panel: Grazing-Angle Anisotropic Elliptical Footprint
+    drawRect(680.0, 96.0, 560.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(680.0, 96.0, 560.0, 410.0, 2.0, rgb(168, 85, 247))
+    drawText("ANISOTROPIC VS TRILINEAR FOOTPRINT AT GRAZING ANGLE", 700.0, 118.0, 17.0, rgb(216, 180, 254))
+
+    // Isotropic Trilinear circle (over-blurry)
+    drawCircle(830.0, 270.0, 82.0, rgb(71, 85, 105))
+    drawText("Trilinear (" + str(linSampler.maxAnisotropy) + "x): Over-Blurs", 745.0, 370.0, 15.0, rgb(203, 213, 225))
+
+    // Anisotropic Elongated Ellipse with tap samples centered along major axis
+    let ellRx = 36.0 + float(anisoSampler.maxAnisotropy) * 4.5
+    drawEllipse(1090.0, 270.0, ellRx, 28.0, rgb(88, 28, 135))
+    let tapSpan = float(anisoSampler.maxAnisotropy - 1) * 9.5
+    let tapStartX = 1090.0 - tapSpan * 0.5
+    mut tap: int = 0
+    while tap < anisoSampler.maxAnisotropy and tap < 16:
+      let tx = tapStartX + float(tap) * 9.5
+      drawCircle(tx, 270.0, 4.0, rgb(250, 204, 21))
+      tap = tap + 1
+    drawText("Anisotropic (" + str(anisoSampler.maxAnisotropy) + "x): Crisp Horizon", 985.0, 370.0, 15.0, rgb(253, 224, 71))
+
+    // Bottom Summary Panel
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("TEXTURE & SAMPLER HARDWARE STATE", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Mip 0=" + str(computeMipDimension(1024, 0)) + " | Mip 3=" + str(computeMipDimension(1024, 3)) + " | Mip 6=" + str(computeMipDimension(1024, 6)) + " | Mip 10=" + str(computeMipDimension(1024, 10)), 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("LinearSampler Aniso=" + str(linSampler.maxAnisotropy) + " | AnisotropicSampler Aniso=" + str(anisoSampler.maxAnisotropy) + " | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

@@ -1,0 +1,343 @@
+/// # Module: `std/mechanics/inventory_container` (`InventoryContainerMod`)
+///
+/// ## Purpose & Domain Scope
+/// Linear slot containers, 2D spatial matrix containers with multi-cell and
+/// rotated placement validation, and cumulative weighted loot table sampling.
+module InventoryContainerMod
+
+import { minInt, maxInt, clampFloat } from "std/math/consts"
+
+pub struct InventorySlot(itemId: int, quantity: int, maxStack: int, flags: int)
+
+pub struct InventoryContainer(width: int, height: int, slots: [InventorySlot])
+
+pub struct ModifierPoolEntry(id: int, weight: int, minValue: int, maxValue: int)
+
+pub struct InventoryItem(id: int, itemTag: str, quantity: int, maxStack: int, gridWidth: int, gridHeight: int, unitWeight: float)
+
+pub struct SlotListContainer(capacity: int, slots: [InventoryItem])
+
+pub struct SpatialMatrixContainer2D(cols: int, rows: int, occupiedGrid: [int], items: [InventoryItem])
+
+pub struct WeightedLootEntry(itemTag: str, weight: float, minQuantity: int, maxQuantity: int)
+
+pub struct WeightedLootTable(entries: [WeightedLootEntry], totalWeight: float)
+
+pub fn slotListNew(capacity: int): SlotListContainer:
+  mut s: [InventoryItem] = []
+  mut i = 0
+  while i < capacity:
+    s.push(InventoryItem(id = -1, itemTag = "", quantity = 0, maxStack = 0, gridWidth = 1, gridHeight = 1, unitWeight = 0.0))
+    i = i + 1
+  ret SlotListContainer(capacity = capacity, slots = s)
+
+pub fn slotListInsert(mut container: SlotListContainer, item: InventoryItem): bool:
+  if item.quantity <= 0:
+    ret true
+  mut rem = item.quantity
+  mut s = container.slots
+
+  // First pass: merge into existing non-full stacks of matching itemTag
+  mut i = 0
+  while i < container.capacity and rem > 0:
+    let existing: InventoryItem = s[i]
+    if existing.quantity > 0 and existing.itemTag == item.itemTag and existing.quantity < existing.maxStack:
+      let space = existing.maxStack - existing.quantity
+      let addAmt = minInt(rem, space)
+      s[i] = InventoryItem(
+        id = existing.id,
+        itemTag = existing.itemTag,
+        quantity = existing.quantity + addAmt,
+        maxStack = existing.maxStack,
+        gridWidth = existing.gridWidth,
+        gridHeight = existing.gridHeight,
+        unitWeight = existing.unitWeight
+      )
+      rem = rem - addAmt
+    i = i + 1
+
+  // Second pass: place remaining quantity into empty slots
+  mut j = 0
+  while j < container.capacity and rem > 0:
+    let existing: InventoryItem = s[j]
+    if existing.quantity <= 0:
+      let maxSt = if item.maxStack > 0: item.maxStack else: rem
+      let addAmt = minInt(rem, maxSt)
+      s[j] = InventoryItem(
+        id = item.id,
+        itemTag = item.itemTag,
+        quantity = addAmt,
+        maxStack = maxSt,
+        gridWidth = item.gridWidth,
+        gridHeight = item.gridHeight,
+        unitWeight = item.unitWeight
+      )
+      rem = rem - addAmt
+    j = j + 1
+
+  if rem == 0:
+    container.slots = s
+    ret true
+  ret false
+
+pub fn slotListCountTag(container: SlotListContainer, itemTag: str): int:
+  mut total = 0
+  mut i = 0
+  while i < container.slots.len:
+    let it = container.slots[i]
+    if it.quantity > 0 and it.itemTag == itemTag:
+      total = total + it.quantity
+    i = i + 1
+  ret total
+
+pub fn slotListRemoveQuantity(mut container: SlotListContainer, itemTag: str, quantity: int): bool:
+  if quantity <= 0:
+    ret true
+  if slotListCountTag(container, itemTag) < quantity:
+    ret false
+  mut rem = quantity
+  mut s = container.slots
+  mut i = 0
+  while i < s.len and rem > 0:
+    let it = s[i]
+    if it.quantity > 0 and it.itemTag == itemTag:
+      let take = minInt(it.quantity, rem)
+      let left = it.quantity - take
+      if left <= 0:
+        s[i] = InventoryItem(id = -1, itemTag = "", quantity = 0, maxStack = 0, gridWidth = 1, gridHeight = 1, unitWeight = 0.0)
+      else:
+        s[i] = InventoryItem(id = it.id, itemTag = it.itemTag, quantity = left, maxStack = it.maxStack, gridWidth = it.gridWidth, gridHeight = it.gridHeight, unitWeight = it.unitWeight)
+      rem = rem - take
+    i = i + 1
+  container.slots = s
+  ret true
+
+pub fn slotListTotalWeight(container: SlotListContainer): float:
+  mut w = 0.0
+  mut i = 0
+  while i < container.slots.len:
+    let it = container.slots[i]
+    if it.quantity > 0:
+      w = w + float(it.quantity) * it.unitWeight
+    i = i + 1
+  ret w
+
+pub fn slotListFreeSlotCount(container: SlotListContainer): int:
+  mut freeCount = 0
+  mut i = 0
+  while i < container.slots.len:
+    if container.slots[i].quantity <= 0:
+      freeCount = freeCount + 1
+    i = i + 1
+  ret freeCount
+
+pub fn spatialMatrixNew(cols: int, rows: int): SpatialMatrixContainer2D:
+  mut grid: [int] = []
+  let total = cols * rows
+  mut i = 0
+  while i < total:
+    grid.push(-1)
+    i = i + 1
+  mut items: [InventoryItem] = []
+  ret SpatialMatrixContainer2D(cols = cols, rows = rows, occupiedGrid = grid, items = items)
+
+pub fn spatialMatrixCanFit(container: SpatialMatrixContainer2D, item: InventoryItem, col: int, row: int, rotated: bool): bool:
+  let w = if rotated: item.gridHeight else: item.gridWidth
+  let h = if rotated: item.gridWidth else: item.gridHeight
+  if w <= 0 or h <= 0:
+    ret false
+  if col < 0 or row < 0 or (col + w) > container.cols or (row + h) > container.rows:
+    ret false
+  mut r = row
+  while r < row + h:
+    mut c = col
+    while c < col + w:
+      if container.occupiedGrid[r * container.cols + c] >= 0:
+        ret false
+      c = c + 1
+    r = r + 1
+  ret true
+
+pub fn spatialMatrixInsert(mut container: SpatialMatrixContainer2D, item: InventoryItem, col: int, row: int, rotated: bool): bool:
+  if not spatialMatrixCanFit(container, item, col, row, rotated):
+    ret false
+  let w = if rotated: item.gridHeight else: item.gridWidth
+  let h = if rotated: item.gridWidth else: item.gridHeight
+  mut grid = container.occupiedGrid
+  mut items = container.items
+  let itemIdx = items.len
+  items.push(item)
+  mut r = row
+  while r < row + h:
+    mut c = col
+    while c < col + w:
+      grid[r * container.cols + c] = itemIdx
+      c = c + 1
+    r = r + 1
+  container.occupiedGrid = grid
+  container.items = items
+  ret true
+
+pub fn spatialMatrixRemoveAt(mut container: SpatialMatrixContainer2D, col: int, row: int): SpatialMatrixContainer2D:
+  if col < 0 or col >= container.cols or row < 0 or row >= container.rows:
+    ret container
+  let targetIdx = container.occupiedGrid[row * container.cols + col]
+  if targetIdx < 0:
+    ret container
+  mut grid = container.occupiedGrid
+  mut i = 0
+  while i < grid.len:
+    if grid[i] == targetIdx:
+      grid[i] = -1
+    i = i + 1
+  container.occupiedGrid = grid
+  ret container
+
+pub fn spatialMatrixOccupiedCells(container: SpatialMatrixContainer2D): int:
+  mut count = 0
+  mut i = 0
+  while i < container.occupiedGrid.len:
+    if container.occupiedGrid[i] >= 0:
+      count = count + 1
+    i = i + 1
+  ret count
+
+pub fn spatialMatrixTotalWeight(container: SpatialMatrixContainer2D): float:
+  mut total = 0.0
+  mut i = 0
+  while i < container.items.len:
+    let it = container.items[i]
+    total = total + float(maxInt(1, it.quantity)) * it.unitWeight
+    i = i + 1
+  ret total
+
+pub fn weightedLootTableNew(entries: [WeightedLootEntry]): WeightedLootTable:
+  mut sumW = 0.0
+  mut i = 0
+  while i < entries.len:
+    if entries[i].weight > 0.0:
+      sumW = sumW + entries[i].weight
+    i = i + 1
+  ret WeightedLootTable(entries = entries, totalWeight = sumW)
+
+pub fn weightedLootTableRoll(table: WeightedLootTable, roll01: float): Option[WeightedLootEntry]:
+  let n = table.entries.len
+  if n == 0 or table.totalWeight <= 0.0:
+    ret None
+  let target = clampFloat(roll01, 0.0, 1.0) * table.totalWeight
+  mut accum = 0.0
+  mut i = 0
+  while i < n:
+    let entry: WeightedLootEntry = table.entries[i]
+    accum = accum + entry.weight
+    if target <= accum or i == n - 1:
+      ret Some(entry)
+    i = i + 1
+  ret None
+
+pub fn weightedLootRollQuantity(entry: WeightedLootEntry, roll01: float): int:
+  let lo = minInt(entry.minQuantity, entry.maxQuantity)
+  let hi = maxInt(entry.minQuantity, entry.maxQuantity)
+  let r = clampFloat(roll01, 0.0, 1.0)
+  ret lo + int(float(hi - lo) * r + 0.5)
+
+pub fn inventorySlotNew(itemId: int = 0, quantity: int = 0, maxStack: int = 99, flags: int = 0): InventorySlot:
+  ret InventorySlot(itemId = itemId, quantity = quantity, maxStack = maxStack, flags = flags)
+
+pub fn inventorySlotIsEmpty(slot: InventorySlot): bool:
+  ret slot.itemId <= 0 or slot.quantity <= 0
+
+pub fn inventoryContainerNew(width: int, height: int, defaultMaxStack: int = 99): InventoryContainer:
+  let w = maxInt(1, width)
+  let h = maxInt(1, height)
+  let total = w * h
+  mut s: [InventorySlot] = []
+  mut i = 0
+  while i < total:
+    s.push(InventorySlot(itemId = 0, quantity = 0, maxStack = defaultMaxStack, flags = 0))
+    i = i + 1
+  ret InventoryContainer(width = w, height = h, slots = s)
+
+pub fn inventorySlotCanAccept(slot: InventorySlot, itemId: int, qty: int): bool:
+  if itemId <= 0 or qty <= 0:
+    ret false
+  if inventorySlotIsEmpty(slot):
+    ret true
+  if slot.itemId == itemId and (slot.quantity + qty) <= slot.maxStack:
+    ret true
+  ret false
+
+pub fn inventoryContainerGetSlot(container: InventoryContainer, x: int, y: int): InventorySlot:
+  if x < 0 or x >= container.width or y < 0 or y >= container.height:
+    ret InventorySlot(itemId = 0, quantity = 0, maxStack = 0, flags = 0)
+  ret container.slots[y * container.width + x]
+
+pub fn inventoryContainerSetSlot(mut container: InventoryContainer, x: int, y: int, slot: InventorySlot): InventoryContainer:
+  if x >= 0 and x < container.width and y >= 0 and y < container.height:
+    container.slots[y * container.width + x] = slot
+  ret container
+
+pub fn inventoryContainerAddItem(mut container: InventoryContainer, itemId: int, quantity: int): (InventoryContainer, int):
+  if itemId <= 0 or quantity <= 0:
+    ret (container, 0)
+  mut remaining = quantity
+  mut i = 0
+  while i < container.slots.len and remaining > 0:
+    let slot = container.slots[i]
+    if slot.itemId == itemId and slot.quantity < slot.maxStack:
+      let space = slot.maxStack - slot.quantity
+      let toAdd = minInt(space, remaining)
+      container.slots[i] = InventorySlot(itemId = itemId, quantity = slot.quantity + toAdd, maxStack = slot.maxStack, flags = slot.flags)
+      remaining = remaining - toAdd
+    i = i + 1
+  i = 0
+  while i < container.slots.len and remaining > 0:
+    let slot = container.slots[i]
+    if inventorySlotIsEmpty(slot):
+      let toAdd = minInt(slot.maxStack, remaining)
+      container.slots[i] = InventorySlot(itemId = itemId, quantity = toAdd, maxStack = slot.maxStack, flags = slot.flags)
+      remaining = remaining - toAdd
+    i = i + 1
+  ret (container, remaining)
+
+pub fn inventoryContainerCountItem(container: InventoryContainer, itemId: int): int:
+  mut count = 0
+  mut i = 0
+  while i < container.slots.len:
+    let slot = container.slots[i]
+    if slot.itemId == itemId and slot.quantity > 0:
+      count = count + slot.quantity
+    i = i + 1
+  ret count
+
+pub fn inventoryCanPlaceItem2D(container: InventoryContainer, itemW: int, itemH: int, startX: int, startY: int): bool:
+  if startX < 0 or startY < 0 or startX + itemW > container.width or startY + itemH > container.height:
+    ret false
+  mut y = startY
+  while y < startY + itemH:
+    mut x = startX
+    while x < startX + itemW:
+      let slot = container.slots[y * container.width + x]
+      if not inventorySlotIsEmpty(slot):
+        ret false
+      x = x + 1
+    y = y + 1
+  ret true
+
+pub fn inventoryPackItem2D(mut container: InventoryContainer, itemW: int, itemH: int, itemId: int): (InventoryContainer, bool, int, int):
+  mut y = 0
+  while y <= container.height - itemH:
+    mut x = 0
+    while x <= container.width - itemW:
+      if inventoryCanPlaceItem2D(container, itemW, itemH, x, y):
+        mut py = y
+        while py < y + itemH:
+          mut px = x
+          while px < x + itemW:
+            container.slots[py * container.width + px] = InventorySlot(itemId = itemId, quantity = 1, maxStack = 1, flags = 0)
+            px = px + 1
+          py = py + 1
+        ret (container, true, x, y)
+      x = x + 1
+    y = y + 1
+  ret (container, false, -1, -1)

@@ -1,0 +1,286 @@
+// ============================================================================
+// Module: std/encoding/base64
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// RFC 4648 Base64, Base64Url, Base62, Crockford Base32, and URL percent encoding.
+// ============================================================================
+module EncodingBase64
+
+const B64_STD_ALPHABET: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+const B64_URL_ALPHABET: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+const BASE62_ALPHABET: str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+const CROCKFORD_ALPHABET: str = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+fn b64CharVal(code: int, urlSafe: bool): int:
+  if code >= 65 and code <= 90:
+    ret code - 65
+  if code >= 97 and code <= 122:
+    ret code - 97 + 26
+  if code >= 48 and code <= 57:
+    ret code - 48 + 52
+  if not urlSafe:
+    if code == 43:
+      ret 62
+    if code == 47:
+      ret 63
+  else:
+    if code == 45 or code == 43:
+      ret 62
+    if code == 95 or code == 47:
+      ret 63
+  ret -1
+
+pub fn base64Encode(data: bytes): str:
+  let n = data.len()
+  mut out: [str] = []
+  mut i = 0
+  while i < n:
+    let b0 = data[i] & 255
+    let b1 = if i + 1 < n: data[i + 1] & 255 else: 0
+    let b2 = if i + 2 < n: data[i + 2] & 255 else: 0
+    let triple = (b0 << 16) | (b1 << 8) | b2
+    out.push(B64_STD_ALPHABET.slice((triple >> 18) & 63, ((triple >> 18) & 63) + 1))
+    out.push(B64_STD_ALPHABET.slice((triple >> 12) & 63, ((triple >> 12) & 63) + 1))
+    if i + 1 < n:
+      out.push(B64_STD_ALPHABET.slice((triple >> 6) & 63, ((triple >> 6) & 63) + 1))
+    else:
+      out.push("=")
+    if i + 2 < n:
+      out.push(B64_STD_ALPHABET.slice(triple & 63, (triple & 63) + 1))
+    else:
+      out.push("=")
+    i = i + 3
+  ret out.join("")
+
+pub fn base64Decode(s: str): Result[bytes, str]:
+  let clean = s.trim()
+  if clean.len == 0:
+    ret Ok(bytesFromArray([]))
+  if (clean.len % 4) != 0:
+    ret Err("base64Decode: length must be a multiple of 4")
+  mut out: [int] = []
+  mut i = 0
+  while i < clean.len:
+    let c0 = clean.charCodeAt(i)
+    let c1 = clean.charCodeAt(i + 1)
+    let c2 = clean.charCodeAt(i + 2)
+    let c3 = clean.charCodeAt(i + 3)
+    let v0 = b64CharVal(c0, false)
+    let v1 = b64CharVal(c1, false)
+    if v0 < 0 or v1 < 0:
+      ret Err("base64Decode: invalid character")
+    let v2 = if c2 == 61: 0 else: b64CharVal(c2, false)
+    let v3 = if c3 == 61: 0 else: b64CharVal(c3, false)
+    if v2 < 0 or v3 < 0:
+      ret Err("base64Decode: invalid character")
+    let triple = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3
+    out.push((triple >> 16) & 255)
+    if c2 != 61:
+      out.push((triple >> 8) & 255)
+    if c3 != 61:
+      out.push(triple & 255)
+    i = i + 4
+  ret Ok(bytesFromArray(out))
+
+pub fn base64UrlEncode(data: bytes): str:
+  let n = data.len()
+  mut out: [str] = []
+  mut i = 0
+  while i < n:
+    let b0 = data[i] & 255
+    let b1 = if i + 1 < n: data[i + 1] & 255 else: 0
+    let b2 = if i + 2 < n: data[i + 2] & 255 else: 0
+    let triple = (b0 << 16) | (b1 << 8) | b2
+    out.push(B64_URL_ALPHABET.slice((triple >> 18) & 63, ((triple >> 18) & 63) + 1))
+    out.push(B64_URL_ALPHABET.slice((triple >> 12) & 63, ((triple >> 12) & 63) + 1))
+    if i + 1 < n:
+      out.push(B64_URL_ALPHABET.slice((triple >> 6) & 63, ((triple >> 6) & 63) + 1))
+    if i + 2 < n:
+      out.push(B64_URL_ALPHABET.slice(triple & 63, (triple & 63) + 1))
+    i = i + 3
+  ret out.join("")
+
+pub fn base64UrlDecode(s: str): Result[bytes, str]:
+  mut padded = s.trim()
+  let rem = padded.len % 4
+  if rem == 1:
+    ret Err("base64UrlDecode: invalid length")
+  if rem == 2:
+    padded = padded + "=="
+  elif rem == 3:
+    padded = padded + "="
+  mut out: [int] = []
+  mut i = 0
+  while i < padded.len:
+    let c0 = padded.charCodeAt(i)
+    let c1 = padded.charCodeAt(i + 1)
+    let c2 = padded.charCodeAt(i + 2)
+    let c3 = padded.charCodeAt(i + 3)
+    let v0 = b64CharVal(c0, true)
+    let v1 = b64CharVal(c1, true)
+    if v0 < 0 or v1 < 0:
+      ret Err("base64UrlDecode: invalid character")
+    let v2 = if c2 == 61: 0 else: b64CharVal(c2, true)
+    let v3 = if c3 == 61: 0 else: b64CharVal(c3, true)
+    if v2 < 0 or v3 < 0:
+      ret Err("base64UrlDecode: invalid character")
+    let triple = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3
+    out.push((triple >> 16) & 255)
+    if c2 != 61:
+      out.push((triple >> 8) & 255)
+    if c3 != 61:
+      out.push(triple & 255)
+    i = i + 4
+  ret Ok(bytesFromArray(out))
+
+pub fn base62Encode(n: int): str:
+  if n <= 0:
+    ret "0"
+  mut val = n
+  mut chars: [str] = []
+  while val > 0:
+    let rem = val % 62
+    chars.push(BASE62_ALPHABET.slice(rem, rem + 1))
+    val = val / 62
+  mut rev: [str] = []
+  mut i = chars.len - 1
+  while i >= 0:
+    rev.push(chars[i])
+    i = i - 1
+  ret rev.join("")
+
+pub fn base62Decode(s: str): Result[int, str]:
+  if s.len == 0:
+    ret Err("base62Decode: empty input")
+  mut acc = 0
+  mut i = 0
+  while i < s.len:
+    let ch = s.slice(i, i + 1)
+    let idx = BASE62_ALPHABET.indexOf(ch)
+    if idx < 0:
+      ret Err("base62Decode: invalid character '" + ch + "'")
+    acc = acc * 62 + idx
+    i = i + 1
+  ret Ok(acc)
+
+pub fn crockfordBase32Encode(data: bytes): str:
+  let n = data.len()
+  if n == 0:
+    ret ""
+  mut out: [str] = []
+  mut bitBuf = 0
+  mut bitCount = 0
+  mut i = 0
+  while i < n:
+    bitBuf = (bitBuf << 8) | (data[i] & 255)
+    bitCount = bitCount + 8
+    while bitCount >= 5:
+      let shift = bitCount - 5
+      let idx = (bitBuf >> shift) & 31
+      out.push(CROCKFORD_ALPHABET.slice(idx, idx + 1))
+      bitCount = bitCount - 5
+      bitBuf = bitBuf & ((1 << bitCount) - 1)
+    i = i + 1
+  if bitCount > 0:
+    let idx = (bitBuf << (5 - bitCount)) & 31
+    out.push(CROCKFORD_ALPHABET.slice(idx, idx + 1))
+  ret out.join("")
+
+fn crockfordCharVal(code: int): int:
+  mut c = code
+  if c >= 97 and c <= 122:
+    c = c - 32
+  if c == 79:
+    ret 0
+  if c == 73 or c == 76:
+    ret 1
+  let ch = chr(c)
+  ret CROCKFORD_ALPHABET.indexOf(ch)
+
+pub fn crockfordBase32Decode(s: str): Result[bytes, str]:
+  mut out: [int] = []
+  mut bitBuf = 0
+  mut bitCount = 0
+  mut i = 0
+  while i < s.len:
+    let code = s.charCodeAt(i)
+    if code == 45:
+      i = i + 1
+    else:
+      let v = crockfordCharVal(code)
+      if v < 0:
+        ret Err("crockfordBase32Decode: invalid character")
+      bitBuf = (bitBuf << 5) | v
+      bitCount = bitCount + 5
+      if bitCount >= 8:
+        let shift = bitCount - 8
+        out.push((bitBuf >> shift) & 255)
+        bitCount = bitCount - 8
+        bitBuf = bitBuf & ((1 << bitCount) - 1)
+      i = i + 1
+  ret Ok(bytesFromArray(out))
+
+fn isUnreservedUrlByte(b: int): bool:
+  if (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or (b >= 48 and b <= 57):
+    ret true
+  if b == 45 or b == 95 or b == 46 or b == 126:
+    ret true
+  ret false
+
+pub fn urlPercentEncode(s: str): str:
+  let raw = s.toBytes()
+  let n = raw.len()
+  mut out: [str] = []
+  let hex = "0123456789ABCDEF"
+  mut i = 0
+  while i < n:
+    let b = raw[i] & 255
+    if isUnreservedUrlByte(b):
+      out.push(chr(b))
+    else:
+      let hi = (b >> 4) & 15
+      let lo = b & 15
+      out.push("%" + hex.slice(hi, hi + 1) + hex.slice(lo, lo + 1))
+    i = i + 1
+  ret out.join("")
+
+pub fn urlPercentDecode(s: str): Result[str, str]:
+  mut bytesArr: [int] = []
+  mut i = 0
+  while i < s.len:
+    let c = s.charCodeAt(i)
+    if c == 37:
+      if i + 2 >= s.len:
+        ret Err("urlPercentDecode: truncated percent escape")
+      let h1 = s.charCodeAt(i + 1)
+      let h2 = s.charCodeAt(i + 2)
+      let v1 = if h1 >= 48 and h1 <= 57: h1 - 48 elif h1 >= 65 and h1 <= 70: h1 - 55 elif h1 >= 97 and h1 <= 102: h1 - 87 else: -1
+      let v2 = if h2 >= 48 and h2 <= 57: h2 - 48 elif h2 >= 65 and h2 <= 70: h2 - 55 elif h2 >= 97 and h2 <= 102: h2 - 87 else: -1
+      if v1 < 0 or v2 < 0:
+        ret Err("urlPercentDecode: invalid hex digits")
+      bytesArr.push((v1 << 4) | v2)
+      i = i + 3
+    elif c == 43:
+      bytesArr.push(32)
+      i = i + 1
+    else:
+      bytesArr.push(c)
+      i = i + 1
+  ret Ok(bytesFromArray(bytesArr).toStringLossy())
+
+pub fn base62DecodeResult(s: str): Result[int, str]:
+  ret base62Decode(s)
+
+pub fn urlEncode(s: str): str:
+  ret urlPercentEncode(s)
+
+pub fn urlDecode(s: str): Result[str, str]:
+  ret urlPercentDecode(s)
+
+pub fn base64EncodeStr(s: str): str:
+  ret base64Encode(s.toBytes())
+
+pub fn base64DecodeStr(s: str): Result[str, str]:
+  let res = base64Decode(s)
+  if res.isErr():
+    ret Err(res.unwrapErr())
+  ret Ok(res.unwrap().toStringLossy())

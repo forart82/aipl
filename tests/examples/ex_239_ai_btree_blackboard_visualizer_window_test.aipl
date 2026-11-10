@@ -1,0 +1,54 @@
+module Ex239AiBtreeBlackboardVisualizerWindowTest
+
+import {
+  BTreeNodeStatus, BTreeNodeType, Blackboard, BehaviorTreeNode,
+  blackboardNew, blackboardSet, blackboardGet, blackboardHasKey,
+  btreeTickNode, btreeCreateSequence, btreeCreateSelector, btreeCreateAction,
+  btSuccess, btFailure, btRunning, btInvert, btSequence, btSelector
+} from "../../std/ai/btree_ai"
+import {
+  BtreeScene, createBtreeScene, stepScene, auditAiBtreeBlackboardVisualizer
+} from "../../examples/ex_239_ai_btree_blackboard_visualizer_window"
+
+pub fn test_ai_btree_blackboard_visualizer(): void:
+  mut bb = blackboardNew()
+  blackboardSet(bb, "targetId", 42)
+  assert(blackboardHasKey(bb, "targetId"), "blackboardHasKey")
+  let val = blackboardGet(bb, "targetId")
+  assert(val.isSome() and val.unwrap() == 42, "blackboard stores and retrieves integer value")
+
+  let nAct = btreeCreateAction(1, "targetId")
+  let nSeq = btreeCreateSequence(0, [1])
+  let nSel = btreeCreateSelector(2, [1])
+  let status = btreeTickNode(nSeq, [nSeq, nAct, nSel], bb)
+  assert(status == BTreeNodeStatus.Success, "btree sequence succeeds")
+  assert(btSuccess() == 1 and btFailure() == 0 and btRunning() == 2, "bt status constants")
+  assert(btInvert(1) == 0 and btSequence([1, 1]) == 1 and btSelector([0, 1]) == 1, "bt evaluators")
+
+  mut scene: BtreeScene = createBtreeScene()
+  let ammo0 = blackboardGet(scene.bb, "ammoCount").unwrap()
+  stepScene(scene, 0, 0.1)
+  let ammo1 = blackboardGet(scene.bb, "ammoCount").unwrap()
+  assert(ammo1 < ammo0 and scene.lastStatus == BTreeNodeStatus.Success, "t=0 -> t=1 ticks Behavior Tree and consumes ammo on Blackboard")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let ammo20 = blackboardGet(scene.bb, "ammoCount").unwrap()
+  let ticks20 = scene.tickCount
+  assert(ammo20 != ammo1 and ticks20 == 21, "t=1 -> t=20 progresses Blackboard state and BTree ticks")
+
+  while f <= 100:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let ammo100 = blackboardGet(scene.bb, "ammoCount").unwrap()
+  assert(ammo100 != ammo20 and scene.tickCount == 101, "t=20 -> t=100 continues cyclic BTree evaluation and Blackboard updates")
+
+  let audit = auditAiBtreeBlackboardVisualizer()
+  assert(audit == 45, "Behavior tree and blackboard audit")
+
+pub fn main(): int:
+  test_ai_btree_blackboard_visualizer()
+  println("PASS: ex_239_ai_btree_blackboard_visualizer_window_test")
+  ret 0

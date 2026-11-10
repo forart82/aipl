@@ -1,0 +1,199 @@
+/// # Module: `std/net/ws` (`NetWs`)
+///
+/// ## Purpose & Domain Scope
+/// RFC 6455 WebSocket frame encoder/decoder (`WsFrame`), 4-byte XOR payload masking,
+/// SHA-1 + Base64 `Sec-WebSocket-Accept` handshake computation, and control frames.
+module NetWs
+
+import "tcp.aipl"
+
+pub struct WsFrame:
+  fin: bool
+  rsv: int
+  opcode: int
+  masked: bool
+  maskKey: [int]
+  payload: [int]
+
+pub struct WebSocketStream:
+  stream: TcpStream
+  isServer: bool
+  mut isClosed: bool
+  mut closeCode: int
+
+pub fn applyWsMask(payload: [int], maskKey: [int]): [int]:
+  if maskKey.len() < 4:
+    ret payload
+  mut out: [int] = []
+  mut i = 0
+  while i < payload.len():
+    let b = (payload[i] & 255) ^ (maskKey[i & 3] & 255)
+    out.push(b)
+    i = i + 1
+  ret out
+
+pub fn encodeWsFrame(frame: WsFrame): [int]:
+  mut b0 = frame.opcode & 15
+  if frame.fin:
+    b0 = b0 | 128
+  b0 = b0 | ((frame.rsv & 7) << 4)
+
+  let pLen = frame.payload.len()
+  mut maskBit = 0
+  if frame.masked:
+    maskBit = 128
+
+  mut out: [int] = [b0]
+  if pLen < 126:
+    out.push(maskBit | pLen)
+  elif pLen <= 65535:
+    out.push(maskBit | 126)
+    out.push((pLen >> 8) & 255)
+    out.push(pLen & 255)
+  else:
+    out.push(maskBit | 127)
+    out.push(0)
+    out.push(0)
+    out.push(0)
+    out.push(0)
+    out.push((pLen >> 24) & 255)
+    out.push((pLen >> 16) & 255)
+    out.push((pLen >> 8) & 255)
+    out.push(pLen & 255)
+
+  if frame.masked:
+    mut k = 0
+    while k < 4:
+      let mb = if k < frame.maskKey.len(): frame.maskKey[k] & 255 else: 0
+      out.push(mb)
+      k = k + 1
+    let maskedPayload = applyWsMask(frame.payload, frame.maskKey)
+    mut i = 0
+    while i < maskedPayload.len():
+      out.push(maskedPayload[i] & 255)
+      i = i + 1
+  else:
+    mut i = 0
+    while i < frame.payload.len():
+      out.push(frame.payload[i] & 255)
+      i = i + 1
+  ret out
+
+pub fn decodeWsFrame(bytes: [int]): Option[WsFrame]:
+  if bytes.len() < 2:
+    ret None
+  let b0 = bytes[0] & 255
+  let b1 = bytes[1] & 255
+  let fin = (b0 & 128) != 0
+  let rsv = (b0 >> 4) & 7
+  let opcode = b0 & 15
+  let masked = (b1 & 128) != 0
+  mut pLen = b1 & 127
+  mut pos = 2
+  if pLen == 126:
+    if bytes.len() < 4:
+      ret None
+    pLen = ((bytes[2] & 255) << 8) | (bytes[3] & 255)
+    pos = 4
+  elif pLen == 127:
+    if bytes.len() < 10:
+      ret None
+    pLen = ((bytes[6] & 255) << 24) | ((bytes[7] & 255) << 16) | ((bytes[8] & 255) << 8) | (bytes[9] & 255)
+    pos = 10
+
+  mut maskKey: [int] = []
+  if masked:
+    if pos + 4 > bytes.len():
+      ret None
+    maskKey.push(bytes[pos] & 255)
+    maskKey.push(bytes[pos + 1] & 255)
+    maskKey.push(bytes[pos + 2] & 255)
+    maskKey.push(bytes[pos + 3] & 255)
+    pos = pos + 4
+
+  if pos + pLen > bytes.len():
+    ret None
+  mut rawPayload: [int] = []
+  mut i = 0
+  while i < pLen:
+    rawPayload.push(bytes[pos + i] & 255)
+    i = i + 1
+  let finalPayload = if masked: applyWsMask(rawPayload, maskKey) else: rawPayload
+  ret Some(WsFrame(fin: fin, rsv: rsv, opcode: opcode, masked: masked, maskKey: maskKey, payload: finalPayload))
+
+fn hexNibbleVal(code: int): int:
+  if code >= 48 and code <= 57:
+    ret code - 48
+  if code >= 97 and code <= 102:
+    ret code - 97 + 10
+  if code >= 65 and code <= 70:
+    ret code - 65 + 10
+  ret 0
+
+fn base64EncodeBytes(data: [int]): str:
+  let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+  mut out = ""
+  mut i = 0
+  let n = data.len()
+  while i < n:
+    let b0 = data[i] & 255
+    let b1 = if i + 1 < n: data[i + 1] & 255 else: 0
+    let b2 = if i + 2 < n: data[i + 2] & 255 else: 0
+    let triple = (b0 << 16) | (b1 << 8) | b2
+    let c0 = (triple >> 18) & 63
+    let c1 = (triple >> 12) & 63
+    let c2 = (triple >> 6) & 63
+    let c3 = triple & 63
+    out = out + alphabet.slice(c0, c0 + 1) + alphabet.slice(c1, c1 + 1)
+    if i + 1 < n:
+      out = out + alphabet.slice(c2, c2 + 1)
+    else:
+      out = out + "="
+    if i + 2 < n:
+      out = out + alphabet.slice(c3, c3 + 1)
+    else:
+      out = out + "="
+    i = i + 3
+  ret out
+
+pub fn computeWsAcceptKey(clientKey: str): str:
+  let magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+  let hexDigest = sha1(clientKey.trim() + magic)
+  mut digestBytes: [int] = []
+  mut i = 0
+  while i + 1 < hexDigest.len():
+    let hi = hexNibbleVal(hexDigest.charCodeAt(i))
+    let lo = hexNibbleVal(hexDigest.charCodeAt(i + 1))
+    digestBytes.push((hi << 4) | lo)
+    i = i + 2
+  ret base64EncodeBytes(digestBytes)
+
+pub fn buildWsHandshakeRequest(host: str, path: str, key: str): str:
+  mut lines: [str] = [
+    "GET " + path + " HTTP/1.1",
+    "Host: " + host,
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    "Sec-WebSocket-Key: " + key,
+    "Sec-WebSocket-Version: 13"
+  ]
+  ret lines.join("\r\n") + "\r\n\r\n"
+
+pub fn validateWsHandshakeResponse(rawResponse: str, clientKey: str): bool:
+  let expected = computeWsAcceptKey(clientKey)
+  ret rawResponse.contains("101") and rawResponse.contains(expected)
+
+pub fn wsCreatePingFrame(): WsFrame:
+  ret WsFrame(fin: true, rsv: 0, opcode: 9, masked: false, maskKey: [], payload: [])
+
+pub fn wsCreatePongFrame(pingPayload: [int]): WsFrame:
+  ret WsFrame(fin: true, rsv: 0, opcode: 10, masked: false, maskKey: [], payload: pingPayload)
+
+pub fn wsCreateCloseFrame(code: int, reason: str): WsFrame:
+  mut p: [int] = [(code >> 8) & 255, code & 255]
+  let rBytes = reason.toBytes()
+  mut i = 0
+  while i < rBytes.len():
+    p.push(rBytes[i] & 255)
+    i = i + 1
+  ret WsFrame(fin: true, rsv: 0, opcode: 8, masked: false, maskKey: [], payload: p)

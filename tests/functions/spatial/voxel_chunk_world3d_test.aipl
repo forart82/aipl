@@ -1,0 +1,122 @@
+module tests.functions.spatial.voxel_chunk_world3d_test
+
+import * from "std/spatial/voxel_chunk_world3d"
+import { absFloat } from "std/math/consts"
+import { floor, sqrt } from "std/math/trig"
+import { Vec3, IVec3 } from "std/math/vec_math"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_voxel_chunk_world3d_voxelChunkWorldNew_1(): int:
+  let arg_chunkSize = 4
+  let edge_chunkSize = 1
+  let resNom = voxelChunkWorldNew(arg_chunkSize)
+  let resEdge = voxelChunkWorldNew(edge_chunkSize)
+  assertEqInt(resNom.chunkSize, 4, "voxelChunkWorldNew nominal resNom.chunkSize == 4")
+  assertEqInt(resEdge.chunkSize, 1, "voxelChunkWorldNew boundary resEdge.chunkSize == 1")
+  ret 0
+
+pub fn test_voxel_chunk_world3d_floorDivInt_2(): int:
+  let arg_a = 2
+  let edge_a = 0
+  let arg_b = 4
+  let edge_b = 1
+  let resNom = floorDivInt(arg_a, arg_b)
+  let resEdge = floorDivInt(edge_a, edge_b)
+  assertEqInt(resNom, 0, "floorDivInt nominal resNom == 0")
+  assertEqInt(resEdge, 0, "floorDivInt boundary resEdge == 0")
+  assertEqInt(floorDivInt(-1, 4), -1, "floorDivInt negative -1 / 4 == -1")
+  assertEqInt(floorDivInt(-4, 4), -1, "floorDivInt negative -4 / 4 == -1")
+  assertEqInt(floorDivInt(-5, 4), -2, "floorDivInt negative -5 / 4 == -2")
+  assertEqInt(floorDivInt(-16, 16), -1, "floorDivInt negative -16 / 16 == -1")
+  ret 0
+
+pub fn test_voxel_chunk_world3d_posModInt_3(): int:
+  let arg_a = 2
+  let edge_a = 0
+  let arg_b = 4
+  let edge_b = 1
+  let resNom = posModInt(arg_a, arg_b)
+  let resEdge = posModInt(edge_a, edge_b)
+  assertEqInt(resNom, 2, "posModInt nominal resNom == 2")
+  assertEqInt(resEdge, 0, "posModInt boundary resEdge == 0")
+  assertEqInt(posModInt(-1, 4), 3, "posModInt negative -1 % 4 == 3")
+  assertEqInt(posModInt(-4, 4), 0, "posModInt negative -4 % 4 == 0")
+  assertEqInt(posModInt(-5, 4), 3, "posModInt negative -5 % 4 == 3")
+  ret 0
+
+pub fn test_voxel_chunk_world3d_voxelGetBlock_4(): int:
+  mut arg_world = VoxelChunkWorld3D(chunkSize = 4, chunks = [])
+  let edge_world = VoxelChunkWorld3D(chunkSize = 1, chunks = [])
+  let arg_gx = 1
+  let edge_gx = 0
+  let arg_gy = 1
+  let edge_gy = 0
+  let arg_gz = 1
+  let edge_gz = 0
+  let resNom = voxelGetBlock(arg_world, arg_gx, arg_gy, arg_gz)
+  let resEdge = voxelGetBlock(edge_world, edge_gx, edge_gy, edge_gz)
+  assert(resNom.isSome() == false, "voxelGetBlock nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "voxelGetBlock boundary resEdge.isSome() == false")
+  let testBlock = VoxelBlock(blockId = 77, metadata = 2, lightLevel = 1)
+  voxelSetBlock(arg_world, -5, -6, -7, testBlock)
+  let got = voxelGetBlock(arg_world, -5, -6, -7)
+  assert(got.isSome() == true, "voxelGetBlock retrieves block at negative coordinates")
+  assertEqInt(got.unwrap().blockId, 77, "retrieved blockId matches 77")
+  ret 0
+
+pub fn test_voxel_chunk_world3d_voxelSetBlock_5(): int:
+  mut arg_world = VoxelChunkWorld3D(chunkSize = 4, chunks = [])
+  mut edge_world = VoxelChunkWorld3D(chunkSize = 1, chunks = [])
+  let arg_gx = 1
+  let edge_gx = 0
+  let arg_gy = 1
+  let edge_gy = 0
+  let arg_gz = 1
+  let edge_gz = 0
+  let arg_block = VoxelBlock(blockId = 4, metadata = 4, lightLevel = 2)
+  let edge_block = VoxelBlock(blockId = 1, metadata = 1, lightLevel = 0)
+  let resNom = voxelSetBlock(arg_world, arg_gx, arg_gy, arg_gz, arg_block)
+  let resEdge = voxelSetBlock(edge_world, edge_gx, edge_gy, edge_gz, edge_block)
+  assert(resNom == true, "voxelSetBlock nominal resNom == true")
+  assert(resEdge == true, "voxelSetBlock boundary resEdge == true")
+  let negBlock = VoxelBlock(blockId = 99, metadata = 1, lightLevel = 5)
+  let resNeg = voxelSetBlock(arg_world, -2, -1, -3, negBlock)
+  assert(resNeg == true, "voxelSetBlock negative coord resNeg == true")
+  let gotNeg = voxelGetBlock(arg_world, -2, -1, -3)
+  assert(gotNeg.isSome() == true, "voxelGetBlock negative coord isSome == true")
+  assertEqInt(gotNeg.unwrap().blockId, 99, "voxelGetBlock negative coord blockId == 99")
+  ret 0
+
+pub fn test_voxel_chunk_world3d_voxelRaycastDDA_6(): int:
+  let arg_world = VoxelChunkWorld3D(chunkSize = 4, chunks = [])
+  let edge_world = VoxelChunkWorld3D(chunkSize = 1, chunks = [])
+  let arg_origin = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_origin = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_dir = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_dir = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_maxDistance = 2.0
+  let edge_maxDistance = 1.0
+  let resNom = voxelRaycastDDA(arg_world, arg_origin, arg_dir, arg_maxDistance)
+  let resEdge = voxelRaycastDDA(edge_world, edge_origin, edge_dir, edge_maxDistance)
+  assert(resNom.isSome() == false, "voxelRaycastDDA nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "voxelRaycastDDA boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_voxel_chunk_world3d_voxelExtractGreedyFaces_7(): int:
+  let arg_chunk = VoxelChunk16(coord = IVec3(x = 1, y = 1, z = 1), chunkSize = 4, blocks = [], isDirty = true)
+  let edge_chunk = VoxelChunk16(coord = IVec3(x = 0, y = 0, z = 0), chunkSize = 1, blocks = [], isDirty = false)
+  let resNom = voxelExtractGreedyFaces(arg_chunk)
+  let resEdge = voxelExtractGreedyFaces(edge_chunk)
+  assertEqInt(resNom.len(), 1, "voxelExtractGreedyFaces nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "voxelExtractGreedyFaces boundary resEdge.len() == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_voxel_chunk_world3d_voxelChunkWorldNew_1(), 0, "test_voxel_chunk_world3d_voxelChunkWorldNew_1")
+  assertEqInt(test_voxel_chunk_world3d_floorDivInt_2(), 0, "test_voxel_chunk_world3d_floorDivInt_2")
+  assertEqInt(test_voxel_chunk_world3d_posModInt_3(), 0, "test_voxel_chunk_world3d_posModInt_3")
+  assertEqInt(test_voxel_chunk_world3d_voxelGetBlock_4(), 0, "test_voxel_chunk_world3d_voxelGetBlock_4")
+  assertEqInt(test_voxel_chunk_world3d_voxelSetBlock_5(), 0, "test_voxel_chunk_world3d_voxelSetBlock_5")
+  assertEqInt(test_voxel_chunk_world3d_voxelRaycastDDA_6(), 0, "test_voxel_chunk_world3d_voxelRaycastDDA_6")
+  assertEqInt(test_voxel_chunk_world3d_voxelExtractGreedyFaces_7(), 0, "test_voxel_chunk_world3d_voxelExtractGreedyFaces_7")
+  ret 0

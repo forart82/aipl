@@ -1,0 +1,257 @@
+module tests.functions.math.prng_test
+
+import * from "std/math/prng"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { TAU } from "std/math/consts"
+import { sin, cos, sqrt } from "std/math/trig"
+
+pub fn test_prng_splitMix64Next_1(): int:
+  let arg_state = 1
+  let edge_state = 0
+  let resNom = splitMix64Next(arg_state)
+  let resEdge = splitMix64Next(edge_state)
+  assertEqInt(resNom.len(), 2, "splitMix64Next nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "splitMix64Next boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_prng_pcg32Next_2(): int:
+  let arg_state = 1
+  let edge_state = 0
+  let arg_inc = 4
+  let edge_inc = 1
+  let resNom = pcg32Next(arg_state, arg_inc)
+  let resEdge = pcg32Next(edge_state, edge_inc)
+  assertEqInt(resNom.len(), 2, "pcg32Next nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "pcg32Next boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_prng_pcg32Init_3(): int:
+  let arg_seed = 1
+  let edge_seed = 0
+  let arg_seq = 2
+  let edge_seq = 0
+  let resNom = pcg32Init(arg_seed, arg_seq)
+  let resEdge = pcg32Init(edge_seed, edge_seq)
+  assertEqInt(resNom.state, 1291329195661654803, "pcg32Init nominal resNom.state == 1291329195661654803")
+  assertEqInt(resEdge.state, 1568382538196212880, "pcg32Init boundary resEdge.state == 1568382538196212880")
+  ret 0
+
+pub fn test_prng_Pcg32Rng_nextU32_4(): int:
+  let mut recv_self = Pcg32Rng(state = 0, inc = 4)
+  let mut edge_self = Pcg32Rng(state = 0, inc = 1)
+  let resNom = recv_self.nextU32()
+  let resEdge = edge_self.nextU32()
+  assertEqInt(resNom, 0, "nextU32 nominal resNom == 0")
+  assertEqInt(resEdge, 0, "nextU32 boundary resEdge == 0")
+  ret 0
+
+pub fn test_prng_Pcg32Rng_nextFloat_5(): int:
+  let mut recv_self = Pcg32Rng(state = 0, inc = 4)
+  let mut edge_self = Pcg32Rng(state = 0, inc = 1)
+  let resNom = recv_self.nextFloat()
+  let resEdge = edge_self.nextFloat()
+  assertApproxEq(resNom, 0.0, 0.001, "nextFloat nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "nextFloat boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prng_Pcg32Rng_rangeInt_6(): int:
+  let mut recv_self = Pcg32Rng(state = 0, inc = 4)
+  let mut edge_self = Pcg32Rng(state = 0, inc = 1)
+  let arg_minVal = 4
+  let edge_minVal = 1
+  let arg_maxVal = 4
+  let edge_maxVal = 1
+  let resNom = recv_self.rangeInt(arg_minVal, arg_maxVal)
+  let resEdge = edge_self.rangeInt(edge_minVal, edge_maxVal)
+  assertEqInt(resNom, 4, "rangeInt nominal resNom == 4")
+  assertEqInt(resEdge, 1, "rangeInt boundary resEdge == 1")
+  ret 0
+
+pub fn test_prng_xoshiro256Init_7(): int:
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = xoshiro256Init(arg_seed)
+  let resEdge = xoshiro256Init(edge_seed)
+  assertEqInt(resNom.s0, 643517647554758034, "xoshiro256Init nominal resNom.s0 == 643517647554758034")
+  assertEqInt(resEdge.s0, 1517046713075839355, "xoshiro256Init boundary resEdge.s0 == 1517046713075839355")
+  ret 0
+
+pub fn test_prng_Xoshiro256Rng_nextU64_8(): int:
+  let mut recv_self = Xoshiro256Rng(s0 = 2, s1 = 2, s2 = 2, s3 = 2)
+  let mut edge_self = Xoshiro256Rng(s0 = 0, s1 = 0, s2 = 0, s3 = 0)
+  let resNom = recv_self.nextU64()
+  let resEdge = edge_self.nextU64()
+  assertEqInt(resNom, 4, "nextU64 nominal resNom == 4")
+  assertEqInt(resEdge, 0, "nextU64 boundary resEdge == 0")
+  ret 0
+
+pub fn test_prng_rngNew_9(): int:
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = rngNew(arg_seed)
+  let resEdge = rngNew(edge_seed)
+  assertEqInt(resNom.state, 1, "rngNew nominal resNom.state == 1")
+  assertEqInt(resEdge.state, 123456789, "rngNew boundary resEdge.state == 123456789")
+  ret 0
+
+pub fn test_prng_rngNext_10(): int:
+  let arg_rng = Rng(state = 0)
+  let edge_rng = Rng(state = 0)
+  let resNom = rngNext(arg_rng)
+  let resEdge = rngNext(edge_rng)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.state, 2177342782468422677, "rngNext nominal n_t0.state == 2177342782468422677")
+  assertEqInt(e_t0.state, 2177342782468422677, "rngNext boundary e_t0.state == 2177342782468422677")
+  ret 0
+
+pub fn test_prng_rngNextInt_11(): int:
+  let r0 = Rng(state = 12345)
+  let (r1, val) = rngNextInt(r0, 10, 50)
+  assert(r1.state != r0.state, "rngNextInt advances state")
+  assert(val >= 10 and val <= 50, "rngNextInt val is within [10, 50]")
+  let (rBoundary, valBoundary) = rngNextInt(r0, 4, 4)
+  assertEqInt(rBoundary.state, r0.state, "rngNextInt boundary state unchanged when min == max")
+  assertEqInt(valBoundary, 4, "rngNextInt boundary val is min")
+  ret 0
+
+pub fn test_prng_rngNextFloat_12(): int:
+  let arg_rng = Rng(state = 0)
+  let edge_rng = Rng(state = 0)
+  let resNom = rngNextFloat(arg_rng)
+  let resEdge = rngNextFloat(edge_rng)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.state, 2177342782468422677, "rngNextFloat nominal n_t0.state == 2177342782468422677")
+  assertEqInt(e_t0.state, 2177342782468422677, "rngNextFloat boundary e_t0.state == 2177342782468422677")
+  ret 0
+
+pub fn test_prng_setRandomSeed_13(): int:
+  mut completedCalls = 0
+  let arg_seed = 1
+  let edge_seed = 0
+  setRandomSeed(arg_seed)
+  setRandomSeed(edge_seed)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "setRandomSeed nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_prng_randomFloat_14(): int:
+  let resNom = randomFloat()
+  let resEdge = randomFloat()
+  assert(resNom >= 0.0 and resNom <= 1.0, "randomFloat nominal float in [0.0, 1.0]")
+  assert(resEdge >= 0.0 and resEdge <= 1.0, "randomFloat boundary float in [0.0, 1.0]")
+  ret 0
+
+pub fn test_prng_randomRange_15(): int:
+  let arg_minVal = 0.0
+  let edge_minVal = 0.0
+  let arg_maxVal = 2.0
+  let edge_maxVal = 1.0
+  let resNom = randomRange(arg_minVal, arg_maxVal)
+  let resEdge = randomRange(edge_minVal, edge_maxVal)
+  assert(resNom >= 0.0 and resNom <= 2.0, "randomRange nominal float in [0.0, 2.0]")
+  assert(resEdge >= 0.0 and resEdge <= 1.0, "randomRange boundary float in [0.0, 1.0]")
+  ret 0
+
+pub fn test_prng_randomIntRange_16(): int:
+  let arg_minVal = 4
+  let edge_minVal = 1
+  let arg_maxVal = 4
+  let edge_maxVal = 1
+  let resNom = randomIntRange(arg_minVal, arg_maxVal)
+  let resEdge = randomIntRange(edge_minVal, edge_maxVal)
+  assertEqInt(resNom, 4, "randomIntRange nominal resNom == 4")
+  assertEqInt(resEdge, 1, "randomIntRange boundary resEdge == 1")
+  ret 0
+
+pub fn test_prng_randomBool_17(): int:
+  let arg_probability = 1.0
+  let edge_probability = 0.0
+  let resNom = randomBool(arg_probability)
+  let resEdge = randomBool(edge_probability)
+  assert(resNom == true, "randomBool nominal resNom == true")
+  assert(resEdge == false, "randomBool boundary resEdge == false")
+  ret 0
+
+pub fn test_prng_randomSign_18(): int:
+  let resNom = randomSign()
+  let resEdge = randomSign()
+  assert(resNom == -1.0 or resNom == 1.0, "randomSign nominal")
+  assert(resEdge == -1.0 or resEdge == 1.0, "randomSign boundary")
+  ret 0
+
+pub fn test_prng_randomAngle_19(): int:
+  let resNom = randomAngle()
+  let resEdge = randomAngle()
+  assert(resNom >= 0.0 and resNom <= 6.283186, "randomAngle nominal float in [0.0, TAU]")
+  assert(resEdge >= 0.0 and resEdge <= 6.283186, "randomAngle boundary float in [0.0, TAU]")
+  ret 0
+
+pub fn test_prng_randomGaussian_20(): int:
+  let resNom = randomGaussian()
+  let resEdge = randomGaussian()
+  assert(resNom >= -4.25 and resNom <= 4.25, "randomGaussian nominal float in [-4.25, 4.25]")
+  assert(resEdge >= -4.25 and resEdge <= 4.25, "randomGaussian boundary float in [-4.25, 4.25]")
+  ret 0
+
+pub fn test_prng_randomInCircleX_21(): int:
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let resNom = randomInCircleX(arg_radius)
+  let resEdge = randomInCircleX(edge_radius)
+  assert(resNom >= -2.0 and resNom <= 2.0, "randomInCircleX nominal float in [-2.0, 2.0]")
+  assert(resEdge >= -1.0 and resEdge <= 1.0, "randomInCircleX boundary float in [-1.0, 1.0]")
+  ret 0
+
+pub fn test_prng_randomInCircleY_22(): int:
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let resNom = randomInCircleY(arg_radius)
+  let resEdge = randomInCircleY(edge_radius)
+  assert(resNom >= -2.0 and resNom <= 2.0, "randomInCircleY nominal float in [-2.0, 2.0]")
+  assert(resEdge >= -1.0 and resEdge <= 1.0, "randomInCircleY boundary float in [-1.0, 1.0]")
+  ret 0
+
+pub fn test_prng_shuffleInts_23(): int:
+  let arg_arr = [2]
+  let edge_arr = []
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = shuffleInts(arg_arr, arg_seed)
+  let resEdge = shuffleInts(edge_arr, edge_seed)
+  assertEqInt(resNom.len(), 1, "shuffleInts nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "shuffleInts boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_prng_createRng_24(): int:
+  let arg_initialSeed = 4
+  let edge_initialSeed = 1
+  let resNom = createRng(arg_initialSeed)
+  let resEdge = createRng(edge_initialSeed)
+  assertEqInt(resNom.state, 4, "createRng nominal resNom.state == 4")
+  assertEqInt(resEdge.state, 1, "createRng boundary resEdge.state == 1")
+  ret 0
+
+pub fn test_prng_nextRng_25(): int:
+  let arg_rng = RngState(state = 0, seed = 0)
+  let edge_rng = RngState(state = 0, seed = 0)
+  let resNom = nextRng(arg_rng)
+  let resEdge = nextRng(edge_rng)
+  assertEqInt(resNom.state, 12345, "nextRng nominal resNom.state == 12345")
+  assertEqInt(resEdge.state, 12345, "nextRng boundary resEdge.state == 12345")
+  ret 0
+
+pub fn test_prng_randomInt_26(): int:
+  let arg_rng = RngState(state = 0, seed = 0)
+  let edge_rng = RngState(state = 0, seed = 0)
+  let arg_minVal = 4
+  let edge_minVal = 1
+  let arg_maxVal = 4
+  let edge_maxVal = 1
+  let resNom = randomInt(arg_rng, arg_minVal, arg_maxVal)
+  let resEdge = randomInt(edge_rng, edge_minVal, edge_maxVal)
+  assertEqInt(resNom, 4, "randomInt nominal resNom == 4")
+  assertEqInt(resEdge, 1, "randomInt boundary resEdge == 1")
+  ret 0

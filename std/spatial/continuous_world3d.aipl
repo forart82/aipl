@@ -1,0 +1,133 @@
+/// # Module: `std/spatial/continuous_world3d` (`ContinuousWorld3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Tileless continuous 3D scene world supporting sphere queries, frustum culling,
+/// transform updates, and 3D sphere/AABB raycasting.
+module ContinuousWorld3DMod
+
+import { sqrt } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { Quat } from "std/math/quat"
+import { AABB3D, Sphere3D, Plane3D, Ray3D, Frustum3D } from "std/math/geom3d"
+
+pub struct Transform3D(position: Vec3, rotation: Quat, scale: Vec3)
+
+pub struct SpatialRayHit3D(objectId: int, distance: float, point: Vec3, normal: Vec3)
+
+pub struct SpatialObject3D(id: int, transform: Transform3D, boundingBox: AABB3D, boundingSphere: Sphere3D, layerMask: int)
+
+pub struct ContinuousSpaceWorld3D(worldBounds: AABB3D, objects: [SpatialObject3D], alive: [bool])
+
+pub fn continuousWorld3dNew(worldBounds: AABB3D): ContinuousSpaceWorld3D:
+  mut objs: [SpatialObject3D] = []
+  mut alv: [bool] = []
+  ret ContinuousSpaceWorld3D(worldBounds = worldBounds, objects = objs, alive = alv)
+
+pub fn continuousWorld3dInsert(mut world: ContinuousSpaceWorld3D, obj: SpatialObject3D): int:
+  mut objs = world.objects
+  mut alv = world.alive
+  objs.push(obj)
+  alv.push(true)
+  world.objects = objs
+  world.alive = alv
+  ret obj.id
+
+pub fn continuousWorld3dUpdateTransform(mut world: ContinuousSpaceWorld3D, id: int, transform: Transform3D): bool:
+  mut objs = world.objects
+  mut i = 0
+  while i < objs.len:
+    if world.alive[i]:
+      let obj: SpatialObject3D = objs[i]
+      if obj.id == id:
+        let oldPos: Vec3 = obj.transform.position
+        let newPos: Vec3 = transform.position
+        let delta: Vec3 = newPos.sub(oldPos)
+        let oldBox: AABB3D = obj.boundingBox
+        let newBox = AABB3D(
+          min = Vec3(x = oldBox.min.x + delta.x, y = oldBox.min.y + delta.y, z = oldBox.min.z + delta.z),
+          max = Vec3(x = oldBox.max.x + delta.x, y = oldBox.max.y + delta.y, z = oldBox.max.z + delta.z)
+        )
+        let oldSphere: Sphere3D = obj.boundingSphere
+        let newSphere = Sphere3D(center = newPos, radius = oldSphere.radius)
+        objs[i] = SpatialObject3D(
+          id = obj.id,
+          transform = transform,
+          boundingBox = newBox,
+          boundingSphere = newSphere,
+          layerMask = obj.layerMask
+        )
+        world.objects = objs
+        ret true
+    i = i + 1
+  ret false
+
+pub fn continuousWorld3dQuerySphere(world: ContinuousSpaceWorld3D, center: Vec3, radius: float, mask: int): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < world.objects.len:
+    if world.alive[i]:
+      let obj: SpatialObject3D = world.objects[i]
+      if (obj.layerMask & mask) != 0:
+        let sph: Sphere3D = obj.boundingSphere
+        let sc: Vec3 = sph.center
+        let diff: Vec3 = sc.sub(center)
+        let rSum = radius + sph.radius
+        if diff.lenSq() <= rSum * rSum:
+          out.push(obj.id)
+    i = i + 1
+  ret out
+
+pub fn continuousWorld3dQueryFrustum(world: ContinuousSpaceWorld3D, frustum: Frustum3D, mask: int): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < world.objects.len:
+    if world.alive[i]:
+      let obj: SpatialObject3D = world.objects[i]
+      if (obj.layerMask & mask) != 0:
+        let sph: Sphere3D = obj.boundingSphere
+        let sc: Vec3 = sph.center
+        mut visible = true
+        mut p = 0
+        while p < frustum.planes.len:
+          let pl: Plane3D = frustum.planes[p]
+          let n: Vec3 = pl.normal
+          let dVal = if pl.distance != 0.0: pl.distance else: pl.d
+          if n.dot(sc) + dVal < -sph.radius:
+            visible = false
+          p = p + 1
+        if visible:
+          out.push(obj.id)
+    i = i + 1
+  ret out
+
+pub fn continuousWorld3dRaycast(world: ContinuousSpaceWorld3D, ray: Ray3D, maxDist: float, mask: int): Option[SpatialRayHit3D]:
+  let orig: Vec3 = ray.origin
+  let dir: Vec3 = ray.dir.norm()
+  mut bestDist = maxDist + 1.0
+  mut bestHit: Option[SpatialRayHit3D] = None
+
+  mut i = 0
+  while i < world.objects.len:
+    if world.alive[i]:
+      let obj: SpatialObject3D = world.objects[i]
+      if (obj.layerMask & mask) != 0:
+        let sph: Sphere3D = obj.boundingSphere
+        let sc: Vec3 = sph.center
+        let oc: Vec3 = orig.sub(sc)
+        let b = oc.dot(dir)
+        let c = oc.lenSq() - sph.radius * sph.radius
+        let disc = b * b - c
+        if disc >= 0.0:
+          let t = -b - sqrt(disc)
+          if t >= 0.0 and t <= maxDist and t < bestDist:
+            bestDist = t
+            let hitPt: Vec3 = orig.add(dir.scale(t))
+            let hitN: Vec3 = hitPt.sub(sc).norm()
+            bestHit = Some(SpatialRayHit3D(
+              objectId = obj.id,
+              distance = t,
+              point = hitPt,
+              normal = hitN
+            ))
+    i = i + 1
+  ret bestHit

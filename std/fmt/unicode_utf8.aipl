@@ -1,0 +1,230 @@
+// ============================================================================
+// Module: std/fmt/unicode_utf8
+// Layer 1: Standard Formatting, Text Manipulation & Unicode
+// RFC 3629 UTF-8 byte sequence validator, codepoint iterator, grapheme
+// clustering, and terminal display width calculation.
+// ============================================================================
+module FmtUnicodeUtf8
+
+pub struct Utf8Codepoint:
+  codepoint: int
+  byteOffset: int
+  byteLength: int
+
+pub struct Utf8CodepointIter:
+  text: str
+  byteOffset: int
+  charOffset: int
+
+pub struct GraphemeCluster:
+  cluster: str
+  byteOffset: int
+  runeCount: int
+  displayWidth: int
+
+pub fn utf8DecodeRune(data: bytes, offset: int): (int, int):
+  let n = data.len
+  if offset < 0 or offset >= n:
+    ret (65533, 0)
+  let b0 = data[offset]
+  if b0 < 128:
+    ret (b0, 1)
+  if b0 >= 194 and b0 <= 223:
+    if offset + 1 >= n:
+      ret (65533, 1)
+    let b1 = data[offset + 1]
+    if (b1 & 192) != 128:
+      ret (65533, 1)
+    let cp = ((b0 & 31) << 6) | (b1 & 63)
+    ret (cp, 2)
+  if b0 >= 224 and b0 <= 239:
+    if offset + 2 >= n:
+      ret (65533, 1)
+    let b1 = data[offset + 1]
+    let b2 = data[offset + 2]
+    if (b1 & 192) != 128 or (b2 & 192) != 128:
+      ret (65533, 1)
+    if b0 == 224 and b1 < 160:
+      ret (65533, 1)
+    if b0 == 237 and b1 >= 160:
+      ret (65533, 1)
+    let cp = ((b0 & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63)
+    ret (cp, 3)
+  if b0 >= 240 and b0 <= 244:
+    if offset + 3 >= n:
+      ret (65533, 1)
+    let b1 = data[offset + 1]
+    let b2 = data[offset + 2]
+    let b3 = data[offset + 3]
+    if (b1 & 192) != 128 or (b2 & 192) != 128 or (b3 & 192) != 128:
+      ret (65533, 1)
+    if b0 == 240 and b1 < 144:
+      ret (65533, 1)
+    if b0 == 244 and b1 >= 144:
+      ret (65533, 1)
+    let cp = ((b0 & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63)
+    ret (cp, 4)
+  ret (65533, 1)
+
+pub fn utf8Validate(data: bytes): bool:
+  let n = data.len
+  mut idx = 0
+  while idx < n:
+    let b0 = data[idx]
+    if b0 < 128:
+      idx += 1
+      continue
+    let decoded = utf8DecodeRune(data, idx)
+    let cp = decoded[0]
+    let step = decoded[1]
+    if cp == 65533 and step == 1 and b0 != 239:
+      ret false
+    if step <= 0:
+      ret false
+    idx += step
+  ret true
+
+pub fn utf8EncodeRune(codepoint: int): bytes:
+  if codepoint < 0 or codepoint > 1114111:
+    ret bytesFromArray([239, 191, 189])
+  if codepoint < 128:
+    ret bytesFromArray([codepoint])
+  if codepoint < 2048:
+    let b0 = 192 | (codepoint >> 6)
+    let b1 = 128 | (codepoint & 63)
+    ret bytesFromArray([b0, b1])
+  if codepoint < 65536:
+    let b0 = 224 | (codepoint >> 12)
+    let b1 = 128 | ((codepoint >> 6) & 63)
+    let b2 = 128 | (codepoint & 63)
+    ret bytesFromArray([b0, b1, b2])
+  let b0 = 240 | (codepoint >> 18)
+  let b1 = 128 | ((codepoint >> 12) & 63)
+  let b2 = 128 | ((codepoint >> 6) & 63)
+  let b3 = 128 | (codepoint & 63)
+  ret bytesFromArray([b0, b1, b2, b3])
+
+fn decodeRuneFromStr(s: str, idx: int): (int, int):
+  let n = s.len
+  if idx < 0 or idx >= n:
+    ret (65533, 0)
+  let b0 = s.charCodeAt(idx) & 255
+  if b0 < 128:
+    ret (b0, 1)
+  if b0 >= 194 and b0 <= 223 and idx + 1 < n:
+    let b1 = s.charCodeAt(idx + 1) & 255
+    ret (((b0 & 31) << 6) | (b1 & 63), 2)
+  if b0 >= 224 and b0 <= 239 and idx + 2 < n:
+    let b1 = s.charCodeAt(idx + 1) & 255
+    let b2 = s.charCodeAt(idx + 2) & 255
+    ret (((b0 & 15) << 12) | ((b1 & 63) << 6) | (b2 & 63), 3)
+  if b0 >= 240 and b0 <= 244 and idx + 3 < n:
+    let b1 = s.charCodeAt(idx + 1) & 255
+    let b2 = s.charCodeAt(idx + 2) & 255
+    let b3 = s.charCodeAt(idx + 3) & 255
+    ret (((b0 & 7) << 18) | ((b1 & 63) << 12) | ((b2 & 63) << 6) | (b3 & 63), 4)
+  ret (b0, 1)
+
+pub fn codepoints(s: str): [int]:
+  mut out: [int] = []
+  mut idx = 0
+  let n = s.len
+  while idx < n:
+    let pair = decodeRuneFromStr(s, idx)
+    out.push(pair[0])
+    let step = if pair[1] > 0: pair[1] else: 1
+    idx += step
+  ret out
+
+pub fn codepointCount(s: str): int:
+  mut count = 0
+  mut idx = 0
+  let n = s.len
+  while idx < n:
+    let pair = decodeRuneFromStr(s, idx)
+    count += 1
+    let step = if pair[1] > 0: pair[1] else: 1
+    idx += step
+  ret count
+
+pub fn isControlRune(cp: int): bool:
+  ret (cp >= 0 and cp <= 31) or (cp >= 127 and cp <= 159)
+
+pub fn isWhitespaceRune(cp: int): bool:
+  if cp == 32 or (cp >= 9 and cp <= 13):
+    ret true
+  if cp == 160 or cp == 5760 or (cp >= 8192 and cp <= 8202) or cp == 8239 or cp == 8287 or cp == 12288:
+    ret true
+  ret false
+
+pub fn isAlphaRune(cp: int): bool:
+  if (cp >= 65 and cp <= 90) or (cp >= 97 and cp <= 122):
+    ret true
+  if cp >= 192 and cp <= 687 and cp != 215 and cp != 247:
+    ret true
+  ret false
+
+pub fn isDigitRune(cp: int): bool:
+  ret cp >= 48 and cp <= 57
+
+pub fn runeDisplayWidth(cp: int): int:
+  if cp == 0 or isControlRune(cp):
+    ret 0
+  // Combining diacritical marks
+  if (cp >= 768 and cp <= 879) or (cp >= 6832 and cp <= 6911) or (cp >= 7616 and cp <= 7679) or (cp >= 8400 and cp <= 8447) or (cp >= 65056 and cp <= 65071):
+    ret 0
+  // East Asian Wide / Fullwidth / CJK / Hangul / Emoji blocks
+  if cp >= 4352 and (
+    cp <= 4447 or
+    cp == 9001 or cp == 9002 or
+    (cp >= 11904 and cp <= 42191 and cp != 12351) or
+    (cp >= 44032 and cp <= 55203) or
+    (cp >= 63744 and cp <= 64255) or
+    (cp >= 65040 and cp <= 65049) or
+    (cp >= 65072 and cp <= 65135) or
+    (cp >= 65280 and cp <= 65376) or
+    (cp >= 65504 and cp <= 65510) or
+    (cp >= 127744 and cp <= 129791) or
+    (cp >= 131072 and cp <= 262141)
+  ):
+    ret 2
+  ret 1
+
+pub fn stringDisplayWidth(s: str): int:
+  let cps = codepoints(s)
+  mut width = 0
+  mut i = 0
+  while i < cps.len:
+    width += runeDisplayWidth(cps[i])
+    i += 1
+  ret width
+
+pub fn graphemeClusters(s: str): [GraphemeCluster]:
+  mut clusters: [GraphemeCluster] = []
+  mut idx = 0
+  let n = s.len
+  while idx < n:
+    let startOffset = idx
+    let pair = decodeRuneFromStr(s, idx)
+    let cp = pair[0]
+    let step = if pair[1] > 0: pair[1] else: 1
+    mut endOffset = idx + step
+    mut rCount = 1
+    mut w = runeDisplayWidth(cp)
+    while endOffset < n:
+      let nextPair = decodeRuneFromStr(s, endOffset)
+      let nextCp = nextPair[0]
+      let nextStep = if nextPair[1] > 0: nextPair[1] else: 1
+      if runeDisplayWidth(nextCp) == 0 and not isControlRune(nextCp):
+        endOffset += nextStep
+        rCount += 1
+      else:
+        break
+    clusters.push(GraphemeCluster(
+      cluster = s.slice(startOffset, endOffset),
+      byteOffset = startOffset,
+      runeCount = rCount,
+      displayWidth = w
+    ))
+    idx = endOffset
+  ret clusters

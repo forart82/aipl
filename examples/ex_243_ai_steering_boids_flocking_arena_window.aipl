@@ -1,0 +1,234 @@
+module Ex243AiSteeringBoidsFlockingArenaWindow
+
+import { SteeringOutput2D, BoidSettings2D, steerSeek2D, steerFlee2D, steerArrive2D, steerBoidsFlocking2D, computeRadialFormationSlot2D } from "../std/ai/steering"
+import { Vec2 } from "../std/math/vec_math"
+import { sin, cos, sqrt } from "../std/math/trig"
+import { initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow, clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline, drawLine, drawText, rgb } from "../std/gfx2d/shape2d"
+
+pub struct BoidsScene(boidSettings: BoidSettings2D, positions: [Vec2], velocities: [Vec2], steerings: [SteeringOutput2D], attractorPos: Vec2, threatPos: Vec2, formationCenter: Vec2, escortPositions: [Vec2], escortVelocities: [Vec2], formationSlots: [Vec2], stepCount: int)
+
+pub fn initScene(): BoidsScene:
+  let boidSettings = BoidSettings2D(
+    separationDistance = 48.0,
+    alignmentDistance = 135.0,
+    cohesionDistance = 160.0,
+    weightSeparation = 1.6,
+    weightAlignment = 1.0,
+    weightCohesion = 1.0,
+    maxSpeed = 42.0,
+    maxForce = 20.0
+  )
+  let positions = [
+    Vec2(x = 220.0, y = 340.0), Vec2(x = 280.0, y = 290.0), Vec2(x = 310.0, y = 390.0),
+    Vec2(x = 370.0, y = 330.0), Vec2(x = 430.0, y = 280.0), Vec2(x = 450.0, y = 400.0)
+  ]
+  let velocities = [
+    Vec2(x = 22.0, y = -8.0), Vec2(x = 24.0, y = 6.0), Vec2(x = 18.0, y = -10.0),
+    Vec2(x = 26.0, y = 5.0), Vec2(x = 20.0, y = 9.0), Vec2(x = 22.0, y = -7.0)
+  ]
+  mut steerings: [SteeringOutput2D] = []
+  mut i = 0
+  while i < positions.len():
+    steerings.push(steerBoidsFlocking2D(i, positions, velocities, boidSettings))
+    i = i + 1
+
+  let center = Vec2(x = 940.0, y = 365.0)
+  mut slots: [Vec2] = []
+  mut escPos: [Vec2] = []
+  mut escVel: [Vec2] = []
+  mut s = 0
+  while s < 8:
+    let slot = computeRadialFormationSlot2D(center, 145.0, s, 8)
+    slots.push(slot)
+    escPos.push(Vec2(x = slot.x - 28.0, y = slot.y + 18.0))
+    escVel.push(Vec2(x = 0.0, y = 0.0))
+    s = s + 1
+
+  ret BoidsScene(
+    boidSettings = boidSettings,
+    positions = positions,
+    velocities = velocities,
+    steerings = steerings,
+    attractorPos = Vec2(x = 334.0, y = 360.0),
+    threatPos = Vec2(x = 240.0, y = 460.0),
+    formationCenter = center,
+    escortPositions = escPos,
+    escortVelocities = escVel,
+    formationSlots = slots,
+    stepCount = 0
+  )
+
+pub fn stepScene(mut scene: BoidsScene, frame: int, dt: float): BoidsScene:
+  mut nextPos: [Vec2] = []
+  mut nextVel: [Vec2] = []
+  mut nextSteer: [SteeringOutput2D] = []
+  let attr = Vec2(
+    x = 334.0 + cos(float(frame) * 0.07) * 115.0,
+    y = 355.0 + sin(float(frame) * 0.05) * 105.0
+  )
+  let threat = Vec2(
+    x = 334.0 - sin(float(frame) * 0.09) * 125.0,
+    y = 355.0 + cos(float(frame) * 0.06) * 115.0
+  )
+  scene.attractorPos = attr
+  scene.threatPos = threat
+
+  mut bIdx = 0
+  while bIdx < scene.positions.len():
+    let bp: Vec2 = scene.positions[bIdx]
+    let bv: Vec2 = scene.velocities[bIdx]
+    let st: SteeringOutput2D = steerBoidsFlocking2D(bIdx, scene.positions, scene.velocities, scene.boidSettings)
+    let homeSeek: SteeringOutput2D = steerSeek2D(bp, bv, attr, scene.boidSettings.maxSpeed, scene.boidSettings.maxForce)
+    let fleeOut: SteeringOutput2D = steerFlee2D(bp, bv, threat, scene.boidSettings.maxSpeed, scene.boidSettings.maxForce)
+    let tDist = bp.sub(threat).len()
+    let fleeW = if tDist < 95.0: 0.95 else: 0.0
+    let ax = st.linear.x + homeSeek.linear.x * 0.45 + fleeOut.linear.x * fleeW
+    let ay = st.linear.y + homeSeek.linear.y * 0.45 + fleeOut.linear.y * fleeW
+    mut nv = Vec2(x = bv.x + ax * dt, y = bv.y + ay * dt)
+    let spd = nv.len()
+    if spd > scene.boidSettings.maxSpeed and spd > 0.001:
+      nv = nv.scale(scene.boidSettings.maxSpeed / spd)
+    mut npx = bp.x + nv.x * dt
+    mut npy = bp.y + nv.y * dt
+    if npx < 95.0:
+      npx = 565.0
+    if npx > 565.0:
+      npx = 95.0
+    if npy < 155.0:
+      npy = 565.0
+    if npy > 565.0:
+      npy = 155.0
+    nextPos.push(Vec2(x = npx, y = npy))
+    nextVel.push(nv)
+    nextSteer.push(st)
+    bIdx = bIdx + 1
+
+  scene.positions = nextPos
+  scene.velocities = nextVel
+  scene.steerings = nextSteer
+
+  scene.formationCenter = Vec2(
+    x = 940.0 + cos(float(frame) * 0.06) * 58.0,
+    y = 355.0 + sin(float(frame) * 0.09) * 52.0
+  )
+  mut nextSlots: [Vec2] = []
+  mut nextEscPos: [Vec2] = []
+  mut nextEscVel: [Vec2] = []
+  mut sIdx = 0
+  while sIdx < 8:
+    let slot = computeRadialFormationSlot2D(scene.formationCenter, 145.0, sIdx, 8)
+    let ep: Vec2 = scene.escortPositions[sIdx]
+    let ev: Vec2 = scene.escortVelocities[sIdx]
+    let arr: SteeringOutput2D = steerArrive2D(ep, ev, slot, 45.0, 68.0, 42.0)
+    mut nev = Vec2(x = (ev.x + arr.linear.x * dt) * 0.92, y = (ev.y + arr.linear.y * dt) * 0.92)
+    let espd = nev.len()
+    if espd > 68.0 and espd > 0.001:
+      nev = nev.scale(68.0 / espd)
+    let nep = Vec2(x = ep.x + nev.x * dt, y = ep.y + nev.y * dt)
+    nextSlots.push(slot)
+    nextEscPos.push(nep)
+    nextEscVel.push(nev)
+    sIdx = sIdx + 1
+
+  scene.formationSlots = nextSlots
+  scene.escortPositions = nextEscPos
+  scene.escortVelocities = nextEscVel
+  scene.stepCount = scene.stepCount + 1
+  ret scene
+
+pub fn auditAiSteeringBoidsFlocking(): int:
+  mut scene = initScene()
+  scene = stepScene(scene, 0, 0.1)
+  let slot0 = computeRadialFormationSlot2D(Vec2(x = 0.0, y = 0.0), 5.0, 0, 6)
+  ret scene.positions.len() * 10 + int(slot0.x)
+
+pub fn main(): int:
+  let audit = auditAiSteeringBoidsFlocking()
+  println("EX_243_AI_BOIDS_AUDIT=" + str(audit))
+
+  mut scene = initScene()
+  mut frame = 0
+
+  initWindow(1280, 720, "AIPL ex_243: Craig Reynolds Boids Flocking & Radial Squad Formations")
+  while not windowShouldClose():
+    scene = stepScene(scene, frame, 0.1)
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_243: CRAIG REYNOLDS BOIDS FLOCKING & RADIAL FORMATION STEERING", 36.0, 24.0, 21.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Boids=" + str(scene.positions.len()) + " (Sep=48px, Align=135px, Coh=160px) | Radial Escorts=" + str(scene.escortPositions.len()) + " (R=145px)", 36.0, 52.0, 15.0, rgb(148, 163, 184))
+
+    drawRect(44.0, 88.0, 580.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(44.0, 88.0, 580.0, 594.0, 2.0, rgb(56, 189, 248))
+    drawText("BOIDS SEPARATION / ALIGNMENT / COHESION + SEEK & FLEE", 66.0, 104.0, 15.0, rgb(125, 211, 252))
+
+    drawRect(68.0, 134.0, 532.0, 466.0, rgb(11, 17, 30))
+    drawRectOutline(68.0, 134.0, 532.0, 466.0, 1.0, rgb(51, 65, 85))
+
+    drawCircleOutline(scene.attractorPos.x, scene.attractorPos.y, 24.0, 1.5, rgb(52, 211, 153))
+    drawCircle(scene.attractorPos.x, scene.attractorPos.y, 7.0, rgb(16, 185, 129))
+    drawText("SEEK BEACON", scene.attractorPos.x - 36.0, scene.attractorPos.y - 36.0, 11.0, rgb(110, 231, 183))
+
+    drawCircleOutline(scene.threatPos.x, scene.threatPos.y, 95.0, 1.5, rgb(153, 27, 27))
+    drawCircle(scene.threatPos.x, scene.threatPos.y, 9.0, rgb(239, 68, 68))
+    drawText("FLEE THREAT", scene.threatPos.x - 34.0, scene.threatPos.y + 14.0, 11.0, rgb(252, 165, 165))
+
+    mut i = 0
+    while i < scene.positions.len():
+      let pi: Vec2 = scene.positions[i]
+      mut j = i + 1
+      while j < scene.positions.len():
+        let pj: Vec2 = scene.positions[j]
+        if pi.sub(pj).len() < scene.boidSettings.cohesionDistance:
+          drawLine(pi.x, pi.y, pj.x, pj.y, rgb(30, 58, 138), 1.5)
+        j = j + 1
+      i = i + 1
+
+    mut bIdx = 0
+    while bIdx < scene.positions.len():
+      let bp: Vec2 = scene.positions[bIdx]
+      let bv: Vec2 = scene.velocities[bIdx]
+      let st: SteeringOutput2D = scene.steerings[bIdx]
+      drawCircleOutline(bp.x, bp.y, scene.boidSettings.separationDistance, 1.0, rgb(37, 99, 235))
+      drawCircle(bp.x, bp.y, 9.5, rgb(56, 189, 248))
+      drawCircleOutline(bp.x, bp.y, 12.0, 1.5, rgb(224, 242, 254))
+      drawLine(bp.x, bp.y, bp.x + bv.x * 1.1, bp.y + bv.y * 1.1, rgb(52, 211, 153), 3.0)
+      drawLine(bp.x, bp.y, bp.x + st.linear.x * 2.2, bp.y + st.linear.y * 2.2, rgb(250, 204, 21), 2.0)
+      bIdx = bIdx + 1
+
+    drawText("Green=Velocity | Gold=Steering | Blue Ring=Separation (48px) | Links=Cohesion", 68.0, 616.0, 13.0, rgb(226, 232, 240))
+    drawText("Weights: Sep=1.6, Align=1.0, Coh=1.0 | Seek Beacon & Flee Threat (R=95px)", 68.0, 642.0, 13.0, rgb(148, 163, 184))
+
+    drawRect(652.0, 88.0, 584.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(652.0, 88.0, 584.0, 594.0, 2.0, rgb(16, 185, 129))
+    drawText("8-SLOT RADIAL ESCORT FORMATION & ARRIVE SLOWING RADIUS", 674.0, 104.0, 15.0, rgb(110, 231, 183))
+
+    drawRect(676.0, 134.0, 536.0, 466.0, rgb(11, 17, 30))
+    drawRectOutline(676.0, 134.0, 536.0, 466.0, 1.0, rgb(51, 65, 85))
+
+    drawCircleOutline(scene.formationCenter.x, scene.formationCenter.y, 145.0, 2.0, rgb(51, 65, 85))
+    drawCircle(scene.formationCenter.x, scene.formationCenter.y, 16.0, rgb(245, 158, 11))
+    drawCircleOutline(scene.formationCenter.x, scene.formationCenter.y, 20.0, 2.0, rgb(254, 243, 199))
+    drawText("SQUAD LEADER", scene.formationCenter.x - 42.0, scene.formationCenter.y + 26.0, 12.0, rgb(253, 224, 71))
+
+    mut sIdx = 0
+    while sIdx < 8:
+      let slot: Vec2 = scene.formationSlots[sIdx]
+      let ep: Vec2 = scene.escortPositions[sIdx]
+      let ev: Vec2 = scene.escortVelocities[sIdx]
+      drawLine(scene.formationCenter.x, scene.formationCenter.y, slot.x, slot.y, rgb(30, 41, 59), 1.5)
+      drawCircleOutline(slot.x, slot.y, 45.0, 1.0, rgb(6, 78, 59))
+      drawCircleOutline(slot.x, slot.y, 13.0, 2.0, rgb(250, 204, 21))
+      drawLine(ep.x, ep.y, slot.x, slot.y, rgb(250, 204, 21), 2.0)
+      drawLine(ep.x, ep.y, ep.x + ev.x * 0.9, ep.y + ev.y * 0.9, rgb(56, 189, 248), 2.5)
+      drawCircle(ep.x, ep.y, 10.0, rgb(16, 185, 129))
+      drawCircleOutline(ep.x, ep.y, 12.5, 1.5, rgb(209, 250, 229))
+      drawText("#" + str(sIdx), slot.x - 8.0, slot.y - 24.0, 12.0, rgb(167, 243, 208))
+      sIdx = sIdx + 1
+
+    drawText("Gold Ring=Formation Slot (R=145px) | Green Ring=Arrive Slowing Radius (45px)", 676.0, 616.0, 13.0, rgb(226, 232, 240))
+    drawText("Green Disc=Escort Agent steering via steerArrive2D | Cyan=Escort Velocity Vector", 676.0, 642.0, 13.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

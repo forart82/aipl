@@ -1,0 +1,127 @@
+module Ex192UiTextWrappingAndRichtextWindow
+
+import { ColorRgba8 } from "../std/gfx/color"
+import {
+  TextStyle, TextSpan, measureTextWidth, wrapTextToLines,
+  truncateTextWithEllipsis, richSpanPlain, richSpansTotalLength, measureRichLineWidth
+} from "../std/ui/ui_text"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawLine, drawCircle, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepNarrowWrapWidth(frame: int): float:
+  ret 260.0 + sin(float(frame) * 0.055) * 75.0
+
+pub fn stepWideWrapWidth(frame: int): float:
+  ret 490.0 + cos(float(frame) * 0.045) * 95.0
+
+pub fn buildUiTextWrappingAudit(): int:
+  let style = TextStyle(
+    fontId = 1,
+    fontSize = 10.0,
+    lineHeight = 14.0,
+    color = ColorRgba8(r = 255, g = 255, b = 255, a = 255),
+    letterSpacing = 0.0
+  )
+  let wHello = int(measureTextWidth("Hello", style))
+  let layout = wrapTextToLines("Hello world from AIPL standard library", 65.0, style)
+  let s1 = richSpanPlain("AIPL ", 0x38BDF8)
+  let s2 = richSpanPlain("RichText", 0xF8FAFC)
+  ret wHello + layout.lines.len() + richSpansTotalLength([s1, s2])
+
+pub fn main(): int:
+  let auditScore = buildUiTextWrappingAudit()
+  let style = TextStyle(
+    fontId = 1,
+    fontSize = 18.0,
+    lineHeight = 28.0,
+    color = ColorRgba8(r = 240, g = 249, b = 255, a = 255),
+    letterSpacing = 0.0
+  )
+  let paragraph = "AIPL std/ui/ui_text provides deterministic word-boundary line wrapping, multi-span RichText measurement, and ellipsis overflow truncation for responsive viewports."
+
+  initWindow(1280, 720, "AIPL ex_192: UI Text Greedy Wrapping, Ellipsis & RichText Spans")
+  mut frame = 0
+  while not windowShouldClose():
+    let narrowW = stepNarrowWrapWidth(frame)
+    let wideW = stepWideWrapWidth(frame)
+    let colNarrow = wrapTextToLines(paragraph, narrowW, style)
+    let colWide = wrapTextToLines(paragraph, wideW, style)
+    let truncated = truncateTextWithEllipsis(paragraph, narrowW - 20.0, style)
+    let spans = [
+      richSpanPlain("[MODULE] ", 0x38BDF8),
+      richSpanPlain("std/ui/ui_text ", 0xFACC15),
+      richSpanPlain("| Ellipsis Preview: " + truncated, 0xF8FAFC)
+    ]
+    let spanChars = richSpansTotalLength(spans)
+    let richWidth = measureRichLineWidth([
+      TextSpan(text = spans[0].text, fontSize = 18.0, colorHex = 0x38BDF8),
+      TextSpan(text = spans[1].text, fontSize = 18.0, colorHex = 0xFACC15),
+      TextSpan(text = spans[2].text, fontSize = 18.0, colorHex = 0xF8FAFC)
+    ])
+
+    beginDrawing()
+    clearScreen(rgb(11, 16, 28))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_192: UI TEXT GREEDY WORD WRAPPING, ELLIPSIS & RICHTEXT SPANS", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("narrowLines=" + str(colNarrow.lines.len()) + " (maxW=" + str(int(colNarrow.totalWidth)) + "px) | wideLines=" + str(colWide.lines.len()) + " (maxW=" + str(int(colWide.totalWidth)) + "px) | richChars=" + str(spanChars) + " | audit=" + str(auditScore), 52.0, 66.0, 15.0, rgb(125, 211, 252))
+
+    // Left Narrow Column (dynamic wrap)
+    drawRect(60.0, 118.0, 420.0, 434.0, rgb(17, 24, 39))
+    drawRectOutline(60.0, 118.0, 420.0, 434.0, 2.0, rgb(56, 189, 248))
+    drawText("Narrow Column (maxWidth = " + str(int(narrowW)) + "px):", 80.0, 136.0, 17.0, rgb(56, 189, 248))
+    let narrowLimitX = 80.0 + narrowW
+    drawLine(narrowLimitX, 168.0, narrowLimitX, 536.0, 2.0, rgb(244, 63, 94))
+    drawCircle(narrowLimitX, 168.0, 5.0, rgb(244, 63, 94))
+    mut i = 0
+    while i < colNarrow.lines.len():
+      let ln = colNarrow.lines[i]
+      let ly = 180.0 + float(i) * 34.0
+      drawRect(80.0, ly - 4.0, ln.width, 24.0, rgb(24, 38, 62))
+      drawRectOutline(80.0, ly - 4.0, ln.width, 24.0, 1.0, rgb(56, 189, 248))
+      drawText(ln.text, 84.0, ly, 15.0, rgb(226, 232, 240))
+      i = i + 1
+
+    // Right Wide Column (dynamic wrap)
+    drawRect(510.0, 118.0, 710.0, 434.0, rgb(17, 24, 39))
+    drawRectOutline(510.0, 118.0, 710.0, 434.0, 2.0, rgb(168, 85, 247))
+    drawText("Wide Column (maxWidth = " + str(int(wideW)) + "px):", 534.0, 136.0, 17.0, rgb(192, 132, 252))
+    let wideLimitX = 534.0 + wideW
+    drawLine(wideLimitX, 168.0, wideLimitX, 536.0, 2.0, rgb(250, 204, 21))
+    drawCircle(wideLimitX, 168.0, 5.0, rgb(250, 204, 21))
+    mut j = 0
+    while j < colWide.lines.len():
+      let ln = colWide.lines[j]
+      let ly = 180.0 + float(j) * 42.0
+      drawRect(534.0, ly - 4.0, ln.width, 28.0, rgb(32, 27, 58))
+      drawRectOutline(534.0, ly - 4.0, ln.width, 28.0, 1.0, rgb(168, 85, 247))
+      drawText(ln.text, 538.0, ly + 2.0, 16.0, rgb(243, 232, 255))
+      drawText("chars[" + str(ln.startIndex) + ".." + str(ln.endIndex) + "] w=" + str(int(ln.width)) + "px", 538.0 + ln.width + 10.0, ly + 4.0, 12.0, rgb(148, 163, 184))
+      j = j + 1
+
+    // RichText Span Strip
+    drawRect(60.0, 574.0, 1160.0, 112.0, rgb(15, 23, 42))
+    drawRectOutline(60.0, 574.0, 1160.0, 112.0, 2.0, rgb(52, 211, 153))
+    drawText("RichText Multi-Span Inline Flow (" + str(spanChars) + " chars | measuredRichW=" + str(int(richWidth)) + "px):", 84.0, 592.0, 16.0, rgb(110, 231, 183))
+    mut spanX = 84.0
+    mut si = 0
+    while si < spans.len():
+      let sp = spans[si]
+      let sw = measureTextWidth(sp.text, style)
+      let bgCol = if si == 0: rgb(22, 48, 72) elif si == 1: rgb(56, 48, 20) else: rgb(30, 41, 59)
+      let sc = if si == 0: rgb(56, 189, 248) elif si == 1: rgb(250, 204, 21) else: rgb(248, 250, 252)
+      drawRect(spanX, 624.0, sw, 36.0, bgCol)
+      drawRectOutline(spanX, 624.0, sw, 36.0, 1.0, sc)
+      drawText(sp.text, spanX + 4.0, 634.0, 16.0, sc)
+      spanX = spanX + sw + 6.0
+      si = si + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

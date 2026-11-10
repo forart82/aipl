@@ -1,0 +1,63 @@
+module tests.functions.gfx25d.light25d_test
+
+import { assert, assertEqInt } from "std/prelude"
+import {
+  rgb,
+  rgba,
+  initCanvas,
+  clearScreen,
+  getPixel,
+  getBlendMode,
+  createProceduralTexture
+} from "std/gfx2d/shape2d"
+import {
+  createCamera25D,
+  project3DToIso,
+  PointLight25D,
+  createPointLight25D,
+  drawAmbientDarknessPass25D,
+  drawLightCookie25D,
+  renderLightingPass25D
+} from "std/gfx25d/gfx25d_mod"
+
+pub fn test_light25d_ambient_and_additive_cookie(): int:
+  initCanvas(320, 240)
+  clearScreen(rgb(120, 120, 120))
+
+  let cam = createCamera25D(320.0, 240.0, 1.0, 45.0, 30.0)
+  let cookieTex = createProceduralTexture("light_cookie", 64, 64, 101)
+  assert(cookieTex > 0, "light_cookie procedural texture allocated")
+
+  // Verify ambient darkness multiply pass darkens mid-gray background without crushing to 0
+  let ambPass = drawAmbientDarknessPass25D(320.0, 240.0, rgba(80, 96, 128, 0.75))
+  assertEqInt(ambPass, 1, "drawAmbientDarknessPass25D returns 1")
+  assertEqInt(getBlendMode(), 0, "drawAmbientDarknessPass25D restores blendModeAlpha(0)")
+
+  let ambPx = getPixel(20, 20)
+  let ambR = (ambPx >> 24) & 255
+  assert(ambR > 25 and ambR < 95, "ambient multiply pass darkens background into slate silhouette range")
+
+  // Verify additive point light cookie brightens center pixel above ambient
+  let campfire = createPointLight25D(0.0, 0.0, 0.0, 90.0, rgba(255, 175, 80, 0.95), 1.25, 0.12, 7.0)
+  let cookieQuads = drawLightCookie25D(cam, cookieTex, campfire, 0.25)
+  assertEqInt(cookieQuads, 2, "drawLightCookie25D draws outer halo + hot inner core quads")
+  assertEqInt(getBlendMode(), 0, "drawLightCookie25D restores blendModeAlpha(0)")
+
+  let centerProj = project3DToIso(cam, 0.0, 0.0, 0.0)
+  let litPx = getPixel(int(centerProj.x), int(centerProj.y))
+  let litR = (litPx >> 24) & 255
+  let litG = (litPx >> 16) & 255
+  assert(litR > ambR + 70, "additive light cookie significantly brightens red channel at light center")
+  assert(litG > ((ambPx >> 16) & 255) + 40, "additive light cookie brightens green channel at light center")
+
+  // Verify full renderLightingPass25D pipeline
+  clearScreen(rgb(110, 115, 120))
+  let torch = createPointLight25D(60.0, -40.0, 10.0, 65.0, rgba(255, 140, 60, 0.85), 1.0, 0.10, 6.0)
+  let totalPasses = renderLightingPass25D(cam, 320.0, 240.0, rgba(75, 90, 122, 0.70), cookieTex, [campfire, torch], 0.5)
+  assertEqInt(totalPasses, 5, "renderLightingPass25D executes 1 ambient pass + 2*2 light cookie quads")
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_light25d_ambient_and_additive_cookie(), 0, "test_light25d_ambient_and_additive_cookie")
+  println("PASS: light25d_test")
+  ret 0

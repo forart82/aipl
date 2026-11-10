@@ -1,0 +1,38 @@
+module Bench03DataParserSerializer
+
+struct ConfigRecord(service: str, port: int, tls: bool, tags: [str])
+
+fn parseRecords(src: str): [ConfigRecord]:
+  mut out: [ConfigRecord] = []
+  for line in src.lines():
+    let t = line.trim()
+    if t.len > 0 and not t.startsWith("#"):
+      let parts = t.split("|")
+      if parts.len >= 4:
+        out.push(ConfigRecord(parts[0].trim(), int(parts[1].trim()), parts[2].trim() == "true", parts[3].trim().split(",")))
+  ret out
+
+fn validateAndMutate(records: [ConfigRecord]): [ConfigRecord]:
+  mut out: [ConfigRecord] = []
+  for r in records:
+    if r.service.len > 0 and r.port > 0 and r.port <= 65535:
+      mut nextTags = r.tags.map(|tg| tg.trim())
+      nextTags.push("verified")
+      out.push(ConfigRecord(r.service, r.port + 100, true, nextTags))
+  ret out
+
+fn serializeJson(records: [ConfigRecord]): str:
+  let items = records.map(|r| "{\"service\":\"" + r.service + "\",\"port\":" + str(r.port) + ",\"tls\":" + (if r.tls: "true" else: "false") + ",\"tags\":[" + r.tags.map(|tg| "\"{tg}\"").join(",") + "]}")
+  ret "[" + items.join(",") + "]"
+
+fn main(): void:
+  let raw = "# Services\nauth | 8000 | false | core,jwt\ngateway | 8080 | true | edge,http\ninvalid | -5 | false | bad\n"
+  let parsed = parseRecords(raw)
+  assert(parsed.len == 3)
+  let valid = validateAndMutate(parsed)
+  assert(valid.len == 2)
+  assert(valid[0].port == 8100 and valid[0].tls)
+  let jsonOut = serializeJson(valid)
+  assert(jsonOut.contains("\"service\":\"auth\"") and jsonOut.contains("\"verified\""))
+  println(jsonOut)
+  println("BENCH_03_OK")

@@ -1,0 +1,234 @@
+// ============================================================================
+// Module: std/encoding/csv
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// RFC 4180 compliant CSV / TSV reader and writer.
+// ============================================================================
+module EncodingCsv
+
+pub struct CsvOptions:
+  delimiter: str
+  quoteChar: str
+  escapeChar: str
+  hasHeader: bool
+
+pub struct CsvReader:
+  text: str
+  opts: CsvOptions
+  currentLine: int
+
+pub struct CsvWriter:
+  opts: CsvOptions
+  rows: [[str]]
+
+pub fn parseCsv(text: str, delimiter: str = ","): Result[[[str]], str]:
+  let delimCode = if delimiter.len > 0: delimiter.charCodeAt(0) else: 44
+  mut rows: [[str]] = []
+  mut curRow: [str] = []
+  mut cellParts: [str] = []
+  mut inQuotes = false
+  let n = text.len
+  mut i = 0
+  while i < n:
+    let c = text.charCodeAt(i)
+    if inQuotes:
+      if c == 34:
+        if i + 1 < n and text.charCodeAt(i + 1) == 34:
+          cellParts.push("\"")
+          i = i + 2
+        else:
+          inQuotes = false
+          i = i + 1
+      else:
+        cellParts.push(text.slice(i, i + 1))
+        i = i + 1
+    else:
+      if c == 34 and cellParts.len == 0:
+        inQuotes = true
+        i = i + 1
+      elif c == delimCode:
+        curRow.push(cellParts.join(""))
+        mut emptyCell: [str] = []
+        cellParts = emptyCell
+        i = i + 1
+      elif c == 13:
+        curRow.push(cellParts.join(""))
+        rows.push(curRow)
+        mut emptyRow: [str] = []
+        curRow = emptyRow
+        mut emptyCell: [str] = []
+        cellParts = emptyCell
+        if i + 1 < n and text.charCodeAt(i + 1) == 10:
+          i = i + 2
+        else:
+          i = i + 1
+      elif c == 10:
+        curRow.push(cellParts.join(""))
+        rows.push(curRow)
+        mut emptyRow: [str] = []
+        curRow = emptyRow
+        mut emptyCell: [str] = []
+        cellParts = emptyCell
+        i = i + 1
+      else:
+        cellParts.push(text.slice(i, i + 1))
+        i = i + 1
+  if inQuotes:
+    ret Err("parseCsv: unterminated quoted field")
+  if cellParts.len > 0 or curRow.len > 0:
+    curRow.push(cellParts.join(""))
+    rows.push(curRow)
+  ret Ok(rows)
+
+fn serializeCsvCell(cell: str, delimiter: str): str:
+  let needsQuote = cell.contains(delimiter) or cell.contains("\"") or cell.contains("\n") or cell.contains("\r")
+  if not needsQuote:
+    ret cell
+  let escaped = cell.replace("\"", "\"\"")
+  ret "\"" + escaped + "\""
+
+pub fn serializeCsv(rows: [[str]], delimiter: str = ","): str:
+  mut lineStrs: [str] = []
+  mut r = 0
+  while r < rows.len:
+    let row = rows[r]
+    mut cells: [str] = []
+    mut c = 0
+    while c < row.len:
+      cells.push(serializeCsvCell(row[c], delimiter))
+      c = c + 1
+    lineStrs.push(cells.join(delimiter))
+    r = r + 1
+  ret lineStrs.join("\n")
+
+pub fn (mut self: CsvReader) readRow(): Option[[str]]:
+  let parsed = parseCsv(self.text, self.opts.delimiter)
+  if parsed.isErr():
+    ret None
+  let allRows = parsed.unwrap()
+  if self.currentLine < 0 or self.currentLine >= allRows.len:
+    ret None
+  let row = allRows[self.currentLine]
+  self.currentLine = self.currentLine + 1
+  ret Some(row)
+
+pub fn stringifyCsv(rows: [[str]], delimiter: str = ","): str:
+  ret serializeCsv(rows, delimiter)
+
+pub fn formatCsv(rows: [[str]], delimiter: str = ","): str:
+  ret serializeCsv(rows, delimiter)
+
+pub fn toCsv(rows: [[str]]): str:
+  ret serializeCsv(rows, ",")
+
+pub fn parseCsvRecords(text: str): [Map[str, str]]:
+  mut records: [Map[str, str]] = []
+  let parsed = parseCsv(text, ",")
+  if parsed.isErr():
+    ret records
+  let rows = parsed.unwrap()
+  if rows.len <= 1:
+    ret records
+  let headers = rows[0]
+  mut rIdx = 1
+  while rIdx < rows.len:
+    let row = rows[rIdx]
+    mut rec: Map[str, str] = mapNew()
+    mut cIdx = 0
+    while cIdx < headers.len:
+      let key = headers[cIdx]
+      let val = if cIdx < row.len: row[cIdx] else: ""
+      rec.set(key, val)
+      cIdx = cIdx + 1
+    records.push(rec)
+    rIdx = rIdx + 1
+  ret records
+
+pub fn parseCsvWithHeaders(text: str): [Map[str, str]]:
+  ret parseCsvRecords(text)
+
+pub fn stringifyCsvRecords(records: [Map[str, str]], headers: [str]): str:
+  mut rows: [[str]] = [headers]
+  mut r = 0
+  while r < records.len:
+    let rec = records[r]
+    mut row: [str] = []
+    mut h = 0
+    while h < headers.len:
+      let optVal = rec.get(headers[h])
+      if optVal.isSome():
+        row.push(optVal.unwrap())
+      else:
+        row.push("")
+      h = h + 1
+    rows.push(row)
+    r = r + 1
+  ret serializeCsv(rows, ",")
+
+pub fn parseTsv(text: str): [[str]]:
+  let res = parseCsv(text, "\t")
+  if res.isErr():
+    mut empty: [[str]] = []
+    ret empty
+  ret res.unwrap()
+
+pub fn parseTsvRecords(text: str): [Map[str, str]]:
+  let rows = parseTsv(text)
+  mut records: [Map[str, str]] = []
+  if rows.len <= 1:
+    ret records
+  let headers = rows[0]
+  mut rIdx = 1
+  while rIdx < rows.len:
+    let row = rows[rIdx]
+    mut rec: Map[str, str] = mapNew()
+    mut cIdx = 0
+    while cIdx < headers.len:
+      let key = headers[cIdx]
+      let val = if cIdx < row.len: row[cIdx] else: ""
+      rec.set(key, val)
+      cIdx = cIdx + 1
+    records.push(rec)
+    rIdx = rIdx + 1
+  ret records
+
+pub fn parseTsvWithHeaders(text: str): [Map[str, str]]:
+  ret parseTsvRecords(text)
+
+pub fn stringifyTsv(rows: [[str]]): str:
+  ret serializeCsv(rows, "\t")
+
+pub fn toTsv(rows: [[str]]): str:
+  ret serializeCsv(rows, "\t")
+
+pub fn formatTsv(rows: [[str]]): str:
+  ret serializeCsv(rows, "\t")
+
+pub fn stringifyTsvRecords(records: [Map[str, str]], headers: [str]): str:
+  mut rows: [[str]] = [headers]
+  mut r = 0
+  while r < records.len:
+    let rec = records[r]
+    mut row: [str] = []
+    mut h = 0
+    while h < headers.len:
+      let optVal = rec.get(headers[h])
+      if optVal.isSome():
+        row.push(optVal.unwrap())
+      else:
+        row.push("")
+      h = h + 1
+    rows.push(row)
+    r = r + 1
+  ret serializeCsv(rows, "\t")
+
+pub fn csvColumnValues(rows: [[str]], colIdx: int): [str]:
+  mut out: [str] = []
+  if colIdx < 0:
+    ret out
+  mut r = 0
+  while r < rows.len:
+    let row = rows[r]
+    if colIdx < row.len:
+      out.push(row[colIdx])
+    r = r + 1
+  ret out

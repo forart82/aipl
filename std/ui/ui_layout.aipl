@@ -1,0 +1,388 @@
+/// # Module: `std/ui/ui_layout` (`UiLayoutMod`)
+///
+/// ## Purpose & Domain Scope
+/// Flexbox constraint solver (main/cross axis, flex-grow, flex-shrink, space-between)
+/// and hierarchical layout node bounding box resolution.
+module UiLayoutMod
+
+import { maxFloat, clampFloat } from "std/math/consts"
+import { Rect } from "std/math/geom2d"
+
+pub let FLEX_ROW: int = 0
+pub let FLEX_COLUMN: int = 1
+pub let ALIGN_START: int = 0
+pub let ALIGN_CENTER: int = 1
+pub let ALIGN_END: int = 2
+pub let ALIGN_STRETCH: int = 3
+pub let JUSTIFY_START: int = 0
+pub let JUSTIFY_CENTER: int = 1
+pub let JUSTIFY_END: int = 2
+pub let JUSTIFY_SPACE_BETWEEN: int = 3
+
+pub struct Padding(left: float, top: float, right: float, bottom: float)
+
+pub struct Margin(left: float, top: float, right: float, bottom: float)
+
+pub struct BoxConstraints(minWidth: float, maxWidth: float, minHeight: float, maxHeight: float)
+
+pub struct LayoutNode(id: int, direction: int, alignSelf: int, justify: int, flexGrow: float, flexShrink: float, padding: Padding, margin: Margin, constraints: BoxConstraints, computedRect: Rect, children: [LayoutNode])
+
+pub fn createLayoutNode(id: int, direction: int = 0): LayoutNode:
+  mut emptyChildren: [LayoutNode] = []
+  ret LayoutNode(
+    id = id,
+    direction = direction,
+    alignSelf = ALIGN_START,
+    justify = JUSTIFY_START,
+    flexGrow = 0.0,
+    flexShrink = 1.0,
+    padding = Padding(left = 0.0, top = 0.0, right = 0.0, bottom = 0.0),
+    margin = Margin(left = 0.0, top = 0.0, right = 0.0, bottom = 0.0),
+    constraints = BoxConstraints(minWidth = 0.0, maxWidth = 10000.0, minHeight = 0.0, maxHeight = 10000.0),
+    computedRect = Rect(x = 0.0, y = 0.0, w = 0.0, h = 0.0),
+    children = emptyChildren
+  )
+
+pub fn appendLayoutChild(parent: LayoutNode, child: LayoutNode): LayoutNode:
+  mut nextChildren: [LayoutNode] = []
+  mut i = 0
+  while i < parent.children.len:
+    nextChildren.push(parent.children[i])
+    i = i + 1
+  nextChildren.push(child)
+  ret LayoutNode(
+    id = parent.id,
+    direction = parent.direction,
+    alignSelf = parent.alignSelf,
+    justify = parent.justify,
+    flexGrow = parent.flexGrow,
+    flexShrink = parent.flexShrink,
+    padding = parent.padding,
+    margin = parent.margin,
+    constraints = parent.constraints,
+    computedRect = parent.computedRect,
+    children = nextChildren
+  )
+
+pub fn solveFlexboxLayout(root: LayoutNode, availableWidth: float, availableHeight: float): LayoutNode:
+  let rootW = clampFloat(availableWidth, root.constraints.minWidth, root.constraints.maxWidth)
+  let rootH = clampFloat(availableHeight, root.constraints.minHeight, root.constraints.maxHeight)
+  let innerW = maxFloat(0.0, rootW - root.padding.left - root.padding.right)
+  let innerH = maxFloat(0.0, rootH - root.padding.top - root.padding.bottom)
+
+  let count = root.children.len
+  if count == 0:
+    ret LayoutNode(
+      id = root.id,
+      direction = root.direction,
+      alignSelf = root.alignSelf,
+      justify = root.justify,
+      flexGrow = root.flexGrow,
+      flexShrink = root.flexShrink,
+      padding = root.padding,
+      margin = root.margin,
+      constraints = root.constraints,
+      computedRect = Rect(x = root.computedRect.x, y = root.computedRect.y, w = rootW, h = rootH),
+      children = []
+    )
+
+  let isRow = root.direction == FLEX_ROW
+  let mainAvail = if isRow: innerW else: innerH
+  let crossAvail = if isRow: innerH else: innerW
+
+  mut baseMainSizes: [float] = []
+  mut baseCrossSizes: [float] = []
+  mut totalBaseMain = 0.0
+  mut totalGrow = 0.0
+
+  mut i = 0
+  while i < count:
+    let ch: LayoutNode = root.children[i]
+    let cw = clampFloat(ch.constraints.minWidth, ch.constraints.minWidth, ch.constraints.maxWidth)
+    let chH = clampFloat(ch.constraints.minHeight, ch.constraints.minHeight, ch.constraints.maxHeight)
+    let mSize = if isRow: cw + ch.margin.left + ch.margin.right else: chH + ch.margin.top + ch.margin.bottom
+    let cSize = if isRow: chH else: cw
+    baseMainSizes.push(mSize)
+    baseCrossSizes.push(cSize)
+    totalBaseMain = totalBaseMain + mSize
+    totalGrow = totalGrow + maxFloat(0.0, ch.flexGrow)
+    i = i + 1
+
+  let remainingMain = maxFloat(0.0, mainAvail - totalBaseMain)
+  mut startOffset = 0.0
+  mut gap = 0.0
+  if totalGrow <= 0.0:
+    if root.justify == JUSTIFY_CENTER:
+      startOffset = remainingMain * 0.5
+    elif root.justify == JUSTIFY_END:
+      startOffset = remainingMain
+    elif root.justify == JUSTIFY_SPACE_BETWEEN and count > 1:
+      gap = remainingMain / float(count - 1)
+
+  mut cursorMain = startOffset
+  mut solvedChildren: [LayoutNode] = []
+  mut j = 0
+  while j < count:
+    let ch: LayoutNode = root.children[j]
+    let growShare = if totalGrow > 0.0: remainingMain * (maxFloat(0.0, ch.flexGrow) / totalGrow) else: 0.0
+    let finalMain = baseMainSizes[j] + growShare
+    let finalCross = if ch.alignSelf == ALIGN_STRETCH: crossAvail else: baseCrossSizes[j]
+
+    mut crossPos = 0.0
+    if ch.alignSelf == ALIGN_CENTER:
+      crossPos = (crossAvail - finalCross) * 0.5
+    elif ch.alignSelf == ALIGN_END:
+      crossPos = crossAvail - finalCross
+
+    let cx = if isRow: root.padding.left + cursorMain + ch.margin.left else: root.padding.left + crossPos + ch.margin.left
+    let cy = if isRow: root.padding.top + crossPos + ch.margin.top else: root.padding.top + cursorMain + ch.margin.top
+    let cw = if isRow: maxFloat(0.0, finalMain - ch.margin.left - ch.margin.right) else: finalCross
+    let chH = if isRow: finalCross else: maxFloat(0.0, finalMain - ch.margin.top - ch.margin.bottom)
+
+    let subSolved = solveFlexboxLayout(ch, cw, chH)
+    solvedChildren.push(LayoutNode(
+      id = subSolved.id,
+      direction = subSolved.direction,
+      alignSelf = subSolved.alignSelf,
+      justify = subSolved.justify,
+      flexGrow = subSolved.flexGrow,
+      flexShrink = subSolved.flexShrink,
+      padding = subSolved.padding,
+      margin = subSolved.margin,
+      constraints = subSolved.constraints,
+      computedRect = Rect(x = cx, y = cy, w = cw, h = chH),
+      children = subSolved.children
+    ))
+    cursorMain = cursorMain + finalMain + gap
+    j = j + 1
+
+  ret LayoutNode(
+    id = root.id,
+    direction = root.direction,
+    alignSelf = root.alignSelf,
+    justify = root.justify,
+    flexGrow = root.flexGrow,
+    flexShrink = root.flexShrink,
+    padding = root.padding,
+    margin = root.margin,
+    constraints = root.constraints,
+    computedRect = Rect(x = root.computedRect.x, y = root.computedRect.y, w = rootW, h = rootH),
+    children = solvedChildren
+  )
+
+pub fn sizingFit(): int:
+  ret 0
+
+pub fn sizingGrow(): int:
+  ret 1
+
+pub fn sizingFixed(): int:
+  ret 2
+
+pub fn sizingPercent(): int:
+  ret 3
+
+pub fn breakpointXs(): int:
+  ret 0
+
+pub fn breakpointSm(): int:
+  ret 1
+
+pub fn breakpointMd(): int:
+  ret 2
+
+pub fn breakpointLg(): int:
+  ret 3
+
+pub fn breakpointXl(): int:
+  ret 4
+
+pub fn breakpointXxl(): int:
+  ret 5
+
+pub struct LayoutBox(x: float, y: float, w: float, h: float)
+pub struct AuraRect(x: float, y: float, w: float, h: float)
+pub struct AuraSizingAxis(mode: int, value: float, minSize: float, maxSize: float)
+pub struct AuraLayoutSpec(id: str, widthAxis: AuraSizingAxis, heightAxis: AuraSizingAxis, contentW: float, contentH: float)
+
+pub fn layoutInset(b: LayoutBox, pad: float): LayoutBox:
+  ret LayoutBox(x = b.x + pad, y = b.y + pad, w = b.w - pad * 2.0, h = b.h - pad * 2.0)
+
+pub fn layoutSplitHorizontal(b: LayoutBox, leftRatio: float, gap: float): [LayoutBox]:
+  let availW = b.w - gap
+  let lw = availW * leftRatio
+  let rw = availW - lw
+  ret [
+    LayoutBox(x = b.x, y = b.y, w = lw, h = b.h),
+    LayoutBox(x = b.x + lw + gap, y = b.y, w = rw, h = b.h)
+  ]
+
+pub fn auraAxisFixed(px: float): AuraSizingAxis:
+  ret AuraSizingAxis(mode = 2, value = px, minSize = px, maxSize = px)
+
+pub fn auraAxisGrow(weight: float, minPx: float, maxPx: float): AuraSizingAxis:
+  let safeW = if weight <= 0.0: 1.0 else: weight
+  let safeMax = if maxPx <= 0.0: 99999.0 else: maxPx
+  ret AuraSizingAxis(mode = 1, value = safeW, minSize = maxFloat(0.0, minPx), maxSize = safeMax)
+
+pub fn auraAxisFit(minPx: float, maxPx: float): AuraSizingAxis:
+  let safeMax = if maxPx <= 0.0: 99999.0 else: maxPx
+  ret AuraSizingAxis(mode = 0, value = 0.0, minSize = maxFloat(0.0, minPx), maxSize = safeMax)
+
+pub fn auraAxisPercent(pct: float, minPx: float, maxPx: float): AuraSizingAxis:
+  let safeMax = if maxPx <= 0.0: 99999.0 else: maxPx
+  ret AuraSizingAxis(mode = 3, value = clampFloat(pct, 0.0, 1.0), minSize = maxFloat(0.0, minPx), maxSize = safeMax)
+
+/// Solves a 1D flex axis across `axes` with 2-pass min/max clamping redistribution.
+pub fn auraSolveFlexAxis(avail: float, gap: float, axes: [AuraSizingAxis], contentSizes: [float]): [float]:
+  let n = axes.len
+  mut sizes: [float] = []
+  if n == 0:
+    ret sizes
+  let totalGap = if n > 1: float(n - 1) * gap else: 0.0
+  let usable = maxFloat(0.0, avail - totalGap)
+  mut usedFixed = 0.0
+  mut totalGrowWeight = 0.0
+  mut i = 0
+  while i < n:
+    let ax = axes[i]
+    let content = if i < contentSizes.len: contentSizes[i] else: 0.0
+    if ax.mode == 2:
+      let s = clampFloat(ax.value, ax.minSize, ax.maxSize)
+      sizes.push(s)
+      usedFixed += s
+    elif ax.mode == 0:
+      let s = clampFloat(content, ax.minSize, ax.maxSize)
+      sizes.push(s)
+      usedFixed += s
+    elif ax.mode == 3:
+      let s = clampFloat(usable * ax.value, ax.minSize, ax.maxSize)
+      sizes.push(s)
+      usedFixed += s
+    else:
+      sizes.push(0.0)
+      totalGrowWeight += maxFloat(0.001, ax.value)
+    i += 1
+
+  mut rem = maxFloat(0.0, usable - usedFixed)
+  if totalGrowWeight > 0.0:
+    // Pass 1: Identify grow children clamped by minSize/maxSize
+    mut unclampedWeight = 0.0
+    mut j = 0
+    while j < n:
+      let ax = axes[j]
+      if ax.mode == 1:
+        let w = maxFloat(0.001, ax.value)
+        let tentative = rem * (w / totalGrowWeight)
+        if tentative < ax.minSize:
+          sizes[j] = ax.minSize
+          rem = maxFloat(0.0, rem - ax.minSize)
+        elif tentative > ax.maxSize:
+          sizes[j] = ax.maxSize
+          rem = maxFloat(0.0, rem - ax.maxSize)
+        else:
+          sizes[j] = -1.0
+          unclampedWeight += w
+      j += 1
+    // Pass 2: Distribute remaining space across unclamped grow children
+    mut k = 0
+    while k < n:
+      let ax = axes[k]
+      if ax.mode == 1 and sizes[k] < 0.0:
+        let w = maxFloat(0.001, ax.value)
+        let share = if unclampedWeight > 0.0: rem * (w / unclampedWeight) else: 0.0
+        sizes[k] = clampFloat(share, ax.minSize, ax.maxSize)
+      k += 1
+  ret sizes
+
+/// Solves a 2D row or column stack of `AuraLayoutSpec` children inside `container`.
+pub fn auraLayoutStack(container: LayoutBox, dir: str, pad: float, gap: float, alignItems: str, specs: [AuraLayoutSpec]): [LayoutBox]:
+  let inner = layoutInset(container, pad)
+  let isRow = dir == "row"
+  mut mainAxes: [AuraSizingAxis] = []
+  mut mainContents: [float] = []
+  mut i = 0
+  while i < specs.len:
+    let sp = specs[i]
+    if isRow:
+      mainAxes.push(sp.widthAxis)
+      mainContents.push(sp.contentW)
+    else:
+      mainAxes.push(sp.heightAxis)
+      mainContents.push(sp.contentH)
+    i += 1
+  let mainAvail = if isRow: inner.w else: inner.h
+  let crossAvail = if isRow: inner.h else: inner.w
+  let mainSizes = auraSolveFlexAxis(mainAvail, gap, mainAxes, mainContents)
+
+  mut out: [LayoutBox] = []
+  mut cursor = if isRow: inner.x else: inner.y
+  mut idx = 0
+  while idx < specs.len:
+    let sp = specs[idx]
+    let mainSz = mainSizes[idx]
+    let crossAx = if isRow: sp.heightAxis else: sp.widthAxis
+    let crossContent = if isRow: sp.contentH else: sp.contentW
+    mut crossSz = crossAvail
+    if crossAx.mode == 2:
+      crossSz = clampFloat(crossAx.value, crossAx.minSize, crossAx.maxSize)
+    elif crossAx.mode == 0:
+      crossSz = clampFloat(crossContent, crossAx.minSize, crossAx.maxSize)
+    elif crossAx.mode == 3:
+      crossSz = clampFloat(crossAvail * crossAx.value, crossAx.minSize, crossAx.maxSize)
+    else:
+      crossSz = clampFloat(crossAvail, crossAx.minSize, crossAx.maxSize)
+
+    mut crossOffset = 0.0
+    if alignItems == "center":
+      crossOffset = (crossAvail - crossSz) * 0.5
+    elif alignItems == "end":
+      crossOffset = crossAvail - crossSz
+
+    if isRow:
+      out.push(LayoutBox(x = cursor, y = inner.y + crossOffset, w = mainSz, h = crossSz))
+    else:
+      out.push(LayoutBox(x = inner.x + crossOffset, y = cursor, w = crossSz, h = mainSz))
+    cursor += mainSz + gap
+    idx += 1
+  ret out
+
+/// Classifies viewport width `winW` into Bootstrap 5's 6 responsive tiers (`0 = XS`..`5 = XXL`).
+pub fn auraResponsiveTier(winW: float): int:
+  if winW < 576.0:
+    ret 0
+  if winW < 768.0:
+    ret 1
+  if winW < 992.0:
+    ret 2
+  if winW < 1200.0:
+    ret 3
+  if winW < 1400.0:
+    ret 4
+  ret 5
+
+/// Computes a 12-column responsive grid layout with automatic wrapping when column spans exceed 12.
+pub fn auraGrid12Row(container: LayoutBox, colSpans: [int], gapX: float, gapY: float, rowH: float): [LayoutBox]:
+  let colUnitW = (container.w - 11.0 * gapX) / 12.0
+  mut out: [LayoutBox] = []
+  mut curCol = 0
+  mut curY = container.y
+  mut i = 0
+  while i < colSpans.len:
+    let span = clampInt(colSpans[i], 1, 12)
+    if curCol + span > 12 and curCol > 0:
+      curCol = 0
+      curY += rowH + gapY
+    let x = container.x + float(curCol) * (colUnitW + gapX)
+    let w = float(span) * colUnitW + float(span - 1) * gapX
+    out.push(LayoutBox(x = x, y = curY, w = w, h = rowH))
+    curCol += span
+    if curCol >= 12:
+      curCol = 0
+      curY += rowH + gapY
+    i += 1
+  ret out
+
+pub struct AuraTableResult(selectedRow: int, clickedHeaderCol: int)
+
+pub struct AuraKanbanAction(clickedCol: int, clickedCard: int, headerClickedCol: int)

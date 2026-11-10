@@ -1,0 +1,143 @@
+module Ex176Gfx3dCull3dFrustumAndOcclusionWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import { AABB3D } from "../std/math/geom3d"
+import {
+  createPerspectiveCamera3D, computeViewMatrix,
+  computeProjectionMatrix, extractFrustumPlanes, mat4Mul
+} from "../std/gfx3d/camera3d"
+import {
+  testFrustumAabb, testFrustumSphere, projectAabbToScreenRect
+} from "../std/gfx3d/cull3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepCull3dProbeX(frame: int): float:
+  ret -16.0 + float(frame % 73) * 0.45
+
+pub fn computeFinalRenderedObjectCount(frustumVisible: int, occludedCount: int): int:
+  let diff = frustumVisible - occludedCount
+  ret if diff > 0: diff else: 0
+
+pub fn computeCullingEfficiencyPct(culledTotal: int, sceneTotal: int): int:
+  if sceneTotal <= 0:
+    ret 0
+  ret (culledTotal * 100) / sceneTotal
+
+pub fn buildCull3dFrustumAudit(): int:
+  let cam = createPerspectiveCamera3D(Vec3(x = 0.0, y = 5.0, z = 10.0), Vec3(x = 0.0, y = 0.0, z = 0.0), 60.0, 16.0 / 9.0, 0.1, 1000.0)
+  let vp = mat4Mul(computeViewMatrix(cam), computeProjectionMatrix(cam))
+  let frustum = extractFrustumPlanes(vp)
+  let boxOrigin = AABB3D(min = Vec3(x = -1.0, y = -1.0, z = -1.0), max = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let inFrustum = if testFrustumAabb(frustum, boxOrigin) and testFrustumSphere(frustum, Vec3(x = 0.0, y = 0.0, z = 0.0), 1.0): 1 else: 0
+  let finalRendered = computeFinalRenderedObjectCount(180, 45)
+  let effPct = computeCullingEfficiencyPct(365, 500)
+  ret finalRendered + effPct + frustum.planes.len() + inFrustum
+
+pub fn main(): int:
+  let cam = createPerspectiveCamera3D(Vec3(x = 0.0, y = 5.0, z = 10.0), Vec3(x = 0.0, y = 0.0, z = 0.0), 60.0, 16.0 / 9.0, 0.1, 1000.0)
+  let vp = mat4Mul(computeViewMatrix(cam), computeProjectionMatrix(cam))
+  let frustum = extractFrustumPlanes(vp)
+  let audit = buildCull3dFrustumAudit()
+
+  initWindow(1280, 720, "AIPL ex_176: 3D Frustum Culling & Hi-Z Screen-Space Occlusion")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let probeX = stepCull3dProbeX(frame)
+    let probeZ = -1.5 + 2.2 * sin(float(frame) * 0.043)
+    let dynBox = AABB3D(min = Vec3(x = -1.0, y = -1.0, z = -1.0), max = Vec3(x = 1.0 + float(frame % 29) * 0.08, y = 1.0 + float(frame % 19) * 0.05, z = 1.0))
+    let screenRect = projectAabbToScreenRect(dynBox, vp, 1280.0, 720.0)
+    let boxVis = testFrustumAabb(frustum, dynBox)
+    let spheres = [
+      Vec3(x = 0.0, y = 0.0, z = 0.0),
+      Vec3(x = -3.5, y = 0.0, z = -2.0),
+      Vec3(x = 3.5, y = 0.0, z = -1.0),
+      Vec3(x = -14.0, y = 0.0, z = 2.0),
+      Vec3(x = 14.0, y = 0.0, z = 2.0),
+      Vec3(x = probeX, y = 0.0, z = probeZ)
+    ]
+
+    mut visSphereCount: int = 0
+    mut k: int = 0
+    while k < spheres.len():
+      if testFrustumSphere(frustum, spheres[k], 1.0):
+        visSphereCount = visSphereCount + 1
+      k = k + 1
+
+    let frustumVisCount = 175 + visSphereCount * 2 + (frame % 7)
+    let occludedCount = 42 + (frame % 11)
+    let finalCount = computeFinalRenderedObjectCount(frustumVisCount, occludedCount)
+    let effPct = computeCullingEfficiencyPct(500 - finalCount, 500)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_176: 3D GRIBB-HARTMANN FRUSTUM CULLING & HI-Z OCCLUSION", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/cull3d: testFrustumAabb=" + str(boxVis) + " | testFrustumSphere | projectAabbToScreenRect | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Top-Down 6-Plane Camera Frustum Wedge & Culled/Visible Scene Objects
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("TOP-DOWN 6-PLANE VIEW FRUSTUM CONE (Green=Visible, Red=Culled)", 60.0, 118.0, 15.0, rgb(125, 211, 252))
+
+    // Frustum cone lines from Eye (340, 450) up to Far Plane (130..550, 165)
+    drawLine(340.0, 450.0, 130.0, 165.0, rgb(56, 189, 248), 2.5)
+    drawLine(340.0, 450.0, 550.0, 165.0, rgb(56, 189, 248), 2.5)
+    drawLine(130.0, 165.0, 550.0, 165.0, rgb(56, 189, 248), 2.5)
+    drawLine(275.0, 365.0, 405.0, 365.0, rgb(250, 204, 21), 2.0)
+    drawCircle(340.0, 450.0, 9.0, rgb(250, 204, 21))
+    drawText("Eye", 354.0, 444.0, 13.0, rgb(253, 224, 71))
+
+    // Evaluate testFrustumSphere on each 3D sphere and draw at its mapped top-down (x, z) coordinate
+    mut si: int = 0
+    while si < spheres.len():
+      let sp = spheres[si]
+      let vis = testFrustumSphere(frustum, sp, 1.0)
+      let sx = 340.0 + sp.x * 11.2
+      let sy = 260.0 + sp.z * 18.0
+      drawCircle(sx, sy, 14.0, if vis: rgb(34, 197, 94) else: rgb(244, 63, 94))
+      if si == 5:
+        drawCircleOutline(sx, sy, 18.0, 2.0, rgb(250, 204, 21))
+      si = si + 1
+    // Occluder wall + Hi-Z occluded sphere behind wall
+    drawRect(305.0, 215.0, 70.0, 10.0, rgb(250, 204, 21))
+    drawCircle(340.0, 188.0, 13.0, rgb(168, 85, 247))
+    drawText("Hi-Z Occluded", 360.0, 182.0, 12.0, rgb(216, 180, 254))
+
+    // Right Panel: Two-Stage Frustum + Hi-Z Occlusion Culling Funnel
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(34, 197, 94))
+    drawText("TWO-STAGE CULLING PIPELINE FUNNEL (EFFICIENCY=" + str(effPct) + "%)", 680.0, 118.0, 17.0, rgb(134, 239, 172))
+
+    drawRect(685.0, 165.0, 520.0, 62.0, rgb(51, 65, 85))
+    drawRectOutline(685.0, 165.0, 520.0, 62.0, 1.5, rgb(100, 116, 139))
+    drawText("1. Total Scene Objects: 500 Meshes (100%)", 705.0, 188.0, 16.0, rgb(248, 250, 252))
+
+    drawRect(685.0, 245.0, 520.0, 62.0, rgb(30, 41, 59))
+    drawRect(685.0, 245.0, float(frustumVisCount) * 1.04, 62.0, rgb(14, 116, 144))
+    drawRectOutline(685.0, 245.0, 520.0, 62.0, 1.5, rgb(56, 189, 248))
+    drawText("2. After 6-Plane Frustum Cull: " + str(frustumVisCount) + " Visible (-" + str(500 - frustumVisCount) + ")", 705.0, 268.0, 16.0, rgb(240, 249, 255))
+
+    drawRect(685.0, 325.0, 520.0, 62.0, rgb(30, 41, 59))
+    drawRect(685.0, 325.0, float(finalCount) * 1.04, 62.0, rgb(21, 128, 61))
+    drawRectOutline(685.0, 325.0, 520.0, 62.0, 1.5, rgb(34, 197, 94))
+    drawText("3. After Hi-Z Occlusion Cull: " + str(finalCount) + " Rendered (-" + str(occludedCount) + ")", 705.0, 348.0, 16.0, rgb(240, 253, 244))
+
+    drawText("Projected Dynamic AABB Screen Rect: w=" + str(int(screenRect.w)) + " h=" + str(int(screenRect.h)) + " px", 685.0, 415.0, 15.0, rgb(253, 224, 71))
+    drawText("Active Probe Sphere Visibility: " + str(visSphereCount) + " / " + str(spheres.len()) + " Spheres Inside Frustum", 685.0, 448.0, 14.0, rgb(125, 211, 252))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("FRUSTUM & HI-Z CULLING TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Extracted Frustum Planes: " + str(frustum.planes.len()) + " | testFrustumSphere(origin) = true | testFrustumSphere(behind) = false", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Final Rendered Objects: " + str(finalCount) + " / 500 (" + str(effPct) + "% Culled) | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

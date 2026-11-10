@@ -1,0 +1,228 @@
+module Ex241AiPathfindAstarJpsFlowfieldWindow
+
+import { PathResult2D, DijkstraMap2D, FlowField2D, aStarPathfind, jpsPathfind2D, thetaStarPathfind2D, computeDijkstraMap2D, computeFlowField2D } from "../std/ai/pathfind"
+import { CellularGrid2D } from "../std/procgen/cellular_automata"
+import { Vec2, IVec2 } from "../std/math/vec_math"
+import { sqrt } from "../std/math/trig"
+import { initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow, clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb } from "../std/gfx2d/shape2d"
+
+pub struct PathfindScene(grid: CellularGrid2D, resA: PathResult2D, resJ: PathResult2D, resT: PathResult2D, dMap: DijkstraMap2D, flow: FlowField2D, agentA: Vec2, agentFlow: Vec2, waypointIdx: int, goal: IVec2, stepCount: int)
+
+pub fn initScene(): PathfindScene:
+  mut cells: [int] = []
+  mut i = 0
+  while i < 25:
+    cells.push(0)
+    i = i + 1
+  cells[0 * 5 + 2] = 1
+  cells[1 * 5 + 2] = 1
+  cells[2 * 5 + 2] = 1
+  let grid = CellularGrid2D(width = 5, height = 5, cells = cells)
+  let goal = IVec2(x = 4, y = 0)
+  let resA = aStarPathfind(grid, IVec2(x = 0, y = 0), goal, false)
+  let resJ = jpsPathfind2D(grid, IVec2(x = 0, y = 0), goal)
+  let resT = thetaStarPathfind2D(grid, IVec2(x = 0, y = 0), goal)
+  let dMap = computeDijkstraMap2D(grid, [goal])
+  let flow = computeFlowField2D(dMap)
+  ret PathfindScene(
+    grid = grid,
+    resA = resA,
+    resJ = resJ,
+    resT = resT,
+    dMap = dMap,
+    flow = flow,
+    agentA = Vec2(x = 0.0, y = 0.0),
+    agentFlow = Vec2(x = 0.2, y = 4.2),
+    waypointIdx = 1,
+    goal = goal,
+    stepCount = 0
+  )
+
+pub fn stepScene(mut scene: PathfindScene, frame: int, dt: float): PathfindScene:
+  let goalY = (frame / 28) % 5
+  scene.goal = IVec2(x = 4, y = goalY)
+  scene.resA = aStarPathfind(scene.grid, IVec2(x = 0, y = 0), scene.goal, false)
+  scene.resJ = jpsPathfind2D(scene.grid, IVec2(x = 0, y = 0), scene.goal)
+  scene.resT = thetaStarPathfind2D(scene.grid, IVec2(x = 0, y = 0), scene.goal)
+  scene.dMap = computeDijkstraMap2D(scene.grid, [scene.goal])
+  scene.flow = computeFlowField2D(scene.dMap)
+
+  if scene.resA.path.len() > 0:
+    if scene.waypointIdx >= scene.resA.path.len():
+      scene.waypointIdx = 1
+      scene.agentA = Vec2(x = 0.0, y = 0.0)
+    let targetWp: Vec2 = scene.resA.path[scene.waypointIdx]
+    let dx = targetWp.x - scene.agentA.x
+    let dy = targetWp.y - scene.agentA.y
+    let dist = sqrt(dx * dx + dy * dy)
+    let stepDist = 4.5 * dt
+    if dist <= stepDist:
+      scene.agentA = targetWp
+      if scene.waypointIdx + 1 < scene.resA.path.len():
+        scene.waypointIdx = scene.waypointIdx + 1
+      else:
+        scene.waypointIdx = 1
+        scene.agentA = Vec2(x = 0.0, y = 0.0)
+    else:
+      scene.agentA = Vec2(
+        x = scene.agentA.x + (dx / dist) * stepDist,
+        y = scene.agentA.y + (dy / dist) * stepDist
+      )
+
+  mut gx = int(scene.agentFlow.x)
+  mut gy = int(scene.agentFlow.y)
+  if gx < 0:
+    gx = 0
+  if gx > 4:
+    gx = 4
+  if gy < 0:
+    gy = 0
+  if gy > 4:
+    gy = 4
+  let fv: Vec2 = scene.flow.vectors[gy * 5 + gx]
+  let fdx = float(scene.goal.x) - scene.agentFlow.x
+  let fdy = float(scene.goal.y) - scene.agentFlow.y
+  if (fdx * fdx + fdy * fdy) < 0.35 or (fv.x == 0.0 and fv.y == 0.0):
+    scene.agentFlow = Vec2(x = 0.25, y = float((scene.stepCount + 3) % 5) + 0.25)
+  else:
+    scene.agentFlow = Vec2(
+      x = scene.agentFlow.x + fv.x * 3.5 * dt,
+      y = scene.agentFlow.y + fv.y * 3.5 * dt
+    )
+  scene.stepCount = scene.stepCount + 1
+  ret scene
+
+pub fn auditAiPathfindAstarJpsFlowfield(): int:
+  mut scene = initScene()
+  scene = stepScene(scene, 0, 0.08)
+  mut ok = 0
+  if scene.resA.found and scene.resJ.found and scene.resT.found:
+    ok = 3
+  ret scene.flow.vectors.len() + ok
+
+pub fn main(): int:
+  let audit = auditAiPathfindAstarJpsFlowfield()
+  println("EX_241_AI_PATHFIND_AUDIT=" + str(audit))
+
+  mut scene = initScene()
+  mut frame = 0
+
+  initWindow(1280, 720, "AIPL ex_241: A*, Jump Point Search (JPS), Theta* & Dijkstra FlowField")
+  while not windowShouldClose():
+    scene = stepScene(scene, frame, 0.08)
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_241: A*, JUMP POINT SEARCH (JPS), THETA* & DIJKSTRA FLOWFIELD", 36.0, 24.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Goal=(" + str(scene.goal.x) + "," + str(scene.goal.y) + ") | A* Nodes=" + str(scene.resA.path.len()) + " (c=" + str(int(scene.resA.cost)) + ") | JPS Nodes=" + str(scene.resJ.path.len()) + " | Theta* Nodes=" + str(scene.resT.path.len()), 36.0, 52.0, 15.0, rgb(148, 163, 184))
+
+    drawRect(44.0, 88.0, 580.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(44.0, 88.0, 580.0, 594.0, 2.0, rgb(56, 189, 248))
+    drawText("A* (4-WAY CYAN), JPS (8-WAY GOLD) & THETA* (ANY-ANGLE MAGENTA)", 64.0, 104.0, 14.0, rgb(125, 211, 252))
+
+    drawRect(652.0, 88.0, 584.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(652.0, 88.0, 584.0, 594.0, 2.0, rgb(16, 185, 129))
+    drawText("DIJKSTRA DISTANCE HEATMAP & GRADIENT FLOWFIELD VECTORS", 674.0, 104.0, 14.0, rgb(110, 231, 183))
+
+    mut gy = 0
+    while gy < 5:
+      mut gx = 0
+      while gx < 5:
+        let idx = gy * 5 + gx
+        let sx1 = 104.0 + float(gx * 90)
+        let sy1 = 148.0 + float(gy * 90)
+        let sx2 = 714.0 + float(gx * 90)
+        let sy2 = 148.0 + float(gy * 90)
+        let isGoal = gx == scene.goal.x and gy == scene.goal.y
+        let isStart = gx == 0 and gy == 0
+
+        if scene.grid.cells[idx] == 1:
+          drawRect(sx1, sy1, 82.0, 82.0, rgb(153, 27, 27))
+          drawRectOutline(sx1, sy1, 82.0, 82.0, 2.0, rgb(248, 113, 113))
+          drawText("WALL", sx1 + 20.0, sy1 + 34.0, 13.0, rgb(254, 202, 202))
+          drawRect(sx2, sy2, 82.0, 82.0, rgb(153, 27, 27))
+          drawRectOutline(sx2, sy2, 82.0, 82.0, 2.0, rgb(248, 113, 113))
+          drawText("WALL", sx2 + 20.0, sy2 + 34.0, 13.0, rgb(254, 202, 202))
+        else:
+          let cellBg1 = if isGoal: rgb(6, 95, 70) else: (if isStart: rgb(30, 58, 138) else: rgb(23, 33, 52))
+          drawRect(sx1, sy1, 82.0, 82.0, cellBg1)
+          drawRectOutline(sx1, sy1, 82.0, 82.0, 1.0, rgb(51, 65, 85))
+          if isStart:
+            drawText("START", sx1 + 16.0, sy1 + 8.0, 11.0, rgb(125, 211, 252))
+          if isGoal:
+            drawText("GOAL", sx1 + 20.0, sy1 + 8.0, 11.0, rgb(110, 231, 183))
+
+          let dVal = scene.dMap.distances[idx]
+          let heatG = if dVal > 12.0: 32 else: 115 - int(dVal * 7.0)
+          let heatB = if dVal > 12.0: 50 else: 95 - int(dVal * 4.0)
+          drawRect(sx2, sy2, 82.0, 82.0, rgb(15, heatG, heatB))
+          drawRectOutline(sx2, sy2, 82.0, 82.0, 1.0, rgb(45, 85, 95))
+          drawText("d=" + str(int(dVal)), sx2 + 8.0, sy2 + 8.0, 12.0, rgb(167, 243, 208))
+
+          let fv: Vec2 = scene.flow.vectors[idx]
+          let cx2 = sx2 + 41.0
+          let cy2 = sy2 + 46.0
+          drawCircle(cx2, cy2, 3.5, rgb(110, 231, 183))
+          drawLine(cx2, cy2, cx2 + fv.x * 24.0, cy2 + fv.y * 24.0, rgb(52, 211, 153), 3.0)
+          drawCircle(cx2 + fv.x * 24.0, cy2 + fv.y * 24.0, 3.0, rgb(250, 204, 21))
+        gx = gx + 1
+      gy = gy + 1
+
+    mut pIdx = 0
+    while pIdx < scene.resA.path.len():
+      let wp: Vec2 = scene.resA.path[pIdx]
+      let wx = 104.0 + wp.x * 90.0 + 41.0
+      let wy = 148.0 + wp.y * 90.0 + 41.0
+      drawCircle(wx, wy, 7.0, rgb(56, 189, 248))
+      if pIdx > 0:
+        let prevWp: Vec2 = scene.resA.path[pIdx - 1]
+        let px = 104.0 + prevWp.x * 90.0 + 41.0
+        let py = 148.0 + prevWp.y * 90.0 + 41.0
+        drawLine(px, py, wx, wy, rgb(56, 189, 248), 4.0)
+      pIdx = pIdx + 1
+
+    mut jIdx = 0
+    while jIdx < scene.resJ.path.len():
+      let jw: Vec2 = scene.resJ.path[jIdx]
+      let jx = 104.0 + jw.x * 90.0 + 33.0
+      let jy = 148.0 + jw.y * 90.0 + 33.0
+      drawCircle(jx, jy, 5.0, rgb(250, 204, 21))
+      if jIdx > 0:
+        let prevJ: Vec2 = scene.resJ.path[jIdx - 1]
+        let pjx = 104.0 + prevJ.x * 90.0 + 33.0
+        let pjy = 148.0 + prevJ.y * 90.0 + 33.0
+        drawLine(pjx, pjy, jx, jy, rgb(250, 204, 21), 2.5)
+      jIdx = jIdx + 1
+
+    mut tIdx = 0
+    while tIdx < scene.resT.path.len():
+      let tw: Vec2 = scene.resT.path[tIdx]
+      let tx = 104.0 + tw.x * 90.0 + 49.0
+      let ty = 148.0 + tw.y * 90.0 + 49.0
+      drawCircle(tx, ty, 5.5, rgb(236, 72, 153))
+      if tIdx > 0:
+        let prevT: Vec2 = scene.resT.path[tIdx - 1]
+        let ptx = 104.0 + prevT.x * 90.0 + 49.0
+        let pty = 148.0 + prevT.y * 90.0 + 49.0
+        drawLine(ptx, pty, tx, ty, rgb(236, 72, 153), 3.0)
+      tIdx = tIdx + 1
+
+    let ax = 104.0 + scene.agentA.x * 90.0 + 41.0
+    let ay = 148.0 + scene.agentA.y * 90.0 + 41.0
+    drawCircle(ax, ay, 12.0, rgb(244, 63, 94))
+    drawCircleOutline(ax, ay, 15.0, 2.0, rgb(255, 255, 255))
+
+    let fx = 714.0 + scene.agentFlow.x * 90.0 + 41.0
+    let fy = 148.0 + scene.agentFlow.y * 90.0 + 41.0
+    drawCircle(fx, fy, 12.0, rgb(250, 204, 21))
+    drawCircleOutline(fx, fy, 15.0, 2.0, rgb(255, 255, 255))
+
+    drawText("Cyan=4-Way A* (" + str(scene.resA.path.len()) + " pts) | Gold=8-Way JPS (" + str(scene.resJ.path.len()) + " pts) | Pink=Any-Angle Theta* (" + str(scene.resT.path.len()) + " pts)", 68.0, 618.0, 13.0, rgb(226, 232, 240))
+    drawText("Red Disc = A* Path Follower Agent | Wall cells block line-of-sight at x=2, y=0..2", 68.0, 644.0, 13.0, rgb(148, 163, 184))
+
+    drawText("Dijkstra Map: wavefront cost d from Goal=(" + str(scene.goal.x) + "," + str(scene.goal.y) + ") | Green arrows = -grad(d) FlowField", 676.0, 618.0, 13.0, rgb(226, 232, 240))
+    drawText("Gold Disc = FlowField Advected Agent at (" + str(int(scene.agentFlow.x * 10.0)) + "/10, " + str(int(scene.agentFlow.y * 10.0)) + "/10)", 676.0, 644.0, 13.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

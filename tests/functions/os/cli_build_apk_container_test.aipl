@@ -1,0 +1,60 @@
+module tests.functions.os.cli_build_apk_container_test
+
+import {
+  CliApkBuildConfig,
+  ContainerBootDecision,
+  parseCliBuildApkArgs,
+  verifyContainerSingleAppLock,
+  executeCliBuildApkContainer
+} from "compiler/main"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_cli_build_apk_container_parseCliBuildApkArgs(): int:
+  let cfg = parseCliBuildApkArgs("examples/ex_250_arcade.aipl", "arcade.apk", "com.aipl.app.arcade", "Neon Arcade")
+  assert(cfg.isValid == true, "valid .aipl input accepted")
+  assertEqStr(cfg.outApkPath, "arcade.apk", "custom -o arcade.apk")
+  assertEqStr(cfg.appId, "com.aipl.app.arcade", "custom --app-id")
+  assertEqStr(cfg.appName, "Neon Arcade", "custom --app-name")
+  let defCfg = parseCliBuildApkArgs("main.aipl", "", "", "")
+  assert(defCfg.isValid == true, "defaults applied when optional flags omitted")
+  assertEqStr(defCfg.outApkPath, "build/app.apk", "default output path")
+  assertEqStr(defCfg.appId, "com.aipl.app.main", "default package ID")
+  let spaceCfg = parseCliBuildApkArgs("main.aipl", "", "com bad id", "")
+  assertEqStr(spaceCfg.appId, "com.aipl.app.main", "invalid appId with space falls back to default")
+  let dotdotCfg = parseCliBuildApkArgs("main.aipl", "", "com..bad", "")
+  assertEqStr(dotdotCfg.appId, "com.aipl.app.main", "invalid appId with double-dot falls back to default")
+  let bad = parseCliBuildApkArgs("not_aipl.txt", "a.apk", "com.a.b", "App")
+  assert(bad.isValid == false, "non-.aipl input rejected")
+  ret 0
+
+pub fn test_cli_build_apk_container_verifyContainerSingleAppLock(): int:
+  let locked = verifyContainerSingleAppLock(1, "content://external/hacked.aipl")
+  assert(locked.lockedMode == true, "bootMode 1 enables single-app lock")
+  assert(locked.filePickerEnabled == false, "file picker disabled in container APK")
+  assert(locked.watcherDrawerEnabled == false, "watcher drawer disabled in container APK")
+  assertEqStr(locked.allowedEntryPath, "assets/main.aiplb", "forced to assets/main.aiplb")
+  assert(locked.externalOverrideBlocked == true, "external URI override blocked")
+  let unlocked = verifyContainerSingleAppLock(0, "/sdcard/dev.aipl")
+  assert(unlocked.filePickerEnabled == true, "watcher player mode enables file picker")
+  ret 0
+
+pub fn test_cli_build_apk_container_executeCliBuildApkContainer(): int:
+  let (code, crc, magic) = executeCliBuildApkContainer("pub fn main(): int: ret 0", "com.aipl.app.demo", "Demo App")
+  assertEqInt(code, 0, "exitCode == 0")
+  assertEqInt(crc, 4268412645, "payloadCrc32 == 4268412645")
+  assertEqStr(magic, "APK Sig Block 42", "signed with APK Sig Block 42")
+  let (errCode, _, _) = executeCliBuildApkContainer("", "com.aipl.app.demo", "Demo App")
+  assertEqInt(errCode, 1, "empty source fails with exitCode 1")
+  let (badIdCode, badIdCrc, _) = executeCliBuildApkContainer("pub fn main(): int: ret 0", "invalidid", "App")
+  assertEqInt(badIdCode, 1, "appId without dot returns exit code 1")
+  assertEqInt(badIdCrc, 0, "failed build returns 0 crc")
+  let (blankNameCode, _, _) = executeCliBuildApkContainer("pub fn main(): int: ret 0", "com.aipl.app.demo", "   ")
+  assertEqInt(blankNameCode, 1, "whitespace-only appName rejected with exit code 1")
+  ret 0
+
+pub fn main(): int:
+  test_cli_build_apk_container_parseCliBuildApkArgs()
+  test_cli_build_apk_container_verifyContainerSingleAppLock()
+  test_cli_build_apk_container_executeCliBuildApkContainer()
+  println("PASS: tests/functions/os/cli_build_apk_container_test.aipl")
+  ret 0

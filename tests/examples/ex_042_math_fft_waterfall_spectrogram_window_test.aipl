@@ -1,0 +1,41 @@
+// ============================================================================
+// Twin Test Suite 042: Real-Time FFT Bar Spectrum & Waterfall Spectrogram Window
+// Verifies examples/ex_042_math_fft_waterfall_spectrogram_window.aipl
+// ============================================================================
+module Ex042MathFftWaterfallSpectrogramWindowTest
+
+import {
+  SpectrogramWindowState,
+  computeCosineWaveFftPeakMagMilli,
+  describeWaterfallPaletteMode,
+  buildSpectrogramWindowState,
+  renderFrameStep
+} from "../../examples/ex_042_math_fft_waterfall_spectrogram_window"
+
+pub fn test_cosine_wave_fft_peak_bin(): int:
+  // 16-point FFT of cos(2*pi * 2 * n / 16) has peak magnitude 8.0 at bin 2 -> 8000 milli
+  let peakMilli = computeCosineWaveFftPeakMagMilli(2)
+  assert(peakMilli >= 7990 and peakMilli <= 8010, "16-point cosine wave at k=2 has FFT bin 2 magnitude ~8000 milli")
+  ret 0
+
+pub fn test_spectrogram_window_state_and_step(): int:
+  let st0 = buildSpectrogramWindowState(0)
+  let st1 = buildSpectrogramWindowState(1)
+  let st20 = buildSpectrogramWindowState(20)
+  let st100 = buildSpectrogramWindowState(100)
+  assert(st0.fftSize == 16, "fftSize == 16")
+  assert(st0.peakBin2Milli >= 7990, "peakBin2Milli >= 7990")
+  assert(st0.activeRow != st1.activeRow and st1.activeRow != st20.activeRow and st20.activeRow != st100.activeRow, "activeRow advances across frames 0 -> 1 -> 20 -> 100")
+  assert(describeWaterfallPaletteMode(0) == "SPECTROGRAM:INFERNO_WATERFALL_16BIN", "mode 0")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m1 > m0 and m20 > m1 and m100 > m20, "renderFrameStep progresses across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_cosine_wave_fft_peak_bin()
+  test_spectrogram_window_state_and_step()
+  println("PASS: ex_042_math_fft_waterfall_spectrogram_window_test")
+  ret 0

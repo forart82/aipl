@@ -1,0 +1,59 @@
+module Ex228Phys3dCharacterStairAndSlopeWindowTest
+
+import {
+  CharacterControllerSettings3D, KinematicCharacterController3D,
+  characterControllerNew, characterMoveAndSlide, computeAirAccelerateVelocity
+} from "../../std/phys3d/character3d"
+import { physWorld3dNew } from "../../std/phys3d/phys_world3d"
+import { Vec3 } from "../../std/math/vec_math"
+import {
+  CharacterScene, createCharacterScene, stepScene, auditPhys3dCharacterController
+} from "../../examples/ex_228_phys3d_character_stair_and_slope_window"
+
+pub fn test_phys3d_character_stair_and_slope(): void:
+  mut world = physWorld3dNew(Vec3(x = 0.0, y = -9.81, z = 0.0))
+  let cCfg = CharacterControllerSettings3D(
+    stepHeight = 0.4,
+    slopeLimitRadians = 0.78,
+    skinWidth = 0.02,
+    gravity = Vec3(x = 0.0, y = -9.81, z = 0.0),
+    groundFriction = 6.0,
+    airControl = 0.3
+  )
+  mut cc = characterControllerNew(cCfg, 1.8, 0.4)
+  let finalPos: Vec3 = characterMoveAndSlide(cc, Vec3(x = 5.0, y = 0.0, z = 0.0), world, 0.1)
+  assert(finalPos.x == 0.5 and cc.isGrounded, "characterMoveAndSlide moved and grounded")
+
+  let airVel: Vec3 = computeAirAccelerateVelocity(Vec3(x = 10.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 1.0), 10.0, 10.0, 0.1)
+  assert(airVel.x == 10.0 and airVel.z > 0.0, "computeAirAccelerateVelocity")
+
+  mut scene: CharacterScene = createCharacterScene()
+  let x0 = scene.controller.position.x
+  stepScene(scene, 0, 0.05)
+  let x1 = scene.controller.position.x
+  assert(x1 > x0, "t=0 -> t=1 moves character forward via characterMoveAndSlide")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let x20 = scene.controller.position.x
+  let e20 = scene.stairElevation
+  let az20 = scene.airVel.z
+  assert(x20 > x1 and az20 > 0.0, "t=1 -> t=20 advances character up stairs & air strafes")
+
+  while f <= 100:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let x100 = scene.controller.position.x
+  let e100 = scene.stairElevation
+  let az100 = scene.airVel.z
+  assert(x100 != x20 or e100 != e20 or az100 != az20, "t=20 -> t=100 continues stair/slope traversal and air strafe without freezing")
+
+  let audit = auditPhys3dCharacterController()
+  assert(audit == 16, "3D character controller audit")
+
+pub fn main(): int:
+  test_phys3d_character_stair_and_slope()
+  println("PASS: ex_228_phys3d_character_stair_and_slope_window_test")
+  ret 0

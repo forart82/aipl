@@ -1,0 +1,72 @@
+// ============================================================================
+// Example 078: Hex, Base64, Base64URL, Base62 & Crockford Base32 (CLI)
+// Demonstrates: hexEncode, hexDecode, hexValidate, base64Encode, base64Decode,
+//               base64UrlEncode, base64UrlDecode, base62Encode, base62Decode,
+//               crockfordBase32Encode, crockfordBase32Decode,
+//               urlPercentEncode, and urlPercentDecode from std/encoding.
+// ============================================================================
+module Ex078EncodingBase64AndHexCli
+
+import {
+  hexEncode,
+  hexDecode,
+  hexValidate,
+  base64Encode,
+  base64Decode,
+  base64UrlEncode,
+  base64UrlDecode,
+  base62Encode,
+  base62Decode,
+  crockfordBase32Encode,
+  crockfordBase32Decode,
+  urlPercentEncode,
+  urlPercentDecode
+} from "../std/encoding"
+
+// Encodes a payload in Hex and Base64 and returns the sum of their string lengths.
+pub fn evaluateMultiRadixEncodedLengths(payload: str): int:
+  let raw = payload.toBytes()
+  let hexStr = hexEncode(raw, false)
+  let b64Str = base64Encode(raw)
+  assert(hexValidate(hexStr), "hex string validates")
+  ret hexStr.len + b64Str.len
+
+// Verifies round-trip decoding across Hex, Base64, Base64URL, Base62, Crockford Base32, and URL Percent.
+pub fn verifyAllRadixCodecRoundTrips(): int:
+  let raw = "AIPL-Encoding-2026".toBytes()
+  let hexStr = hexEncode(raw, false)
+  let decHex = hexDecode(hexStr).unwrap().toStringLossy()
+
+  let b64Str = base64Encode(raw)
+  let decB64 = base64Decode(b64Str).unwrap().toStringLossy()
+
+  let b64Url = base64UrlEncode(raw)
+  let decUrl = base64UrlDecode(b64Url).unwrap().toStringLossy()
+
+  let b62 = base62Encode(123456789)
+  let decB62 = base62Decode(b62).unwrap()
+
+  let b32 = crockfordBase32Encode("hello".toBytes())
+  let decB32 = crockfordBase32Decode(b32).unwrap().toStringLossy()
+
+  let pct = urlPercentEncode("a b&c=1")
+  let decPct = urlPercentDecode(pct).unwrap()
+
+  if decHex == "AIPL-Encoding-2026" and decB64 == "AIPL-Encoding-2026" and decUrl == "AIPL-Encoding-2026" and decB62 == 123456789 and decB32 == "hello" and decPct == "a b&c=1":
+    ret 1
+  ret 0
+
+// Returns a canonical label for a radix encoding family.
+pub fn describeRadixAlphabetVariant(radix: int): str:
+  if radix == 64:
+    ret "RADIX:RFC4648_BASE64_PADDED"
+  if radix == 32:
+    ret "RADIX:CROCKFORD_BASE32"
+  ret "RADIX:RFC4648_BASE16_HEX"
+
+pub fn main(): int:
+  let totalLen = evaluateMultiRadixEncodedLengths("AIPL-2026")
+  let codecsOk = verifyAllRadixCodecRoundTrips()
+  let variant = describeRadixAlphabetVariant(64)
+  println("ex_078_encoding_base64_and_hex_cli: totalLen=" + str(totalLen) + " codecsOk=" + str(codecsOk) + " variant=" + variant)
+  ret 0

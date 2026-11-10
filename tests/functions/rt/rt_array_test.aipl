@@ -1,0 +1,86 @@
+// ============================================================================
+// Step 3.10: Exhaustive Per-Function Unit Tests for std/rt/rt_array.aipl (14)
+// Target: tests/functions/rt/rt_array_test.aipl
+// ============================================================================
+module RtArrayTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  RtArray,
+  RtArrayHeader,
+  rtArrayNew,
+  rtArrayReserve,
+  rtArrayEnsureCap,
+  rtArrayPush,
+  rtArrayGet,
+  rtArraySet,
+  rtArrayPop,
+  rtArrayLen,
+  rtArrayClear,
+  rtArrayFree,
+  rtArrayHeaderNew,
+  rtArrayHeaderEnsureCap,
+  rtArrayHeaderAddrAt,
+  rtArrayHeaderFree
+} from "../../../std/rt/rt_array.aipl"
+
+pub fn test_rt_array_ops(): int:
+  mut arr = rtArrayNew(4, 8)
+  assert(arr.data > 0, "arr.data > 0")
+  assertEqInt(rtArrayLen(arr), 0, "initial len 0")
+
+  let idx0 = rtArrayPush(arr, 100)
+  assertEqInt(idx0, 0, "idx 0")
+  let idx1 = rtArrayPush(arr, 200)
+  assertEqInt(idx1, 1, "idx 1")
+  let idx2 = rtArrayPush(arr, 300)
+  assertEqInt(idx2, 2, "idx 2")
+
+  assertEqInt(rtArrayLen(arr), 3, "len is 3")
+  assertEqInt(rtArrayGet(arr, 0), 100, "get 0 is 100")
+  assertEqInt(rtArrayGet(arr, 1), 200, "get 1 is 200")
+  assertEqInt(rtArrayGet(arr, 2), 300, "get 2 is 300")
+
+  assert(rtArraySet(arr, 1, 999) == true, "set index 1")
+  assertEqInt(rtArrayGet(arr, 1), 999, "get 1 is 999")
+
+  rtArrayReserve(arr, 16)
+  assert(arr.cap >= 16, "reserve >= 16")
+  rtArrayEnsureCap(arr, 32)
+  assert(arr.cap >= 32, "ensureCap >= 32")
+
+  let popped = rtArrayPop(arr)
+  assertEqInt(popped, 300, "popped is 300")
+  assertEqInt(rtArrayLen(arr), 2, "len after pop is 2")
+
+  rtArrayClear(arr)
+  assertEqInt(rtArrayLen(arr), 0, "len after clear is 0")
+
+  rtArrayFree(arr)
+  assertEqInt(arr.data, 0, "arr.data is 0 after free")
+  ret 0
+
+pub fn test_rt_array_header(): int:
+  mut hdr = rtArrayHeaderNew(8, 4)
+  assert(hdr.dataPtr > 0, "hdr.dataPtr > 0")
+  assertEqInt(hdr.capacity, 4, "hdr capacity 4")
+
+  rtArrayHeaderEnsureCap(hdr, 16)
+  assert(hdr.capacity >= 16, "hdr capacity >= 16")
+
+  let addr0 = rtArrayHeaderAddrAt(hdr, 0)
+  assertEqInt(addr0, 0, "addrAt 0 when length == 0 returns 0")
+
+  rtArrayHeaderFree(hdr)
+  assertEqInt(hdr.dataPtr, 0, "hdr dataPtr 0 after free")
+  ret 0
+
+pub fn main(): int:
+  test_rt_array_ops()
+  test_rt_array_header()
+  println("PASS: rt_array_test")
+  ret 0

@@ -1,0 +1,76 @@
+// ============================================================================
+// Example 023: Fixed-Block Pool Allocator & ABA Handle Guard (CLI)
+// Demonstrates: poolNew, poolAcquire, poolRelease, poolActiveCount,
+//               poolActiveIndices, poolGenerationsNew, poolAcquireHandle,
+//               poolIsHandleValid, and poolReleaseHandle from std/alloc/pool_alloc.
+// ============================================================================
+module Ex023AllocPoolFixedBlockCli
+
+import {
+  poolNew,
+  poolAcquire,
+  poolRelease,
+  poolActiveCount,
+  poolActiveIndices,
+  poolGenerationsNew,
+  poolAcquireHandle,
+  poolIsHandleValid,
+  poolReleaseHandle
+} from "../std/alloc/pool_alloc"
+
+pub fn verifyPoolAbaProtection(capacity: int, firstPayload: int, secondPayload: int): int:
+  mut pool = poolNew(capacity)
+  let h1Opt = pool.acquire(firstPayload)
+  if not h1Opt.isSome():
+    ret -1
+  let h1 = h1Opt.unwrap()
+  let firstVal = pool.get(h1).unwrap()
+  let released = pool.release(h1)
+
+  let h2Opt = pool.acquire(secondPayload)
+  if not h2Opt.isSome() or not released or firstVal != firstPayload:
+    ret -2
+  let h2 = h2Opt.unwrap()
+
+  // h1 must be invalid now (ABA protection) while h2 is valid
+  if pool.isValid(h1) or not pool.isValid(h2):
+    ret -3
+
+  // Also test external generation table helpers
+  mut gens = poolGenerationsNew(capacity)
+  let extOpt = poolAcquireHandle(pool, gens)
+  if extOpt.isSome():
+    let extH = extOpt.unwrap()
+    if poolIsHandleValid(pool, gens, extH):
+      let _ = poolReleaseHandle(pool, gens, extH)
+
+  ret pool.get(h2).unwrap()
+
+pub fn countPoolActiveAfterBatch(capacity: int, acquireCount: int, releaseCount: int): int:
+  mut pool = poolNew(capacity)
+  mut handles: [int] = []
+  for i in 0..acquireCount:
+    let idxOpt = poolAcquire(pool)
+    if idxOpt.isSome():
+      handles.push(idxOpt.unwrap())
+  for j in 0..releaseCount:
+    if j < handles.len:
+      let _ = poolRelease(pool, handles[j])
+  let indices = poolActiveIndices(pool)
+  if indices.len == poolActiveCount(pool):
+    ret poolActiveCount(pool)
+  ret -1
+
+pub fn describePoolOccupancy(active: int, capacity: int): str:
+  if active <= 0:
+    ret "POOL:EMPTY"
+  if active >= capacity:
+    ret "POOL:SATURATED"
+  ret "POOL:ACTIVE_SLOTS"
+
+pub fn main(): int:
+  let recycled = verifyPoolAbaProtection(4, 101, 202)
+  let active = countPoolActiveAfterBatch(8, 5, 2)
+  println("ABA Guard Recycled Slot Value: " + str(recycled))
+  println("Active Pool Slots (5 - 2): " + str(active) + " -> " + describePoolOccupancy(active, 8))
+  ret 0

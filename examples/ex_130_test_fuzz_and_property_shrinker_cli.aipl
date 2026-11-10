@@ -1,0 +1,63 @@
+// ============================================================================
+// Canonical Example 130: Property Fuzzing & Counterexample Shrinker (CLI)
+// Target Profile: CLI | Standard Library Module: std/test
+// ============================================================================
+module Ex130TestFuzzAndPropertyShrinkerCli
+
+import {
+  FuzzConfig,
+  createFuzzGenerator,
+  fuzzNextInt,
+  fuzzNextFloat,
+  fuzzNextString,
+  fuzzNextBytes,
+  shrinkCounterExampleInt,
+  shrinkCounterExampleString,
+  verifyProperty
+} from "../std/test/test_mod.aipl"
+import { maxInt } from "../std/std_root.aipl"
+
+pub fn verifyDeterministicFuzzerAndShrinker(): int:
+  let seed = 3405691582
+  mut gen1 = createFuzzGenerator(seed)
+  mut gen2 = createFuzzGenerator(seed)
+
+  let p1 = fuzzNextInt(gen1, 0, 1000)
+  let p2 = fuzzNextInt(gen2, 0, 1000)
+  assert(p1[1] == p2[1], "deterministic PRNG sequence")
+  gen1 = p1[0]
+
+  let fPair = fuzzNextFloat(gen1, 10.0, 20.0)
+  assert(fPair[1] >= 10.0 and fPair[1] <= 20.0, "fuzzNextFloat in range")
+  let sPair = fuzzNextString(fPair[0], 12)
+  assert(sPair[1].len() <= 12, "fuzzNextString maxLen")
+  let bPair = fuzzNextBytes(sPair[0], 8)
+  assert(bPair[1].len() <= 8, "fuzzNextBytes maxLen")
+
+  let shrunkInt = shrinkCounterExampleInt(850, 0, 42)
+  let shrunkStr = shrinkCounterExampleString("ALPHA_BRAVO_CHARLIE_ZULU_OMEGA", "Z")
+  assert(shrunkStr == "Z", "shrunk string minimal 'Z'")
+
+  let propRes = verifyProperty(FuzzConfig(seed = seed, maxIterations = 50, maxShrinkSteps = 20, maxCollectionLen = 16), 100)
+  assert(propRes.counterExampleFound and propRes.shrunkCounterExample == "100", "verifyProperty shrinks to 100")
+  ret shrunkInt
+
+pub fn computeBinaryShrinkStepsBound(initialSpan: int): int:
+  mut span = maxInt(1, initialSpan)
+  mut steps = 0
+  while span > 1:
+    span = span / 2
+    steps = steps + 1
+  ret steps
+
+pub fn describeFuzzCounterExample(minimalVal: int): str:
+  ret "FUZZ:SHRUNK_MINIMAL_" + str(minimalVal)
+
+pub fn main(): int:
+  let shrunk = verifyDeterministicFuzzerAndShrinker()
+  let steps = computeBinaryShrinkStepsBound(1024)
+  let tag = describeFuzzCounterExample(shrunk)
+  assert(shrunk == 42, "minimal counterexample 42")
+  assert(steps == 10, "10 binary shrink steps")
+  println(tag + " | steps=" + str(steps))
+  ret 0

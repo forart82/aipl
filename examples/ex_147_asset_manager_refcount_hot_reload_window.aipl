@@ -1,0 +1,208 @@
+// ============================================================================
+// Canonical Example 147: Asset Manager Reference Counting & Hot-Reload (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/asset
+// ============================================================================
+module Ex147AssetManagerRefcountHotReloadWindow
+
+import {
+  AssetHandle,
+  AssetManager,
+  createAssetManager,
+  registerAsset,
+  getAssetStatus,
+  retainAsset,
+  releaseAsset,
+  notifyAssetFileChanged,
+  ASSET_STATUS_READY,
+  ASSET_STATUS_UNLOADED
+} from "../std/asset/asset_mod.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyAssetRefCountAndHotReload(): int:
+  mut mgr = createAssetManager(true)
+  let (mgr2, handle) = registerAsset(mgr, "textures/albedo.qoi", 42)
+  mgr = mgr2
+  assert(getAssetStatus(handle) == ASSET_STATUS_READY, "asset READY")
+  let retained = retainAsset(handle)
+  assert(retained.refCount == 2, "refCount == 2")
+  let rel1 = releaseAsset(retained)
+  assert(rel1.refCount == 1, "refCount == 1")
+  let rel0 = releaseAsset(rel1)
+  assert(rel0.refCount == 0 and getAssetStatus(rel0) == ASSET_STATUS_UNLOADED, "unloaded at refCount 0")
+  mgr = notifyAssetFileChanged(mgr, "textures/albedo.qoi")
+  ret mgr.assets.get("textures/albedo.qoi").unwrap()
+
+pub fn computeEvictedAssetCount(totalRegistered: int, activeRetained: int): int:
+  let t = maxInt(0, totalRegistered)
+  let a = clampInt(activeRetained, 0, t)
+  ret t - a
+
+pub fn describeAssetHotReloadStatus(enabledFlag: int): str:
+  if enabledFlag != 0:
+    ret "ASSET:HOT_RELOAD_WATCH_ACTIVE"
+  ret "ASSET:STATIC_PACKED_ONLY"
+
+pub fn stepAssetManagerFrame(frameIndex: int): (AssetManager, [AssetHandle[int]]):
+  mut mgr = createAssetManager(true)
+  let (m1, h0Base) = registerAsset(mgr, "textures/albedo.qoi", 10)
+  let (m2, h1Base) = registerAsset(m1, "shaders/lit_pbr.wgsl", 20)
+  let (m3, h2Base) = registerAsset(m2, "meshes/robot_arm.glb", 30)
+  let (m4, h3Base) = registerAsset(m3, "audio/explosion.wav", 40)
+  mgr = m4
+
+  mut h0 = retainAsset(retainAsset(h0Base))
+  mut h1 = retainAsset(h1Base)
+  mut h2 = h2Base
+  mut h3 = releaseAsset(h3Base)
+
+  let activeSlot = ((frameIndex / 11) + (frameIndex / 37)) % 4
+  let reloadCount = 1 + ((frameIndex * 3 + (frameIndex / 7)) % 5)
+  let extraRefs = (frameIndex + activeSlot) % 3
+
+  mut r = 0
+  while r < reloadCount:
+    if activeSlot == 0:
+      mgr = notifyAssetFileChanged(mgr, h0.path)
+    elif activeSlot == 1:
+      mgr = notifyAssetFileChanged(mgr, h1.path)
+    elif activeSlot == 2:
+      mgr = notifyAssetFileChanged(mgr, h2.path)
+    else:
+      mgr = notifyAssetFileChanged(mgr, h3.path)
+    r = r + 1
+
+  mut e = 0
+  while e < extraRefs:
+    if activeSlot == 0:
+      h0 = retainAsset(h0)
+    elif activeSlot == 1:
+      h1 = retainAsset(h1)
+    elif activeSlot == 2:
+      h2 = retainAsset(h2)
+    else:
+      h3 = retainAsset(h3Base)
+    e = e + 1
+
+  mut handles: [AssetHandle[int]] = [h0, h1, h2, h3]
+  ret (mgr, handles)
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let (mgr, handles) = stepAssetManagerFrame(frameIndex)
+  let activeSlot = ((frameIndex / 11) + (frameIndex / 37)) % 4
+  let activeRev = mgr.assets.get(handles[activeSlot].path).unwrap()
+  let totalRefs = handles[0].refCount + handles[1].refCount + handles[2].refCount + handles[3].refCount
+  ret activeRev + totalRefs * 10 + activeSlot + int(dt * 0.0)
+
+pub fn renderAssetManagerHotReloadScene(frameIndex: int): void:
+  let (mgr, handles) = stepAssetManagerFrame(frameIndex)
+  let activeSlot = ((frameIndex / 11) + (frameIndex / 37)) % 4
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(34, 197, 94))
+  drawText("EX_147 // ASSET MANAGER REFERENCE-COUNTED DEPENDENCY GRAPH & HOT-RELOAD", 52.0, 38.0, 20.0, rgb(240, 253, 244))
+
+  // Left Column: Subsystem Consumers holding strong references
+  let consumers = ["SceneRenderer", "PbrMaterialPass", "SkeletalRigSys", "SpatialMixer"]
+  drawRect(44.0, 96.0, 236.0, 500.0, rgb(14, 20, 36))
+  drawRectOutline(44.0, 96.0, 236.0, 500.0, 1.5, rgb(71, 85, 105))
+  drawText("SUBSYSTEM CONSUMERS", 62.0, 114.0, 15.0, rgb(56, 189, 248))
+  mut ci = 0
+  while ci < 4:
+    let ccy = 156.0 + float(ci * 106)
+    drawRect(60.0, ccy, 204.0, 68.0, rgb(22, 33, 56))
+    drawRectOutline(60.0, ccy, 204.0, 68.0, 1.5, rgb(56, 189, 248))
+    drawText(consumers[ci], 76.0, ccy + 26.0, 15.0, rgb(226, 232, 240))
+    drawCircle(264.0, ccy + 34.0, 6.0, rgb(56, 189, 248))
+    ci = ci + 1
+
+  // Right Column: File-System Hot-Reload Watcher Node
+  let wx = 988.0
+  let wy = 280.0
+  drawRect(964.0, 96.0, 268.0, 500.0, rgb(14, 20, 36))
+  drawRectOutline(964.0, 96.0, 268.0, 500.0, 1.5, rgb(71, 85, 105))
+  drawText("FS INOTIFY WATCHER", 988.0, 114.0, 15.0, rgb(250, 204, 21))
+  drawRect(wx, wy, 220.0, 112.0, rgb(28, 38, 64))
+  drawRectOutline(wx, wy, 220.0, 112.0, 2.0, rgb(250, 204, 21))
+  drawText("notifyAssetFileChanged()", wx + 14.0, wy + 26.0, 14.0, rgb(250, 204, 21))
+  drawText("Target Slot: #" + str(activeSlot), wx + 14.0, wy + 54.0, 14.0, rgb(241, 245, 249))
+  drawText("Watch Poll: +" + str(( mgr.assets.get(handles[activeSlot].path).unwrap() ) / 1000) + "x", wx + 14.0, wy + 80.0, 14.0, rgb(74, 222, 128))
+
+  // Center Column: AssetHandle Pool Nodes + Reference Graph Edges
+  mut activeRetainedCount = 0
+  mut i = 0
+  while i < handles.len:
+    let h = handles[i]
+    let status = getAssetStatus(h)
+    let rev = mgr.assets.get(h.path).unwrap()
+    if status == ASSET_STATUS_READY:
+      activeRetainedCount = activeRetainedCount + 1
+    let cy = 104.0 + float(i * 122)
+    let isReloading = i == activeSlot
+    let rc = h.refCount
+    let stateLabel = if status == ASSET_STATUS_READY: "READY" else: "EVICTED"
+    let cardBg = if isReloading: rgb(22, 42, 68) else: rgb(16, 24, 42)
+    let borderCol = if status == ASSET_STATUS_UNLOADED: rgb(244, 63, 94) else: (if isReloading: rgb(56, 189, 248) else: rgb(51, 65, 85))
+
+    // Draw reference edges from first `rc` consumer nodes into this AssetHandle node
+    mut edgeIdx = 0
+    while edgeIdx < clampInt(rc, 0, 4):
+      let srcY = 190.0 + float(edgeIdx * 106)
+      drawLine(264.0, srcY, 344.0, cy + 48.0, rgb(56, 189, 248), 2.5)
+      edgeIdx = edgeIdx + 1
+
+    // Draw hot-reload watcher pulse line into active asset node
+    if isReloading:
+      drawLine(wx, wy + 56.0, 900.0, cy + 48.0, rgb(250, 204, 21), 3.0)
+      drawCircle(900.0, cy + 48.0, 7.0, rgb(250, 204, 21))
+
+    drawRect(344.0, cy, 556.0, 96.0, cardBg)
+    drawRectOutline(344.0, cy, 556.0, 96.0, 2.0, borderCol)
+
+    let dotCol = if status == ASSET_STATUS_READY: rgb(34, 197, 94) else: rgb(244, 63, 94)
+    drawCircle(372.0, cy + 48.0, 10.0, dotCol)
+    drawText(h.path, 396.0, cy + 22.0, 17.0, rgb(241, 245, 249))
+    drawText("State: " + stateLabel + " | Rev: " + str(rev), 396.0, cy + 54.0, 14.0, rgb(148, 163, 184))
+
+    // RefCount visual blocks driven by h.refCount
+    drawText("refs=" + str(rc), 664.0, cy + 40.0, 15.0, rgb(250, 204, 21))
+    mut b = 0
+    while b < clampInt(rc, 0, 5):
+      drawRect(738.0 + float(b * 30), cy + 32.0, 24.0, 28.0, rgb(56, 189, 248))
+      b = b + 1
+    i = i + 1
+
+  let hotFlag = if mgr.hotReloadEnabled: 1 else: 0
+  let evictedCount = computeEvictedAssetCount(handles.len, activeRetainedCount)
+  let latestRev = mgr.assets.get(handles[activeSlot].path).unwrap()
+  // Bottom Status Bar
+  drawRect(44.0, 616.0, 1188.0, 60.0, rgb(16, 24, 42))
+  drawRectOutline(44.0, 616.0, 1188.0, 60.0, 1.5, rgb(71, 85, 105))
+  drawText(describeAssetHotReloadStatus(hotFlag) + " | Evicted Zero-Ref Slots=" + str(evictedCount) + " | Active Rev=" + str(latestRev), 68.0, 639.0, 16.0, rgb(134, 239, 172))
+
+pub fn main(): int:
+  let rev = verifyAssetRefCountAndHotReload()
+  assert(rev == 1001, "revision 1001 verified")
+  initWindow(1280, 720, "AIPL ex_147 - Asset Manager RefCounting & Hot-Reload Monitor")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderAssetManagerHotReloadScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,123 @@
+module InputKeyboard
+
+// ============================================================================
+// std/input/keyboard.aipl — Physical Scan-Codes, Virtual Keys & Modifiers
+// ============================================================================
+
+pub const MOD_NONE: int = 0
+pub const MOD_SHIFT: int = 1
+pub const MOD_CTRL: int = 2
+pub const MOD_ALT: int = 4
+pub const MOD_SUPER: int = 8
+
+pub const KEY_BACKSPACE: int = 8
+pub const KEY_TAB: int = 9
+pub const KEY_ENTER: int = 13
+pub const KEY_ESCAPE: int = 27
+pub const KEY_SPACE: int = 32
+pub const KEY_LEFT: int = 37
+pub const KEY_UP: int = 38
+pub const KEY_RIGHT: int = 39
+pub const KEY_DOWN: int = 40
+
+pub const KEY_0: int = 48
+pub const KEY_1: int = 49
+pub const KEY_2: int = 50
+pub const KEY_3: int = 51
+pub const KEY_4: int = 52
+pub const KEY_5: int = 53
+pub const KEY_6: int = 54
+pub const KEY_7: int = 55
+pub const KEY_8: int = 56
+pub const KEY_9: int = 57
+
+pub const KEY_A: int = 65
+pub const KEY_B: int = 66
+pub const KEY_C: int = 67
+pub const KEY_D: int = 68
+pub const KEY_E: int = 69
+pub const KEY_F: int = 70
+pub const KEY_G: int = 71
+pub const KEY_H: int = 72
+pub const KEY_I: int = 73
+pub const KEY_J: int = 74
+pub const KEY_K: int = 75
+pub const KEY_L: int = 76
+pub const KEY_M: int = 77
+pub const KEY_N: int = 78
+pub const KEY_O: int = 79
+pub const KEY_P: int = 80
+pub const KEY_Q: int = 81
+pub const KEY_R: int = 82
+pub const KEY_S: int = 83
+pub const KEY_T: int = 84
+pub const KEY_U: int = 85
+pub const KEY_V: int = 86
+pub const KEY_W: int = 87
+pub const KEY_X: int = 88
+pub const KEY_Y: int = 89
+pub const KEY_Z: int = 90
+
+pub struct KeyState(isDown: bool, justPressed: bool, justReleased: bool, repeatCount: int)
+
+pub struct KeyboardState(keys: Map[int, KeyState], modifiers: int, textStream: [str])
+
+pub fn createKeyboardState(): KeyboardState:
+  mut m: Map[int, KeyState] = Map.new()
+  mut ts: [str] = []
+  ret KeyboardState(keys = m, modifiers = MOD_NONE, textStream = ts)
+
+pub fn isKeyDown(state: KeyboardState, key: int): bool:
+  if state.keys.containsKey(key):
+    let ks = state.keys.get(key).unwrap()
+    ret ks.isDown
+  ret false
+
+pub fn isKeyJustPressed(state: KeyboardState, key: int): bool:
+  if state.keys.containsKey(key):
+    let ks = state.keys.get(key).unwrap()
+    ret ks.justPressed
+  ret false
+
+pub fn isKeyJustReleased(state: KeyboardState, key: int): bool:
+  if state.keys.containsKey(key):
+    let ks = state.keys.get(key).unwrap()
+    ret ks.justReleased
+  ret false
+
+pub fn hasModifier(state: KeyboardState, modifier: int): bool:
+  if modifier == 0:
+    ret state.modifiers == 0
+  ret (state.modifiers & modifier) == modifier
+
+pub fn pushKeyboardEvent(state: KeyboardState, key: int, isDown: bool, repeat: bool): KeyboardState:
+  mut m = state.keys
+  mut prevDown = false
+  mut prevRep = 0
+  if m.containsKey(key):
+    let prev = m.get(key).unwrap()
+    prevDown = prev.isDown
+    prevRep = prev.repeatCount
+
+  let jp = isDown and not prevDown
+  let jr = (not isDown) and prevDown
+  let nextRep = if isDown and repeat: prevRep + 1 else: (if isDown: prevRep else: 0)
+  m.set(key, KeyState(isDown = isDown, justPressed = jp, justReleased = jr, repeatCount = nextRep))
+  ret KeyboardState(keys = m, modifiers = state.modifiers, textStream = state.textStream)
+
+pub fn pushTextInput(state: KeyboardState, ch: str): KeyboardState:
+  mut ts = state.textStream
+  ts.push(ch)
+  ret KeyboardState(keys = state.keys, modifiers = state.modifiers, textStream = ts)
+
+pub fn flushKeyFrame(state: KeyboardState): KeyboardState:
+  mut m = state.keys
+  let ks = m.keys()
+  mut i = 0
+  while i < ks.len:
+    let k = ks[i]
+    let cur = m.get(k).unwrap()
+    m.set(k, KeyState(isDown = cur.isDown, justPressed = false, justReleased = false, repeatCount = cur.repeatCount))
+    i += 1
+  mut emptyTs: [str] = []
+  ret KeyboardState(keys = m, modifiers = state.modifiers, textStream = emptyTs)

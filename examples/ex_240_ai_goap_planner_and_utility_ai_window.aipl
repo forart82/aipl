@@ -1,0 +1,214 @@
+module Ex240AiGoapPlannerAndUtilityAiWindow
+
+import {
+  GoapWorldState, GoapAction, GoapPlanner, goapPlannerNew,
+  goapAddAction, goapPlanAStar, goapHasGoalSatisfied,
+  goapHeuristicDistance, utilityResponseCurveLogistic,
+  utilityLinear, utilityQuadratic, utilityExponential,
+  utilityGaussian, utilitySelectBest
+} from "../std/ai/goap"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine,
+  drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct GoapScene(planner: GoapPlanner, currentState: GoapWorldState, goalState: GoapWorldState, activePlan: [GoapAction], cursorT: float, cursorUtility: float, bestActionIdx: int, cycleCount: int)
+
+pub fn createGoapScene(): GoapScene:
+  mut planner = goapPlannerNew()
+  let actGetAxe = GoapAction(name = "PickupAxe", cost = 1.0, preconditionMask = 0, preconditionCareMask = 0, effectSetMask = 1, effectClearMask = 0)
+  let actChop = GoapAction(name = "ChopTree", cost = 2.0, preconditionMask = 1, preconditionCareMask = 1, effectSetMask = 2, effectClearMask = 0)
+  let actFire = GoapAction(name = "BuildCampfire", cost = 3.0, preconditionMask = 2, preconditionCareMask = 2, effectSetMask = 4, effectClearMask = 0)
+  goapAddAction(planner, actFire)
+  goapAddAction(planner, actChop)
+  goapAddAction(planner, actGetAxe)
+
+  let curState = GoapWorldState(stateMask = 0, careMask = 7)
+  let goalState = GoapWorldState(stateMask = 4, careMask = 4)
+  let plan = goapPlanAStar(planner, curState, goalState).unwrap()
+  ret GoapScene(
+    planner = planner,
+    currentState = curState,
+    goalState = goalState,
+    activePlan = plan,
+    cursorT = 0.1,
+    cursorUtility = utilityResponseCurveLogistic(0.1, 0.5, 10.0),
+    bestActionIdx = 0,
+    cycleCount = 0
+  )
+
+pub fn stepScene(mut scene: GoapScene, frame: int, dt: float): void:
+  if goapHasGoalSatisfied(scene.currentState, scene.goalState):
+    scene.cycleCount = scene.cycleCount + 1
+    let resetMask = if scene.cycleCount % 2 == 1: 1 else: 0
+    scene.currentState = GoapWorldState(stateMask = resetMask, careMask = 7)
+  else:
+    if scene.activePlan.len() > 0:
+      let nextAct: GoapAction = scene.activePlan[0]
+      let nextMask = (scene.currentState.stateMask | nextAct.effectSetMask) & (~nextAct.effectClearMask)
+      scene.currentState = GoapWorldState(stateMask = nextMask, careMask = 7)
+
+  let planOpt = goapPlanAStar(scene.planner, scene.currentState, scene.goalState)
+  if planOpt.isSome():
+    scene.activePlan = planOpt.unwrap()
+
+  mut nextT = scene.cursorT + dt
+  if nextT > 0.95:
+    nextT = 0.06
+  scene.cursorT = nextT
+  let uLog = utilityResponseCurveLogistic(nextT, 0.5, 10.0)
+  let uQuad = utilityQuadratic(nextT, 0.0, 1.0, 2.0)
+  let uGauss = utilityGaussian(nextT, 0.5, 0.2)
+  let uExp = utilityExponential(nextT, 2.0)
+  scene.cursorUtility = uLog + uExp * 0.01
+  scene.bestActionIdx = utilitySelectBest([uLog, uQuad, uGauss])
+
+pub fn auditAiGoapAndUtility(): int:
+  mut planner = goapPlannerNew()
+  let actGetAxe = GoapAction(name = "PickupAxe", cost = 1.0, preconditionMask = 0, preconditionCareMask = 0, effectSetMask = 1, effectClearMask = 0)
+  let actChop = GoapAction(name = "ChopTree", cost = 2.0, preconditionMask = 1, preconditionCareMask = 1, effectSetMask = 2, effectClearMask = 0)
+  let actFire = GoapAction(name = "BuildCampfire", cost = 3.0, preconditionMask = 2, preconditionCareMask = 2, effectSetMask = 4, effectClearMask = 0)
+  goapAddAction(planner, actFire)
+  goapAddAction(planner, actChop)
+  goapAddAction(planner, actGetAxe)
+
+  let curState = GoapWorldState(stateMask = 0, careMask = 7)
+  let goalState = GoapWorldState(stateMask = 4, careMask = 4)
+  let planOpt = goapPlanAStar(planner, curState, goalState)
+  let plan = planOpt.unwrap()
+  let bestIdx = utilitySelectBest([0.25, 0.45, 0.92])
+  let hDist = goapHeuristicDistance(curState, goalState)
+  let linOk = if utilityLinear(5.0, 0.0, 10.0) == 0.5 and hDist == 1: 0 else: 1
+  ret plan.len() * 10 + bestIdx + linOk
+
+pub fn main(): int:
+  let audit = auditAiGoapAndUtility()
+  println("EX_240_AI_GOAP_AUDIT=" + str(audit))
+
+  mut scene = createGoapScene()
+  let canonicalOrder: [GoapAction] = [
+    GoapAction(name = "PickupAxe", cost = 1.0, preconditionMask = 0, preconditionCareMask = 0, effectSetMask = 1, effectClearMask = 0),
+    GoapAction(name = "ChopTree", cost = 2.0, preconditionMask = 1, preconditionCareMask = 1, effectSetMask = 2, effectClearMask = 0),
+    GoapAction(name = "BuildCampfire", cost = 3.0, preconditionMask = 2, preconditionCareMask = 2, effectSetMask = 4, effectClearMask = 0)
+  ]
+
+  initWindow(1280, 720, "AIPL ex_240: GOAP Action Planner & Utility AI Response Curves")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.023)
+    let mask = scene.currentState.stateMask
+    let hDist = goapHeuristicDistance(scene.currentState, scene.goalState)
+    let goalSat = goapHasGoalSatisfied(scene.currentState, scene.goalState)
+    let uLog = utilityResponseCurveLogistic(scene.cursorT, 0.5, 10.0)
+    let uQuad = utilityQuadratic(scene.cursorT, 0.0, 1.0, 2.0)
+    let uGauss = utilityGaussian(scene.cursorT, 0.5, 0.2)
+    let uExp = utilityExponential(scene.cursorT, 2.0)
+    let curveNames = ["0: Logistic", "1: Quadratic", "2: Gaussian"]
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_240: GOAL-ORIENTED ACTION PLANNING (GOAP) & UTILITY AI CURVES", 36.0, 24.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | StateMask=" + str(mask) + " (h=" + str(hDist) + ") | RemainingPlan=" + str(scene.activePlan.len()) + " | Winner=" + curveNames[scene.bestActionIdx], 36.0, 52.0, 15.0, rgb(148, 163, 184))
+
+    drawRect(44.0, 88.0, 576.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(44.0, 88.0, 576.0, 594.0, 2.0, rgb(56, 189, 248))
+    drawText("GOAP A* WORLD-STATE BITMASK & ACTION SEQUENCE PIPELINE", 64.0, 104.0, 15.0, rgb(125, 211, 252))
+
+    let bitLabels = ["Bit 0 (1): HasAxe", "Bit 1 (2): HasFirewood", "Bit 2 (4): CampfireLit"]
+    mut b = 0
+    while b < 3:
+      let bitVal = 1 << b
+      let isSet = (mask & bitVal) != 0
+      let bx = 64.0 + float(b) * 182.0
+      drawRect(bx, 136.0, 170.0, 62.0, if isSet: rgb(6, 78, 59) else: rgb(15, 23, 42))
+      drawRectOutline(bx, 136.0, 170.0, 62.0, 2.0, if isSet: rgb(52, 211, 153) else: rgb(51, 65, 85))
+      drawText(bitLabels[b], bx + 12.0, 150.0, 13.0, rgb(241, 245, 249))
+      drawText(if isSet: "STATE = TRUE (1)" else: "STATE = FALSE (0)", bx + 12.0, 172.0, 12.0, if isSet: rgb(110, 231, 183) else: rgb(100, 116, 139))
+      b = b + 1
+
+    mut idx = 0
+    while idx < 3:
+      let act: GoapAction = canonicalOrder[idx]
+      let done = (mask & act.effectSetMask) != 0
+      let isNext = (not done) and scene.activePlan.len() > 0 and scene.activePlan[0].name == act.name
+      let by = 224.0 + float(idx) * 132.0
+      let boxBg = if done: rgb(6, 78, 59) else: (if isNext: rgb(30, 58, 138) else: rgb(15, 23, 42))
+      let boxBorder = if done: rgb(52, 211, 153) else: (if isNext: rgb(250, 204, 21) else: rgb(56, 189, 248))
+      let badge = if done: "[DONE]" else: (if isNext: "[NEXT A* STEP]" else: "[QUEUED]")
+      drawRect(84.0, by, 496.0, 92.0, boxBg)
+      drawRectOutline(84.0, by, 496.0, 92.0, 2.5, boxBorder)
+      drawText("Action " + str(idx + 1) + ": " + act.name + "  " + badge, 106.0, by + 18.0, 16.0, rgb(255, 255, 255))
+      drawText("A* Cost=" + str(int(act.cost)) + " | PreconditionMask=" + str(act.preconditionMask) + " -> EffectSetMask=" + str(act.effectSetMask), 106.0, by + 46.0, 13.0, rgb(191, 219, 254))
+      drawText("ApplicableNow=" + (if (mask & act.preconditionCareMask) == act.preconditionMask: "YES" else: "NO"), 106.0, by + 68.0, 12.0, rgb(148, 163, 184))
+      if idx < 2:
+        drawLine(332.0, by + 92.0, 332.0, by + 132.0, boxBorder, 3.5)
+      idx = idx + 1
+
+    let footerCol = if goalSat: rgb(52, 211, 153) else: rgb(250, 204, 21)
+    drawText(if goalSat: "GOAL SATISFIED: CampfireLit (bit 4) achieved! Re-planning next wave..." else: "A* Search Active:Remaining Plan Length = " + str(scene.activePlan.len()) + " actions", 84.0, 636.0, 14.0, footerCol)
+
+    drawRect(644.0, 88.0, 592.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(644.0, 88.0, 592.0, 594.0, 2.0, rgb(16, 185, 129))
+    drawText("UTILITY AI RESPONSE CURVES & SCORE ARBITRATION", 666.0, 104.0, 15.0, rgb(110, 231, 183))
+
+    let gx0 = 684.0
+    let gy0 = 144.0
+    let gw = 512.0
+    let gh = 320.0
+    drawRect(gx0, gy0, gw, gh, rgb(11, 17, 30))
+    drawRectOutline(gx0, gy0, gw, gh, 1.0, rgb(51, 65, 85))
+
+    mut step = 0
+    while step < 24:
+      let t0 = float(step) / 24.0
+      let t1 = float(step + 1) / 24.0
+      let x0 = gx0 + t0 * gw
+      let x1 = gx0 + t1 * gw
+
+      let yLog0 = gy0 + gh - utilityResponseCurveLogistic(t0, 0.5, 10.0) * (gh - 20.0) - 10.0
+      let yLog1 = gy0 + gh - utilityResponseCurveLogistic(t1, 0.5, 10.0) * (gh - 20.0) - 10.0
+      drawLine(x0, yLog0, x1, yLog1, rgb(56, 189, 248), 3.0)
+
+      let yQuad0 = gy0 + gh - utilityQuadratic(t0, 0.0, 1.0, 2.0) * (gh - 20.0) - 10.0
+      let yQuad1 = gy0 + gh - utilityQuadratic(t1, 0.0, 1.0, 2.0) * (gh - 20.0) - 10.0
+      drawLine(x0, yQuad0, x1, yQuad1, rgb(250, 204, 21), 3.0)
+
+      let yGauss0 = gy0 + gh - utilityGaussian(t0, 0.5, 0.2) * (gh - 20.0) - 10.0
+      let yGauss1 = gy0 + gh - utilityGaussian(t1, 0.5, 0.2) * (gh - 20.0) - 10.0
+      drawLine(x0, yGauss0, x1, yGauss1, rgb(236, 72, 153), 3.0)
+
+      let yExp0 = gy0 + gh - utilityExponential(t0, 2.0) * (gh - 20.0) - 10.0
+      let yExp1 = gy0 + gh - utilityExponential(t1, 2.0) * (gh - 20.0) - 10.0
+      drawLine(x0, yExp0, x1, yExp1, rgb(52, 211, 153), 2.0)
+      step = step + 1
+
+    let curX = gx0 + scene.cursorT * gw
+    drawLine(curX, gy0, curX, gy0 + gh, rgb(148, 163, 184), 1.5)
+    drawCircle(curX, gy0 + gh - uLog * (gh - 20.0) - 10.0, 7.0, rgb(56, 189, 248))
+    drawCircle(curX, gy0 + gh - uQuad * (gh - 20.0) - 10.0, 7.0, rgb(250, 204, 21))
+    drawCircle(curX, gy0 + gh - uGauss * (gh - 20.0) - 10.0, 7.0, rgb(236, 72, 153))
+    drawCircle(curX, gy0 + gh - uExp * (gh - 20.0) - 10.0, 5.5, rgb(52, 211, 153))
+
+    drawRect(gx0, 484.0, gw, 174.0, rgb(11, 17, 30))
+    drawRectOutline(gx0, 484.0, gw, 174.0, 1.0, rgb(51, 65, 85))
+    drawText("UTILITY SELECTOR AT INPUT x=" + str(int(scene.cursorT * 100.0)) + "% -> WINNER: " + curveNames[scene.bestActionIdx], gx0 + 16.0, 498.0, 13.0, rgb(110, 231, 183))
+
+    let scores = [uLog, uQuad, uGauss]
+    let barCols = [rgb(56, 189, 248), rgb(250, 204, 21), rgb(236, 72, 153)]
+    mut cIdx = 0
+    while cIdx < 3:
+      let ry = 528.0 + float(cIdx) * 38.0
+      let sc = scores[cIdx]
+      let isWin = cIdx == scene.bestActionIdx
+      drawText(curveNames[cIdx], gx0 + 16.0, ry + 4.0, 13.0, if isWin: rgb(255, 255, 255) else: rgb(148, 163, 184))
+      drawRect(gx0 + 148.0, ry, 280.0, 22.0, rgb(30, 41, 59))
+      drawRect(gx0 + 148.0, ry, sc * 280.0, 22.0, barCols[cIdx])
+      drawRectOutline(gx0 + 148.0, ry, 280.0, 22.0, if isWin: 2.0 else: 1.0, if isWin: rgb(255, 255, 255) else: rgb(71, 85, 105))
+      drawText(str(int(sc * 100.0)) + "%" + (if isWin: " [BEST]" else: ""), gx0 + 436.0, ry + 4.0, 12.0, barCols[cIdx])
+      cIdx = cIdx + 1
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

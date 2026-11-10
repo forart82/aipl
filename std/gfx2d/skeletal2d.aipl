@@ -1,0 +1,274 @@
+module Gfx2dSkeletalMod
+
+// ============================================================================
+// std/gfx2d/skeletal2d.aipl — 2D Forward & Analytic 2-Bone Inverse Kinematics
+// ============================================================================
+
+import { Vec2 } from "../math/vec_math"
+
+pub struct Bone2D(name: str, length: float, localAngleRad: float = 0.0, worldPosition: Vec2 = Vec2(x = 0.0, y = 0.0), worldAngleRad: float = 0.0, parentIdx: int = -1, localAngleDeg: float = 0.0)
+
+pub struct Skeleton2D(bones: [Bone2D])
+
+pub struct IkSolution2D(joint1Angle: float, joint2Angle: float, isReachable: bool)
+
+pub fn updateSkeletonTransforms2D(skel: Skeleton2D): Skeleton2D:
+  mut out: [Bone2D] = []
+  mut i = 0
+  while i < skel.bones.len:
+    let b = skel.bones[i]
+    if b.parentIdx < 0 or b.parentIdx >= out.len:
+      out.push(Bone2D(
+        name = b.name,
+        length = b.length,
+        localAngleRad = b.localAngleRad,
+        worldPosition = b.worldPosition,
+        worldAngleRad = b.localAngleRad,
+        parentIdx = b.parentIdx
+      ))
+    else:
+      let p = out[b.parentIdx]
+      let wx = p.worldPosition.x + cos(p.worldAngleRad) * p.length
+      let wy = p.worldPosition.y + sin(p.worldAngleRad) * p.length
+      let wa = p.worldAngleRad + b.localAngleRad
+      out.push(Bone2D(
+        name = b.name,
+        length = b.length,
+        localAngleRad = b.localAngleRad,
+        worldPosition = Vec2(x = wx, y = wy),
+        worldAngleRad = wa,
+        parentIdx = b.parentIdx
+      ))
+    i += 1
+  ret Skeleton2D(bones = out)
+
+fn clampCosIk(v: float): float:
+  if v < -1.0:
+    ret -1.0
+  if v > 1.0:
+    ret 1.0
+  ret v
+
+pub fn solveTwoBoneIk2D(rootPos: Vec2, targetPos: Vec2, length1: float, length2: float, flipElbow: bool = false): IkSolution2D:
+  let dx = targetPos.x - rootPos.x
+  let dy = targetPos.y - rootPos.y
+  let dist = sqrt(dx * dx + dy * dy)
+  let maxReach = length1 + length2
+  let minReach = if length1 > length2: (length1 - length2) else: (length2 - length1)
+  let baseAngle = atan2(dy, dx)
+
+  if dist > maxReach or dist < minReach or dist <= 0.00001:
+    ret IkSolution2D(
+      joint1Angle = baseAngle,
+      joint2Angle = 0.0,
+      isReachable = false
+    )
+
+  // Law of Cosines: c^2 = a^2 + b^2 - 2ab cos(C)
+  let cosTheta2 = clampCosIk((dist * dist - length1 * length1 - length2 * length2) / (2.0 * length1 * length2))
+  let rawTheta2 = acos(cosTheta2)
+  let theta2 = if flipElbow: -rawTheta2 else: rawTheta2
+
+  let cosAlpha = clampCosIk((dist * dist + length1 * length1 - length2 * length2) / (2.0 * dist * length1))
+  let alpha = acos(cosAlpha)
+  let theta1 = if flipElbow: (baseAngle + alpha) else: (baseAngle - alpha)
+
+  ret IkSolution2D(
+    joint1Angle = theta1,
+    joint2Angle = theta2,
+    isReachable = true
+  )
+
+pub fn solveChainFK2D(rootX: float, rootY: float, bones: [Bone2D]): [float]:
+  mut coords: [float] = []
+  coords.push(rootX)
+  coords.push(rootY)
+  mut currX = rootX
+  mut currY = rootY
+  mut cumulativeAngleDeg = 0.0
+  let piVal = 3.141592653589793
+  let degToRad = piVal / 180.0
+  for i in 0..bones.len():
+    let bone = bones[i]
+    cumulativeAngleDeg += bone.localAngleDeg
+    let rad = cumulativeAngleDeg * degToRad
+    currX += bone.length * cos(rad)
+    currY += bone.length * sin(rad)
+    coords.push(currX)
+    coords.push(currY)
+  ret coords
+
+/// Analytical 2-bone inverse kinematics using the Law of Cosines.
+/// Returns [shoulderAngleDeg, elbowAngleDeg, elbowX, elbowY, effectorX, effectorY].
+pub fn solveTwoBoneIK2D(rootX: float, rootY: float, len1: float, len2: float, targetX: float, targetY: float, bendPositive: bool): [float]:
+  if len1 <= 0.0001 or len2 <= 0.0001:
+    ret [0.0, 0.0, rootX, rootY, rootX, rootY]
+
+  let dx = targetX - rootX
+  let dy = targetY - rootY
+  let dist = sqrt(dx * dx + dy * dy)
+  let targetAngleRad = atan2(dy, dx)
+
+  let diff = len1 - len2
+  let absDiff = if diff < 0.0: -diff else: diff
+  let minD = absDiff + 0.001
+  let maxD = len1 + len2 - 0.001
+  let effectiveMaxD = if maxD < minD: minD else: maxD
+
+  mut d = dist
+  if d < minD:
+    d = minD
+  if d > effectiveMaxD:
+    d = effectiveMaxD
+
+  let denomA = 2.0 * len1 * d
+  mut cosAlpha = if denomA > 0.000001: (len1 * len1 + d * d - len2 * len2) / denomA else: 1.0
+  if cosAlpha < -1.0:
+    cosAlpha = -1.0
+  if cosAlpha > 1.0:
+    cosAlpha = 1.0
+
+  let denomB = 2.0 * len1 * len2
+  mut cosBeta = if denomB > 0.000001: (len1 * len1 + len2 * len2 - d * d) / denomB else: 1.0
+  if cosBeta < -1.0:
+    cosBeta = -1.0
+  if cosBeta > 1.0:
+    cosBeta = 1.0
+
+  let alpha = acos(cosAlpha)
+  let beta = acos(cosBeta)
+
+  let piVal = 3.141592653589793
+  let radToDeg = 180.0 / piVal
+
+  let shoulderAngleRad = if bendPositive: targetAngleRad - alpha else: targetAngleRad + alpha
+  let elbowAngleRad = if bendPositive: (piVal - beta) else: -(piVal - beta)
+
+  let elbowX = rootX + len1 * cos(shoulderAngleRad)
+  let elbowY = rootY + len1 * sin(shoulderAngleRad)
+
+  let worldAngle2 = shoulderAngleRad + elbowAngleRad
+  let effectorX = elbowX + len2 * cos(worldAngle2)
+  let effectorY = elbowY + len2 * sin(worldAngle2)
+
+  let shoulderAngleDeg = shoulderAngleRad * radToDeg
+  let elbowAngleDeg = elbowAngleRad * radToDeg
+
+  ret [shoulderAngleDeg, elbowAngleDeg, elbowX, elbowY, effectorX, effectorY]
+
+// ============================================================================
+// Extended Playback Modes, Hierarchical Tree FK, Struct IK & N-Bone FABRIK
+// ============================================================================
+
+pub struct BoneNode2D(name: str, parentIndex: int, length: float, localAngleDeg: float, worldStartX: float, worldStartY: float, worldEndX: float, worldEndY: float, worldAngleDeg: float)
+
+/// Solves a hierarchical 2D skeleton tree where each `BoneNode2D` references `parentIndex` (`-1` for root).
+pub fn solveSkeletonTreeFK2D(rootX: float, rootY: float, mut nodes: [BoneNode2D]): [BoneNode2D]:
+  let degToRad = 3.141592653589793 / 180.0
+  let n = nodes.len
+  mut i = 0
+  while i < n:
+    mut b = nodes[i]
+    if b.parentIndex < 0 or b.parentIndex >= i:
+      b.worldStartX = rootX
+      b.worldStartY = rootY
+      b.worldAngleDeg = b.localAngleDeg
+    else:
+      let p = nodes[b.parentIndex]
+      b.worldStartX = p.worldEndX
+      b.worldStartY = p.worldEndY
+      b.worldAngleDeg = p.worldAngleDeg + b.localAngleDeg
+    let rad = b.worldAngleDeg * degToRad
+    b.worldEndX = b.worldStartX + b.length * cos(rad)
+    b.worldEndY = b.worldStartY + b.length * sin(rad)
+    nodes[i] = b
+    i += 1
+  ret nodes
+
+pub struct TwoBoneIKResult(shoulderAngleDeg: float, elbowAngleDeg: float, elbowX: float, elbowY: float, effectorX: float, effectorY: float)
+
+pub fn solveTwoBoneIK2DResult(rootX: float, rootY: float, len1: float, len2: float, targetX: float, targetY: float, bendPositive: bool): TwoBoneIKResult:
+  let raw = solveTwoBoneIK2D(rootX, rootY, len1, len2, targetX, targetY, bendPositive)
+  ret TwoBoneIKResult(
+    shoulderAngleDeg = raw[0],
+    elbowAngleDeg = raw[1],
+    elbowX = raw[2],
+    elbowY = raw[3],
+    effectorX = raw[4],
+    effectorY = raw[5]
+  )
+
+pub fn solveTwoBoneIK2DEx(rootX: float, rootY: float, len1: float, len2: float, targetX: float, targetY: float, bendPositive: bool): TwoBoneIKResult:
+  ret solveTwoBoneIK2DResult(rootX, rootY, len1, len2, targetX, targetY, bendPositive)
+
+/// Solves N-joint 2D Inverse Kinematics using iterative FABRIK (Forward And Backward Reaching Inverse Kinematics).
+/// `joints` is a flat `[x0, y0, x1, y1, ..., xN, yN]` array of `N+1` joint positions (`N >= 1`).
+pub fn solveFABRIK2D(mut joints: [float], targetX: float, targetY: float, iterations: int, tolerance: float): [float]:
+  let numJoints = joints.len / 2
+  if numJoints < 2:
+    ret joints
+  let rootX = joints[0]
+  let rootY = joints[1]
+
+  mut lengths: [float] = []
+  mut totalLen = 0.0
+  mut i = 0
+  while i < numJoints - 1:
+    let dx = joints[(i + 1) * 2] - joints[i * 2]
+    let dy = joints[(i + 1) * 2 + 1] - joints[i * 2 + 1]
+    let segLen = maxFloat(0.0001, sqrt(dx * dx + dy * dy))
+    lengths.push(segLen)
+    totalLen += segLen
+    i += 1
+
+  let distToTarget = sqrt((targetX - rootX) * (targetX - rootX) + (targetY - rootY) * (targetY - rootY))
+  if distToTarget >= totalLen:
+    mut k = 0
+    while k < numJoints - 1:
+      let rx = targetX - joints[k * 2]
+      let ry = targetY - joints[k * 2 + 1]
+      let rDist = maxFloat(0.0001, sqrt(rx * rx + ry * ry))
+      let lam = lengths[k] / rDist
+      joints[(k + 1) * 2] = (1.0 - lam) * joints[k * 2] + lam * targetX
+      joints[(k + 1) * 2 + 1] = (1.0 - lam) * joints[k * 2 + 1] + lam * targetY
+      k += 1
+    ret joints
+
+  let maxIter = if iterations < 1: 8 else: iterations
+  let tol = maxFloat(0.0001, tolerance)
+  mut iter = 0
+  while iter < maxIter:
+    let endX = joints[(numJoints - 1) * 2]
+    let endY = joints[(numJoints - 1) * 2 + 1]
+    let err = sqrt((endX - targetX) * (endX - targetX) + (endY - targetY) * (endY - targetY))
+    if err <= tol:
+      ret joints
+
+    // Stage 1: Forward reaching (from end-effector to root)
+    joints[(numJoints - 1) * 2] = targetX
+    joints[(numJoints - 1) * 2 + 1] = targetY
+    mut b = numJoints - 2
+    while b >= 0:
+      let dx = joints[b * 2] - joints[(b + 1) * 2]
+      let dy = joints[b * 2 + 1] - joints[(b + 1) * 2 + 1]
+      let rDist = maxFloat(0.0001, sqrt(dx * dx + dy * dy))
+      let lam = lengths[b] / rDist
+      joints[b * 2] = (1.0 - lam) * joints[(b + 1) * 2] + lam * joints[b * 2]
+      joints[b * 2 + 1] = (1.0 - lam) * joints[(b + 1) * 2 + 1] + lam * joints[b * 2 + 1]
+      b -= 1
+
+    // Stage 2: Backward reaching (from root to end-effector)
+    joints[0] = rootX
+    joints[1] = rootY
+    mut f = 0
+    while f < numJoints - 1:
+      let dx = joints[(f + 1) * 2] - joints[f * 2]
+      let dy = joints[(f + 1) * 2 + 1] - joints[f * 2 + 1]
+      let rDist = maxFloat(0.0001, sqrt(dx * dx + dy * dy))
+      let lam = lengths[f] / rDist
+      joints[(f + 1) * 2] = (1.0 - lam) * joints[f * 2] + lam * joints[(f + 1) * 2]
+      joints[(f + 1) * 2 + 1] = (1.0 - lam) * joints[f * 2 + 1] + lam * joints[(f + 1) * 2 + 1]
+      f += 1
+
+    iter += 1
+  ret joints

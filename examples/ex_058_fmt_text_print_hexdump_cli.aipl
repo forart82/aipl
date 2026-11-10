@@ -1,0 +1,54 @@
+// ============================================================================
+// Example 058: Formatted Tables, Byte Sizes & Text Wrapping (CLI)
+// Demonstrates: formatInterpolated, format, TableColumn, tableNew,
+//               formatByteSize, formatThousands, wordWrap, truncateEllipsis,
+//               and stripAnsi from std/fmt/text_print.
+// ============================================================================
+module Ex058FmtTextPrintHexdumpCli
+
+import {
+  TableColumn,
+  tableNew,
+  formatInterpolated,
+  formatByteSize,
+  formatThousands,
+  wordWrap,
+  truncateEllipsis,
+  stripAnsi
+} from "../std/fmt/text_print"
+
+pub fn renderDiagnosticTableAndByteSize(bytes: int, largeNum: int): str:
+  let cols = [
+    TableColumn(header = "Module", width = 10, align = "left"),
+    TableColumn(header = "Size", width = 10, align = "right")
+  ]
+  mut tbl = tableNew(cols, true)
+  let bStr = formatByteSize(bytes)
+  let tStr = formatThousands(largeNum, ",")
+  tbl.addRow(["std/fmt", bStr])
+  let rendered = tbl.render()
+  let interp = formatInterpolated("Module {0} OK", ["std/fmt"])
+  let autoInterp = formatInterpolated("Count: {}", [tStr])
+  if rendered.contains("std/fmt") and interp == "Module std/fmt OK" and autoInterp.contains(tStr):
+    ret bStr + ":" + tStr
+  ret "ERR"
+
+pub fn evaluateWordWrapAndTruncation(): str:
+  let lines = wordWrap("one two three four five", 7)
+  let trunc = truncateEllipsis("abcdef", 5)
+  let clean = stripAnsi("plain_text")
+  if clean == "plain_text" and lines.len >= 3:
+    ret trunc + ":3"
+  ret "ERR"
+
+pub fn describeTableLayoutMode(bordered: bool): str:
+  if bordered:
+    ret "TEXT_PRINT:UNICODE_BORDER_TABLE"
+  ret "TEXT_PRINT:COMPACT_TSV"
+
+pub fn main(): int:
+  let summary = renderDiagnosticTableAndByteSize(1024, 1000000)
+  let wrapTag = evaluateWordWrapAndTruncation()
+  println("Byte Size & Thousands Format: " + summary + " (" + describeTableLayoutMode(true) + ")")
+  println("Truncate & WordWrap Tag: " + wrapTag)
+  ret 0

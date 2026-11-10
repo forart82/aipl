@@ -1,0 +1,60 @@
+module tests.functions.encoding.axml_manifest_test
+
+import * from "std/encoding/axml_manifest"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_axml_manifest_patchAxmlPackageName(): int:
+  let okRes = patchAxmlPackageName("com.aipl.app.neon_grid")
+  assert(okRes.isOk() == true, "valid Android package ID accepted")
+  let (pkg, poolBytes) = okRes.unwrap()
+  assertEqStr(pkg, "com.aipl.app.neon_grid", "package ID preserved")
+  assertEqInt(poolBytes, 48, "(22+2)*2 = 48 (4-byte aligned UTF-16LE pool entry)")
+  assertEqInt(poolBytes % 4, 0, "AXML string pool entry is 4-byte aligned")
+  let noDot = patchAxmlPackageName("invalidpackage")
+  assertEqStr(noDot.unwrapErr(), "E_AXML_INVALID_PACKAGE_ID", "dotless package ID rejected")
+  let emptyRes = patchAxmlPackageName("")
+  assertEqStr(emptyRes.unwrapErr(), "E_AXML_INVALID_PACKAGE_ID", "empty package ID rejected")
+  ret 0
+
+pub fn test_axml_manifest_patchAxmlAppLabel(): int:
+  let (lbl1, sz1) = patchAxmlAppLabel(2048, "AIPLTemplate", "Neon Grid 2099")
+  assertEqStr(lbl1, "Neon Grid 2099", "label updated to Neon Grid 2099")
+  assertEqInt(sz1, 2052, "2048 - 28 + 32 == 2052 bytes")
+  assertEqInt(sz1 % 4, 0, "updated AXML chunk size remains 4-byte aligned")
+  let (lblDef, szDef) = patchAxmlAppLabel(2048, "AIPLTemplate", "")
+  assertEqStr(lblDef, "AIPL App", "empty label falls back to AIPL App")
+  assertEqInt(szDef, 2040, "2048 - 28 + 20 == 2040 bytes")
+  let (lblClamped, szClamped) = patchAxmlAppLabel(64, "A very long old label exceeding base chunk size", "A")
+  assertEqStr(lblClamped, "A", "label updated to A")
+  assert(szClamped >= 64, "size clamped to >= 64 invariant")
+  ret 0
+
+pub fn test_axml_manifest_patchAxmlVersionCode(): int:
+  let (code, vname, le) = patchAxmlVersionCode(258, "4.0.0")
+  assertEqInt(code, 258, "versionCode == 258")
+  assertEqStr(vname, "4.0.0", "versionName == 4.0.0")
+  assertEqInt(le[0], 2, "258 & 255 == 2")
+  assertEqInt(le[1], 1, "(258 >> 8) & 255 == 1")
+  assertEqInt(le[2], 0, "byte 2 == 0")
+  assertEqInt(le[3], 0, "byte 3 == 0")
+  let (defCode, defName, _) = patchAxmlVersionCode(0, "")
+  assertEqInt(defCode, 1, "versionCode <= 0 clamped to 1")
+  assertEqStr(defName, "1.0.0", "empty versionName defaults to 1.0.0")
+  ret 0
+
+pub fn test_axml_manifest_patchAxmlScreenOrientation(): int:
+  assertEqInt(patchAxmlScreenOrientation("landscape"), 0, "landscape -> 0")
+  assertEqInt(patchAxmlScreenOrientation("portrait"), 1, "portrait -> 1")
+  assertEqInt(patchAxmlScreenOrientation("sensorLandscape"), 6, "sensorLandscape -> 6")
+  assertEqInt(patchAxmlScreenOrientation(""), 4, "empty defaults to SCREEN_ORIENTATION_SENSOR (4)")
+  assertEqInt(patchAxmlScreenOrientation("sensor"), 4, "explicit sensor -> 4")
+  assertEqInt(patchAxmlScreenOrientation("  landscape  "), 0, "trimmed landscape -> 0")
+  ret 0
+
+pub fn main(): int:
+  test_axml_manifest_patchAxmlPackageName()
+  test_axml_manifest_patchAxmlAppLabel()
+  test_axml_manifest_patchAxmlVersionCode()
+  test_axml_manifest_patchAxmlScreenOrientation()
+  println("PASS: tests/functions/encoding/axml_manifest_test.aipl")
+  ret 0

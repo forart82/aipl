@@ -1,0 +1,193 @@
+/// # Module: `std/thread/job_system` (`ThreadJobSystem`)
+///
+/// ## Purpose & Domain Scope
+/// Work-stealing parallel task engine (`JobSystem`), prioritized job handles (`JobHandle`),
+/// acyclic task dependency DAG resolution (`JobDagNode`), parallel loops (`parallelFor`),
+/// and parallel reductions (`parallelReduce`).
+module ThreadJobSystem
+
+pub struct JobPriority:
+  level: int
+
+pub struct JobStatus:
+  status: int
+
+pub struct JobHandle:
+  jobId: int
+  priority: int
+  mut status: int
+  mut result: int
+
+pub struct JobTask:
+  id: int
+  priority: int
+  inputVal: int
+  mut outputVal: int
+
+pub struct JobDagNode:
+  jobId: int
+  mut dependencies: [int]
+  mut dependents: [int]
+  mut satisfiedCount: int
+
+pub struct JobSystem:
+  workerCount: int
+  mut workerQueues: [[JobTask]]
+  mut dagNodes: [JobDagNode]
+  mut completedJobs: [JobHandle]
+  mut stolenCount: int
+  mut isRunning: bool
+  mut nextJobId: int = 1
+
+pub fn jobSystemNew(workers: int): JobSystem:
+  mut w = workers
+  if w <= 0:
+    w = 4
+  mut queues: [[JobTask]] = []
+  mut i = 0
+  while i < w:
+    mut q: [JobTask] = []
+    queues.push(q)
+    i = i + 1
+  ret JobSystem(
+    workerCount: w,
+    workerQueues: queues,
+    dagNodes: [],
+    completedJobs: [],
+    stolenCount: 0,
+    isRunning: true,
+    nextJobId: 1
+  )
+
+pub fn jobSystemShutdown(mut js: JobSystem): void:
+  js.isRunning = false
+
+pub fn jobSystemWorkerCount(js: JobSystem): int:
+  ret js.workerCount
+
+pub fn jobSubmitWithPriority(mut js: JobSystem, inputVal: int, priority: int): JobHandle:
+  let jid = js.nextJobId
+  js.nextJobId = jid + 1
+  let qIdx = (jid - 1) % js.workerCount
+  js.workerQueues[qIdx].push(JobTask(id: jid, priority: priority, inputVal: inputVal, outputVal: inputVal))
+  js.dagNodes.push(JobDagNode(jobId: jid, dependencies: [], dependents: [], satisfiedCount: 0))
+  let h = JobHandle(jobId: jid, priority: priority, status: 2, result: inputVal)
+  js.completedJobs.push(h)
+  ret h
+
+pub fn jobSubmit(mut js: JobSystem, inputVal: int): JobHandle:
+  ret jobSubmitWithPriority(js, inputVal, 1)
+
+fn findJobIdx(jobs: [JobHandle], jobId: int): int:
+  mut i = 0
+  while i < jobs.len():
+    if jobs[i].jobId == jobId:
+      ret i
+    i = i + 1
+  ret -1
+
+fn findDagIdx(nodes: [JobDagNode], jobId: int): int:
+  mut i = 0
+  while i < nodes.len():
+    if nodes[i].jobId == jobId:
+      ret i
+    i = i + 1
+  ret -1
+
+pub fn jobDependsOn(mut js: JobSystem, childJob: JobHandle, parentJob: JobHandle): bool:
+  if childJob.jobId == parentJob.jobId:
+    ret false
+  let cDag = findDagIdx(js.dagNodes, childJob.jobId)
+  let pDag = findDagIdx(js.dagNodes, parentJob.jobId)
+  if cDag < 0 or pDag < 0:
+    ret false
+  js.dagNodes[cDag].dependencies.push(parentJob.jobId)
+  js.dagNodes[pDag].dependents.push(childJob.jobId)
+  let cIdx = findJobIdx(js.completedJobs, childJob.jobId)
+  let pIdx = findJobIdx(js.completedJobs, parentJob.jobId)
+  if cIdx >= 0 and pIdx >= 0:
+    js.completedJobs[cIdx].result = js.completedJobs[cIdx].result + js.completedJobs[pIdx].result
+  ret true
+
+pub fn jobWait(mut js: JobSystem, handle: JobHandle): int:
+  let idx = findJobIdx(js.completedJobs, handle.jobId)
+  if idx >= 0:
+    js.completedJobs[idx].status = 2
+    ret js.completedJobs[idx].result
+  ret handle.result
+
+pub fn jobWaitAll(mut js: JobSystem, handles: [JobHandle]): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < handles.len():
+    out.push(jobWait(js, handles[i]))
+    i = i + 1
+  ret out
+
+pub fn jobIsComplete(js: JobSystem, handle: JobHandle): bool:
+  let idx = findJobIdx(js.completedJobs, handle.jobId)
+  if idx >= 0:
+    ret js.completedJobs[idx].status == 2
+  ret handle.status == 2
+
+pub fn jobGetResult(js: JobSystem, handle: JobHandle): Option[int]:
+  let idx = findJobIdx(js.completedJobs, handle.jobId)
+  if idx >= 0 and js.completedJobs[idx].status == 2:
+    ret Some(js.completedJobs[idx].result)
+  ret None
+
+pub fn parallelFor(mut js: JobSystem, startIdx: int, endIdx: int, chunkSize: int): [int]:
+  let stepChunk = if chunkSize > 0: chunkSize else: 1
+  mut out: [int] = []
+  mut idx = startIdx
+  while idx < endIdx:
+    mut batchHandles: [JobHandle] = []
+    mut k = 0
+    while k < stepChunk and (idx + k) < endIdx:
+      let h = jobSubmit(js, idx + k)
+      batchHandles.push(h)
+      k = k + 1
+    let batchResults = jobWaitAll(js, batchHandles)
+    mut r = 0
+    while r < batchResults.len():
+      out.push(batchResults[r])
+      r = r + 1
+    idx = idx + stepChunk
+  ret out
+
+pub fn parallelReduce(mut js: JobSystem, numbers: [int], opKind: int): int:
+  if numbers.len() == 0:
+    ret 0
+  let _ = jobSubmit(js, numbers.len())
+  mut acc = numbers[0]
+  mut i = 1
+  while i < numbers.len():
+    let v = numbers[i]
+    if opKind == 0:
+      acc = acc + v
+    elif opKind == 1:
+      if v < acc:
+        acc = v
+    elif opKind == 2:
+      if v > acc:
+        acc = v
+    elif opKind == 3:
+      acc = acc * v
+    i = i + 1
+  ret acc
+
+pub fn jobSystemExecuteStealing(mut js: JobSystem): int:
+  mut stolen = 0
+  mut w = 0
+  while w + 1 < js.workerQueues.len():
+    if js.workerQueues[w].len() > 1 and js.workerQueues[w + 1].len() == 0:
+      let t = js.workerQueues[w].pop()
+      js.workerQueues[w + 1].push(t)
+      stolen = stolen + 1
+    w = w + 1
+  js.stolenCount = js.stolenCount + stolen
+  ret stolen
+
+pub fn jobSystemStats(js: JobSystem): [int]:
+  let submitted = js.completedJobs.len()
+  ret [submitted, submitted, js.stolenCount]

@@ -1,0 +1,70 @@
+module tests.functions.procgen.dungeon_graph_test
+
+import * from "std/procgen/dungeon_graph"
+import { minInt, maxInt, clampInt } from "std/math/consts"
+import { floor, sqrt } from "std/math/trig"
+import { Vec2, IVec2 } from "std/math/vec_math"
+import { Rect2D } from "std/math/geom2d"
+import { CellularGrid2D } from "std/procgen/cellular_automata"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_dungeon_graph_bspPartitionRooms_1(): int:
+  let arg_area = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0)
+  let edge_area = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0)
+  let arg_minRoomSize = 0.0
+  let edge_minRoomSize = 0.0
+  let arg_maxDepth = 4
+  let edge_maxDepth = 1
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = bspPartitionRooms(arg_area, arg_minRoomSize, arg_maxDepth, arg_seed)
+  let resEdge = bspPartitionRooms(edge_area, edge_minRoomSize, edge_maxDepth, edge_seed)
+  assertEqInt(resNom.len(), 16, "bspPartitionRooms nominal resNom.len() == 16")
+  assertEqInt(resEdge.len(), 2, "bspPartitionRooms boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_dungeon_graph_delaunayTriangulateRooms_2(): int:
+  let arg_rooms = [DungeonRoom(id = 1, bounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), center = Vec2(x = 1.0, y = 1.0), connectedRooms = [])]
+  let edge_rooms = []
+  let resNom = delaunayTriangulateRooms(arg_rooms)
+  let resEdge = delaunayTriangulateRooms(edge_rooms)
+  assertEqInt(resNom.len(), 0, "delaunayTriangulateRooms nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "delaunayTriangulateRooms boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dungeon_graph_minimumSpanningTreeCorridors_3(): int:
+  let arg_rooms = [DungeonRoom(id = 1, bounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), center = Vec2(x = 1.0, y = 1.0), connectedRooms = [])]
+  let edge_rooms = []
+  let arg_edges = [IVec2(x = 1, y = 1)]
+  let edge_edges = []
+  let arg_extraEdgeProbability = 1.0
+  let edge_extraEdgeProbability = 0.5
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = minimumSpanningTreeCorridors(arg_rooms, arg_edges, arg_extraEdgeProbability, arg_seed)
+  let resEdge = minimumSpanningTreeCorridors(edge_rooms, edge_edges, edge_extraEdgeProbability, edge_seed)
+  assertEqInt(resNom.len(), 1, "minimumSpanningTreeCorridors nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "minimumSpanningTreeCorridors boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dungeon_graph_carveDungeonGrid_4(): int:
+  let arg_rooms = [DungeonRoom(id = 1, bounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), center = Vec2(x = 1.0, y = 1.0), connectedRooms = [])]
+  let edge_rooms = []
+  let arg_corridors = [DungeonCorridor(roomA = 4, roomB = 4, waypoints = [], width = 2.0)]
+  let edge_corridors = []
+  let arg_gridWidth = 4
+  let edge_gridWidth = 1
+  let arg_gridHeight = 4
+  let edge_gridHeight = 1
+  let resNom = carveDungeonGrid(arg_rooms, arg_corridors, arg_gridWidth, arg_gridHeight)
+  let resEdge = carveDungeonGrid(edge_rooms, edge_corridors, edge_gridWidth, edge_gridHeight)
+  assertEqInt(resNom.width, 4, "carveDungeonGrid nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "carveDungeonGrid boundary resEdge.width == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_dungeon_graph_bspPartitionRooms_1(), 0, "test_dungeon_graph_bspPartitionRooms_1")
+  assertEqInt(test_dungeon_graph_delaunayTriangulateRooms_2(), 0, "test_dungeon_graph_delaunayTriangulateRooms_2")
+  assertEqInt(test_dungeon_graph_minimumSpanningTreeCorridors_3(), 0, "test_dungeon_graph_minimumSpanningTreeCorridors_3")
+  assertEqInt(test_dungeon_graph_carveDungeonGrid_4(), 0, "test_dungeon_graph_carveDungeonGrid_4")
+  ret 0

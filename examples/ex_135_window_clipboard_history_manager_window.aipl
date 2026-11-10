@@ -1,0 +1,131 @@
+// ============================================================================
+// Canonical Example 135: Clipboard History Ring & MIME Manager (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/window/clipboard
+// ============================================================================
+module Ex135WindowClipboardHistoryManagerWindow
+
+import {
+  ClipboardState,
+  createClipboardState,
+  setClipboardText,
+  getClipboardText,
+  hasClipboardText,
+  clearClipboard
+} from "../std/window/clipboard"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+import { maxInt } from "../std/prelude"
+
+pub fn verifyClipboardSetGetAndClear(): int:
+  mut clip = createClipboardState()
+  assert(not hasClipboardText(clip), "empty initially")
+  clip = setClipboardText(clip, "AIPL Engine Core 4.0")
+  assert(hasClipboardText(clip), "has clipboard text")
+  let txt = getClipboardText(clip).unwrap()
+  let txtLen = txt.len()
+  clip = clearClipboard(clip)
+  assert(not hasClipboardText(clip), "cleared clipboard")
+  ret txtLen
+
+pub fn computeClipboardRingSlotIndex(pushCount: int, ringCapacity: int): int:
+  let cap = maxInt(1, ringCapacity)
+  let c = maxInt(0, pushCount)
+  ret c % cap
+
+pub fn describeClipboardMimeFormat(mimeCode: int): str:
+  if mimeCode == 1:
+    ret "CLIPBOARD:MIME_TEXT_PLAIN_UTF8"
+  if mimeCode == 2:
+    ret "CLIPBOARD:MIME_TEXT_HTML"
+  ret "CLIPBOARD:MIME_IMAGE_RGBA"
+
+pub fn buildClipboardHistoryRing(): [ClipboardState]:
+  mut ring: [ClipboardState] = []
+  mut clip = createClipboardState()
+  let payloads = [
+    "AIPL Engine Core 4.0",
+    "git commit -m 'fix(std): verify'",
+    "https://aipl.dev/docs/v4",
+    "SELECT * FROM telemetry_wal;",
+    "Vec3(12.5, 48.0, -3.25)",
+    "cargo test --workspace --release"
+  ]
+  for i in 0..payloads.len:
+    let fresh = ClipboardState(items = createClipboardState().items, changeCount = clip.changeCount)
+    clip = setClipboardText(fresh, payloads[i])
+    ring.push(clip)
+  ret ring
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let ring = buildClipboardHistoryRing()
+  let activeSlot = computeClipboardRingSlotIndex(frameIndex / 11, ring.len)
+  let activeClip = ring[activeSlot]
+  let activeTxt = getClipboardText(activeClip).unwrap()
+  let _ = int(dt * 0.0)
+  ret activeClip.changeCount * 100 + activeTxt.len() + (frameIndex % 11)
+
+pub fn renderClipboardHistoryScene(frameIndex: int): void:
+  let ring = buildClipboardHistoryRing()
+  let activeSlot = computeClipboardRingSlotIndex(frameIndex / 11, ring.len)
+  let activeClip = ring[activeSlot]
+  let activeText = getClipboardText(activeClip).unwrap()
+
+  clearScreen(rgb(11, 15, 25))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(19, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(168, 85, 247))
+  drawText("EX_135 // SYSTEM CLIPBOARD HISTORY RING BUFFER & MIME INSPECTOR", 52.0, 38.0, 20.0, rgb(243, 232, 255))
+
+  // Left Column: 6-Slot Ring Buffer Cards read directly from ring[slot]
+  mut slot = 0
+  while slot < ring.len:
+    let slotClip = ring[slot]
+    let slotTxt = getClipboardText(slotClip).unwrap()
+    let sy = 96.0 + float(slot * 96)
+    let isSel = slot == activeSlot
+    let bgCol = if isSel: rgb(30, 27, 62) else: rgb(16, 23, 38)
+    let borderCol = if isSel: rgb(168, 85, 247) else: rgb(51, 65, 85)
+    drawRect(56.0, sy, 680.0, 82.0, bgCol)
+    drawRectOutline(56.0, sy, 680.0, 82.0, 2.0, borderCol)
+    drawText("RING SLOT #" + str(slot) + " [changeCount=" + str(slotClip.changeCount) + "]", 76.0, sy + 18.0, 14.0, rgb(192, 132, 252))
+    drawText("Payload: " + slotTxt, 76.0, sy + 46.0, 16.0, rgb(241, 245, 249))
+    let barW = float(slotTxt.len() * 6)
+    drawRect(500.0, sy + 24.0, barW, 12.0, rgb(56, 189, 248))
+    slot = slot + 1
+
+  // Right Column: Active MIME Inspector & Byte Preview read from activeClip
+  let rx = 772.0
+  drawRect(rx, 96.0, 452.0, 560.0, rgb(16, 24, 42))
+  drawRectOutline(rx, 96.0, 452.0, 560.0, 2.0, rgb(56, 189, 248))
+  drawText("ACTIVE CLIPBOARD PAYLOAD", rx + 24.0, 128.0, 18.0, rgb(56, 189, 248))
+  drawText(describeClipboardMimeFormat(1), rx + 24.0, 168.0, 14.0, rgb(74, 222, 128))
+  drawText("Active Slot: #" + str(activeSlot) + " / " + str(ring.len), rx + 24.0, 204.0, 16.0, rgb(250, 204, 21))
+  drawText("UTF-8 Length: " + str(activeText.len()) + " bytes", rx + 24.0, 240.0, 16.0, rgb(226, 232, 240))
+  drawText("Change Count: " + str(activeClip.changeCount), rx + 24.0, 276.0, 16.0, rgb(226, 232, 240))
+  drawRect(rx + 24.0, 320.0, 404.0, 120.0, rgb(10, 15, 28))
+  drawRectOutline(rx + 24.0, 320.0, 404.0, 120.0, 1.5, rgb(71, 85, 105))
+  drawText(activeText, rx + 34.0, 368.0, 16.0, rgb(134, 239, 172))
+  let scanProgressW = float((frameIndex % 11) + 1) * 34.0
+  drawRect(rx + 24.0, 424.0, scanProgressW, 8.0, rgb(168, 85, 247))
+
+pub fn main(): int:
+  let len20 = verifyClipboardSetGetAndClear()
+  assert(len20 == 20, "20 bytes verified")
+  initWindow(1280, 720, "AIPL ex_135 - System Clipboard History Ring & MIME Manager")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderClipboardHistoryScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

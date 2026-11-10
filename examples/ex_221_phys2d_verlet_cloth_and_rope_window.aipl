@@ -1,0 +1,148 @@
+module Ex221Phys2dVerletClothAndRopeWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import { sin, cos, sqrt } from "../std/math/trig"
+import {
+  VerletParticle2D, VerletStick2D, verletParticleNew,
+  verletClothGridNew, verletStepSimulation
+} from "../std/phys2d/verlet2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepClothWindVec(frame: int): Vec2:
+  let phase = float(frame) * 0.095
+  let wx = sin(phase) * 28.0 + cos(phase * 0.47) * 12.0
+  let wy = 115.0 + sin(phase * 0.63) * 14.0
+  ret Vec2(x = wx, y = wy)
+
+pub fn stepRopeWinchPos(frame: int): Vec2:
+  let phase = float(frame) * 0.065
+  let rx = 385.0 + sin(phase) * 48.0
+  let ry = 40.0 + cos(phase * 0.8) * 42.0
+  ret Vec2(x = rx, y = ry)
+
+pub fn buildPhys2dVerletClothAudit(): int:
+  mut cloth = verletClothGridNew(3, 3, 10.0)
+  verletStepSimulation(cloth, Vec2(x = 0.0, y = -9.8), 2, 0.1)
+  let pBottom: VerletParticle2D = cloth.particles[8]
+  let sagOk = if pBottom.position.y < 20.0: 1 else: 0
+  ret cloth.particles.len() + cloth.sticks.len() + sagOk
+
+pub fn main(): int:
+  let auditScore = buildPhys2dVerletClothAudit()
+
+  // Left subsystem: 9x6 Soft-Body Cloth Curtain (pin only 3 curtain hooks: c=0, 4, 8)
+  mut cloth = verletClothGridNew(9, 6, 48.0)
+  mut cIdx = 0
+  while cIdx < 9:
+    if cIdx != 0 and cIdx != 4 and cIdx != 8:
+      let pOrig: VerletParticle2D = cloth.particles[cIdx]
+      cloth.particles[cIdx] = verletParticleNew(pOrig.position, false)
+    cIdx = cIdx + 1
+
+  // Right subsystem: 11-node Catenary Rope (11x1 Verlet chain) pinned at both ends
+  mut rope = verletClothGridNew(11, 1, 44.0)
+  mut rIdx = 1
+  while rIdx < 10:
+    let sagInit = float(rIdx) * 8.2 + sin(float(rIdx) * 0.314) * 76.0
+    rope.particles[rIdx] = verletParticleNew(Vec2(x = float(rIdx) * 39.5, y = sagInit), false)
+    rIdx = rIdx + 1
+
+  initWindow(1280, 720, "AIPL ex_221: Phys2D Verlet Cloth Mesh & Catenary Rope")
+  mut frame = 0
+  while not windowShouldClose():
+    let wind = stepClothWindVec(frame)
+    verletStepSimulation(cloth, wind, 6, 0.075)
+
+    let winchPos = stepRopeWinchPos(frame)
+    rope.particles[10] = verletParticleNew(winchPos, true)
+    verletStepSimulation(rope, Vec2(x = wind.x * 0.25, y = 95.0), 8, 0.09)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_221: PHYS2D VERLET SOFT-BODY CLOTH MESH & CATENARY ROPE", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("cloth=9x6 (" + str(cloth.particles.len()) + " pts, " + str(cloth.sticks.len()) + " sticks) | windX=" + str(int(wind.x)) + " | winchX=" + str(int(winchPos.x)) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Left Panel: 9x6 Soft-Body Cloth Curtain
+    drawRect(40.0, 112.0, 600.0, 576.0, rgb(14, 20, 36))
+    drawRectOutline(40.0, 112.0, 600.0, 576.0, 1.5, rgb(51, 65, 85))
+    drawText("VerletClothGrid2D (9x6 Mesh, 3 Curtain Hooks, Wind Gusts)", 60.0, 130.0, 16.0, rgb(125, 211, 252))
+
+    // Wind gust indicator arrow
+    drawText("Wind Gust:", 60.0, 168.0, 13.0, rgb(56, 189, 248))
+    drawRect(136.0, 164.0, 108.0, 20.0, rgb(20, 30, 52))
+    drawRectOutline(136.0, 164.0, 108.0, 20.0, 1.0, rgb(51, 65, 85))
+    drawLine(190.0, 174.0, 190.0 + wind.x * 1.15, 174.0, rgb(56, 189, 248), 3.0)
+    drawCircle(190.0 + wind.x * 1.15, 174.0, 4.0, rgb(250, 204, 21))
+
+    let ox = 148.0
+    let oy = 212.0
+    drawLine(ox - 16.0, oy, ox + 400.0, oy, rgb(71, 85, 105), 4.0)
+
+    mut sIdx = 0
+    while sIdx < cloth.sticks.len():
+      let st: VerletStick2D = cloth.sticks[sIdx]
+      let p1: VerletParticle2D = cloth.particles[st.p1Idx]
+      let p2: VerletParticle2D = cloth.particles[st.p2Idx]
+      let dx = p2.position.x - p1.position.x
+      let dy = p2.position.y - p1.position.y
+      let dist = sqrt(dx * dx + dy * dy)
+      let stCol = if dist > st.restLength * 1.08: rgb(251, 146, 60) else: rgb(56, 189, 248)
+      drawLine(ox + p1.position.x, oy + p1.position.y, ox + p2.position.x, oy + p2.position.y, stCol, 2.2)
+      sIdx = sIdx + 1
+
+    mut pIdx = 0
+    while pIdx < cloth.particles.len():
+      let pt: VerletParticle2D = cloth.particles[pIdx]
+      let col = if pt.isPinned: rgb(250, 204, 21) else: rgb(52, 211, 153)
+      drawCircle(ox + pt.position.x, oy + pt.position.y, if pt.isPinned: 7.5 else: 4.5, col)
+      pIdx = pIdx + 1
+    drawText("Yellow: Pinned Curtain Hooks | Orange: High-Tension Sticks | Green: Verlet Particles", 60.0, 654.0, 13.0, rgb(148, 163, 184))
+
+    // Right Panel: 11-Node Catenary Rope with Moving Winch Anchor
+    drawRect(660.0, 112.0, 588.0, 576.0, rgb(14, 20, 36))
+    drawRectOutline(660.0, 112.0, 588.0, 576.0, 1.5, rgb(51, 65, 85))
+    drawText("Catenary Rope Chain (11 Nodes, 8 Jacobi Iterations/Frame)", 680.0, 130.0, 16.0, rgb(110, 231, 183))
+
+    let rox = 735.0
+    let roy = 240.0
+    drawRect(rox - 14.0, roy - 20.0, 28.0, 320.0, rgb(51, 65, 85))
+    drawRectOutline(rox - 14.0, roy - 20.0, 28.0, 320.0, 1.5, rgb(148, 163, 184))
+
+    let wxScreen = rox + winchPos.x
+    let wyScreen = roy + winchPos.y
+    drawCircleOutline(wxScreen, wyScreen, 18.0, 2.0, rgb(250, 204, 21))
+    drawText("Winch Anchor", wxScreen - 42.0, wyScreen - 36.0, 13.0, rgb(250, 204, 21))
+
+    mut rsIdx = 0
+    while rsIdx < rope.sticks.len():
+      let rst: VerletStick2D = rope.sticks[rsIdx]
+      let rp1: VerletParticle2D = rope.particles[rst.p1Idx]
+      let rp2: VerletParticle2D = rope.particles[rst.p2Idx]
+      drawLine(rox + rp1.position.x, roy + rp1.position.y, rox + rp2.position.x, roy + rp2.position.y, rgb(250, 204, 21), 4.0)
+      rsIdx = rsIdx + 1
+
+    mut rpIdx = 0
+    while rpIdx < rope.particles.len():
+      let rpt: VerletParticle2D = rope.particles[rpIdx]
+      let rCol = if rpt.isPinned: rgb(249, 115, 22) else: rgb(56, 189, 248)
+      drawCircle(rox + rpt.position.x, roy + rpt.position.y, if rpt.isPinned: 9.0 else: 6.5, rCol)
+      drawCircleOutline(rox + rpt.position.x, roy + rpt.position.y, if rpt.isPinned: 9.0 else: 6.5, 1.5, rgb(240, 249, 255))
+      rpIdx = rpIdx + 1
+
+    let midNode: VerletParticle2D = rope.particles[5]
+    drawText("Mid-Span Sag Y = +" + str(int(midNode.position.y)), rox + 120.0, 600.0, 15.0, rgb(125, 211, 252))
+    drawText("Position-Based Verlet Integration: x(t+dt) = 2x(t) - x(t-dt) + a*dt^2", 680.0, 654.0, 13.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

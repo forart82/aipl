@@ -1,0 +1,92 @@
+/// # Module: `std/crypto/tls` (`CryptoTls`)
+///
+/// ## Purpose & Domain Scope
+/// TLS 1.3 record framing, ClientHello packet construction, and X.509 certificate
+/// validity window verification.
+module CryptoTls
+
+pub struct TlsRecord:
+  contentType: int
+  protocolVersion: int
+  length: int
+  fragment: bytes
+
+pub struct TlsClientHello:
+  cipherSuites: [int]
+  serverName: str
+  clientRandom: bytes
+  keyShare: bytes
+
+pub struct X509Cert:
+  issuer: str
+  subject: str
+  notBefore: int
+  notAfter: int
+  publicKey: bytes
+
+pub fn tlsFrameRecord(contentType: int, payload: bytes): bytes:
+  let len = payload.len()
+  let header = bytesFromArray([
+    contentType & 255,
+    3,
+    3,
+    (len >> 8) & 255,
+    len & 255
+  ])
+  ret bytesConcat([header, payload])
+
+pub fn tlsParseRecord(streamBytes: bytes, offset: int = 0): Result[(TlsRecord, int), str]:
+  if offset < 0 or offset + 5 > streamBytes.len():
+    ret Err("tlsParseRecord: truncated 5-byte TLS record header")
+  let cType = 255 & streamBytes[offset]
+  let ver = ((255 & streamBytes[offset + 1]) << 8) | (255 & streamBytes[offset + 2])
+  let fragLen = ((255 & streamBytes[offset + 3]) << 8) | (255 & streamBytes[offset + 4])
+  if offset + 5 + fragLen > streamBytes.len():
+    ret Err("tlsParseRecord: truncated TLS record fragment")
+  let frag = streamBytes.slice(offset + 5, offset + 5 + fragLen)
+  let rec = TlsRecord(contentType: cType, protocolVersion: ver, length: fragLen, fragment: frag)
+  ret Ok((rec, offset + 5 + fragLen))
+
+pub fn tlsBuildClientHello(host: str, suites: [int], random: bytes, keyShare: bytes): bytes:
+  mut body: [int] = [3, 3]
+  mut i = 0
+  while i < 32:
+    if i < random.len():
+      body.push(255 & random[i])
+    else:
+      body.push(0)
+    i = i + 1
+  body.push(0)
+  let suitesBytesLen = suites.len() * 2
+  body.push((suitesBytesLen >> 8) & 255)
+  body.push(suitesBytesLen & 255)
+  i = 0
+  while i < suites.len():
+    body.push((suites[i] >> 8) & 255)
+    body.push(suites[i] & 255)
+    i = i + 1
+  body.push(1)
+  body.push(0)
+  let hostBytes = host.toBytes()
+  let extTotal = hostBytes.len() + keyShare.len()
+  body.push((extTotal >> 8) & 255)
+  body.push(extTotal & 255)
+  i = 0
+  while i < hostBytes.len():
+    body.push(255 & hostBytes[i])
+    i = i + 1
+  i = 0
+  while i < keyShare.len():
+    body.push(255 & keyShare[i])
+    i = i + 1
+  let hsLen = body.len()
+  let hsHeader = bytesFromArray([
+    1,
+    (hsLen >> 16) & 255,
+    (hsLen >> 8) & 255,
+    hsLen & 255
+  ])
+  ret tlsFrameRecord(22, bytesConcat([hsHeader, bytesFromArray(body)]))
+
+pub fn verifyX509Validity(cert: X509Cert, currentUnixSec: int): bool:
+  ret currentUnixSec >= cert.notBefore and currentUnixSec <= cert.notAfter

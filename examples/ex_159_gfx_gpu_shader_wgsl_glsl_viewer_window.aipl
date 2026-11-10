@@ -1,0 +1,109 @@
+module Ex159GfxGpuShaderWgslGlslViewerWindow
+
+import { GpuDevice, createGpuDevice } from "../std/gfx/gpu_device"
+import { ShaderModule, compileShaderModule, reflectUniformBlock } from "../std/gfx/gpu_shader"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepShaderCompilation(dev: GpuDevice, frame: int): ShaderModule:
+  let stg = ((frame / 11) + (frame % 3)) % 3
+  let ep = if stg == 0: "vs_main" else: if stg == 1: "fs_main" else: "cs_main"
+  let src = "@group(0) @binding(0) var<uniform> globals: Mat4; fn " + ep + "() {}"
+  ret compileShaderModule(dev, stg, src, ep)
+
+pub fn buildGpuShaderReflectionAudit(): int:
+  let dev = createGpuDevice(1)
+  let src = "@group(0) @binding(0) var<uniform> globals: Mat4; @vertex fn vs_main() {}"
+  let vsMod = compileShaderModule(dev, 0, src, "vs_main")
+  let fsMod = compileShaderModule(dev, 1, "@fragment fn fs_main() {}", "fs_main")
+  let bindSize = vsMod.uniformBindings[0].sizeBytes
+  ret bindSize + vsMod.uniformBindings.len() + vsMod.shaderId + fsMod.shaderId
+
+pub fn main(): int:
+  let dev = createGpuDevice(1)
+  let wgslSrc = "@group(0) @binding(0) var<uniform> globals: Mat4; @vertex fn vs_main() -> @builtin(position) vec4<f32>"
+  mut activeMod = compileShaderModule(dev, 0, wgslSrc, "vs_main")
+  let fsMod = compileShaderModule(dev, 1, "@group(0) @binding(0) var<uniform> globals: Mat4; @fragment fn fs_main()", "fs_main")
+  let audit = buildGpuShaderReflectionAudit()
+
+  initWindow(1280, 720, "AIPL ex_159: WGSL / GLSL Shader Cross-Compiler & Reflection Viewer")
+  mut frame: int = 0
+  while not windowShouldClose():
+    activeMod = stepShaderCompilation(dev, frame)
+    let bindings = reflectUniformBlock(activeMod.wgslSource)
+    let b0 = bindings[0]
+    let stg = activeMod.stage
+    let astHighlightY = if stg == 0: 258.0 else: if stg == 1: 378.0 else: 408.0
+    let astHighlightH = if stg == 0: 116.0 else: 28.0
+    let glslStageLine = if stg == 0: "void main() { gl_Position = globals.viewProj * vec4(pos, 1.0); }" else: if stg == 1: "layout(location = 0) out vec4 outColor; void main() { outColor = vec4(1.0); }" else: "layout(local_size_x = 64) in; void main() { /* compute dispatch */ }"
+    let pipeStep = (frame * 17) % 580
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawText("EX_159: WGSL / GLSL SHADER CROSS-COMPILER & UNIFORM REFLECTION VIEWER", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx/gpu_shader: compileShaderModule | reflectUniformBlock | ShaderUniformBinding | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: WGSL Source Code & Stage AST View
+    drawRect(40.0, 96.0, 580.0, 380.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 580.0, 380.0, 2.0, rgb(56, 189, 248))
+    drawText("WGSL SHADER SOURCE (Active Stage " + str(activeMod.stage) + "=" + activeMod.entryPoint + ", FS=" + fsMod.entryPoint + ")", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(60.0, 154.0, 540.0, 296.0, rgb(9, 13, 22))
+    drawRect(66.0, astHighlightY, 528.0, astHighlightH, rgb(23, 37, 84))
+    drawRectOutline(66.0, astHighlightY, 528.0, astHighlightH, 1.5, rgb(250, 204, 21))
+    drawText("1: struct Globals { viewProj: mat4x4<f32> };", 76.0, 174.0, 15.0, rgb(192, 132, 252))
+    drawText("2: @group(0) @binding(0) var<uniform> globals: Globals;", 76.0, 204.0, 15.0, rgb(56, 189, 248))
+    drawText("3:", 76.0, 234.0, 15.0, rgb(100, 116, 139))
+    drawText("4: @vertex fn vs_main(@location(0) pos: vec3<f32>)", 76.0, 264.0, 15.0, rgb(74, 222, 128))
+    drawText("5:     -> @builtin(position) vec4<f32> {", 76.0, 294.0, 15.0, rgb(74, 222, 128))
+    drawText("6:   return globals.viewProj * vec4<f32>(pos, 1.0);", 76.0, 324.0, 15.0, rgb(226, 232, 240))
+    drawText("7: }", 76.0, 354.0, 15.0, rgb(74, 222, 128))
+    drawText("8: @fragment fn fs_main() -> @location(0) vec4<f32>", 76.0, 384.0, 15.0, rgb(250, 204, 21))
+    drawText("9: @compute @workgroup_size(64) fn cs_main()", 76.0, 414.0, 15.0, rgb(56, 189, 248))
+
+    // Right Panel: Reflected Descriptor Bind Group Table & Cross-Target SPIR-V / GLSL 450 Output
+    drawRect(650.0, 96.0, 590.0, 380.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 96.0, 590.0, 380.0, 2.0, rgb(34, 197, 94))
+    drawText("REFLECTED BIND GROUP DESCRIPTOR TABLE", 670.0, 118.0, 17.0, rgb(134, 239, 172))
+
+    drawRect(670.0, 154.0, 550.0, 110.0, rgb(30, 41, 59))
+    drawRectOutline(670.0, 154.0, 550.0, 110.0, 1.5, rgb(74, 222, 128))
+    drawText("Binding Name : '" + b0.name + "' | Active Entry: " + activeMod.entryPoint, 690.0, 172.0, 16.0, rgb(248, 250, 252))
+    drawText("Group Slot   : @group(" + str(b0.groupSlot) + ") | Binding Slot: @binding(" + str(b0.bindingSlot) + ")", 690.0, 200.0, 15.0, rgb(56, 189, 248))
+    drawText("Block Size   : " + str(b0.sizeBytes) + " Bytes (mat4x4<f32>) | Offset: " + str(b0.offsetBytes), 690.0, 228.0, 15.0, rgb(253, 224, 71))
+
+    drawRect(670.0, 286.0, 550.0, 168.0, rgb(9, 13, 22))
+    drawText("TRANSPILED GLSL 450 / SPIR-V EQUIVALENT (Stage " + str(stg) + "):", 690.0, 304.0, 15.0, rgb(168, 85, 247))
+    drawText("#version 450 core", 690.0, 330.0, 14.0, rgb(148, 163, 184))
+    drawText("layout(set = 0, binding = 0, std140) uniform Globals {", 690.0, 354.0, 14.0, rgb(226, 232, 240))
+    drawText("    mat4 viewProj; // 64 bytes", 690.0, 378.0, 14.0, rgb(226, 232, 240))
+    drawText("} globals;", 690.0, 402.0, 14.0, rgb(226, 232, 240))
+    drawText(glslStageLine, 690.0, 428.0, 13.0, rgb(250, 204, 21))
+
+    // Bottom Pipeline Stage Flow Strip
+    drawRect(40.0, 500.0, 1200.0, 175.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 500.0, 1200.0, 175.0, 2.0, rgb(51, 65, 85))
+    drawText("SHADER COMPILATION PIPELINE TELEMETRY (ShaderID=" + str(activeMod.shaderId) + ")", 60.0, 522.0, 18.0, rgb(56, 189, 248))
+
+    drawLine(192.0, 595.0, 418.0, 595.0, rgb(56, 189, 248), 3.0)
+    drawLine(482.0, 595.0, 708.0, 595.0, rgb(168, 85, 247), 3.0)
+    drawCircle(160.0 + float(pipeStep), 595.0, 9.0, rgb(250, 204, 21))
+
+    drawCircle(160.0, 595.0, 32.0, if stg == 0: rgb(250, 204, 21) else: rgb(14, 165, 233))
+    drawText("WGSL AST", 125.0, 638.0, 14.0, rgb(226, 232, 240))
+
+    drawCircle(450.0, 595.0, 32.0, if stg == 1: rgb(250, 204, 21) else: rgb(168, 85, 247))
+    drawText("Reflection", 412.0, 638.0, 14.0, rgb(226, 232, 240))
+
+    drawCircle(740.0, 595.0, 32.0, if stg == 2: rgb(250, 204, 21) else: rgb(34, 197, 94))
+    drawText("VS/FS/CS PSO", 692.0, 638.0, 14.0, rgb(226, 232, 240))
+    drawText("Audit=" + str(audit) + " | Entry=" + activeMod.entryPoint + " | Bindings=" + str(bindings.len()), 830.0, 588.0, 17.0, rgb(253, 224, 71))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

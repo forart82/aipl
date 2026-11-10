@@ -1,0 +1,115 @@
+module Ex171Gfx2dNinepatch2dScalablePanelsWindow
+
+import { Rect } from "../std/math/geom2d"
+import {
+  SliceInsets2D, createNinePatch2D, generateNinePatchQuads
+} from "../std/gfx2d/ninepatch2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepNinePatchRect(frame: int): Rect:
+  let pulseW = 240.0 + float((frame * 7) % 317)
+  let pulseH = 150.0 + float((frame * 5) % 181)
+  ret Rect(x = 60.0, y = 148.0, w = pulseW, h = pulseH)
+
+pub fn buildNinePatchScalableAudit(): int:
+  let insets = SliceInsets2D(left = 16.0, top = 16.0, right = 16.0, bottom = 16.0)
+  let np = createNinePatch2D(1, 64.0, 64.0, insets)
+  let verts = generateNinePatchQuads(np, Rect(x = 100.0, y = 50.0, w = 400.0, h = 240.0))
+  ret verts.len() + int(verts[1].x)
+
+pub fn main(): int:
+  let insets = SliceInsets2D(left = 36.0, top = 36.0, right = 36.0, bottom = 36.0)
+  let np = createNinePatch2D(1, 128.0, 128.0, insets)
+  let audit = buildNinePatchScalableAudit()
+
+  initWindow(1280, 720, "AIPL ex_171: 9-Slice Scalable Panel & Corner Preservation")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let dstRect = stepNinePatchRect(frame)
+    let pulseW = dstRect.w
+    let pulseH = dstRect.h
+    let verts = generateNinePatchQuads(np, dstRect)
+    let activeQuad = (frame + (frame / 7)) % 9
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_171: 9-SLICE (NINEPATCH) SCALABLE UI PANELS & CORNER PRESERVATION", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/ninepatch2d: createNinePatch2D | generateNinePatchQuads | 36 Vertices (9 Quads) | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Live Resizing 9-Slice Panel with 9 Color-Coded Sub-Quads
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("DYNAMICALLY STRETCHED 9-SLICE PANEL (" + str(int(pulseW)) + "x" + str(int(pulseH)) + " px)", 60.0, 114.0, 16.0, rgb(125, 211, 252))
+
+    mut qIdx: int = 0
+    while qIdx < 9:
+      let base = qIdx * 4
+      let v0 = verts[base]
+      let v2 = verts[base + 2]
+      let qw = v2.x - v0.x
+      let qh = v2.y - v0.y
+      let isCorner = qIdx == 0 or qIdx == 2 or qIdx == 6 or qIdx == 8
+      let isCenter = qIdx == 4
+      let isAct = qIdx == activeQuad
+      let qCol = if isCorner: rgb(244, 63, 94) else: if isCenter: rgb(30, 58, 138) else: rgb(14, 165, 233)
+      drawRect(v0.x, v0.y, qw, qh, qCol)
+      drawRectOutline(v0.x, v0.y, qw, qh, if isAct: 3.0 else: 1.5, if isAct: rgb(250, 204, 21) else: rgb(248, 250, 252))
+      if qw >= 70.0 and qh >= 34.0:
+        drawText("Q" + str(qIdx) + " " + str(int(qw)) + "x" + str(int(qh)), v0.x + 8.0, v0.y + 10.0, 12.0, rgb(248, 250, 252))
+      qIdx = qIdx + 1
+
+    // Right Panel: 9-Slice Source UV Atlas & SliceInsets2D Anatomy Diagram
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(250, 204, 21))
+    drawText("SOURCE 128x128 UV ATLAS & 9-SLICE PARTITIONING (Active Q" + str(activeQuad) + ")", 680.0, 118.0, 16.0, rgb(253, 224, 71))
+
+    // Draw 220x220 representation of the 128x128 source texture with 9 UV patches
+    mut uIdx: int = 0
+    while uIdx < 9:
+      let ub = uIdx * 4
+      let uv0 = verts[ub]
+      let uv2 = verts[ub + 2]
+      let ux = 685.0 + uv0.u * 210.0
+      let uy = 165.0 + uv0.v * 210.0
+      let uw = (uv2.u - uv0.u) * 210.0
+      let uh = (uv2.v - uv0.v) * 210.0
+      let isC = uIdx == 0 or uIdx == 2 or uIdx == 6 or uIdx == 8
+      let isM = uIdx == 4
+      let uCol = if uIdx == activeQuad: rgb(168, 85, 247) else: if isC: rgb(136, 19, 55) else: if isM: rgb(23, 37, 84) else: rgb(12, 74, 110)
+      drawRect(ux, uy, uw, uh, uCol)
+      drawRectOutline(ux, uy, uw, uh, if uIdx == activeQuad: 2.5 else: 1.0, if uIdx == activeQuad: rgb(250, 204, 21) else: rgb(148, 163, 184))
+      drawText("Q" + str(uIdx), ux + 10.0, uy + 14.0, 13.0, rgb(248, 250, 252))
+      uIdx = uIdx + 1
+
+    let actV0 = verts[activeQuad * 4]
+    let actV2 = verts[activeQuad * 4 + 2]
+    drawRect(915.0, 165.0, 305.0, 95.0, rgb(30, 41, 59))
+    drawText("RED (0,2,6,8): Fixed 36x36 Corners", 930.0, 182.0, 14.0, rgb(253, 164, 175))
+    drawText("CYAN (1,3,5,7): 1D Stretched Borders", 930.0, 206.0, 14.0, rgb(125, 211, 252))
+    drawText("NAVY (4): 2D Stretched Center Body", 930.0, 230.0, 14.0, rgb(191, 219, 254))
+
+    drawRect(915.0, 275.0, 305.0, 100.0, rgb(30, 41, 59))
+    drawRectOutline(915.0, 275.0, 305.0, 100.0, 1.5, rgb(250, 204, 21))
+    drawText("Active Quad Q" + str(activeQuad) + " Screen Size:", 930.0, 294.0, 14.0, rgb(253, 224, 71))
+    drawText(str(int(actV2.x - actV0.x)) + " x " + str(int(actV2.y - actV0.y)) + " px", 930.0, 318.0, 16.0, rgb(248, 250, 252))
+    drawText("UV: (" + str(actV0.u) + "," + str(actV0.v) + ")..(" + str(actV2.u) + "," + str(actV2.v) + ")", 930.0, 344.0, 13.0, rgb(134, 239, 172))
+
+    drawText("Total Emitted BatchVertex2D Count: " + str(verts.len()) + " (9 Quads x 4 Verts)", 685.0, 425.0, 15.0, rgb(134, 239, 172))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("NINEPATCH VERTEX & UV TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Corner[0] Width=" + str(int(verts[1].x - verts[0].x)) + " px (Fixed 36 px) | Center[4] Width=" + str(int(verts[18].x - verts[16].x)) + " px (Dynamic)", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Source Texture Size: 128x128 | SliceInsets2D(36, 36, 36, 36) | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

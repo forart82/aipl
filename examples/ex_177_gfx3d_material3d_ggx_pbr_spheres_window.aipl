@@ -1,0 +1,124 @@
+module Ex177Gfx3dMaterial3dGgxPbrSpheresWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import {
+  createDefaultPbrMaterial, evaluateGgxDistribution,
+  evaluateSmithSchlickGeometry, evaluateSchlickFresnel, evaluateCookTorranceBrdf
+} from "../std/gfx3d/material3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepPbrLightNdotL(frame: int): float:
+  ret 0.58 + float(frame % 37) * 0.011
+
+pub fn buildMaterial3dGgxPbrAudit(): int:
+  let _ = createDefaultPbrMaterial()
+  let d = evaluateGgxDistribution(1.0, 0.3)
+  let g = evaluateSmithSchlickGeometry(1.0, 1.0, 0.3)
+  let brdf = evaluateCookTorranceBrdf(1.0, 1.0, 1.0, 1.0, Vec3(x = 1.0, y = 0.2, z = 0.1), 0.0, 0.3)
+  ret int(d * 100.0) + int(g * 100.0) + int(brdf.x * 100.0)
+
+pub fn main(): int:
+  let defMat = createDefaultPbrMaterial()
+  let f0Dielectric = evaluateSchlickFresnel(1.0, Vec3(x = 0.04, y = 0.04, z = 0.04))
+  let f0Grazing = evaluateSchlickFresnel(0.1, Vec3(x = 0.04, y = 0.04, z = 0.04))
+  let audit = buildMaterial3dGgxPbrAudit()
+
+  initWindow(1280, 720, "AIPL ex_177: 3D Cook-Torrance GGX PBR Metallic/Roughness Sphere Matrix")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let ndotl = stepPbrLightNdotL(frame)
+    let ndothProbe = 0.55 + float(frame % 43) * 0.010
+    let gVal = evaluateSmithSchlickGeometry(ndotl, 0.85, defMat.roughnessFactor)
+    let lightAngle = float(frame) * 0.047
+    let specOffX = -10.0 + cos(lightAngle) * 11.0
+    let specOffY = -10.0 + sin(lightAngle) * 8.0
+    let activeIdx = (frame / 9) % 15
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_177: 3D COOK-TORRANCE GGX PBR METALLIC / ROUGHNESS SPHERE MATRIX", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/material3d: evaluateGgxDistribution | evaluateSmithSchlickGeometry=" + str(gVal) + " | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: 3x5 Metallic (rows) vs Roughness (cols) PBR Sphere Matrix
+    drawRect(40.0, 96.0, 620.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 620.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("PBR SPHERE MATRIX (Rows: Metallic 0.0..1.0 | Cols: Roughness 0.15..0.95)", 60.0, 118.0, 15.0, rgb(125, 211, 252))
+
+    mut mRow: int = 0
+    while mRow < 3:
+      let metallic = float(mRow) * 0.5
+      mut rCol: int = 0
+      while rCol < 5:
+        let roughness = 0.15 + float(rCol) * 0.20
+        let cx = 115.0 + float(rCol) * 112.0
+        let cy = 192.0 + float(mRow) * 110.0
+        let brdf = evaluateCookTorranceBrdf(ndotl, 0.85, ndothProbe, 0.90, Vec3(x = 0.95, y = 0.64, z = 0.20), metallic, roughness)
+        let baseR = if int(brdf.x * 180.0) + 45 > 255: 255 else: int(brdf.x * 180.0) + 45
+        let baseG = if int(brdf.y * 180.0) + 35 > 255: 255 else: int(brdf.y * 180.0) + 35
+        let baseB = if int(brdf.z * 180.0) + 25 > 255: 255 else: int(brdf.z * 180.0) + 25
+        drawCircle(cx, cy, 36.0, rgb(baseR, baseG, baseB))
+        let specRadius = 4.5 + roughness * 18.0
+        drawCircle(cx + specOffX, cy + specOffY, specRadius, rgb(255, 250, 225))
+        if mRow * 5 + rCol == activeIdx:
+          drawCircleOutline(cx, cy, 40.0, 2.5, rgb(56, 189, 248))
+        drawText("R=" + str(roughness), cx - 22.0, cy + 40.0, 11.0, rgb(203, 213, 225))
+        rCol = rCol + 1
+      mRow = mRow + 1
+
+    // Right Panel: GGX Trowbridge-Reitz Normal Distribution D(h) Lobe Curve
+    drawRect(680.0, 96.0, 560.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(680.0, 96.0, 560.0, 410.0, 2.0, rgb(250, 204, 21))
+    drawText("TROWBRIDGE-REITZ GGX NDF D(NdotH) SPECULAR LOBE", 700.0, 118.0, 16.0, rgb(253, 224, 71))
+
+    // Axes
+    drawLine(710.0, 440.0, 1190.0, 440.0, rgb(71, 85, 105), 1.5)
+    drawLine(710.0, 165.0, 710.0, 440.0, rgb(71, 85, 105), 1.5)
+
+    mut s: int = 0
+    mut prevX: float = 710.0
+    mut prevSharpY: float = 440.0
+    mut prevRoughY: float = 440.0
+    while s <= 24:
+      let ndoth = 0.5 + (float(s) / 24.0) * 0.5
+      let dSharp = evaluateGgxDistribution(ndoth, 0.25)
+      let dRough = evaluateGgxDistribution(ndoth, 0.65)
+      let px = 710.0 + float(s) * 20.0
+      let pySharp = 440.0 - (if dSharp > 5.0: 5.0 else: dSharp) * 52.0
+      let pyRough = 440.0 - (if dRough > 5.0: 5.0 else: dRough) * 52.0
+      if s > 0:
+        drawLine(prevX, prevSharpY, px, pySharp, rgb(56, 189, 248), 2.5)
+        drawLine(prevX, prevRoughY, px, pyRough, rgb(244, 63, 94), 2.5)
+      drawCircle(px, pySharp, 3.5, rgb(56, 189, 248))
+      drawCircle(px, pyRough, 3.5, rgb(244, 63, 94))
+      prevX = px
+      prevSharpY = pySharp
+      prevRoughY = pyRough
+      s = s + 1
+
+    // Live NdotH probe marker on GGX curve
+    let probePx = 710.0 + ((ndothProbe - 0.5) / 0.5) * 480.0
+    let probeDSharp = evaluateGgxDistribution(ndothProbe, 0.25)
+    let probePy = 440.0 - (if probeDSharp > 5.0: 5.0 else: probeDSharp) * 52.0
+    drawLine(probePx, 170.0, probePx, 440.0, rgb(250, 204, 21), 1.5)
+    drawCircle(probePx, probePy, 6.5, rgb(250, 204, 21))
+    drawText("NdotH=" + str(ndothProbe), probePx - 42.0, 152.0, 12.0, rgb(253, 224, 71))
+
+    drawText("Cyan = Mirror Smooth (r=0.25) | Red = Broad Microfacet Lobe (r=0.65)", 700.0, 464.0, 14.0, rgb(203, 213, 225))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("COOK-TORRANCE MICROFACET BRDF TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Schlick Fresnel F(NdotV=1.0)=" + str(f0Dielectric.x) + " -> Grazing F(NdotV=0.1)=" + str(f0Grazing.x), 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Default PBR Roughness=" + str(defMat.roughnessFactor) + " | GGX D(1.0, 0.3)=" + str(evaluateGgxDistribution(1.0, 0.3)) + " | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

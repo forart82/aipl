@@ -1,0 +1,282 @@
+module tests.functions.collections.dyn_vec_test
+
+import * from "std/collections/dyn_vec"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_dyn_vec_dynVecNew_1(): int:
+  let resNom = dynVecNew()
+  let resEdge = dynVecNew()
+  assertEqInt(resNom.items.len(), 0, "dynVecNew nominal resNom.items.len() == 0")
+  assertEqInt(resEdge.items.len(), 0, "dynVecNew boundary resEdge.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_dynVecWithCapacity_2(): int:
+  let arg_capacity = 4
+  let edge_capacity = 1
+  let resNom = dynVecWithCapacity(arg_capacity)
+  let resEdge = dynVecWithCapacity(edge_capacity)
+  assertEqInt(resNom.items.len(), 0, "dynVecWithCapacity nominal resNom.items.len() == 0")
+  assertEqInt(resEdge.items.len(), 0, "dynVecWithCapacity boundary resEdge.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__len_3(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.len()
+  let resEdge = edge_self.len()
+  assertEqInt(resNom, 0, "len nominal resNom == 0")
+  assertEqInt(resEdge, 0, "len boundary resEdge == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__cap_4(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.cap()
+  let resEdge = edge_self.cap()
+  assertEqInt(resNom, 4, "cap nominal resNom == 4")
+  assertEqInt(resEdge, 4, "cap boundary resEdge == 4")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__isEmpty_5(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.isEmpty()
+  let resEdge = edge_self.isEmpty()
+  assert(resNom == true, "isEmpty nominal resNom == true")
+  assert(resEdge == true, "isEmpty boundary resEdge == true")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__push_6(): int:
+  let mut recv_self = DynVec(items = [], capacity = 4)
+  let mut edge_self = DynVec(items = [], capacity = 4)
+  let arg_val = 1
+  let edge_val = 0
+  recv_self.push(arg_val)
+  edge_self.push(edge_val)
+  assertEqInt(recv_self.items.len(), 1, "push nominal recv_self.items.len() == 1")
+  assertEqInt(edge_self.items.len(), 1, "push boundary edge_self.items.len() == 1")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__pop_7(): int:
+  mut v = dynVecNew()
+  assert(v.pop().isSome() == false, "pop on empty is None")
+  v.push(10)
+  v.push(20)
+  let popped = v.pop()
+  assert(popped.isSome() == true, "pop on non-empty is Some")
+  assertEqInt(popped.unwrap(), 20, "pop returns last item == 20")
+  assertEqInt(v.len(), 1, "len after pop is 1")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__get_8(): int:
+  mut v = dynVecNew()
+  assert(v.get(0).isSome() == false, "get on empty is None")
+  v.push(42)
+  v.push(84)
+  let g0 = v.get(0)
+  let g1 = v.get(1)
+  assert(g0.isSome() == true, "get(0) is Some")
+  assertEqInt(g0.unwrap(), 42, "get(0) == 42")
+  assert(g1.isSome() == true, "get(1) is Some")
+  assertEqInt(g1.unwrap(), 84, "get(1) == 84")
+  assert(v.get(5).isSome() == false, "get(5) out of bounds is None")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__set_9(): int:
+  mut v = dynVecNew()
+  v.push(10)
+  let s0 = v.set(0, 99)
+  assert(s0 == true, "set valid index returns true")
+  assertEqInt(v.get(0).unwrap(), 99, "value updated to 99")
+  let sBad = v.set(5, 100)
+  assert(sBad == false, "set invalid index returns false")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__insert_10(): int:
+  mut v = dynVecNew()
+  v.push(10)
+  v.push(30)
+  let ins = v.insert(1, 20)
+  assert(ins == true, "insert valid index returns true")
+  assertEqInt(v.len(), 3, "len after insert == 3")
+  assertEqInt(v.get(1).unwrap(), 20, "inserted value at index 1 is 20")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__remove_11(): int:
+  mut v = dynVecNew()
+  v.push(10)
+  v.push(20)
+  v.push(30)
+  let rem = v.remove(1)
+  assert(rem.isSome() == true, "remove valid index is Some")
+  assertEqInt(rem.unwrap(), 20, "removed value == 20")
+  assertEqInt(v.len(), 2, "len after remove == 2")
+  assertEqInt(v.get(1).unwrap(), 30, "next element shifted into index 1 == 30")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__swapRemove_12(): int:
+  mut v = dynVecNew()
+  v.push(10)
+  v.push(20)
+  v.push(30)
+  let rem = v.swapRemove(0)
+  assert(rem.isSome() == true, "swapRemove valid index is Some")
+  assertEqInt(rem.unwrap(), 10, "swapRemoved value == 10")
+  assertEqInt(v.len(), 2, "len after swapRemove == 2")
+  assertEqInt(v.get(0).unwrap(), 30, "last element swapped to index 0 == 30")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__clear_13(): int:
+  let mut recv_self = DynVec(items = [], capacity = 4)
+  let mut edge_self = DynVec(items = [], capacity = 4)
+  recv_self.clear()
+  edge_self.clear()
+  assertEqInt(recv_self.items.len(), 0, "clear nominal recv_self.items.len() == 0")
+  assertEqInt(edge_self.items.len(), 0, "clear boundary edge_self.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__reserve_14(): int:
+  let mut recv_self = DynVec(items = [], capacity = 4)
+  let mut edge_self = DynVec(items = [], capacity = 4)
+  let arg_additional = 4
+  let edge_additional = 1
+  recv_self.reserve(arg_additional)
+  edge_self.reserve(edge_additional)
+  assertEqInt(recv_self.items.len(), 0, "reserve nominal recv_self.items.len() == 0")
+  assertEqInt(edge_self.items.len(), 0, "reserve boundary edge_self.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__first_15(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.first()
+  let resEdge = edge_self.first()
+  assert(resNom.isSome() == false, "first nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "first boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__last_16(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.last()
+  let resEdge = edge_self.last()
+  assert(resNom.isSome() == false, "last nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "last boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__toArray_17(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.toArray()
+  let resEdge = edge_self.toArray()
+  assertEqInt(resNom.len(), 0, "toArray nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "toArray boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__reverse_18(): int:
+  let mut recv_self = DynVec(items = [], capacity = 4)
+  let mut edge_self = DynVec(items = [], capacity = 4)
+  recv_self.reverse()
+  edge_self.reverse()
+  assertEqInt(recv_self.items.len(), 0, "reverse nominal recv_self.items.len() == 0")
+  assertEqInt(edge_self.items.len(), 0, "reverse boundary edge_self.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__asSlice_19(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let arg_start = 1
+  let edge_start = 0
+  let arg_end = 4
+  let edge_end = 1
+  let resNom = recv_self.asSlice(arg_start, arg_end)
+  let resEdge = edge_self.asSlice(edge_start, edge_end)
+  assertEqInt(resNom.items.len(), 0, "asSlice nominal resNom.items.len() == 0")
+  assertEqInt(resEdge.items.len(), 0, "asSlice boundary resEdge.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_ArraySlice_T__len_20(): int:
+  let recv_self = ArraySlice(items = [], start = 1, end = 4)
+  let edge_self = ArraySlice(items = [], start = 0, end = 1)
+  let resNom = recv_self.len()
+  let resEdge = edge_self.len()
+  assertEqInt(resNom, 3, "len nominal resNom == 3")
+  assertEqInt(resEdge, 1, "len boundary resEdge == 1")
+  ret 0
+
+pub fn test_dyn_vec_ArraySlice_T__isEmpty_21(): int:
+  let recv_self = ArraySlice(items = [], start = 1, end = 4)
+  let edge_self = ArraySlice(items = [], start = 0, end = 1)
+  let resNom = recv_self.isEmpty()
+  let resEdge = edge_self.isEmpty()
+  assert(resNom == false, "isEmpty nominal resNom == false")
+  assert(resEdge == false, "isEmpty boundary resEdge == false")
+  ret 0
+
+pub fn test_dyn_vec_ArraySlice_T__get_22(): int:
+  let recv_self = ArraySlice(items = [], start = 1, end = 4)
+  let edge_self = ArraySlice(items = [], start = 0, end = 1)
+  let arg_index = 4
+  let edge_index = 1
+  let resNom = recv_self.get(arg_index)
+  let resEdge = edge_self.get(edge_index)
+  assert(resNom.isSome() == false, "get nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "get boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_dyn_vec_ArraySlice_T__toArray_23(): int:
+  let recv_self = ArraySlice(items = [], start = 1, end = 4)
+  let edge_self = ArraySlice(items = [], start = 0, end = 1)
+  let resNom = recv_self.toArray()
+  let resEdge = edge_self.toArray()
+  assertEqInt(resNom.len(), 3, "toArray nominal resNom.len() == 3")
+  assertEqInt(resEdge.len(), 1, "toArray boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_dyn_vec_sortInts_24(): int:
+  let arg_arr = [2]
+  let edge_arr = []
+  let resNom = sortInts(arg_arr)
+  let resEdge = sortInts(edge_arr)
+  assertEqInt(resNom.len(), 1, "sortInts nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "sortInts boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_sortStrings_25(): int:
+  let arg_arr = ["test"]
+  let edge_arr = []
+  let resNom = sortStrings(arg_arr)
+  let resEdge = sortStrings(edge_arr)
+  assertEqInt(resNom.len(), 1, "sortStrings nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "sortStrings boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_isDigitCodeSort_26(): int:
+  let arg_c = 2
+  let edge_c = 0
+  let resNom = isDigitCodeSort(arg_c)
+  let resEdge = isDigitCodeSort(edge_c)
+  assert(resNom == false, "isDigitCodeSort nominal resNom == false")
+  assert(resEdge == false, "isDigitCodeSort boundary resEdge == false")
+  ret 0
+
+pub fn test_dyn_vec_naturalLess_27(): int:
+  let arg_a = "test"
+  let edge_a = "a"
+  let arg_b = "test"
+  let edge_b = "a"
+  let resNom = naturalLess(arg_a, arg_b)
+  let resEdge = naturalLess(edge_a, edge_b)
+  assert(resNom == false, "naturalLess nominal resNom == false")
+  assert(resEdge == false, "naturalLess boundary resEdge == false")
+  ret 0
+
+pub fn test_dyn_vec_sortStringsNatural_28(): int:
+  let arg_arr = ["test"]
+  let edge_arr = []
+  let resNom = sortStringsNatural(arg_arr)
+  let resEdge = sortStringsNatural(edge_arr)
+  assertEqInt(resNom.len(), 1, "sortStringsNatural nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "sortStringsNatural boundary resEdge.len() == 0")
+  ret 0

@@ -1,0 +1,52 @@
+// ============================================================================
+// Example 076: CommonMark Markdown AST & HTML Renderer (CLI)
+// Demonstrates: parseMarkdown, renderMarkdownHtml, markdownToHtml,
+//               extractMarkdownHeadings, extractMarkdownCodeBlocks,
+//               extractMarkdownLinks, markdownStrip, and markdownWordCount
+//               from std/encoding.
+// ============================================================================
+module Ex076EncodingMarkdownToHtmlCli
+
+import {
+  parseMarkdown,
+  renderMarkdownHtml,
+  markdownToHtml,
+  extractMarkdownHeadings,
+  extractMarkdownCodeBlocks,
+  extractMarkdownLinks,
+  markdownStrip,
+  markdownWordCount
+} from "../std/encoding"
+
+// Extracts headings, fenced code blocks, and links from a Markdown document.
+pub fn evaluateMarkdownAstArtifactCounts(): int:
+  let mdSrc = "# Title\n\nSome **bold** text with [site](https://aipl.dev).\n\n```aipl\nlet x = 1\n```\n"
+  let headings = extractMarkdownHeadings(mdSrc)
+  let blocks = extractMarkdownCodeBlocks(mdSrc)
+  let links = extractMarkdownLinks(mdSrc)
+  assert(markdownWordCount(mdSrc) > 3, "word count > 3")
+  assert(markdownStrip(mdSrc).contains("Title"), "markdownStrip retains plain text")
+  ret headings.len + blocks.len + links.len
+
+// Verifies AST-based HTML rendering against direct markdownToHtml output.
+pub fn verifyMarkdownHtmlRendering(): int:
+  let mdSrc = "# Title\n\nSome **bold** text with [site](https://aipl.dev).\n\n```aipl\nlet x = 1\n```\n"
+  let doc = parseMarkdown(mdSrc)
+  let htmlAst = renderMarkdownHtml(doc)
+  let htmlDirect = markdownToHtml(mdSrc)
+  if htmlAst == htmlDirect and htmlAst.contains("<h1>Title</h1>") and htmlAst.contains("<strong>bold</strong>"):
+    ret 1
+  ret 0
+
+// Classifies a Markdown document based on the presence of fenced code blocks.
+pub fn describeMarkdownDocumentStructure(codeBlocks: int): str:
+  if codeBlocks > 0:
+    ret "MD:TECHNICAL_SPEC_WITH_CODE"
+  ret "MD:PROSE_ARTICLE"
+
+pub fn main(): int:
+  let artifacts = evaluateMarkdownAstArtifactCounts()
+  let htmlOk = verifyMarkdownHtmlRendering()
+  let kind = describeMarkdownDocumentStructure(1)
+  println("ex_076_encoding_markdown_to_html_cli: artifacts=" + str(artifacts) + " htmlOk=" + str(htmlOk) + " kind=" + kind)
+  ret 0

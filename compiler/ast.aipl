@@ -1,0 +1,352 @@
+module CompilerAst
+
+// ============================================================================
+// Step 15.1: Self-Hosted AST Arena & Flat SoA Node Definitions
+// ============================================================================
+
+pub struct Span:
+  fileId: int
+  start: int
+  end: int
+  line: int
+  column: int
+
+pub struct Token:
+  kind: str
+  lexeme: str
+  span: Span
+
+pub struct TypeNode:
+  id: int
+  kind: str
+  name: str
+  typeArgs: [int]
+  refineVar: str
+  refinePredExpr: int
+  span: Span
+
+// AST Node Kind Tag Constants (Step 1.5)
+pub const EXPR_INT: int = 1
+pub const EXPR_FLOAT: int = 2
+pub const EXPR_STR: int = 3
+pub const EXPR_BOOL: int = 4
+pub const EXPR_IDENT: int = 5
+pub const EXPR_BINARY: int = 6
+pub const EXPR_UNARY: int = 7
+pub const EXPR_CALL: int = 8
+pub const EXPR_MEMBER: int = 9
+pub const EXPR_INDEX: int = 10
+pub const EXPR_ARRAY: int = 11
+pub const EXPR_MAP: int = 12
+pub const EXPR_STRUCT_LIT: int = 13
+pub const EXPR_LAMBDA: int = 14
+pub const EXPR_MATCH: int = 15
+pub const EXPR_IF: int = 16
+
+pub const STMT_LET: int = 1
+pub const STMT_ASSIGN: int = 2
+pub const STMT_IF: int = 3
+pub const STMT_WHILE: int = 4
+pub const STMT_FOR: int = 5
+pub const STMT_RETURN: int = 6
+pub const STMT_EXPR: int = 7
+pub const STMT_MATCH: int = 8
+
+pub const DECL_FN: int = 1
+pub const DECL_STRUCT: int = 2
+pub const DECL_ENUM: int = 3
+pub const DECL_CONST: int = 4
+pub const DECL_TYPE: int = 5
+pub const DECL_IMPORT: int = 6
+
+pub fn exprKindToTag(kind: str): int:
+  if kind == "IntLit":
+    ret EXPR_INT
+  if kind == "FloatLit":
+    ret EXPR_FLOAT
+  if kind == "STRING" or kind == "RAW_STRING" or kind == "INTERP_STRING" or kind == "StrLit" or kind == "String":
+    ret EXPR_STR
+  if kind == "BoolLit" or kind == "Bool":
+    ret EXPR_BOOL
+  if kind == "Ident":
+    ret EXPR_IDENT
+  if kind == "Binary":
+    ret EXPR_BINARY
+  if kind == "Unary":
+    ret EXPR_UNARY
+  if kind == "Call":
+    ret EXPR_CALL
+  if kind == "Member":
+    ret EXPR_MEMBER
+  if kind == "Index" or kind == "Index2D":
+    ret EXPR_INDEX
+  if kind == "Array" or kind == "ArrayRepeat":
+    ret EXPR_ARRAY
+  if kind == "MapLit":
+    ret EXPR_MAP
+  if kind == "StructLit":
+    ret EXPR_STRUCT_LIT
+  if kind == "Lambda":
+    ret EXPR_LAMBDA
+  if kind == "MatchExpr":
+    ret EXPR_MATCH
+  if kind == "IfExpr" or kind == "BlockIfExpr":
+    ret EXPR_IF
+  ret 0
+
+pub fn stmtKindToTag(kind: str): int:
+  if kind == "VarDecl" or kind == "TupleVarDecl" or kind == "Let":
+    ret STMT_LET
+  if kind == "Assign":
+    ret STMT_ASSIGN
+  if kind == "If" or kind == "Elif":
+    ret STMT_IF
+  if kind == "While":
+    ret STMT_WHILE
+  if kind == "For":
+    ret STMT_FOR
+  if kind == "Return":
+    ret STMT_RETURN
+  if kind == "ExprStmt":
+    ret STMT_EXPR
+  if kind == "Match" or kind == "MatchArm":
+    ret STMT_MATCH
+  ret 0
+
+pub fn declKindToTag(kind: str): int:
+  if kind == "Function" or kind == "Fn":
+    ret DECL_FN
+  if kind == "Struct":
+    ret DECL_STRUCT
+  if kind == "Enum":
+    ret DECL_ENUM
+  if kind == "Const":
+    ret DECL_CONST
+  if kind == "TypeAlias" or kind == "Type":
+    ret DECL_TYPE
+  if kind == "Import":
+    ret DECL_IMPORT
+  ret 0
+
+pub const AST_EXPR_INT: int = 1
+pub const AST_EXPR_FLOAT: int = 2
+pub const AST_EXPR_STR: int = 3
+pub const AST_EXPR_BOOL: int = 4
+pub const AST_EXPR_IDENT: int = 5
+pub const AST_EXPR_BINARY: int = 6
+pub const AST_EXPR_UNARY: int = 7
+pub const AST_EXPR_CALL: int = 8
+pub const AST_EXPR_MEMBER: int = 9
+pub const AST_EXPR_INDEX: int = 10
+pub const AST_EXPR_ARRAY: int = 11
+pub const AST_EXPR_MAP: int = 12
+pub const AST_EXPR_STRUCT_LIT: int = 13
+pub const AST_EXPR_LAMBDA: int = 14
+pub const AST_EXPR_MATCH: int = 15
+pub const AST_EXPR_IF: int = 16
+
+pub const AST_STMT_LET: int = 1
+pub const AST_STMT_ASSIGN: int = 2
+pub const AST_STMT_IF: int = 3
+pub const AST_STMT_WHILE: int = 4
+pub const AST_STMT_FOR: int = 5
+pub const AST_STMT_RETURN: int = 6
+pub const AST_STMT_EXPR: int = 7
+pub const AST_STMT_MATCH: int = 8
+
+pub fn astExprKindTag(kind: str): int:
+  ret exprKindToTag(kind)
+
+pub fn astStmtKindTag(kind: str): int:
+  ret stmtKindToTag(kind)
+
+pub struct ExprNode:
+  id: int
+  kind: str
+  kindTag: int = 0
+  op: str
+  intVal: int
+  floatVal: float
+  strVal: str
+  boolVal: bool
+  left: int
+  right: int
+  cond: int
+  children: [int]
+  names: [str]
+  typeId: int
+  span: Span
+
+pub struct StmtNode:
+  id: int
+  kind: str
+  kindTag: int = 0
+  name: str
+  isMut: bool
+  typeId: int
+  exprId: int
+  condExpr: int
+  bodyStmts: [int]
+  elseStmts: [int]
+  matchArms: [int]
+  span: Span
+
+pub struct DeclNode:
+  id: int
+  kind: str
+  kindTag: int = 0
+  name: str
+  isPub: bool
+  params: [str]
+  paramTypes: [int]
+  retType: int
+  fieldNames: [str]
+  fieldTypes: [int]
+  variants: [str]
+  variantPayloadTypes: [int]
+  requiresExprs: [int]
+  ensuresExprs: [int]
+  agentName: str
+  capabilities: [str]
+  importPath: str
+  importSpecs: [str]
+  importAlias: str
+  bodyStmts: [int]
+  docComment: str = ""
+  typeParams: [str] = []
+  typeParamBounds: [str] = []
+  span: Span
+
+pub struct AstArena:
+  moduleName: str
+  types: [TypeNode]
+  exprs: [ExprNode]
+  stmts: [StmtNode]
+  decls: [DeclNode]
+  topStmts: [int]
+  errors: [str]
+
+pub fn makeSpan(fileId: int, start: int, end: int, line: int, column: int): Span:
+  ret Span(fileId = fileId, start = start, end = end, line = line, column = column)
+
+pub fn emptySpan(): Span:
+  ret Span(fileId = 0, start = 0, end = 0, line = 1, column = 1)
+
+pub fn makeToken(kind: str, lexeme: str, span: Span): Token:
+  ret Token(kind = kind, lexeme = lexeme, span = span)
+
+pub fn arenaNew(moduleName: str): AstArena:
+  let emptyTypes: [TypeNode] = []
+  let emptyExprs: [ExprNode] = []
+  let emptyStmts: [StmtNode] = []
+  let emptyDecls: [DeclNode] = []
+  let emptyTop: [int] = []
+  let emptyErrs: [str] = []
+  ret AstArena(
+    moduleName = moduleName,
+    types = emptyTypes,
+    exprs = emptyExprs,
+    stmts = emptyStmts,
+    decls = emptyDecls,
+    topStmts = emptyTop,
+    errors = emptyErrs
+  )
+
+pub fn arenaAllocType(mut arena: AstArena, kind: str, name: str, typeArgs: [int], refineVar: str, refinePredExpr: int, span: Span): int:
+  let id = arena.types.len
+  let node = TypeNode(
+    id = id,
+    kind = kind,
+    name = name,
+    typeArgs = typeArgs,
+    refineVar = refineVar,
+    refinePredExpr = refinePredExpr,
+    span = span
+  )
+  arena.types.push(node)
+  ret id
+
+pub fn arenaAllocExpr(mut arena: AstArena, kind: str, op: str, intVal: int, floatVal: float, strVal: str, boolVal: bool, left: int, right: int, cond: int, children: [int], names: [str], typeId: int, span: Span): int:
+  let id = arena.exprs.len
+  let node = ExprNode(
+    id = id,
+    kind = kind,
+    kindTag = exprKindToTag(kind),
+    op = op,
+    intVal = intVal,
+    floatVal = floatVal,
+    strVal = strVal,
+    boolVal = boolVal,
+    left = left,
+    right = right,
+    cond = cond,
+    children = children,
+    names = names,
+    typeId = typeId,
+    span = span
+  )
+  arena.exprs.push(node)
+  ret id
+
+pub fn arenaAllocStmt(mut arena: AstArena, kind: str, name: str, isMut: bool, typeId: int, exprId: int, condExpr: int, bodyStmts: [int], elseStmts: [int], matchArms: [int], span: Span): int:
+  let id = arena.stmts.len
+  let node = StmtNode(
+    id = id,
+    kind = kind,
+    kindTag = stmtKindToTag(kind),
+    name = name,
+    isMut = isMut,
+    typeId = typeId,
+    exprId = exprId,
+    condExpr = condExpr,
+    bodyStmts = bodyStmts,
+    elseStmts = elseStmts,
+    matchArms = matchArms,
+    span = span
+  )
+  arena.stmts.push(node)
+  ret id
+
+// Helper accessors for Assign statements (condExpr = LHS exprId, exprId = RHS exprId):
+pub fn stmtLhsExpr(stmt: StmtNode): int:
+  ret stmt.condExpr
+
+pub fn stmtRhsExpr(stmt: StmtNode): int:
+  ret stmt.exprId
+
+pub fn arenaAllocAssignStmt(mut arena: AstArena, op: str, lhsExprId: int, rhsExprId: int, span: Span): int:
+  let emptyInts: [int] = []
+  ret arenaAllocStmt(arena, "Assign", op, false, -1, rhsExprId, lhsExprId, emptyInts, emptyInts, emptyInts, span)
+
+pub fn arenaAllocDecl(mut arena: AstArena, kind: str, name: str, isPub: bool, params: [str], paramTypes: [int], retType: int, fieldNames: [str], fieldTypes: [int], variants: [str], variantPayloadTypes: [int], requiresExprs: [int], ensuresExprs: [int], agentName: str, capabilities: [str], importPath: str, importSpecs: [str], importAlias: str, bodyStmts: [int], span: Span): int:
+  let id = arena.decls.len
+  let emptyTypeParams: [str] = []
+  let emptyTypeParamBounds: [str] = []
+  let node = DeclNode(
+    id = id,
+    kind = kind,
+    kindTag = declKindToTag(kind),
+    name = name,
+    isPub = isPub,
+    params = params,
+    paramTypes = paramTypes,
+    retType = retType,
+    fieldNames = fieldNames,
+    fieldTypes = fieldTypes,
+    variants = variants,
+    variantPayloadTypes = variantPayloadTypes,
+    requiresExprs = requiresExprs,
+    ensuresExprs = ensuresExprs,
+    agentName = agentName,
+    capabilities = capabilities,
+    importPath = importPath,
+    importSpecs = importSpecs,
+    importAlias = importAlias,
+    bodyStmts = bodyStmts,
+    docComment = "",
+    typeParams = emptyTypeParams,
+    typeParamBounds = emptyTypeParamBounds,
+    span = span
+  )
+  arena.decls.push(node)
+  ret id

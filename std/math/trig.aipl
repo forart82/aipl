@@ -1,0 +1,262 @@
+/// # Module: `std/math/trig` (`MathTrig`)
+///
+/// ## Purpose & Domain Scope
+/// Trigonometric, inverse trigonometric, hyperbolic, exponential, and root functions.
+module MathTrig
+
+import { PI, TAU, HALF_PI, DEG2RAD, RAD2DEG, absFloat, roundFloat, remEuclid, floor } from "std/math/consts"
+
+pub fn degToRad(deg: float): float:
+  ret deg * DEG2RAD
+
+pub fn radToDeg(rad: float): float:
+  ret rad * RAD2DEG
+
+pub fn sqrt(x: float): float:
+  if x <= 0.0:
+    ret 0.0
+  mut guess = if x > 1.0: x * 0.5 else: 1.0
+  mut i = 0
+  while i < 20:
+    guess = 0.5 * (guess + (x / guess))
+    i += 1
+  ret guess
+
+pub fn cbrt(x: float): float:
+  if x == 0.0:
+    ret 0.0
+  let neg = x < 0.0
+  let ax = if neg: -x else: x
+  mut g = ax / 3.0
+  if g < 1.0:
+    g = 1.0
+  mut i = 0
+  while i < 20:
+    g = (2.0 * g + (ax / (g * g))) / 3.0
+    i += 1
+  ret if neg: -g else: g
+
+pub fn hypot(x: float, y: float): float:
+  ret sqrt(x * x + y * y)
+
+pub fn powInt(base: float, exp: int): float:
+  if exp == 0:
+    ret 1.0
+  mut result = 1.0
+  mut e = if exp < 0: -exp else: exp
+  mut current = base
+  while e > 0:
+    if (e % 2) == 1:
+      result *= current
+    current *= current
+    e = e / 2
+  ret if exp < 0: 1.0 / result else: result
+
+pub fn lnFloat(x: float): float:
+  if x <= 0.0:
+    ret -1000000.0
+  mut m = x
+  mut k = 0
+  while m > 2.0:
+    m *= 0.5
+    k += 1
+  while m < 0.5:
+    m *= 2.0
+    k -= 1
+  let y = (m - 1.0) / (m + 1.0)
+  let y2 = y * y
+  mut sum = y
+  mut term = y
+  mut denom = 3.0
+  mut i = 0
+  while i < 12:
+    term *= y2
+    sum += term / denom
+    denom += 2.0
+    i += 1
+  ret 2.0 * sum + (float(k) * 0.6931471805599453)
+
+pub fn expFloat(x: float): float:
+  if x < -80.0:
+    ret 0.0
+  mut sum = 1.0
+  mut term = 1.0
+  mut i = 1
+  while i <= 28:
+    term = (term * x) / float(i)
+    sum += term
+    i += 1
+  ret sum
+
+pub fn pow(base: float, exponent: float): float:
+  if base <= 0.0:
+    ret 0.0
+  ret expFloat(exponent * lnFloat(base))
+
+pub fn sin(rad: float): float:
+  mut x = rad % TAU
+  if x > PI:
+    x -= TAU
+  elif x < -PI:
+    x += TAU
+  let x2 = x * x
+  let x3 = x * x2
+  let x5 = x3 * x2
+  let x7 = x5 * x2
+  let x9 = x7 * x2
+  let x11 = x9 * x2
+  ret x - (x3 / 6.0) + (x5 / 120.0) - (x7 / 5040.0) + (x9 / 362880.0) - (x11 / 39916800.0)
+
+pub fn cos(rad: float): float:
+  ret sin(rad + HALF_PI)
+
+pub fn tan(rad: float): float:
+  let c = cos(rad)
+  if absFloat(c) < 1e-12:
+    ret 0.0
+  ret sin(rad) / c
+
+pub fn atan(z: float): float:
+  let neg = z < 0.0
+  mut x = if neg: -z else: z
+  let inv = x > 1.0
+  if inv:
+    x = 1.0 / x
+  // 3-step half-angle reduction: atan(x) = 8 * atan(x3), with x3 <= tan(pi/32) < 0.0985
+  x = x / (1.0 + sqrt(1.0 + x * x))
+  x = x / (1.0 + sqrt(1.0 + x * x))
+  x = x / (1.0 + sqrt(1.0 + x * x))
+  let x2 = x * x
+  let x3 = x * x2
+  let x5 = x3 * x2
+  let x7 = x5 * x2
+  let x9 = x7 * x2
+  mut res = 8.0 * (x - (x3 / 3.0) + (x5 / 5.0) - (x7 / 7.0) + (x9 / 9.0))
+  if inv:
+    res = HALF_PI - res
+  ret if neg: -res else: res
+
+pub fn atan2(y: float, x: float): float:
+  if x > 0.0:
+    ret atan(y / x)
+  if x < 0.0 and y >= 0.0:
+    ret atan(y / x) + PI
+  if x < 0.0 and y < 0.0:
+    ret atan(y / x) - PI
+  if x == 0.0 and y > 0.0:
+    ret HALF_PI
+  if x == 0.0 and y < 0.0:
+    ret -HALF_PI
+  ret 0.0
+
+pub fn asin(v: float): float:
+  mut c = v
+  if c >= 1.0:
+    ret HALF_PI
+  if c <= -1.0:
+    ret -HALF_PI
+  ret atan2(c, sqrt(1.0 - c * c))
+
+pub fn acos(v: float): float:
+  ret HALF_PI - asin(v)
+
+pub fn sinh(x: float): float:
+  let ex = expFloat(x)
+  let emx = expFloat(-x)
+  ret 0.5 * (ex - emx)
+
+pub fn cosh(x: float): float:
+  let ex = expFloat(x)
+  let emx = expFloat(-x)
+  ret 0.5 * (ex + emx)
+
+pub fn tanh(x: float): float:
+  if x > 20.0:
+    ret 1.0
+  if x < -20.0:
+    ret -1.0
+  let e2x = expFloat(2.0 * x)
+  ret (e2x - 1.0) / (e2x + 1.0)
+
+pub fn sineWave(amplitude: float, frequency: float, t: float): float:
+  ret amplitude * sin(TAU * frequency * t)
+
+pub fn cosineWave(amplitude: float, frequency: float, t: float): float:
+  ret amplitude * cos(TAU * frequency * t)
+
+pub fn sawtoothWave(amplitude: float, frequency: float, t: float): float:
+  let phase = t * frequency
+  let frac = phase - floor(phase)
+  ret amplitude * (2.0 * frac - 1.0)
+
+pub fn triangleWave(amplitude: float, frequency: float, t: float): float:
+  let phase = t * frequency
+  let frac = phase - floor(phase)
+  let v = 1.0 - 4.0 * absFloat(frac - 0.5)
+  ret amplitude * v
+
+pub fn squareWave(amplitude: float, frequency: float, t: float, dutyCycle: float = 0.5): float:
+  let phase = t * frequency
+  let frac = phase - floor(phase)
+  ret if frac < dutyCycle: amplitude else: -amplitude
+
+pub fn log2Float(x: float): float:
+  ret lnFloat(x) / 0.6931471805599453
+
+pub fn log10Float(x: float): float:
+  ret lnFloat(x) / 2.302585092994046
+
+pub fn sincFloat(x: float): float:
+  if absFloat(x) < 1e-6:
+    ret 1.0
+  ret sin(x) / x
+
+pub fn wrapAngle(angle: float): float:
+  ret angle - TAU * floor((angle + PI) / TAU)
+
+pub fn wrapAnglePi(angle: float): float:
+  ret wrapAngle(angle)
+
+pub fn angleDeltaRad(target: float, source: float): float:
+  ret wrapAngle(target - source)
+
+pub fn wrapAngleDeg(deg: float): float:
+  ret deg - 360.0 * floor((deg + 180.0) / 360.0)
+
+pub fn angleDeltaDeg(targetDeg: float, sourceDeg: float): float:
+  ret wrapAngleDeg(targetDeg - sourceDeg)
+
+pub fn wrapAngleByte(b: int): int:
+  mut m = b % 256
+  if m < 0:
+    m += 256
+  ret m
+
+pub fn angleDeltaByte(targetByte: int, sourceByte: int): int:
+  mut diff = (targetByte - sourceByte) % 256
+  if diff < 0:
+    diff += 256
+  if diff > 127:
+    diff -= 256
+  ret diff
+
+pub fn stepAngleByte(currentByte: int, targetByte: int, maxStep: int): int:
+  let diff = angleDeltaByte(targetByte, currentByte)
+  mut step = diff
+  let limit = if maxStep < 0: -maxStep else: maxStep
+  if step > limit:
+    step = limit
+  elif step < -limit:
+    step = -limit
+  ret wrapAngleByte(currentByte + step)
+
+pub fn vec2RotateFixed(x: int, y: int, angleBytes: int): (int, int):
+  let normalizedAngle = remEuclid(angleBytes, 256)
+  let rad = (float(normalizedAngle) / 256.0) * TAU
+  let cosVal = cos(rad)
+  let sinVal = sin(rad)
+  let fx = float(x)
+  let fy = float(y)
+  let rx = fx * cosVal - fy * sinVal
+  let ry = fx * sinVal + fy * cosVal
+  ret (roundFloat(rx), roundFloat(ry))

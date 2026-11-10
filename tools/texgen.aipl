@@ -1,0 +1,211 @@
+module AiplTexGen
+
+import { fileExists, writeFile, mkdir, isDir } from "std/fs"
+import { userArgs } from "std/os"
+import { clampInt, absInt } from "std/math"
+
+// ============================================================================
+// AIPL Self-Hosted Procedural Texture, Normal-Map & Sprite-Sheet Generator (v0.8.0)
+// Usage:
+//   ./tools/texgen_bin [--preset brick|stone|wood|water|metal|normal|spritesheet]
+//                      [--size 64] [--seed 1337] [-o out.ppm]
+// ============================================================================
+
+pub fn texHash2D(x: int, y: int, seed: int): int:
+  mut h = (x * 374761393) + (y * 668265263) + (seed * 1442695041)
+  h = (h ^ (h >> 13)) * 1274126177
+  h = h ^ (h >> 16)
+  ret absInt(h) & 255
+
+pub fn texSmoothNoise(x: int, y: int, scale: int, seed: int): int:
+  let sc = if scale < 1: 1 else: scale
+  let gx = x / sc
+  let gy = y / sc
+  let fx = ((x % sc) * 256) / sc
+  let fy = ((y % sc) * 256) / sc
+  let v00 = texHash2D(gx, gy, seed)
+  let v10 = texHash2D(gx + 1, gy, seed)
+  let v01 = texHash2D(gx, gy + 1, seed)
+  let v11 = texHash2D(gx + 1, gy + 1, seed)
+  let top = v00 + ((v10 - v00) * fx) / 256
+  let bot = v01 + ((v11 - v01) * fx) / 256
+  ret clampInt(top + ((bot - top) * fy) / 256, 0, 255)
+
+pub fn texFbm2D(x: int, y: int, seed: int): int:
+  let n1 = texSmoothNoise(x, y, 16, seed)
+  let n2 = texSmoothNoise(x, y, 8, seed + 17)
+  let n3 = texSmoothNoise(x, y, 4, seed + 53)
+  let n4 = texHash2D(x, y, seed + 97)
+  ret clampInt((n1 * 4 + n2 * 2 + n3 * 2 + n4) / 9, 0, 255)
+
+pub fn sampleProceduralPixel(preset: str, x: int, y: int, w: int, h: int, seed: int): [int]:
+  let n = texFbm2D(x, y, seed)
+  let detail = texHash2D(x, y, seed + 31)
+  if preset == "brick":
+    let rowH = 16
+    let brickW = 32
+    let row = y / rowH
+    let xOff = if (row % 2) == 1: brickW / 2 else: 0
+    let bx = (x + xOff) % brickW
+    let by = y % rowH
+    if bx <= 1 or by <= 1:
+      let mortar = clampInt(165 + (detail - 128) / 5, 120, 210)
+      ret [mortar, mortar - 4, mortar - 8]
+    let brickTint = texHash2D(row, (x + xOff) / brickW, seed + 7)
+    let r = clampInt(148 + (n - 128) / 3 + (brickTint - 128) / 6, 80, 225)
+    let g = clampInt(58 + (n - 128) / 5 + (brickTint - 128) / 10, 30, 120)
+    let b = clampInt(44 + (detail - 128) / 6, 20, 95)
+    ret [r, g, b]
+
+  if preset == "stone":
+    let cellX = x / 16
+    let cellY = y / 16
+    let edgeX = x % 16
+    let edgeY = y % 16
+    let bevel = if edgeX == 0 or edgeY == 0: -28 else: (if edgeX == 15 or edgeY == 15: 18 else: 0)
+    let cellTone = (texHash2D(cellX, cellY, seed + 11) - 128) / 5
+    let v = clampInt(118 + (n - 128) / 2 + cellTone + bevel, 35, 220)
+    ret [v, clampInt(v + 2, 35, 225), clampInt(v + 6, 40, 230)]
+
+  if preset == "wood":
+    let grain = ((x * 3 + n / 3) % 24)
+    let ring = if grain < 12: grain * 6 else: (24 - grain) * 6
+    let r = clampInt(122 + ring / 2 + (detail - 128) / 8, 60, 210)
+    let g = clampInt(78 + ring / 3 + (detail - 128) / 10, 38, 155)
+    let b = clampInt(42 + ring / 5, 20, 105)
+    ret [r, g, b]
+
+  if preset == "water":
+    let wave = texSmoothNoise(x + (y / 2), y, 10, seed + 41)
+    let spec = if wave > 192: (wave - 192) * 2 else: 0
+    let r = clampInt(18 + wave / 6 + spec, 10, 220)
+    let g = clampInt(84 + wave / 3 + spec, 40, 240)
+    let b = clampInt(156 + wave / 2 + spec, 90, 255)
+    ret [r, g, b]
+
+  if preset == "metal":
+    let streak = texSmoothNoise(x, y / 4, 12, seed + 73)
+    let bolt = if (x % 32 == 4 or x % 32 == 28) and (y % 32 == 4 or y % 32 == 28): -36 else: 0
+    let base = clampInt(132 + (streak - 128) / 2 + (detail - 128) / 6 + bolt, 45, 235)
+    ret [clampInt(base - 4, 40, 230), base, clampInt(base + 10, 50, 245)]
+
+  if preset == "normal":
+    let hL = texFbm2D(x - 1, y, seed)
+    let hR = texFbm2D(x + 1, y, seed)
+    let hU = texFbm2D(x, y - 1, seed)
+    let hD = texFbm2D(x, y + 1, seed)
+    let nx = clampInt(128 + (hL - hR) * 2, 0, 255)
+    let ny = clampInt(128 + (hU - hD) * 2, 0, 255)
+    let nz = 235
+    ret [nx, ny, nz]
+
+  if preset == "spritesheet":
+    let cellW = if w >= 32: w / 4 else: 8
+    let cellH = if h >= 32: h / 4 else: 8
+    let cx = (x % cellW) - (cellW / 2)
+    let cy = (y % cellH) - (cellH / 2)
+    let distSq = cx * cx + cy * cy
+    let radSq = (cellW * cellW) / 5
+    let frameIdx = (y / cellH) * 4 + (x / cellW)
+    if distSq <= radSq:
+      let r = clampInt(90 + (frameIdx * 23) % 150, 40, 250)
+      let g = clampInt(180 - (frameIdx * 17) % 120, 40, 250)
+      let b = clampInt(220 - (distSq * 100) / (radSq + 1), 50, 255)
+      ret [r, g, b]
+    ret [18, 22, 30]
+
+  // Fallback checker + noise
+  let chk = if ((x / 8) + (y / 8)) % 2 == 0: 180 else: 75
+  let v = clampInt(chk + (n - 128) / 4, 20, 245)
+  ret [v, v, v]
+
+pub fn generatePpmTexture(preset: str, w: int, h: int, seed: int, outPath: str): bool:
+  mut lines: [str] = []
+  lines.push("P3")
+  lines.push(str(w) + " " + str(h))
+  lines.push("255")
+  mut lumSum = 0
+  mut minLum = 255
+  mut maxLum = 0
+  mut y = 0
+  while y < h:
+    mut rowTokens: [str] = []
+    mut x = 0
+    while x < w:
+      let rgb = sampleProceduralPixel(preset, x, y, w, h, seed)
+      let r = rgb[0]
+      let g = rgb[1]
+      let b = rgb[2]
+      let lum = (r * 299 + g * 587 + b * 114) / 1000
+      lumSum += lum
+      if lum < minLum:
+        minLum = lum
+      if lum > maxLum:
+        maxLum = lum
+      rowTokens.push(str(r) + " " + str(g) + " " + str(b))
+      x += 1
+    lines.push(rowTokens.join("  "))
+    y += 1
+  let content = lines.join("\n") + "\n"
+  writeFile(outPath, content)
+  let totalPx = if w * h > 0: w * h else: 1
+  let avgLum = lumSum / totalPx
+  let contrast = maxLum - minLum
+  println("[AIPL TexGen] Generated preset='" + preset + "' (" + str(w) + "x" + str(h) + ", seed=" + str(seed) + ") -> " + outPath + " [avgLum=" + str(avgLum) + ", contrast=" + str(contrast) + "]")
+  ret fileExists(outPath)
+
+pub fn main(): int:
+  let args = userArgs()
+  mut preset = "brick"
+  mut width = 64
+  mut height = 64
+  mut seed = 1337
+  mut outPath = "/tmp/aipl_texgen_sample.ppm"
+  mut packDir = ""
+
+  mut i = 0
+  while i < args.len:
+    let a = args[i]
+    if a == "--preset" and i + 1 < args.len:
+      preset = args[i + 1]
+      i += 1
+    else if a == "--size" and i + 1 < args.len:
+      width = parseInt(args[i + 1])
+      height = width
+      i += 1
+    else if a == "--width" and i + 1 < args.len:
+      width = parseInt(args[i + 1])
+      i += 1
+    else if a == "--height" and i + 1 < args.len:
+      height = parseInt(args[i + 1])
+      i += 1
+    else if a == "--seed" and i + 1 < args.len:
+      seed = parseInt(args[i + 1])
+      i += 1
+    else if a == "-o" and i + 1 < args.len:
+      outPath = args[i + 1]
+      i += 1
+    else if a == "--pack-dir" and i + 1 < args.len:
+      packDir = args[i + 1]
+      i += 1
+    i += 1
+
+  if width < 8:
+    width = 8
+  if height < 8:
+    height = 8
+
+  if packDir != "":
+    if not isDir(packDir):
+      let _ = mkdir(packDir)
+    let presets = ["brick", "stone", "wood", "water", "metal", "normal", "spritesheet"]
+    mut pi = 0
+    while pi < presets.len:
+      let p = presets[pi]
+      let target = packDir + "/" + p + ".ppm"
+      let _ = generatePpmTexture(p, width, height, seed + pi * 101, target)
+      pi += 1
+    ret 0
+
+  let ok = generatePpmTexture(preset, width, height, seed, outPath)
+  ret if ok: 0 else: 1

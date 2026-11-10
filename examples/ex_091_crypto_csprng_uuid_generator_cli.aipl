@@ -1,0 +1,54 @@
+// ============================================================================
+// Example 091: CSPRNG Entropy, RFC-9562 UUID v4/v7 & ULID Generator (CLI)
+// Demonstrates: csprngRandomBytes, csprngRandomInt, csprngRandomFloat,
+//               uuidNil, uuidV4, uuidV7, isValidUuid, parseUuid, and
+//               ulidGenerate from std/crypto.
+// ============================================================================
+module Ex091CryptoCsprngUuidGeneratorCli
+
+import {
+  csprngRandomBytes,
+  csprngRandomInt,
+  csprngRandomFloat,
+  uuidNil,
+  uuidV4,
+  uuidV7,
+  isValidUuid,
+  parseUuid,
+  ulidGenerate
+} from "../std/crypto"
+
+// Generates 32 CSPRNG bytes, a UUID v4, and a 26-char ULID and returns the sum of their lengths.
+pub fn evaluateCsprngUuidAndUlidLengths(): int:
+  let entropy = csprngRandomBytes(32)
+  let rInt = csprngRandomInt(10, 20)
+  let rFlt = csprngRandomFloat()
+  assert(rInt >= 10 and rInt <= 20 and rFlt >= 0.0 and rFlt < 1.0, "CSPRNG range checks")
+
+  let u4 = uuidV4()
+  let ulid = ulidGenerate(1700000000000)
+  ret entropy.len() + u4.len + ulid.len
+
+// Verifies UUID nil, UUID v4/v7 nibble invariants, parseUuid round-trip, and v7 time ordering.
+pub fn verifyUuidV4V7AndTimeOrdering(): int:
+  let nilStr = uuidNil()
+  let v4 = uuidV4()
+  let parsed = parseUuid(v4).unwrap()
+  let v7Early = uuidV7(1700000000000)
+  let v7Late = uuidV7(1700000001000)
+  if nilStr == "00000000-0000-0000-0000-000000000000" and isValidUuid(v4) and v4.slice(14, 15) == "4" and parsed.toString() == v4 and isValidUuid(v7Early) and v7Early.slice(14, 15) == "7" and v7Early < v7Late:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a RFC-9562 UUID version.
+pub fn describeUuidVersionVariant(version: int): str:
+  if version == 7:
+    ret "UUID:RFC9562_V7_TIME_ORDERED"
+  ret "UUID:RFC9562_V4_RANDOM"
+
+pub fn main(): int:
+  let lenSum = evaluateCsprngUuidAndUlidLengths()
+  let uuidOk = verifyUuidV4V7AndTimeOrdering()
+  let variant = describeUuidVersionVariant(7)
+  println("ex_091_crypto_csprng_uuid_generator_cli: lenSum=" + str(lenSum) + " uuidOk=" + str(uuidOk) + " variant=" + variant)
+  ret 0

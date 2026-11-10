@@ -1,0 +1,57 @@
+// ============================================================================
+// Example 105: OS Environment Variables, Expansion & PATH Splitter (CLI)
+// Demonstrates: osSetEnv, osHasEnv, osGetEnv, osRemoveEnv, getEnvOr,
+//               osExpandEnvVars, osPathJoinEnv, osSplitPathEnv, osCurrentDir,
+//               and osTempDir from std/os.
+// ============================================================================
+module Ex105OsEnvConfigResolverCli
+
+import {
+  osSetEnv,
+  osHasEnv,
+  osGetEnv,
+  osRemoveEnv,
+  getEnvOr,
+  osExpandEnvVars,
+  osPathJoinEnv,
+  osSplitPathEnv,
+  osCurrentDir,
+  osTempDir
+} from "../std/os"
+
+// Sets an environment variable, expands a template string, and joins/splits a 3-entry PATH list.
+pub fn evaluateEnvExpansionAndPathSegments(): str:
+  let _ = osSetEnv("AIPL_EX105_PORT", "8080")
+  let expanded = osExpandEnvVars("port=$" + "{" + "AIPL_EX105_PORT" + "}")
+  let joinedPath = osPathJoinEnv(["/bin", "/usr/bin", "/usr/local/bin"])
+  let parts = osSplitPathEnv(joinedPath)
+  let _ = osRemoveEnv("AIPL_EX105_PORT")
+  ret expanded + ":" + str(parts.len())
+
+// Verifies environment variable set/get/remove lifecycle, fallback defaults, and working/temp directories.
+pub fn verifyEnvLifecycleAndDirectories(): int:
+  let key = "AIPL_EX105_SECRET"
+  let setOk = osSetEnv(key, "ACTIVE_105")
+  let hasBefore = osHasEnv(key)
+  let val = osGetEnv(key).unwrap()
+  let remOk = osRemoveEnv(key)
+  let hasAfter = osHasEnv(key)
+  let fallback = getEnvOr("AIPL_MISSING_9999", "fallback_default")
+  let cwd = osCurrentDir().unwrap()
+  let tmp = osTempDir()
+  if setOk and hasBefore and val == "ACTIVE_105" and remOk and not hasAfter and fallback == "fallback_default" and cwd.len > 0 and tmp.len > 0:
+    ret 1
+  ret 0
+
+// Returns a canonical label for the active configuration override source.
+pub fn describeEnvResolutionSource(hasOverride: bool): str:
+  if hasOverride:
+    ret "ENV:PROCESS_EXPORT_OVERRIDE"
+  ret "ENV:DEFAULT_FALLBACK_VALUE"
+
+pub fn main(): int:
+  let expStr = evaluateEnvExpansionAndPathSegments()
+  let envOk = verifyEnvLifecycleAndDirectories()
+  let src = describeEnvResolutionSource(true)
+  println("ex_105_os_env_config_resolver_cli: exp=" + expStr + " envOk=" + str(envOk) + " src=" + src)
+  ret 0

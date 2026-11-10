@@ -1,0 +1,183 @@
+module tests.functions.ai.goap_test
+
+import * from "std/ai/goap"
+import { popcnt, clampFloat } from "std/math/consts"
+import { exp, sqrt, lnFloat } from "std/math/trig"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_goap_goapPlannerNew_1(): int:
+  let resNom = goapPlannerNew()
+  let resEdge = goapPlannerNew()
+  assertEqInt(resNom.actions.len(), 0, "goapPlannerNew nominal resNom.actions.len() == 0")
+  assertEqInt(resEdge.actions.len(), 0, "goapPlannerNew boundary resEdge.actions.len() == 0")
+  ret 0
+
+pub fn test_goap_goapAddAction_2(): int:
+  let arg_planner = GoapPlanner(actions = [])
+  let edge_planner = GoapPlanner(actions = [])
+  let arg_action = GoapAction(name = "test", cost = 1.0, preconditionMask = 4, preconditionCareMask = 4, effectSetMask = 4, effectClearMask = 4)
+  let edge_action = GoapAction(name = "a", cost = 0.5, preconditionMask = 1, preconditionCareMask = 1, effectSetMask = 1, effectClearMask = 1)
+  goapAddAction(arg_planner, arg_action)
+  goapAddAction(edge_planner, edge_action)
+  assertEqInt(arg_planner.actions.len(), 1, "goapAddAction nominal arg_planner.actions.len() == 1")
+  assertEqInt(edge_planner.actions.len(), 1, "goapAddAction boundary edge_planner.actions.len() == 1")
+  ret 0
+
+pub fn test_goap_satisfiesGoal_3(): int:
+  let arg_stateMask = 4
+  let edge_stateMask = 1
+  let arg_goal = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_goal = GoapWorldState(stateMask = 1, careMask = 1)
+  let resNom = satisfiesGoal(arg_stateMask, arg_goal)
+  let resEdge = satisfiesGoal(edge_stateMask, edge_goal)
+  assert(resNom == true, "satisfiesGoal nominal resNom == true")
+  assert(resEdge == true, "satisfiesGoal boundary resEdge == true")
+  ret 0
+
+pub fn test_goap_goapHasGoalSatisfied_4(): int:
+  let arg_currentState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_currentState = GoapWorldState(stateMask = 1, careMask = 1)
+  let arg_goalState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_goalState = GoapWorldState(stateMask = 1, careMask = 1)
+  let resNom = goapHasGoalSatisfied(arg_currentState, arg_goalState)
+  let resEdge = goapHasGoalSatisfied(edge_currentState, edge_goalState)
+  assert(resNom == true, "goapHasGoalSatisfied nominal resNom == true")
+  assert(resEdge == true, "goapHasGoalSatisfied boundary resEdge == true")
+  ret 0
+
+pub fn test_goap_goapHeuristicDistance_5(): int:
+  let arg_currentState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_currentState = GoapWorldState(stateMask = 1, careMask = 1)
+  let arg_goalState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_goalState = GoapWorldState(stateMask = 1, careMask = 1)
+  let resNom = goapHeuristicDistance(arg_currentState, arg_goalState)
+  let resEdge = goapHeuristicDistance(edge_currentState, edge_goalState)
+  assertEqInt(resNom, 0, "goapHeuristicDistance nominal resNom == 0")
+  assertEqInt(resEdge, 0, "goapHeuristicDistance boundary resEdge == 0")
+  ret 0
+
+pub fn test_goap_actionApplicable_6(): int:
+  let arg_stateMask = 4
+  let edge_stateMask = 1
+  let arg_act = GoapAction(name = "test", cost = 1.0, preconditionMask = 4, preconditionCareMask = 4, effectSetMask = 4, effectClearMask = 4)
+  let edge_act = GoapAction(name = "a", cost = 0.5, preconditionMask = 1, preconditionCareMask = 1, effectSetMask = 1, effectClearMask = 1)
+  let resNom = actionApplicable(arg_stateMask, arg_act)
+  let resEdge = actionApplicable(edge_stateMask, edge_act)
+  assert(resNom == true, "actionApplicable nominal resNom == true")
+  assert(resEdge == true, "actionApplicable boundary resEdge == true")
+  ret 0
+
+pub fn test_goap_applyActionEffects_7(): int:
+  let arg_stateMask = 4
+  let edge_stateMask = 1
+  let arg_act = GoapAction(name = "test", cost = 1.0, preconditionMask = 4, preconditionCareMask = 4, effectSetMask = 4, effectClearMask = 4)
+  let edge_act = GoapAction(name = "a", cost = 0.5, preconditionMask = 1, preconditionCareMask = 1, effectSetMask = 1, effectClearMask = 1)
+  let resNom = applyActionEffects(arg_stateMask, arg_act)
+  let resEdge = applyActionEffects(edge_stateMask, edge_act)
+  assertEqInt(resNom, 0, "applyActionEffects nominal resNom == 0")
+  assertEqInt(resEdge, 0, "applyActionEffects boundary resEdge == 0")
+  ret 0
+
+pub fn test_goap_goapPlanAStar_8(): int:
+  let arg_planner = GoapPlanner(actions = [])
+  let edge_planner = GoapPlanner(actions = [])
+  let arg_currentState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_currentState = GoapWorldState(stateMask = 1, careMask = 1)
+  let arg_goalState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_goalState = GoapWorldState(stateMask = 1, careMask = 1)
+  let resNom = goapPlanAStar(arg_planner, arg_currentState, arg_goalState)
+  let resEdge = goapPlanAStar(edge_planner, edge_currentState, edge_goalState)
+  assert(resNom.isSome() == true, "goapPlanAStar nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "goapPlanAStar boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_goap_utilityResponseCurveLogistic_9(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_midpoint = 1.0
+  let edge_midpoint = 0.5
+  let arg_steepness = 1.0
+  let edge_steepness = 0.5
+  let resNom = utilityResponseCurveLogistic(arg_x, arg_midpoint, arg_steepness)
+  let resEdge = utilityResponseCurveLogistic(edge_x, edge_midpoint, edge_steepness)
+  assertApproxEq(resNom, 0.5, 0.001, "utilityResponseCurveLogistic nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.5, 0.001, "utilityResponseCurveLogistic boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_goap_utilityLinear_10(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_minVal = 0.0
+  let edge_minVal = 0.0
+  let arg_maxVal = 2.0
+  let edge_maxVal = 1.0
+  let resNom = utilityLinear(arg_val, arg_minVal, arg_maxVal)
+  let resEdge = utilityLinear(edge_val, edge_minVal, edge_maxVal)
+  assertApproxEq(resNom, 0.5, 0.001, "utilityLinear nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.5, 0.001, "utilityLinear boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_goap_utilityQuadratic_11(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_minVal = 0.0
+  let edge_minVal = 0.0
+  let arg_maxVal = 2.0
+  let edge_maxVal = 1.0
+  let arg_exponent = 1.0
+  let edge_exponent = 0.5
+  let resNom = utilityQuadratic(arg_val, arg_minVal, arg_maxVal, arg_exponent)
+  let resEdge = utilityQuadratic(edge_val, edge_minVal, edge_maxVal, edge_exponent)
+  assertApproxEq(resNom, 0.5, 0.001, "utilityQuadratic nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.707107, 0.001, "utilityQuadratic boundary resEdge ~= 0.707107")
+  ret 0
+
+pub fn test_goap_utilityExponential_12(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_growthRate = 2.0
+  let edge_growthRate = 1.0
+  let resNom = utilityExponential(arg_val, arg_growthRate)
+  let resEdge = utilityExponential(edge_val, edge_growthRate)
+  assertApproxEq(resNom, 0.864665, 0.001, "utilityExponential nominal resNom ~= 0.864665")
+  assertApproxEq(resEdge, 0.393469, 0.001, "utilityExponential boundary resEdge ~= 0.393469")
+  ret 0
+
+pub fn test_goap_utilityGaussian_13(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_center = 1.0
+  let edge_center = 0.5
+  let arg_sigma = 1.0
+  let edge_sigma = 0.5
+  let resNom = utilityGaussian(arg_val, arg_center, arg_sigma)
+  let resEdge = utilityGaussian(edge_val, edge_center, edge_sigma)
+  assertApproxEq(resNom, 1.0, 0.001, "utilityGaussian nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "utilityGaussian boundary resEdge ~= 1.0")
+  ret 0
+
+pub fn test_goap_utilitySelectBest_14(): int:
+  let arg_scores = [1.0]
+  let edge_scores = []
+  let resNom = utilitySelectBest(arg_scores)
+  let resEdge = utilitySelectBest(edge_scores)
+  assertEqInt(resNom, 0, "utilitySelectBest nominal resNom == 0")
+  assertEqInt(resEdge, -1, "utilitySelectBest boundary resEdge == -1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_goap_goapPlannerNew_1(), 0, "test_goap_goapPlannerNew_1")
+  assertEqInt(test_goap_goapAddAction_2(), 0, "test_goap_goapAddAction_2")
+  assertEqInt(test_goap_satisfiesGoal_3(), 0, "test_goap_satisfiesGoal_3")
+  assertEqInt(test_goap_goapHasGoalSatisfied_4(), 0, "test_goap_goapHasGoalSatisfied_4")
+  assertEqInt(test_goap_goapHeuristicDistance_5(), 0, "test_goap_goapHeuristicDistance_5")
+  assertEqInt(test_goap_actionApplicable_6(), 0, "test_goap_actionApplicable_6")
+  assertEqInt(test_goap_applyActionEffects_7(), 0, "test_goap_applyActionEffects_7")
+  assertEqInt(test_goap_goapPlanAStar_8(), 0, "test_goap_goapPlanAStar_8")
+  assertEqInt(test_goap_utilityResponseCurveLogistic_9(), 0, "test_goap_utilityResponseCurveLogistic_9")
+  assertEqInt(test_goap_utilityLinear_10(), 0, "test_goap_utilityLinear_10")
+  assertEqInt(test_goap_utilityQuadratic_11(), 0, "test_goap_utilityQuadratic_11")
+  assertEqInt(test_goap_utilityExponential_12(), 0, "test_goap_utilityExponential_12")
+  assertEqInt(test_goap_utilityGaussian_13(), 0, "test_goap_utilityGaussian_13")
+  assertEqInt(test_goap_utilitySelectBest_14(), 0, "test_goap_utilitySelectBest_14")
+  ret 0

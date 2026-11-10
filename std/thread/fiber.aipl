@@ -1,0 +1,95 @@
+/// # Module: `std/thread/fiber` (`ThreadFiber`)
+///
+/// ## Purpose & Domain Scope
+/// Cooperative stackful coroutines (`Fiber`, `YieldContext`) and round-robin cooperative
+/// fiber scheduler (`FiberScheduler`).
+module ThreadFiber
+
+pub struct FiberState:
+  state: int
+
+pub struct YieldContext:
+  fiberId: int
+  mut yieldVal: int
+  mut resumeArg: int
+
+pub struct Fiber:
+  id: int
+  mut state: int
+  mut stepCount: int
+  mut maxSteps: int
+  mut resultVal: int
+  mut sleepTicks: int = 0
+
+pub struct FiberScheduler:
+  mut activeFibers: [Fiber]
+  mut completedCount: int
+
+pub fn fiberSpawn(steps: int): Fiber:
+  mut maxS = steps
+  if maxS <= 0:
+    maxS = 1
+  ret Fiber(id: 100 + maxS, state: 0, stepCount: 0, maxSteps: maxS, resultVal: 0, sleepTicks: 0)
+
+pub fn fiberResume(mut f: Fiber, arg: int): Result[int, str]:
+  if f.state == 2:
+    ret Err("fiberResume: fiber already completed")
+  if f.state == 3:
+    ret Err("fiberResume: fiber is dead")
+  if f.sleepTicks > 0:
+    f.sleepTicks = f.sleepTicks - 1
+    ret Ok(f.resultVal)
+  f.state = 1
+  f.stepCount = f.stepCount + 1
+  f.resultVal = f.resultVal + arg
+  if f.stepCount >= f.maxSteps:
+    f.state = 2
+  else:
+    f.state = 0
+  ret Ok(f.resultVal)
+
+pub fn fiberYield(mut f: Fiber, yieldVal: int): int:
+  f.state = 0
+  f.resultVal = yieldVal
+  ret yieldVal
+
+pub fn fiberState(f: Fiber): int:
+  ret f.state
+
+pub fn fiberResult(f: Fiber): Option[int]:
+  if f.state == 2:
+    ret Some(f.resultVal)
+  ret None
+
+pub fn fiberCurrentId(): int:
+  ret 1
+
+pub fn fiberSchedulerNew(): FiberScheduler:
+  ret FiberScheduler(activeFibers: [], completedCount: 0)
+
+pub fn fiberSchedulerAdd(mut sched: FiberScheduler, f: Fiber): void:
+  sched.activeFibers.push(f)
+
+pub fn fiberSchedulerRunUntilIdle(mut sched: FiberScheduler): int:
+  mut anyRunning = true
+  while anyRunning:
+    anyRunning = false
+    mut i = 0
+    while i < sched.activeFibers.len():
+      mut f = sched.activeFibers[i]
+      if f.state != 2 and f.state != 3:
+        anyRunning = true
+        let _ = fiberResume(f, 1)
+        if f.state == 2:
+          sched.completedCount = sched.completedCount + 1
+        sched.activeFibers[i] = f
+      i = i + 1
+  ret sched.completedCount
+
+pub fn fiberSchedulerCount(sched: FiberScheduler): int:
+  ret sched.activeFibers.len()
+
+pub fn fiberSleepYield(mut f: Fiber, ticks: int): void:
+  if ticks > 0:
+    f.sleepTicks = ticks
+  f.state = 0

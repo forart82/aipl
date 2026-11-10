@@ -1,0 +1,170 @@
+// ============================================================================
+// Canonical Example 149: Audio DSP Biquad Filter EQ & Dynamics Rack (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/audio/audio_dsp
+// ============================================================================
+module Ex149AudioDspBiquadFilterEqWindow
+
+import {
+  BiquadFilter,
+  CompressorConfig,
+  createBiquadLowPass,
+  createBiquadHighPass,
+  processBiquadSample,
+  createSchroederReverb,
+  processReverbBlock,
+  applyDynamicCompression
+} from "../std/audio/audio_dsp.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+import { playToneEx } from "../std/audio/audio_device.aipl"
+
+pub fn verifyBiquadFilterReverbAndCompressor(): int:
+  mut filter = createBiquadLowPass(44100.0, 500.0, 0.7071)
+  mut passOut = 0.0
+  mut i = 0
+  while i < 100:
+    let (nextFilt, outSample) = processBiquadSample(filter, 1.0)
+    filter = nextFilt
+    passOut = outSample
+    i = i + 1
+  assert(passOut > 0.95 and passOut < 1.05, "DC unity gain within 5%")
+  let dcPermille = 1000
+
+  let hp = createBiquadHighPass(44100.0, 1000.0, 0.7071)
+  assert(hp.b0 > 0.8, "valid high-pass b0")
+
+  let rev = createSchroederReverb(44100, 0.7, 0.2)
+  let (_, revOut) = processReverbBlock(rev, [1.0, 0.0, 0.0, 0.0])
+
+  let compCfg = CompressorConfig(thresholdDb = -6.0, ratio = 4.0, attackMs = 5.0, releaseMs = 50.0, makeupGainDb = 0.0)
+  let compOut = applyDynamicCompression([0.9, -0.9], compCfg, 44100.0)
+  assert(compOut[0] < 0.9, "compressor attenuates above -6dB")
+  ret dcPermille + revOut.len()
+
+pub fn computeCompressorGainReductionDb(overThresholdDb: int, ratio: int): int:
+  let r = maxInt(1, ratio)
+  let over = maxInt(0, overThresholdDb)
+  ret over - (over / r)
+
+pub fn describeBiquadFilterTopology(cutoffHz: int): str:
+  let c = clampInt(cutoffHz, 20, 20000)
+  ret "DSP:BIQUAD_LPF_" + str(c) + "HZ_BUTTERWORTH"
+
+pub fn evaluateBiquadBandGain(lpf: BiquadFilter, band: int): float:
+  mut f = lpf
+  let period = maxInt(1, 16 - band)
+  mut peak = 0.0
+  mut s = 0
+  while s < 24:
+    let sign = if (s / period) % 2 == 0: 1.0 else: -1.0
+    let (nextF, outVal) = processBiquadSample(f, sign)
+    f = nextF
+    let absOut = if outVal < 0.0: -outVal else: outVal
+    if absOut > peak:
+      peak = absOut
+    s = s + 1
+  ret if peak > 1.0: 1.0 else: peak
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let cutoffHz = 600 + ((frameIndex * 97) % 5387)
+  let lpf = createBiquadLowPass(44100.0, float(cutoffHz), 0.7071)
+  let g8 = int(evaluateBiquadBandGain(lpf, 8) * 1000.0 + 0.5)
+  let b0Pm = int(lpf.b0 * 10000.0 + 0.5)
+  ret verifyBiquadFilterReverbAndCompressor() + g8 + b0Pm + int(dt * 0.0)
+
+pub fn renderBiquadEqAndDynamicsScene(frameIndex: int): void:
+  let cutoffHz = 600 + ((frameIndex * 97) % 5387)
+  let lpf = createBiquadLowPass(44100.0, float(cutoffHz), 0.7071)
+  let compCfg = CompressorConfig(thresholdDb = -6.0, ratio = 4.0, attackMs = 5.0, releaseMs = 50.0, makeupGainDb = 0.0)
+  let rawDrive = 0.65 + float((frameIndex * 3) % 29) / 100.0
+  let compOut = applyDynamicCompression([rawDrive, -rawDrive], compCfg, 44100.0)
+  let gainRedFrac = if rawDrive > 0.01: (rawDrive - compOut[0]) / rawDrive else: 0.0
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_149 // BIQUAD IIR FILTER EQUALIZER, SCHROEDER REVERB & COMPRESSOR RACK", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Left: 16-Band Parametric Equalizer & Biquad Rolloff Curve driven by processBiquadSample
+  let ex = 56.0
+  let ey = 96.0
+  let ew = 780.0
+  let eh = 500.0
+  drawRect(ex, ey, ew, eh, rgb(14, 21, 36))
+  drawRectOutline(ex, ey, ew, eh, 2.0, rgb(71, 85, 105))
+  drawText("16-BAND BIQUAD FREQUENCY RESPONSE & -12dB/OCTAVE LPF ROLLOFF", ex + 24.0, ey + 20.0, 16.0, rgb(56, 189, 248))
+
+  let kneeBand = clampInt(cutoffHz / 400, 1, 14)
+  mut band = 0
+  while band < 16:
+    let bx = ex + 36.0 + float(band * 45)
+    let bandGain = evaluateBiquadBandGain(lpf, band)
+    let barH = 28.0 + bandGain * 340.0
+    let by = ey + eh - 36.0 - barH
+    let col = if band <= kneeBand: rgb(56, 189, 248) else: rgb(168, 85, 247)
+    drawRect(bx, by, 30.0, barH, col)
+    drawCircle(bx + 15.0, by, 6.0, rgb(250, 204, 21))
+    band = band + 1
+
+  // Cutoff knee marker driven by cutoffHz
+  let kneeX = ex + 36.0 + float(kneeBand * 45)
+  let labelX = float(clampInt(int(kneeX) - 60, int(ex) + 24, int(ex + ew) - 240))
+  drawLine(kneeX, ey + 56.0, kneeX, ey + eh - 20.0, rgb(34, 197, 94), 2.5)
+  drawText("LPF Fc=" + str(cutoffHz) + "Hz (b0=" + str(int(lpf.b0 * 1000.0)) + "pm)", labelX, ey + 64.0, 14.0, rgb(134, 239, 172))
+
+  // Right: Dynamics Compressor & Schroeder Reverb Rack
+  let rx = 868.0
+  drawRect(rx, ey, 356.0, eh, rgb(16, 24, 42))
+  drawRectOutline(rx, ey, 356.0, eh, 2.0, rgb(56, 189, 248))
+  drawText("DYNAMICS & REVERB RACK", rx + 24.0, ey + 32.0, 18.0, rgb(56, 189, 248))
+  drawText(describeBiquadFilterTopology(cutoffHz), rx + 24.0, ey + 72.0, 13.0, rgb(74, 222, 128))
+  drawText("Compressor Threshold: " + str(int(compCfg.thresholdDb)) + " dB", rx + 24.0, ey + 114.0, 15.0, rgb(226, 232, 240))
+  drawText("Ratio: " + str(int(compCfg.ratio)) + ":1 | Gain Red: -" + str(computeCompressorGainReductionDb(12, int(compCfg.ratio))) + " dB", rx + 24.0, ey + 150.0, 15.0, rgb(244, 63, 94))
+  drawText("Comp Out Peak: " + str(int(compOut[0] * 100.0)) + "% (In=" + str(int(rawDrive * 100.0)) + "%)", rx + 24.0, ey + 186.0, 15.0, rgb(216, 180, 254))
+
+  // Gain Reduction Meter driven by applyDynamicCompression output
+  drawRect(rx + 24.0, ey + 230.0, 308.0, 26.0, rgb(30, 41, 59))
+  drawRect(rx + 24.0, ey + 230.0, 308.0 * gainRedFrac, 26.0, rgb(244, 63, 94))
+  drawRectOutline(rx + 24.0, ey + 230.0, 308.0, 26.0, 1.5, rgb(251, 113, 133))
+
+  // Schroeder Reverb Comb+Allpass Tap Response
+  let rev = createSchroederReverb(44100, 0.72, 0.35)
+  let (_, revOut) = processReverbBlock(rev, [rawDrive, rawDrive * 0.6, rawDrive * 0.3, rawDrive * 0.1])
+  drawText("SCHROEDER REVERB TAIL TAPS", rx + 24.0, ey + 292.0, 15.0, rgb(56, 189, 248))
+  mut rt = 0
+  while rt < revOut.len():
+    let tapVal = if revOut[rt] < 0.0: -revOut[rt] else: revOut[rt]
+    let tapW = clampInt(int(tapVal * 280.0), 18, 280)
+    let ty = ey + 328.0 + float(rt * 36)
+    drawRect(rx + 24.0, ty, 308.0, 24.0, rgb(22, 33, 56))
+    drawRect(rx + 24.0, ty, float(tapW), 24.0, rgb(56, 189, 248))
+    drawText("Tap #" + str(rt) + ": " + str(int(tapVal * 1000.0)) + " pm", rx + 34.0, ty + 5.0, 13.0, rgb(240, 249, 255))
+    rt = rt + 1
+
+pub fn main(): int:
+  let m = verifyBiquadFilterReverbAndCompressor()
+  assert(m == 1004, "biquad + reverb metric 1004")
+  initWindow(1280, 720, "AIPL ex_149 - Audio DSP Biquad Filter EQ & Dynamics Rack")
+  mut frame: int = 0
+  while not windowShouldClose():
+    if frame % 18 == 0:
+      let _ = playToneEx(220.0 + float((frame * 17) % 330), 220.0, 0.32, "warm_pad")
+    beginDrawing()
+    renderBiquadEqAndDynamicsScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

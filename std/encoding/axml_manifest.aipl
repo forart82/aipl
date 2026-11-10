@@ -1,0 +1,45 @@
+module std.encoding.axml_manifest
+
+import { Result, Ok, Err } from "std/prelude"
+
+pub const SCREEN_ORIENTATION_LANDSCAPE: int = 0
+pub const SCREEN_ORIENTATION_PORTRAIT: int = 1
+pub const SCREEN_ORIENTATION_SENSOR: int = 4
+pub const SCREEN_ORIENTATION_SENSOR_LANDSCAPE: int = 6
+
+pub fn patchAxmlPackageName(rawPackageId: str): Result[(str, int), str] requires rawPackageId.len() >= 0 ensures rawPackageId.len() > 0 or result.isErr():
+  let pkg = rawPackageId.trim()
+  if pkg.len() < 5 or not pkg.contains(".") or pkg.contains("..") or pkg.startsWith(".") or pkg.endsWith(".") or pkg.contains(" "):
+    ret Err("E_AXML_INVALID_PACKAGE_ID")
+  let utf16LenWithLengths = (pkg.len() + 2) * 2
+  let alignedPoolBytes = ((utf16LenWithLengths + 3) / 4) * 4
+  ret Ok((pkg, alignedPoolBytes))
+
+pub fn patchAxmlAppLabel(baseAxmlSizeBytes: int, oldLabel: str, newLabel: str): (str, int) requires baseAxmlSizeBytes >= 64 ensures result[0].len() > 0 and result[1] >= 64:
+  let label = if newLabel.trim().len() > 0: newLabel.trim() else: "AIPL App"
+  let oldAligned = (((oldLabel.len() + 2) * 2 + 3) / 4) * 4
+  let newAligned = (((label.len() + 2) * 2 + 3) / 4) * 4
+  let updatedSize = baseAxmlSizeBytes - oldAligned + newAligned
+  let safeSize = if updatedSize >= 64: updatedSize else: 64
+  ret (label, safeSize)
+
+pub fn patchAxmlVersionCode(versionCode: int, versionName: str): (int, str, [int]) requires versionName.len() >= 0 ensures result[0] >= 1 and result[1].len() > 0 and result[2].len() == 4:
+  let safeCode = if versionCode >= 1: versionCode else: 1
+  let safeName = if versionName.trim().len() > 0: versionName.trim() else: "1.0.0"
+  let leBytes: [int] = [
+    safeCode & 255,
+    (safeCode >> 8) & 255,
+    (safeCode >> 16) & 255,
+    (safeCode >> 24) & 255
+  ]
+  ret (safeCode, safeName, leBytes)
+
+pub fn patchAxmlScreenOrientation(orientationMode: str): int requires orientationMode.len() >= 0 ensures result == 0 or result == 1 or result == 4 or result == 6:
+  let mode = orientationMode.trim().toLower()
+  if mode == "landscape":
+    ret SCREEN_ORIENTATION_LANDSCAPE
+  if mode == "portrait":
+    ret SCREEN_ORIENTATION_PORTRAIT
+  if mode == "sensorlandscape":
+    ret SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+  ret SCREEN_ORIENTATION_SENSOR

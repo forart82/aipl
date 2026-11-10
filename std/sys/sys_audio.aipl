@@ -1,0 +1,50 @@
+// ============================================================================
+// Module: std/sys/sys_audio (SysAudio)
+// Layer 0 Host Audio Hardware Stream & Ring-Buffer Interface
+// ============================================================================
+module SysAudio
+
+pub struct SysAudioStreamDesc:
+  handle: int
+  channels: int
+  sampleRate: int
+  bufferFrames: int
+  paused: bool
+
+pub fn sysAudioOpenStream(channels: int, sampleRate: int, bufferFrames: int): int:
+  if channels <= 0 or sampleRate <= 0 or bufferFrames <= 0:
+    ret -1
+  ret 1
+
+pub fn sysAudioCloseStream(handle: int): int:
+  if handle <= 0:
+    ret -1
+  ret 0
+
+pub fn sysAudioWriteFrames(handle: int, pcmPtr: int, frames: int): int:
+  if handle <= 0 or pcmPtr == 0 or frames < 0:
+    ret -1
+  if pcmPtr > 65536 and frames > 0:
+    mut samples: [float] = []
+    mut i = 0
+    let count = if frames > 88200: 88200 else: frames
+    while i < count:
+      samples.push(bitcastI64ToF64(ptrReadI64(pcmPtr, i * 8)))
+      i += 1
+    let _ = playPcmBuffer(samples, 44100)
+  ret frames
+
+pub fn sysAudioGetLatencyFrames(handle: int): int:
+  if handle <= 0:
+    ret -1
+  ret 256
+
+pub fn sysAudioPauseStream(handle: int): int:
+  if handle <= 0:
+    ret -1
+  ret 0
+
+pub fn sysAudioResumeStream(handle: int): int:
+  if handle <= 0:
+    ret -1
+  ret 0

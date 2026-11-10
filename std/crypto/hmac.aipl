@@ -1,0 +1,56 @@
+/// # Module: `std/crypto/hmac` (`CryptoHmac`)
+///
+/// ## Purpose & Domain Scope
+/// RFC 2104 and RFC 4231 Hash-based Message Authentication Codes (HMAC-SHA256,
+/// HMAC-SHA512) and timing-attack resistant constant-time equality checks.
+module CryptoHmac
+
+import { Sha256Hasher, sha256, sha512 } from "./hash.aipl"
+import { hexEncode } from "../encoding/hex.aipl"
+
+pub struct HmacSha256:
+  hasher: Sha256Hasher
+  oKeyPad: bytes
+
+pub fn hmacSha256(key: bytes, message: bytes): bytes:
+  ret aipl_rt_hmacSha256(key, message)
+
+pub fn hmacSha256Str(key: str, message: str): str:
+  ret aipl_rt_hmacSha256Hex(key, message)
+
+pub fn hmacSha512(key: bytes, message: bytes): bytes:
+  let blockSize = 128
+  mut actualKey = key
+  if actualKey.len() > blockSize:
+    actualKey = sha512(actualKey)
+  mut iKeyPad = bytesNew(blockSize)
+  mut oKeyPad = bytesNew(blockSize)
+  mut i = 0
+  while i < blockSize:
+    mut kByte = 0
+    if i < actualKey.len():
+      kByte = 255 & actualKey[i]
+    iKeyPad.set(i, (kByte ^ 54) & 255)
+    oKeyPad.set(i, (kByte ^ 92) & 255)
+    i = i + 1
+  let innerInput = bytesConcat([iKeyPad, message])
+  let innerDigest = sha512(innerInput)
+  let outerInput = bytesConcat([oKeyPad, innerDigest])
+  ret sha512(outerInput)
+
+pub fn hmacSha512Str(key: str, message: str): str:
+  let digest = hmacSha512(key.toBytes(), message.toBytes())
+  ret hexEncode(digest)
+
+pub fn constantTimeEqual(a: bytes, b: bytes): bool:
+  if a.len() != b.len():
+    ret false
+  mut diff = 0
+  mut i = 0
+  while i < a.len():
+    diff = diff | (a[i] ^ b[i])
+    i = i + 1
+  ret diff == 0
+
+pub fn constantTimeEqualStr(a: str, b: str): bool:
+  ret constantTimeEqual(a.toBytes(), b.toBytes())

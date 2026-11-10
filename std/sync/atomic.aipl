@@ -1,0 +1,117 @@
+/// # Module: `std/sync/atomic` (`SyncAtomic`)
+///
+/// ## Purpose & Domain Scope
+/// Hardware-modeled atomic primitives (`AtomicBool`, `AtomicInt64`, `AtomicUsize`),
+/// memory ordering specifications (`MemoryOrder`), compare-and-swap (CAS), atomic
+/// arithmetic/bitwise fetch-modify operations, and memory fences.
+module SyncAtomic
+
+pub struct MemoryOrder:
+  order: int
+
+pub struct AtomicBool:
+  mut val: bool
+
+pub struct AtomicInt64:
+  mut val: int
+
+pub struct AtomicUsize:
+  mut val: int
+
+pub fn atomicBoolNew(initial: bool): AtomicBool:
+  ret AtomicBool(val: initial)
+
+pub fn atomicBoolLoad(a: AtomicBool, order: int): bool:
+  if atomicMemoryFence(order) < 0:
+    ret false
+  ret a.val
+
+pub fn atomicBoolStore(mut a: AtomicBool, val: bool, order: int): void:
+  if atomicMemoryFence(order) >= 0:
+    a.val = val
+
+pub fn atomicBoolSwap(mut a: AtomicBool, val: bool, order: int): bool:
+  let prev = a.val
+  if atomicMemoryFence(order) >= 0:
+    a.val = val
+  ret prev
+
+pub fn atomicBoolCompareAndSwap(mut a: AtomicBool, expected: bool, desired: bool, order: int): bool:
+  if atomicMemoryFence(order) >= 0 and a.val == expected:
+    a.val = desired
+    ret true
+  ret false
+
+pub fn atomicIntNew(initial: int): AtomicInt64:
+  ret AtomicInt64(val: initial)
+
+pub fn atomicIntLoad(a: AtomicInt64, order: int): int:
+  if atomicMemoryFence(order) < 0:
+    ret 0
+  ret a.val
+
+pub fn atomicIntStore(mut a: AtomicInt64, val: int, order: int): void:
+  if atomicMemoryFence(order) >= 0:
+    a.val = val
+
+pub fn atomicIntSwap(mut a: AtomicInt64, val: int, order: int): int:
+  let prev = a.val
+  if atomicMemoryFence(order) >= 0:
+    a.val = val
+  ret prev
+
+pub fn atomicIntCompareAndSwap(mut a: AtomicInt64, expected: int, desired: int, order: int): bool:
+  if atomicMemoryFence(order) >= 0 and a.val == expected:
+    a.val = desired
+    ret true
+  ret false
+
+pub fn atomicIntFetchAdd(mut a: AtomicInt64, delta: int, order: int): int:
+  let prev = a.val
+  if atomicMemoryFence(order) >= 0:
+    a.val = prev + delta
+  ret prev
+
+pub fn atomicIntFetchSub(mut a: AtomicInt64, delta: int, order: int): int:
+  let prev = a.val
+  if atomicMemoryFence(order) >= 0:
+    a.val = prev - delta
+  ret prev
+
+pub fn atomicIntFetchAnd(mut a: AtomicInt64, mask: int, order: int): int:
+  let prev = a.val
+  if atomicMemoryFence(order) >= 0:
+    a.val = prev & mask
+  ret prev
+
+pub fn atomicIntFetchOr(mut a: AtomicInt64, mask: int, order: int): int:
+  let prev = a.val
+  if atomicMemoryFence(order) >= 0:
+    a.val = prev | mask
+  ret prev
+
+pub fn atomicUsizeNew(initial: int): AtomicUsize:
+  mut v = initial
+  if v < 0:
+    v = 0
+  ret AtomicUsize(val: v)
+
+pub fn atomicUsizeLoad(a: AtomicUsize, order: int): int:
+  if atomicMemoryFence(order) < 0:
+    ret 0
+  ret a.val
+
+pub fn atomicUsizeStore(mut a: AtomicUsize, val: int, order: int): void:
+  if atomicMemoryFence(order) >= 0 and val >= 0:
+    a.val = val
+
+pub fn atomicUsizeFetchAdd(mut a: AtomicUsize, delta: int, order: int): int:
+  let prev = a.val
+  if atomicMemoryFence(order) >= 0:
+    a.val = prev + delta
+  ret prev
+
+pub fn atomicMemoryFence(order: int): int:
+  if order < 0:
+    ret 0
+  ret order

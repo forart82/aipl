@@ -1,0 +1,75 @@
+/// # Module: `std/net/rpc` (`NetRpc`)
+///
+/// ## Purpose & Domain Scope
+/// JSON-RPC 2.0 request/response serialization (`JsonRpcRequest`, `JsonRpcResponse`)
+/// and method routing dispatcher (`RpcDispatcher`).
+module NetRpc
+
+pub struct JsonRpcRequest:
+  jsonrpc: str
+  method: str
+  paramsJson: str
+  id: int
+
+pub struct JsonRpcResponse:
+  jsonrpc: str
+  resultJson: str
+  errorJson: str
+  id: int
+
+pub struct RpcMethodHandler:
+  methodName: str
+  handlerId: int
+
+pub struct RpcDispatcher:
+  mut methods: [RpcMethodHandler]
+  enableBatch: bool = true
+
+pub fn createRpcDispatcher(): RpcDispatcher:
+  ret RpcDispatcher(methods: [], enableBatch: true)
+
+pub fn rpcRegisterMethod(mut disp: RpcDispatcher, methodName: str, handlerId: int): RpcDispatcher:
+  disp.methods.push(RpcMethodHandler(methodName: methodName, handlerId: handlerId))
+  ret disp
+
+pub fn rpcFormatSuccess(id: int, resultJson: str): str:
+  let q = chr(34)
+  ret "{" + q + "jsonrpc" + q + ":" + q + "2.0" + q + "," + q + "result" + q + ":" + resultJson + "," + q + "id" + q + ":" + str(id) + "}"
+
+pub fn rpcFormatError(id: int, code: int, message: str): str:
+  let q = chr(34)
+  ret "{" + q + "jsonrpc" + q + ":" + q + "2.0" + q + "," + q + "error" + q + ":{" + q + "code" + q + ":" + str(code) + "," + q + "message" + q + ":" + q + message + q + "}," + q + "id" + q + ":" + str(id) + "}"
+
+pub fn rpcParseRequest(jsonStr: str): Option[JsonRpcRequest]:
+  let q = chr(34)
+  let clean = jsonStr.trim()
+  if not clean.startsWith("{") or not clean.endsWith("}"):
+    ret None
+  let methodTag = q + "method" + q + ":" + q
+  let mIdx = clean.indexOf(methodTag)
+  if mIdx < 0:
+    ret None
+  let mStart = mIdx + methodTag.len()
+  let mEnd = clean.slice(mStart, clean.len()).indexOf(q)
+  if mEnd < 0:
+    ret None
+  let method = clean.slice(mStart, mStart + mEnd)
+  ret Some(JsonRpcRequest(jsonrpc: "2.0", method: method, paramsJson: "[]", id: 1))
+
+pub fn rpcDispatch(disp: RpcDispatcher, request: JsonRpcRequest): JsonRpcResponse:
+  mut i = 0
+  while i < disp.methods.len():
+    if disp.methods[i].methodName == request.method:
+      ret JsonRpcResponse(
+        jsonrpc: "2.0",
+        resultJson: str(disp.methods[i].handlerId),
+        errorJson: "",
+        id: request.id
+      )
+    i = i + 1
+  ret JsonRpcResponse(
+    jsonrpc: "2.0",
+    resultJson: "",
+    errorJson: rpcFormatError(request.id, -32601, "Method not found"),
+    id: request.id
+  )

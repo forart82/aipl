@@ -1,0 +1,606 @@
+module Gfx2dIsoProjectorMod
+
+// ============================================================================
+// std/gfx2d/iso_projector2d.aipl — 2:1 Isometric Projection & Painter's Depth Sort
+// ============================================================================
+
+import { Vec2 } from "../math/vec_math"
+
+import { Color, rgba, drawLine, drawTriangle, drawPolygon, drawCircle, drawEllipse } from "./shape2d"
+import { pi, absFloat } from "../math/consts"
+pub struct IsoTileCoord(col: int, row: int, elevation: float)
+
+pub struct IsoProjector2D(tileWidth: float, tileHeight: float, elevationScale: float, projectionType: int)
+
+pub struct PainterSortItem(entityId: int, sortKey: float, drawOrder: int)
+
+pub fn createIsoProjector2D(tileW: float = 64.0, tileH: float = 32.0, elevationScale: float = 16.0): IsoProjector2D:
+  ret IsoProjector2D(
+    tileWidth = if tileW > 0.0: tileW else: 64.0,
+    tileHeight = if tileH > 0.0: tileH else: 32.0,
+    elevationScale = elevationScale,
+    projectionType = 0
+  )
+
+pub fn isoGridToScreen(proj: IsoProjector2D, coord: IsoTileCoord): Vec2:
+  let halfW = proj.tileWidth * 0.5
+  let halfH = proj.tileHeight * 0.5
+  let sx = float(coord.col - coord.row) * halfW
+  let sy = float(coord.col + coord.row) * halfH - coord.elevation * proj.elevationScale
+  ret Vec2(x = sx, y = sy)
+
+fn roundFloatIso(v: float): int:
+  if v >= 0.0:
+    ret int(v + 0.5)
+  ret int(v - 0.5)
+
+pub fn screenToIsoGrid(proj: IsoProjector2D, screenPt: Vec2): IsoTileCoord:
+  let halfW = if proj.tileWidth > 0.001: proj.tileWidth * 0.5 else: 32.0
+  let halfH = if proj.tileHeight > 0.001: proj.tileHeight * 0.5 else: 16.0
+  let u = screenPt.x / halfW
+  let v = screenPt.y / halfH
+  let col = roundFloatIso((u + v) * 0.5)
+  let row = roundFloatIso((v - u) * 0.5)
+  ret IsoTileCoord(col = col, row = row, elevation = 0.0)
+
+pub fn computeTopologicalDepthSortKey(col: int, row: int, elevation: float): float:
+  ret float(col + row) + elevation * 0.001
+
+pub fn sortEntitiesByTopologicalDepth(items: [PainterSortItem]): [PainterSortItem]:
+  mut sorted: [PainterSortItem] = []
+  mut i = 0
+  while i < items.len:
+    sorted.push(items[i])
+    i += 1
+  // Insertion sort (stable)
+  mut a = 1
+  while a < sorted.len:
+    let cur = sorted[a]
+    mut b = a - 1
+    while b >= 0 and sorted[b].sortKey > cur.sortKey:
+      sorted[b + 1] = sorted[b]
+      b -= 1
+    sorted[b + 1] = cur
+    a += 1
+  ret sorted
+
+pub fn worldToIsoX(gx: float, gy: float, tileW: float, originX: float): float:
+  ret originX + (gx - gy) * (tileW * 0.5)
+
+/// Projects world grid coordinates (gx, gy, gz) to 2.5D isometric screen Y coordinate.
+pub fn worldToIsoY(gx: float, gy: float, gz: float, tileH: float, originY: float): float:
+  ret originY + (gx + gy) * (tileH * 0.5) - gz
+
+/// Projects 3D world grid coordinates (gx, gy, gz) to 2.5D isometric screen coordinates [screenX, screenY].
+pub fn worldToIso(gx: float, gy: float, gz: float, tileW: float, tileH: float, originX: float, originY: float): [float]:
+  let sx = worldToIsoX(gx, gy, tileW, originX)
+  let sy = worldToIsoY(gx, gy, gz, tileH, originY)
+  ret [sx, sy]
+
+/// Exact inverse transformation converting isometric screen coordinates back to world grid coordinates [gx, gy] (assuming ground plane gz = 0).
+pub fn isoToWorld(screenX: float, screenY: float, tileW: float, tileH: float, originX: float, originY: float): [float]:
+  if tileW == 0.0 or tileH == 0.0:
+    ret [0.0, 0.0]
+  let dx = screenX - originX
+  let dy = screenY - originY
+  let gx = (dx / tileW) + (dy / tileH)
+  let gy = (dy / tileH) - (dx / tileW)
+  ret [gx, gy]
+
+/// Generates depth key for painter's algorithm back-to-front rendering order.
+pub fn isoDepthKey(gx: int, gy: int, gz: int): int:
+  ret (gx + gy) * 1000 + gz
+
+/// Draws a filled and outlined isometric diamond tile centered at (cx, cy).
+pub fn drawIsoDiamond(cx: float, cy: float, tileW: float, tileH: float, fillCol: Color, outlineCol: Color):
+  let hw = tileW * 0.5
+  let hh = tileH * 0.5
+
+  let topX = cx
+  let topY = cy - hh
+  let rightX = cx + hw
+  let rightY = cy
+  let bottomX = cx
+  let bottomY = cy + hh
+  let leftX = cx - hw
+  let leftY = cy
+
+  // Fill diamond with 2 triangles
+  drawTriangle(topX, topY, rightX, rightY, bottomX, bottomY, fillCol)
+  drawTriangle(topX, topY, bottomX, bottomY, leftX, leftY, fillCol)
+
+  // Crisp perimeter outline
+  drawLine(topX, topY, rightX, rightY, outlineCol, 1.0)
+  drawLine(rightX, rightY, bottomX, bottomY, outlineCol, 1.0)
+  drawLine(bottomX, bottomY, leftX, leftY, outlineCol, 1.0)
+  drawLine(leftX, leftY, topX, topY, outlineCol, 1.0)
+  ret
+
+/// Renders a full 3D extruded isometric prism (top diamond face at cy - heightPx, shaded left/right faces, crisp wireframe edges).
+pub fn drawIsoBlock(cx: float, cy: float, tileW: float, tileH: float, heightPx: float, topCol: Color, leftCol: Color, rightCol: Color, outlineCol: Color):
+  let hw = tileW * 0.5
+  let hh = tileH * 0.5
+
+  // Base diamond vertices (at cy)
+  let bxR = cx + hw
+  let byR = cy
+  let bxB = cx
+  let byB = cy + hh
+  let bxL = cx - hw
+  let byL = cy
+
+  // Top diamond vertices (at cy - heightPx)
+  let txT = cx
+  let tyT = cy - heightPx - hh
+  let txR = cx + hw
+  let tyR = cy - heightPx
+  let txB = cx
+  let tyB = cy - heightPx + hh
+  let txL = cx - hw
+  let tyL = cy - heightPx
+
+  // 1. Shaded left parallelogram face
+  drawTriangle(txL, tyL, txB, tyB, bxB, byB, leftCol)
+  drawTriangle(txL, tyL, bxB, byB, bxL, byL, leftCol)
+
+  // 2. Shaded right parallelogram face
+  drawTriangle(txB, tyB, txR, tyR, bxR, byR, rightCol)
+  drawTriangle(txB, tyB, bxR, byR, bxB, byB, rightCol)
+
+  // 3. Top diamond face
+  drawTriangle(txT, tyT, txR, tyR, txB, tyB, topCol)
+  drawTriangle(txT, tyT, txB, tyB, txL, tyL, topCol)
+
+  // 4. Crisp wireframe outline edges
+  // Top face perimeter
+  drawLine(txT, tyT, txR, tyR, outlineCol, 1.0)
+  drawLine(txR, tyR, txB, tyB, outlineCol, 1.0)
+  drawLine(txB, tyB, txL, tyL, outlineCol, 1.0)
+  drawLine(txL, tyL, txT, tyT, outlineCol, 1.0)
+
+  // Vertical pillar edges
+  drawLine(txL, tyL, bxL, byL, outlineCol, 1.0)
+  drawLine(txB, tyB, bxB, byB, outlineCol, 1.0)
+  drawLine(txR, tyR, bxR, byR, outlineCol, 1.0)
+
+  // Front base edges
+  drawLine(bxL, byL, bxB, byB, outlineCol, 1.0)
+  drawLine(bxB, byB, bxR, byR, outlineCol, 1.0)
+  ret
+
+// =============================================================================
+// Hexagonal Grid Engine (Pointy-Top Axial (q, r) & Cube Coordinates)
+// =============================================================================
+
+pub struct HexCoord(q: int, r: int)
+
+fn absVal(n: int): int:
+  if n < 0:
+    ret -n
+  ret n
+
+/// Computes distance between two axial hex coordinates using cube coordinates representation.
+pub fn hexNeighbors(h: HexCoord): [HexCoord]:
+  ret [
+    HexCoord(q = h.q + 1, r = h.r),
+    HexCoord(q = h.q + 1, r = h.r - 1),
+    HexCoord(q = h.q, r = h.r - 1),
+    HexCoord(q = h.q - 1, r = h.r),
+    HexCoord(q = h.q - 1, r = h.r + 1),
+    HexCoord(q = h.q, r = h.r + 1)
+  ]
+
+/// Converts pointy-top axial hex coordinate to screen pixel center [px, py].
+pub fn pixelToHex(px: float, py: float, radius: float, originX: float, originY: float): HexCoord:
+  if radius <= 0.0001:
+    ret HexCoord(q = 0, r = 0)
+  let x = (px - originX) / radius
+  let y = (py - originY) / radius
+  let fq = (0.5773502691896257 * x) - (0.3333333333333333 * y)
+  let fr = 0.6666666666666666 * y
+  let fs = -fq - fr
+  mut rq = int(round(fq))
+  mut rr = int(round(fr))
+  let rs = int(round(fs))
+  let qDiff = absFloat(float(rq) - fq)
+  let rDiff = absFloat(float(rr) - fr)
+  let sDiff = absFloat(float(rs) - fs)
+  if qDiff > rDiff and qDiff > sDiff:
+    rq = -rr - rs
+  elif rDiff > sDiff:
+    rr = -rq - rs
+  ret HexCoord(q = rq, r = rr)
+
+/// Draws a 6-sided pointy-top hexagon using 6 triangles from center (cx, cy) and 6 perimeter lines.
+pub fn drawHexagon(cx: float, cy: float, radius: float, fillCol: Color, outlineCol: Color):
+  let halfR = radius * 0.5
+  let sqrt3_2 = radius * 0.8660254
+
+  let vx: [float] = [
+    cx,
+    cx + sqrt3_2,
+    cx + sqrt3_2,
+    cx,
+    cx - sqrt3_2,
+    cx - sqrt3_2
+  ]
+  let vy: [float] = [
+    cy - radius,
+    cy - halfR,
+    cy + halfR,
+    cy + radius,
+    cy + halfR,
+    cy - halfR
+  ]
+
+  // 6 radial triangles from center to fill hexagon
+  for i in 0..6:
+    let nextIdx = (i + 1) % 6
+    drawTriangle(cx, cy, vx[i], vy[i], vx[nextIdx], vy[nextIdx], fillCol)
+
+  // 6 perimeter edges for crisp outline
+  for i in 0..6:
+    let nextIdx = (i + 1) % 6
+    drawLine(vx[i], vy[i], vx[nextIdx], vy[nextIdx], outlineCol, 1.0)
+  ret
+
+// =============================================================================
+// Wave 3 Isometric Depth Sorting, Soft Shadows & Lightmap Halos
+// =============================================================================
+
+/// Sorts entity indices `[0..n-1]` in back-to-front painter's order by `(gx + gy + gz * 0.001)` using stable O(N log N) bottom-up Merge Sort.
+pub fn isoSortIndicesByDepth3D(gxList: [float], gyList: [float], gzList: [float]): [int]:
+  let n1 = if gxList.len < gyList.len: gxList.len else: gyList.len
+  let n = if n1 < gzList.len: n1 else: gzList.len
+  mut indices: [int] = []
+  mut tmp: [int] = []
+  mut depths: [float] = []
+  mut i = 0
+  while i < n:
+    indices.push(i)
+    tmp.push(i)
+    depths.push(gxList[i] + gyList[i] + gzList[i] * 0.001)
+    i += 1
+  if n <= 1:
+    ret indices
+  mut width = 1
+  while width < n:
+    mut left = 0
+    while left < n:
+      let mid = if (left + width) < n: (left + width) else: n
+      let right = if (left + 2 * width) < n: (left + 2 * width) else: n
+      mut p = left
+      mut q = mid
+      mut k = left
+      while k < right:
+        if p < mid and (q >= right or depths[indices[p]] <= depths[indices[q]]):
+          tmp[k] = indices[p]
+          p += 1
+        else:
+          tmp[k] = indices[q]
+          q += 1
+        k += 1
+      mut c = left
+      while c < right:
+        indices[c] = tmp[c]
+        c += 1
+      left += 2 * width
+    width = width * 2
+  ret indices
+
+/// Sorts entity indices `[0..gxList.len-1]` in back-to-front painter's order by `(gx + gy)` ascending using O(N log N) merge sort.
+pub fn isoSortIndicesByDepth(gxList: [float], gyList: [float]): [int]:
+  let n = if gxList.len < gyList.len: gxList.len else: gyList.len
+  mut zeroZ: [float] = []
+  mut i = 0
+  while i < n:
+    zeroZ.push(0.0)
+    i += 1
+  ret isoSortIndicesByDepth3D(gxList, gyList, zeroZ)
+
+pub fn isoSortIndicesByDepthFast(gxList: [float], gyList: [float]): [int]:
+  ret isoSortIndicesByDepth(gxList, gyList)
+
+pub struct IsoCoord(col: int, row: int, height: float)
+
+pub struct IsoGridMap(cols: int, rows: int, tileW: float, tileH: float, heights: [float])
+
+pub fn isoGridMapNew(cols: int, rows: int, tileW: float, tileH: float, defaultHeight: float = 0.0): IsoGridMap:
+  let c = maxInt(1, cols)
+  let r = maxInt(1, rows)
+  mut h: [float] = []
+  mut i = 0
+  let total = c * r
+  while i < total:
+    h.push(defaultHeight)
+    i += 1
+  ret IsoGridMap(cols = c, rows = r, tileW = tileW, tileH = tileH, heights = h)
+
+pub fn isoGridGetHeight(map: IsoGridMap, col: int, row: int): float:
+  if col < 0 or col >= map.cols or row < 0 or row >= map.rows:
+    ret 0.0
+  ret map.heights[row * map.cols + col]
+
+pub fn isoGridSetHeight(mut map: IsoGridMap, col: int, row: int, height: float): IsoGridMap:
+  if col >= 0 and col < map.cols and row >= 0 and row < map.rows:
+    map.heights[row * map.cols + col] = height
+  ret map
+
+/// Front-to-back heightfield ray-marching tile picker for elevated 2.5D isometric tiles.
+pub fn isoPickTileRay(map: IsoGridMap, screenX: float, screenY: float, originX: float, originY: float): IsoCoord:
+  mut bestCol = -1
+  mut bestRow = -1
+  mut bestHeight = 0.0
+  mut bestDepth = -1000000
+  let hw = maxFloat(1.0, map.tileW * 0.5)
+  let hh = maxFloat(1.0, map.tileH * 0.5)
+  mut r = 0
+  while r < map.rows:
+    mut c = 0
+    while c < map.cols:
+      let h = isoGridGetHeight(map, c, r)
+      let cx = worldToIsoX(float(c), float(r), map.tileW, originX)
+      let cy = worldToIsoY(float(c), float(r), h, map.tileH, originY)
+      let dx = absFloat(screenX - cx) / hw
+      let dy = absFloat(screenY - cy) / hh
+      let inTopDiamond = (dx + dy) <= 1.0
+      let inVerticalColumn = (absFloat(screenX - cx) <= hw) and (screenY >= cy) and (screenY <= cy + h + hh)
+      if inTopDiamond or inVerticalColumn:
+        let depth = c + r
+        if depth >= bestDepth:
+          bestDepth = depth
+          bestCol = c
+          bestRow = r
+          bestHeight = h
+      c += 1
+    r += 1
+  if bestCol >= 0:
+    ret IsoCoord(col = bestCol, row = bestRow, height = bestHeight)
+  let ground = isoToWorld(screenX, screenY, map.tileW, map.tileH, originX, originY)
+  let gc = clampInt(int(floor(ground[0] + 0.5)), 0, map.cols - 1)
+  let gr = clampInt(int(floor(ground[1] + 0.5)), 0, map.rows - 1)
+  ret IsoCoord(col = gc, row = gr, height = isoGridGetHeight(map, gc, gr))
+
+pub struct IsoCamera2D(originX: float, originY: float, tileW: float, tileH: float, zoom: float)
+
+pub fn isoProjectWithCamera(cam: IsoCamera2D, gx: float, gy: float, gz: float): [float]:
+  let z = maxFloat(0.05, cam.zoom)
+  let sx = cam.originX + (gx - gy) * (cam.tileW * 0.5 * z)
+  let sy = cam.originY + ((gx + gy) * (cam.tileH * 0.5) - gz) * z
+  ret [sx, sy]
+
+pub fn isoUnprojectWithCamera(cam: IsoCamera2D, screenX: float, screenY: float): [float]:
+  let z = maxFloat(0.05, cam.zoom)
+  let effW = cam.tileW * z
+  let effH = cam.tileH * z
+  ret isoToWorld(screenX, screenY, effW, effH, cam.originX, cam.originY)
+
+/// Renders a two-layer soft isometric ground shadow diamond at `(cx, cy)`.
+pub fn drawIsoShadow(cx: float, cy: float, rx: float, ry: float, alpha: float):
+  let outerCol = Color(r = 0.0, g = 0.0, b = 0.0, a = alpha * 0.45)
+  let innerCol = Color(r = 0.0, g = 0.0, b = 0.0, a = alpha * 0.85)
+  drawTriangle(cx, cy - ry, cx + rx, cy, cx, cy + ry, outerCol)
+  drawTriangle(cx, cy - ry, cx, cy + ry, cx - rx, cy, outerCol)
+  let irx = rx * 0.65
+  let iry = ry * 0.65
+  drawTriangle(cx, cy - iry, cx + irx, cy, cx, cy + iry, innerCol)
+  drawTriangle(cx, cy - iry, cx, cy + iry, cx - irx, cy, innerCol)
+  ret
+
+/// Renders a multi-ring isometric point-light / aura ground halo centered at `(cx, cy)`.
+pub fn drawIsoLightHalo(cx: float, cy: float, radius: float, r: float, g: float, b: float, intensity: float):
+  let rx = radius
+  let ry = radius * 0.5
+  let cOuter = Color(r = r, g = g, b = b, a = intensity * 0.22)
+  let cInner = Color(r = r, g = g, b = b, a = intensity * 0.48)
+  drawTriangle(cx, cy - ry, cx + rx, cy, cx, cy + ry, cOuter)
+  drawTriangle(cx, cy - ry, cx, cy + ry, cx - rx, cy, cOuter)
+  drawTriangle(cx, cy - ry * 0.55, cx + rx * 0.55, cy, cx, cy + ry * 0.55, cInner)
+  drawTriangle(cx, cy - ry * 0.55, cx, cy + ry * 0.55, cx - rx * 0.55, cy, cInner)
+  ret
+
+/// Renders a textured isometric diamond tile with sub-tile stone/cobble/grass facet lines.
+pub fn drawIsoTexturedTile(cx: float, cy: float, tileW: float, tileH: float, fillCol: Color, detailCol: Color, outlineCol: Color):
+  drawIsoDiamond(cx, cy, tileW, tileH, fillCol, outlineCol)
+  let hw = tileW * 0.25
+  let hh = tileH * 0.25
+  drawLine(cx - hw, cy, cx + hw, cy, detailCol, 1.0)
+  drawLine(cx, cy - hh, cx, cy + hh, detailCol, 1.0)
+  ret
+
+/// Renders a translucent wireframe isometric automap diamond tile (`wallMask` bitfield: `1=NE`, `2=SE`, `4=SW`, `8=NW`).
+pub fn drawIsoAutomapDiamond(cx: float, cy: float, tileW: float, tileH: float, wallMask: int, tintCol: Color):
+  let hw = tileW * 0.5
+  let hh = tileH * 0.5
+  if (wallMask & 1) != 0:
+    drawLine(cx, cy - hh, cx + hw, cy, tintCol, 1.5)
+  if (wallMask & 2) != 0:
+    drawLine(cx + hw, cy, cx, cy + hh, tintCol, 1.5)
+  if (wallMask & 4) != 0:
+    drawLine(cx, cy + hh, cx - hw, cy, tintCol, 1.5)
+  if (wallMask & 8) != 0:
+    drawLine(cx - hw, cy, cx, cy - hh, tintCol, 1.5)
+  ret
+
+pub struct IsoCamera25D(camX: float, camY: float, camZ: float, zoom: float, yawDeg: float, pitchDeg: float, tileW: float, tileH: float, heightScale: float, perspectiveMode: int)
+
+pub struct HexCoordAxial(q: int, r: int, elevation: float)
+
+/// Authentic 2:1 isometric projection from 3D world tile coordinates `(wx, wy, wz)` to screen X.
+pub fn tileWorldToIsoScreenX(wx: float, wy: float, wz: float, tileW: float, tileH: float, originX: float): float:
+  let _unusedZ = wz + tileH * 0.0
+  ret originX + (wx - wy) * (tileW * 0.5)
+
+/// Authentic 2:1 isometric projection from 3D world tile coordinates `(wx, wy, wz)` to screen Y with elevation offset.
+pub fn tileWorldToIsoScreenY(wx: float, wy: float, wz: float, tileW: float, tileH: float, heightScale: float, originY: float): float:
+  let _unusedW = tileW * 0.0
+  ret originY + (wx + wy) * (tileH * 0.5) - wz * heightScale
+
+/// Inverse isometric mouse picking from screen `(sx, sy)` back to ground-plane world X (`wz = 0`).
+pub fn tileIsoScreenToWorldX(sx: float, sy: float, tileW: float, tileH: float, originX: float, originY: float): float:
+  let safeW = maxFloat(1.0, tileW)
+  let safeH = maxFloat(1.0, tileH)
+  let dx = sx - originX
+  let dy = sy - originY
+  ret (float(dx) / float(safeW)) + (float(dy) / float(safeH))
+
+/// Inverse isometric mouse picking from screen `(sx, sy)` back to ground-plane world Y (`wz = 0`).
+pub fn tileIsoScreenToWorldY(sx: float, sy: float, tileW: float, tileH: float, originX: float, originY: float): float:
+  let safeW = maxFloat(1.0, tileW)
+  let safeH = maxFloat(1.0, tileH)
+  let dx = sx - originX
+  let dy = sy - originY
+  ret (float(dy) / float(safeH)) - (float(dx) / float(safeW))
+
+/// Converts pointy-top axial hex coordinates `(q, r)` to screen pixel X.
+pub fn tileHexAxialToPixelX(q: int, r: int, hexRadius: float, originX: float): float:
+  let rad = maxFloat(1.0, hexRadius)
+  ret originX + rad * (1.73205081 * float(q) + 0.86602540 * float(r))
+
+/// Converts pointy-top axial hex coordinates `(q, r)` to screen pixel Y.
+pub fn tileHexAxialToPixelY(q: int, r: int, hexRadius: float, originY: float): float:
+  let rad = maxFloat(1.0, hexRadius)
+  ret originY + rad * (1.5 * float(r) + 0.0 * float(q))
+
+/// Computes axial hex grid Manhattan-3D distance `(abs(q1-q2) + abs(q1+r1-q2-r2) + abs(r1-r2)) / 2`.
+pub fn tileHexAxialDistance(q1: int, r1: int, q2: int, r2: int): int:
+  let dq = absInt(q1 - q2)
+  let dr = absInt(r1 - r2)
+  let ds = absInt((q1 + r1) - (q2 + r2))
+  ret (dq + dr + ds) / 2
+
+/// Fast 2D/2.5D chunk AABB frustum culling test against viewport `[viewX, viewY, viewW, viewH]` expanded by `marginPx`.
+pub fn tileIsChunkInViewportFrustum(chunkMinX: float, chunkMinY: float, chunkMaxX: float, chunkMaxY: float, viewX: float, viewY: float, viewW: float, viewH: float, marginPx: float): bool:
+  let m = maxFloat(0.0, marginPx)
+  let vMinX = viewX - m
+  let vMinY = viewY - m
+  let vMaxX = viewX + maxFloat(1.0, viewW) + m
+  let vMaxY = viewY + maxFloat(1.0, viewH) + m
+  ret chunkMaxX >= vMinX and chunkMinX <= vMaxX and chunkMaxY >= vMinY and chunkMinY <= vMaxY
+
+/// Continuous sub-tile bilinear heightfield interpolation across 4 cell corner heights `(h00, h10, h01, h11)`.
+pub fn tileBilinearHeightSample(h00: float, h10: float, h01: float, h11: float, fracX: float, fracY: float): float:
+  let tx = clampFloat(fracX, 0.0, 1.0)
+  let ty = clampFloat(fracY, 0.0, 1.0)
+  let top = h00 + (h10 - h00) * tx
+  let bot = h01 + (h11 - h01) * tx
+  ret top + (bot - top) * ty
+
+/// Renders a 2.5D isometric diamond tile wireframe centered at `(cx, cy)`.
+pub fn drawTileIsoDiamondWireframe(cx: float, cy: float, tileW: float, tileH: float, r: int, g: int, b: int, a: int):
+  let hw = maxFloat(2.0, tileW * 0.5)
+  let hh = maxFloat(1.0, tileH * 0.5)
+  let cR = clampInt(r, 0, 255)
+  let cG = clampInt(g, 0, 255)
+  let cB = clampInt(b, 0, 255)
+  let cA = clampInt(a, 0, 255)
+  let col = rgba(cR, cG, cB, cA)
+  let topX = cx
+  let topY = cy - hh
+  let rightX = cx + hw
+  let rightY = cy
+  let botX = cx
+  let botY = cy + hh
+  let leftX = cx - hw
+  let leftY = cy
+  drawLine(topX, topY, rightX, rightY, col, 1.2)
+  drawLine(rightX, rightY, botX, botY, col, 1.2)
+  drawLine(botX, botY, leftX, leftY, col, 1.2)
+  drawLine(leftX, leftY, topX, topY, col, 1.2)
+  ret
+
+/// Renders a 2.5D isometric diamond tile and extruded height prism with lit top/left/right faces.
+pub fn drawTileHeightfieldPrism25D(cx: float, cy: float, tileW: float, tileH: float, extrudeH: float, r: int, g: int, b: int, a: int):
+  let hw = maxFloat(2.0, tileW * 0.5)
+  let hh = maxFloat(1.0, tileH * 0.5)
+  let ext = maxFloat(0.0, extrudeH)
+  let cR = clampInt(r, 0, 255)
+  let cG = clampInt(g, 0, 255)
+  let cB = clampInt(b, 0, 255)
+  let cA = clampInt(a, 0, 255)
+
+  let topCol = rgba(minInt(255, int(float(cR) * 1.12)), minInt(255, int(float(cG) * 1.12)), minInt(255, int(float(cB) * 1.12)), cA)
+  let leftCol = rgba(int(float(cR) * 0.80), int(float(cG) * 0.80), int(float(cB) * 0.80), cA)
+  let rightCol = rgba(int(float(cR) * 0.62), int(float(cG) * 0.62), int(float(cB) * 0.62), cA)
+  let edgeCol = rgba(minInt(255, cR + 36), minInt(255, cG + 36), minInt(255, cB + 36), minInt(255, cA + 20))
+
+  let bxR = cx + hw
+  let byR = cy
+  let bxB = cx
+  let byB = cy + hh
+  let bxL = cx - hw
+  let byL = cy
+
+  let txT = cx
+  let tyT = cy - ext - hh
+  let txR = cx + hw
+  let tyR = cy - ext
+  let txB = cx
+  let tyB = cy - ext + hh
+  let txL = cx - hw
+  let tyL = cy - ext
+
+  if ext > 0.5:
+    drawTriangle(txL, tyL, txB, tyB, bxB, byB, leftCol)
+    drawTriangle(txL, tyL, bxB, byB, bxL, byL, leftCol)
+    drawTriangle(txB, tyB, txR, tyR, bxR, byR, rightCol)
+    drawTriangle(txB, tyB, bxR, byR, bxB, byB, rightCol)
+    drawLine(txL, tyL, bxL, byL, edgeCol, 1.0)
+    drawLine(txB, tyB, bxB, byB, edgeCol, 1.0)
+    drawLine(txR, tyR, bxR, byR, edgeCol, 1.0)
+
+  drawTriangle(txT, tyT, txR, tyR, txB, tyB, topCol)
+  drawTriangle(txT, tyT, txB, tyB, txL, tyL, topCol)
+  drawLine(txT, tyT, txR, tyR, edgeCol, 1.1)
+  drawLine(txR, tyR, txB, tyB, edgeCol, 1.1)
+  drawLine(txB, tyB, txL, tyL, edgeCol, 1.1)
+  drawLine(txL, tyL, txT, tyT, edgeCol, 1.1)
+  ret
+
+pub fn tileComputeLightRadiusFogAlpha(tileDistSq: float, lightRadiusTiles: float, minAlpha: int, maxAlpha: int): int:
+  let lo = clampInt(minAlpha, 0, 255)
+  let hi = clampInt(maxInt(lo, maxAlpha), 0, 255)
+  if tileDistSq <= 0.0:
+    ret lo
+  let safeRad = maxFloat(0.1, lightRadiusTiles)
+  let rSq = safeRad * safeRad
+  if tileDistSq >= rSq:
+    ret hi
+  let t = clampFloat(float(tileDistSq) / float(rSq), 0.0, 1.0)
+  let smoothT = t * t * (3.0 - 2.0 * t)
+  let alpha = int(float(lo) + float(hi - lo) * smoothT + 0.5)
+  ret clampInt(alpha, lo, hi)
+
+pub fn tileComputePortalTeleportX(unitX: float, gateInX: float, gateOutX: float): float:
+  ret gateOutX + (unitX - gateInX)
+
+/// Wave 15 (`v0.4.0`): Computes teleported world Y coordinate when traversing a Portal / Town Portal,
+/// preserving relative entry offset `(unitY - gateInY)` around `gateOutY`.
+pub fn tileComputePortalTeleportY(unitY: float, gateInY: float, gateOutY: float): float:
+  ret gateOutY + (unitY - gateInY)
+
+/// Wave 16 (`v0.4.0`): Computes 8-slot radial formation exit X coordinate around Town Portal / Portal
+/// destination `(centerX, centerY)` for `unitIdx` and `ringRadius`.
+pub fn tileComputePortalFormationSlotX(centerX: float, unitIdx: int, ringRadius: float): float:
+  let slot = maxInt(0, unitIdx) % 8
+  let angleRad = float(float(slot) * 6.283185307179586) / float(8.0)
+  ret centerX + cos(angleRad) * maxFloat(0.0, ringRadius)
+
+/// Wave 16 (`v0.4.0`): Computes 8-slot radial formation exit Y coordinate around Town Portal / Portal
+/// destination `(centerX, centerY)` for `unitIdx` and `ringRadius`.
+pub fn tileComputePortalFormationSlotY(centerY: float, unitIdx: int, ringRadius: float): float:
+  let slot = maxInt(0, unitIdx) % 8
+  let angleRad = float(float(slot) * 6.283185307179586) / float(8.0)
+  ret centerY + sin(angleRad) * maxFloat(0.0, ringRadius)
+
+/// Wave 17 (`v0.4.0`): Computes Abyssal Rift / Crimson Portal vortex world/screen X
+/// coordinate at `angleDeg` and `orbitRadius` around `campCenterX`.
+pub fn tileComputePortalVortexX(campCenterX: float, angleDeg: float, orbitRadius: float): float:
+  let rad = angleDeg * 0.017453292519943295
+  ret campCenterX + cos(rad) * maxFloat(0.0, orbitRadius)
+
+/// Wave 17 (`v0.4.0`): Computes Abyssal Rift / Crimson Portal vortex world/screen Y
+/// coordinate at `angleDeg` and `orbitRadius` around `campCenterY`.
+pub fn tileComputePortalVortexY(campCenterY: float, angleDeg: float, orbitRadius: float): float:
+  let rad = float(angleDeg * 3.141592653589793) / float(180.0)
+  ret campCenterY + sin(rad) * maxFloat(0.0, orbitRadius)

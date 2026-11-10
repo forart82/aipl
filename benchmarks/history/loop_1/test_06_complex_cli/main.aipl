@@ -1,0 +1,35 @@
+struct CliResult(exitCode, output)
+
+fn executeCliCommand(args):
+  if args.len == 0 or "--help" in args or "help" in args:
+    ret CliResult(0, "Usage: tool <stats|transform|pipeline> [options]")
+  let sub = args[0]
+  if sub == "stats":
+    mut nums = []
+    for a in args:
+      if a.startsWith("--values="):
+        nums = a.slice(9, a.len).ints()
+    if nums.len == 0:
+      ret CliResult(2, "Error: --values required")
+    ret CliResult(0, "count={nums.len} sum={nums.sum} min={nums.min} max={nums.max}")
+  if sub == "pipeline":
+    mut text = ""
+    for a in args:
+      if a.startsWith("--input="):
+        text = a.slice(8, a.len)
+    if text.len == 0:
+      ret CliResult(1, "Error: empty input")
+    if "--upper" in args:
+      text = text.toUpper()
+    if "--reverse-words" in args:
+      text = text.words().reverse().join(" ")
+    ret CliResult(0, text)
+  ret CliResult(127, "Unknown subcommand: {sub}")
+
+let r1 = executeCliCommand(["--help"])
+let r2 = executeCliCommand(["stats", "--values=10,25,5,40"])
+let r3 = executeCliCommand(["pipeline", "--input=aipl fast native cli", "--upper", "--reverse-words"])
+let r4 = executeCliCommand(["unknown"])
+assert(r1.exitCode == 0 and r2.output == "count=4 sum=80 min=5 max=40")
+assert(r3.output == "CLI NATIVE FAST AIPL" and r4.exitCode == 127)
+println("{r2.output} | {r3.output}\nBENCH_06_OK")

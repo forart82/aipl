@@ -1,0 +1,55 @@
+module Ex246MechanicsAttributeModifierSheetWindowTest
+
+import { ModifierStage, StatModifier, evalStatModifierStack, filterStatModifiersByTag, stepStatModifierDurations, computeArmorMitigationRatio, applyMitigatedDamage } from "../../std/mechanics/attribute_pipeline"
+import { AttributeSheetScene, initScene, stepScene, auditMechanicsAttributeSheet } from "../../examples/ex_246_mechanics_attribute_modifier_sheet_window"
+
+fn test_mechanics_attribute_modifier_sheet(): void:
+  mut mods: [StatModifier] = []
+  mods.push(StatModifier(id = 1, statTag = "power", stage = ModifierStage.FlatAdd, value = 20.0, durationRemaining = 1.0, isPermanent = true))
+  mods.push(StatModifier(id = 2, statTag = "power", stage = ModifierStage.PercentAdd, value = 0.50, durationRemaining = 1.0, isPermanent = true))
+  mods.push(StatModifier(id = 3, statTag = "power", stage = ModifierStage.FinalMultiply, value = 1.20, durationRemaining = 0.5, isPermanent = false))
+  let totalPower = evalStatModifierStack(100.0, mods)
+  assert(totalPower == 216.0, "staged modifier pipeline evaluates (100+20)*1.5*1.2 == 216.0")
+  assert(filterStatModifiersByTag(mods, "power").len() == 3, "filterStatModifiersByTag")
+  assert(stepStatModifierDurations(mods, 1.0).len() == 2, "stepStatModifierDurations expires temporary modifier")
+  assert(computeArmorMitigationRatio(100.0, 100.0) == 0.5, "computeArmorMitigationRatio")
+  assert(applyMitigatedDamage(120.0, 100.0, 20.0) == 50.0, "applyMitigatedDamage")
+
+  mut scene = initScene()
+  let m0: StatModifier = scene.mods[2]
+  let dur0 = m0.durationRemaining
+  let mana0 = scene.manaPool.current
+  let pwr0 = scene.totalPower
+  scene = stepScene(scene, 0, 0.2)
+  let m1: StatModifier = scene.mods[2]
+  let dur1 = m1.durationRemaining
+  let mana1 = scene.manaPool.current
+  assert(dur1 < dur0, "t=0 -> t=1 temporary potion modifier duration ticks down")
+  assert(mana1 > mana0, "t=0 -> t=1 mana attribute pool regenerates")
+
+  mut f = 1
+  while f < 6:
+    scene = stepScene(scene, f, 0.2)
+    f = f + 1
+  assert(scene.mods.len() == 2, "t=6 temporary 1.0s potion modifier expires")
+  assert(scene.totalPower < pwr0, "t=6 effective power drops from 216.0 to 180.0 when potion expires")
+
+  while f < 20:
+    scene = stepScene(scene, f, 0.2)
+    f = f + 1
+  let mana20 = scene.manaPool.current
+  let mit20 = scene.mitRatio
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  while f < 100:
+    scene = stepScene(scene, f, 0.2)
+    f = f + 1
+  assert((scene.manaPool.current != mana20 or scene.mitRatio != mit20) and scene.stepCount == 100, "t=20 -> t=100 mana pool, potion recast, and mitigation continue cycling")
+
+  let audit = auditMechanicsAttributeSheet()
+  assert(audit == 266, "Attribute modifier sheet audit")
+
+pub fn main(): int:
+  test_mechanics_attribute_modifier_sheet()
+  println("PASS: ex_246_mechanics_attribute_modifier_sheet_window_test")
+  ret 0

@@ -1,0 +1,68 @@
+// ============================================================================
+// Canonical Example 125: WebSocket RFC-6455 Handshake & Frame Codec (CLI)
+// Target Profile: CLI | Standard Library Module: std/net
+// ============================================================================
+module Ex125NetWsWebsocketChatProtocolCli
+
+import {
+  WsFrame,
+  applyWsMask,
+  encodeWsFrame,
+  decodeWsFrame,
+  computeWsAcceptKey,
+  buildWsHandshakeRequest,
+  validateWsHandshakeResponse,
+  wsCreatePingFrame,
+  wsCreatePongFrame,
+  wsCreateCloseFrame
+} from "../std/net/net_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyWebSocketHandshakeAndFrameCodec(): int:
+  let maskKey = [55, 250, 33, 61]
+  let originalPayload = [72, 69, 76, 76, 79]
+  let masked = applyWsMask(originalPayload, maskKey)
+  assert(applyWsMask(masked, maskKey)[0] == 72, "XOR mask involution")
+
+  let frame = WsFrame(fin = true, rsv = 0, opcode = 1, masked = true, maskKey = maskKey, payload = originalPayload)
+  let decFrame = decodeWsFrame(encodeWsFrame(frame)).unwrap()
+  assert(decFrame.payload.len() == 5 and decFrame.payload[0] == 72, "WS frame roundtrip")
+
+  let cKey = "dGhlIHNhbXBsZSBub25jZQ=="
+  let acceptKey = computeWsAcceptKey(cKey)
+  assert(acceptKey == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", "RFC-6455 Sec-WebSocket-Accept")
+  assert(buildWsHandshakeRequest("localhost", "/chat", cKey).contains("Upgrade: websocket"), "WS handshake request")
+  assert(validateWsHandshakeResponse("HTTP/1.1 101 Switching Protocols\r\nSec-WebSocket-Accept: " + acceptKey, cKey), "WS handshake response")
+
+  let pingOp = wsCreatePingFrame().opcode
+  let pongOp = wsCreatePongFrame([1]).opcode
+  let closeOp = wsCreateCloseFrame(1000, "bye").opcode
+  ret pingOp + pongOp + closeOp
+
+pub fn computeWsFramedByteLength(payloadLen: int, isMasked: int): int:
+  let p = maxInt(0, payloadLen)
+  mut hdr = 2
+  if p >= 126:
+    hdr = 4
+  if isMasked != 0:
+    hdr = hdr + 4
+  ret hdr + p
+
+pub fn describeWsOpcodeSemantics(opcode: int): str:
+  let op = clampInt(opcode, 0, 15)
+  if op == 1:
+    ret "WS:OPCODE_TEXT_FRAME_1"
+  if op == 2:
+    ret "WS:OPCODE_BINARY_FRAME_2"
+  if op == 8:
+    ret "WS:OPCODE_CLOSE_FRAME_8"
+  ret "WS:OPCODE_" + str(op)
+
+pub fn main(): int:
+  let ctrlSum = verifyWebSocketHandshakeAndFrameCodec()
+  let frameLen = computeWsFramedByteLength(5, 1)
+  let tag = describeWsOpcodeSemantics(1)
+  assert(ctrlSum == 27, "9 + 10 + 8 == 27")
+  assert(frameLen == 11, "2 + 4 + 5 == 11")
+  println(tag + " | frameLen=" + str(frameLen) + " | ctrlOps=" + str(ctrlSum))
+  ret 0

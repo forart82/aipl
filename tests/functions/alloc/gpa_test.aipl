@@ -1,0 +1,58 @@
+// ============================================================================
+// Step 4.3: Exhaustive Per-Function Unit Tests for std/alloc/gpa.aipl (7)
+// Target: tests/functions/alloc/gpa_test.aipl
+// ============================================================================
+module GpaTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  GpaHeader,
+  GpaStats,
+  gpaInit,
+  gpaAlloc,
+  gpaValidatePtr,
+  gpaFree,
+  gpaRealloc,
+  gpaGetStats,
+  gpaReportLeaks
+} from "../../../std/alloc/gpa.aipl"
+
+pub fn test_gpa_lifecycle(): int:
+  gpaInit()
+  assertEqInt(gpaReportLeaks(), 0, "0 leaks initially")
+
+  let p1 = gpaAlloc(64, 101)
+  assert(p1 > 0, "gpaAlloc returns valid address")
+  assert(gpaValidatePtr(p1) == true, "gpaValidatePtr true for live pointer")
+  assert(gpaValidatePtr(0) == false, "gpaValidatePtr false for null")
+  assert(gpaValidatePtr(16) == false, "gpaValidatePtr false for invalid address")
+
+  let p2 = gpaAlloc(128, 202)
+  assert(p2 > 0, "gpaAlloc second block")
+  assertEqInt(gpaReportLeaks(), 2, "2 live allocations reported as leaks")
+
+  let st = gpaGetStats()
+  assert(st.totalAllocated >= 192, "totalAllocated >= 192")
+  assertEqInt(st.liveAllocations, 2, "liveAllocations is 2")
+
+  let p1Grown = gpaRealloc(p1, 256)
+  assert(p1Grown > 0, "gpaRealloc grown pointer > 0")
+  assert(gpaValidatePtr(p1Grown) == true, "p1Grown is valid")
+  assert(gpaValidatePtr(p1) == false, "old p1 is invalid after realloc")
+
+  assert(gpaFree(p1Grown) == true, "free p1Grown returns true")
+  assert(gpaFree(p1Grown) == false, "double free rejected")
+  assert(gpaValidatePtr(p1Grown) == false, "freed pointer is invalid")
+
+  assert(gpaFree(p2) == true, "free p2 returns true")
+  assertEqInt(gpaReportLeaks(), 0, "0 leaks after freeing all blocks")
+  ret 0
+
+pub fn main(): int:
+  test_gpa_lifecycle()
+  println("PASS: gpa_test")
+  ret 0

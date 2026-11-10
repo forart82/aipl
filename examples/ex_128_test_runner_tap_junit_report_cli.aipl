@@ -1,0 +1,51 @@
+// ============================================================================
+// Canonical Example 128: Test Runner, TAP v14 & JUnit XML Reporter (CLI)
+// Target Profile: CLI | Standard Library Module: std/test
+// ============================================================================
+module Ex128TestRunnerTapJunitReportCli
+
+import {
+  TestFilter,
+  createTestSuite,
+  registerTestCase,
+  filterTestCases,
+  runTestSuite,
+  formatTapReport,
+  formatJunitXmlReport
+} from "../std/test/test_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyTestSuiteTapAndJunitReports(): int:
+  mut suite = createTestSuite("CoreNetSuite")
+  suite = registerTestCase(suite, "test_handshake", "net", 0)
+  suite = registerTestCase(suite, "test_timeout", "net", 0)
+
+  let filter = TestFilter(pattern = "*", includeIgnored = false)
+  let matched = filterTestCases(suite, filter)
+  assert(matched.len() == 2, "2 test cases matched")
+  suite = runTestSuite(suite, filter)
+
+  let tap = formatTapReport(suite)
+  assert(tap.contains("TAP version 14") and tap.contains("ok 1 - test_handshake"), "TAP v14 report")
+
+  let xml = formatJunitXmlReport(suite)
+  assert(xml.contains("<testsuite") and xml.contains("CoreNetSuite"), "JUnit XML report")
+  ret matched.len()
+
+pub fn computeFilteredTestCount(totalCases: int, ignoredCases: int): int:
+  let t = maxInt(0, totalCases)
+  let ig = clampInt(ignoredCases, 0, t)
+  ret t - ig
+
+pub fn describeTestReporterFormat(tapVersion: int): str:
+  let v = maxInt(12, tapVersion)
+  ret "RUNNER:TAP_V" + str(v) + "_AND_JUNIT_XML"
+
+pub fn main(): int:
+  let ranCount = verifyTestSuiteTapAndJunitReports()
+  let active = computeFilteredTestCount(15, 3)
+  let tag = describeTestReporterFormat(14)
+  assert(ranCount == 2, "2 cases executed")
+  assert(active == 12, "12 active cases")
+  println(tag + " | ran=" + str(ranCount) + " | active=" + str(active))
+  ret 0

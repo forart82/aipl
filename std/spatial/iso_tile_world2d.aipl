@@ -1,0 +1,77 @@
+/// # Module: `std/spatial/iso_tile_world2d` (`IsoTileWorld2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Isometric / dimetric 2.5D staggered tile world with 2:1 projection,
+/// elevation-aware cursor picking, and painter's depth sort key calculation.
+module IsoTileWorld2DMod
+
+import { round } from "std/math/trig"
+import { Vec2, Vec3, IVec2 } from "std/math/vec_math"
+
+pub struct IsoTileCell2D(tileId: int, heightStep: int, walkable: bool, surfaceNormal: Vec3)
+
+pub struct IsoTileWorld2D(cols: int, rows: int, tileWidth: float, tileHeight: float, elevationScale: float, cells: [IsoTileCell2D])
+
+pub fn isoTileWorldNew(cols: int, rows: int, tileWidth: float, tileHeight: float, elevationScale: float): IsoTileWorld2D:
+  mut cells: [IsoTileCell2D] = []
+  let defCell = IsoTileCell2D(
+    tileId = 0,
+    heightStep = 0,
+    walkable = true,
+    surfaceNormal = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  )
+  let total = cols * rows
+  mut i = 0
+  while i < total:
+    cells.push(defCell)
+    i = i + 1
+  ret IsoTileWorld2D(
+    cols = cols,
+    rows = rows,
+    tileWidth = tileWidth,
+    tileHeight = tileHeight,
+    elevationScale = elevationScale,
+    cells = cells
+  )
+
+pub fn isoWorldGridToScreen(world: IsoTileWorld2D, col: int, row: int, elevation: float): Vec2:
+  let halfW = world.tileWidth * 0.5
+  let halfH = world.tileHeight * 0.5
+  let sx = float(col - row) * halfW
+  let sy = float(col + row) * halfH - elevation * world.elevationScale
+  ret Vec2(x = sx, y = sy)
+
+pub fn isoScreenToGrid(world: IsoTileWorld2D, screenX: float, screenY: float): Vec2:
+  let halfW = if world.tileWidth > 0.0: world.tileWidth * 0.5 else: 1.0
+  let halfH = if world.tileHeight > 0.0: world.tileHeight * 0.5 else: 1.0
+  let a = screenX / halfW
+  let b = screenY / halfH
+  let colF = (a + b) * 0.5
+  let rowF = (b - a) * 0.5
+  ret Vec2(x = colF, y = rowF)
+
+pub fn isoPickCellWithHeight(world: IsoTileWorld2D, screenX: float, screenY: float): Option[IVec2]:
+  mut bestMatch: Option[IVec2] = None
+  mut bestDepth = -1000000000.0
+
+  mut r = 0
+  while r < world.rows:
+    mut c = 0
+    while c < world.cols:
+      let cell: IsoTileCell2D = world.cells[r * world.cols + c]
+      let elev = float(cell.heightStep)
+      let adjustedY = screenY + elev * world.elevationScale
+      let gPos: Vec2 = isoScreenToGrid(world, screenX, adjustedY)
+      let pickedC = int(round(gPos.x))
+      let pickedR = int(round(gPos.y))
+      if pickedC == c and pickedR == r:
+        let d = isoDepthSortKey(c, r, elev)
+        if d >= bestDepth:
+          bestDepth = d
+          bestMatch = Some(IVec2(x = c, y = r))
+      c = c + 1
+    r = r + 1
+  ret bestMatch
+
+pub fn isoDepthSortKey(col: int, row: int, elevation: float): float:
+  ret float(col + row) + elevation * 0.01

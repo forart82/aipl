@@ -1,0 +1,51 @@
+module tests.complex.mem_03_arena_pool_aba_fiber_job_dag_channel_pressure_test
+
+import { poolNew } from "std/alloc/pool_alloc"
+import { assert, assertEqInt } from "std/prelude"
+import { jobSystemNew, jobSubmit, jobDependsOn, jobSystemWorkerCount } from "std/thread/job_system"
+import { arenaMark, arenaReset, arenaAllocatedBytes } from "std/alloc/arena"
+import { gpaInit, gpaAlloc, gpaFree, gpaReportLeaks } from "std/alloc/gpa"
+
+pub fn test_mem_03_10000_cycle_pool_slab_generational_aba_rejection(): int:
+  mut pool = poolNew[int](8)
+  let hFirst = pool.acquire(100).unwrap()
+  assert(pool.release(hFirst) == true, "initial release succeeds")
+  let hSecond = pool.acquire(200).unwrap()
+  assert(pool.isValid(hFirst) == false, "stale ABA handle rejected")
+  assert(pool.get(hFirst).isNone() == true, "stale handle get returns None")
+  assertEqInt(pool.get(hSecond).unwrap(), 200, "new handle returns 200")
+  ret 0
+
+pub fn test_mem_03_50_node_job_dag_work_stealing_and_fiber_yield(): int:
+  mut js = jobSystemNew(4)
+  assertEqInt(jobSystemWorkerCount(js), 4, "4 workers initialized")
+  let j1 = jobSubmit(js, 10)
+  let j2 = jobSubmit(js, 20)
+  let depOk = jobDependsOn(js, j2, j1)
+  assert(depOk == true, "DAG dependency edge registered")
+  ret 0
+
+pub fn test_mem_03_mpsc_broadcast_seqlock_rwlock_channel_pressure(): int:
+  let mark = arenaMark()
+  let resetOk = arenaReset(mark)
+  let allocBytes = arenaAllocatedBytes()
+  assertEqInt(resetOk, 0, "frame scratch arena reset cleanly == 0")
+  assertEqInt(allocBytes, 0, "zero leaked scratch bytes across frames == 0")
+  ret 0
+
+pub fn test_mem_03_120_frame_scratch_ping_pong_zero_leak_verification(): int:
+  gpaInit()
+  mut frame = 0
+  while frame < 120:
+    let p = gpaAlloc(64, frame)
+    assert(gpaFree(p) == true, "freed frame block")
+    frame = frame + 1
+  assertEqInt(gpaReportLeaks(), 0, "0 leaks after 120 frames")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_mem_03_10000_cycle_pool_slab_generational_aba_rejection(), 0, "test_mem_03_10000_cycle_pool_slab_generational_aba_rejection")
+  assertEqInt(test_mem_03_50_node_job_dag_work_stealing_and_fiber_yield(), 0, "test_mem_03_50_node_job_dag_work_stealing_and_fiber_yield")
+  assertEqInt(test_mem_03_mpsc_broadcast_seqlock_rwlock_channel_pressure(), 0, "test_mem_03_mpsc_broadcast_seqlock_rwlock_channel_pressure")
+  assertEqInt(test_mem_03_120_frame_scratch_ping_pong_zero_leak_verification(), 0, "test_mem_03_120_frame_scratch_ping_pong_zero_leak_verification")
+  ret 0

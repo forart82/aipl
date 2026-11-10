@@ -1,0 +1,54 @@
+module tests.functions.compress.deflate_test
+
+import * from "std/compress/deflate"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_deflate_buildHuffmanTree_1(): int:
+  let arg_symbolFreqs = [4]
+  let edge_symbolFreqs = []
+  let resNom = buildHuffmanTree(arg_symbolFreqs)
+  let resEdge = buildHuffmanTree(edge_symbolFreqs)
+  assertEqInt(resNom.codeLens.len(), 1, "buildHuffmanTree nominal resNom.codeLens.len() == 1")
+  assertEqInt(resEdge.codeLens.len(), 0, "buildHuffmanTree boundary resEdge.codeLens.len() == 0")
+  ret 0
+
+pub fn test_deflate_lz77FindMatches_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_windowSize = 4
+  let edge_windowSize = 1
+  let arg_minMatchLen = 4
+  let edge_minMatchLen = 1
+  let resNom = lz77FindMatches(arg_data, arg_windowSize, arg_minMatchLen)
+  let resEdge = lz77FindMatches(edge_data, edge_windowSize, edge_minMatchLen)
+  assertEqInt(resNom.len(), 4, "lz77FindMatches nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "lz77FindMatches boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_deflate_deflateCompress_3(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_opts = DeflateOptions(level = 0, windowBits = 4, memLevel = 4)
+  let edge_opts = DeflateOptions(level = 0, windowBits = 1, memLevel = 1)
+  let resNom = deflateCompress(arg_data, arg_opts)
+  let resEdge = deflateCompress(edge_data, edge_opts)
+  assertEqInt(resNom.len(), 9, "deflateCompress nominal resNom.len() == 9")
+  assertEqInt(resEdge.len(), 6, "deflateCompress boundary resEdge.len() == 6")
+  ret 0
+
+pub fn test_deflate_deflateDecompress_4(): int:
+  let opts = DeflateOptions(level = 0, windowBits = 15, memLevel = 8)
+  let origData = [65, 73, 80, 76]
+  let comp = deflateCompress(origData, opts)
+  let decompRes = deflateDecompress(comp)
+  assert(decompRes.isOk() == true, "deflateDecompress roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "deflateDecompress roundtrip length == 4")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  assertEqInt(decomp[1], 73, "decomp[1] == 73")
+  assertEqInt(decomp[2], 80, "decomp[2] == 80")
+  assertEqInt(decomp[3], 76, "decomp[3] == 76")
+  let bad = deflateDecompress([1, 2, 3])
+  assert(bad.isOk() == false, "deflateDecompress corrupt stream rejected")
+  ret 0

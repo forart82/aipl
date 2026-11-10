@@ -1,0 +1,84 @@
+// ============================================================================
+// Module: std/sys/sys_android (SysAndroid)
+// Android NDK NativeActivity Lifecycle, Surface, Safe-Area & JNI Bridge
+// ============================================================================
+module SysAndroid
+
+fn sysMaxInt(a: int, b: int): int:
+  ret if a > b: a else: b
+
+pub const APP_CMD_INIT_WINDOW: int = 1
+pub const APP_CMD_TERM_WINDOW: int = 2
+pub const APP_CMD_GAINED_FOCUS: int = 6
+pub const APP_CMD_LOST_FOCUS: int = 7
+pub const APP_CMD_CONFIG_CHANGED: int = 8
+
+pub struct AndroidLifecycleState(windowReady: bool, hasFocus: bool, isAnimating: bool, configGeneration: int, lastCmd: int)
+
+pub fn createAndroidLifecycleState(): AndroidLifecycleState:
+  ret AndroidLifecycleState(windowReady = false, hasFocus = false, isAnimating = false, configGeneration = 0, lastCmd = 0)
+
+pub fn stepAndroidLifecycleCmd(state: AndroidLifecycleState, cmd: int): AndroidLifecycleState requires cmd >= 0 ensures result.lastCmd == cmd and (result.isAnimating == (result.windowReady and result.hasFocus)):
+  mut win = state.windowReady
+  mut foc = state.hasFocus
+  mut gen = state.configGeneration
+  if cmd == APP_CMD_INIT_WINDOW:
+    win = true
+  elif cmd == APP_CMD_TERM_WINDOW:
+    win = false
+  elif cmd == APP_CMD_GAINED_FOCUS:
+    foc = true
+  elif cmd == APP_CMD_LOST_FOCUS:
+    foc = false
+  elif cmd == APP_CMD_CONFIG_CHANGED:
+    gen = gen + 1
+  let anim = win and foc
+  ret AndroidLifecycleState(windowReady = win, hasFocus = foc, isAnimating = anim, configGeneration = gen, lastCmd = cmd)
+
+pub const WINDOW_FORMAT_RGBA_8888: int = 1
+
+pub struct AndroidSurfaceDesc(windowHandle: int, widthPx: int, heightPx: int, stridePixels: int, formatRgba8888: int, densityDpi: int, refreshRateHz: int, isValid: bool)
+
+pub fn createAndroidSurfaceDesc(windowHandle: int, widthPx: int, heightPx: int, stridePixels: int, densityDpi: int, refreshRateHz: int): AndroidSurfaceDesc requires densityDpi >= 0 ensures result.formatRgba8888 == 1 and (not result.isValid or result.stridePixels >= result.widthPx):
+  if windowHandle <= 0 or widthPx <= 0 or heightPx <= 0:
+    ret AndroidSurfaceDesc(windowHandle = 0, widthPx = 0, heightPx = 0, stridePixels = 0, formatRgba8888 = WINDOW_FORMAT_RGBA_8888, densityDpi = 0, refreshRateHz = 0, isValid = false)
+  let alignedStride = if stridePixels >= widthPx: stridePixels else: ((widthPx + 15) / 16) * 16
+  let safeDpi = if densityDpi >= 72: densityDpi else: 420
+  let safeHz = if refreshRateHz >= 30: refreshRateHz else: 60
+  ret AndroidSurfaceDesc(
+    windowHandle = windowHandle,
+    widthPx = widthPx,
+    heightPx = heightPx,
+    stridePixels = alignedStride,
+    formatRgba8888 = WINDOW_FORMAT_RGBA_8888,
+    densityDpi = safeDpi,
+    refreshRateHz = safeHz,
+    isValid = true
+  )
+
+pub struct AndroidSafeAreaInsets(topPx: int, bottomPx: int, leftPx: int, rightPx: int, usableWidthPx: int, usableHeightPx: int)
+
+pub fn computeAndroidSafeAreaInsets(surfaceWidthPx: int, surfaceHeightPx: int, rawTopPx: int, rawBottomPx: int, rawLeftPx: int, rawRightPx: int): AndroidSafeAreaInsets requires surfaceWidthPx >= 0 and surfaceHeightPx >= 0 ensures result.usableWidthPx >= 0 and result.usableHeightPx >= 0:
+  let top = sysMaxInt(0, rawTopPx)
+  let bottom = sysMaxInt(0, rawBottomPx)
+  let left = sysMaxInt(0, rawLeftPx)
+  let right = sysMaxInt(0, rawRightPx)
+  let usableW = sysMaxInt(0, surfaceWidthPx - left - right)
+  let usableH = sysMaxInt(0, surfaceHeightPx - top - bottom)
+  ret AndroidSafeAreaInsets(topPx = top, bottomPx = bottom, leftPx = left, rightPx = right, usableWidthPx = usableW, usableHeightPx = usableH)
+
+pub const JNI_VERSION_1_6: int = 65542
+pub const MIN_ANDROID_NDK_API: int = 29
+
+pub struct AndroidJniBridgeDesc(jniVersion: int, sdkInt: int, packageName: str, internalDataPath: str, apkAssetManagerReady: bool, bridgeValid: bool)
+
+pub fn createAndroidJniBridgeDesc(jniVersion: int, sdkInt: int, packageName: str, internalDataPath: str, hasAssetMgr: bool): AndroidJniBridgeDesc requires sdkInt >= 0 ensures result.bridgeValid == (jniVersion == 65542 and sdkInt >= 29 and packageName.len() > 0 and internalDataPath.startsWith("/") and hasAssetMgr):
+  let valid = jniVersion == JNI_VERSION_1_6 and sdkInt >= MIN_ANDROID_NDK_API and packageName.len() > 0 and internalDataPath.startsWith("/") and hasAssetMgr
+  ret AndroidJniBridgeDesc(
+    jniVersion = jniVersion,
+    sdkInt = sdkInt,
+    packageName = packageName,
+    internalDataPath = internalDataPath,
+    apkAssetManagerReady = hasAssetMgr,
+    bridgeValid = valid
+  )

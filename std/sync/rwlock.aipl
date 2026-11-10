@@ -1,0 +1,71 @@
+/// # Module: `std/sync/rwlock` (`SyncRwLock`)
+///
+/// ## Purpose & Domain Scope
+/// Shared-reader / exclusive-writer locks (`RwLock`, `RwLockReadGuard`, `RwLockWriteGuard`)
+/// and optimistic lock-free sequence locks (`SeqLock`).
+module SyncRwLock
+
+pub struct RwLock:
+  mut readers: int
+  mut writer: bool
+
+pub struct RwLockReadGuard:
+  rwlockRef: RwLock
+
+pub struct RwLockWriteGuard:
+  rwlockRef: RwLock
+
+pub struct SeqLock:
+  mut sequence: int
+
+pub fn rwLockNew(): RwLock:
+  ret RwLock(readers: 0, writer: false)
+
+pub fn rwLockRead(mut lock: RwLock): RwLockReadGuard:
+  lock.readers = lock.readers + 1
+  ret RwLockReadGuard(rwlockRef: lock)
+
+pub fn rwLockTryRead(mut lock: RwLock): Option[RwLockReadGuard]:
+  if lock.writer:
+    ret None
+  lock.readers = lock.readers + 1
+  ret Some(RwLockReadGuard(rwlockRef: lock))
+
+pub fn rwLockReadUnlock(mut lock: RwLock): bool:
+  if lock.readers <= 0:
+    ret false
+  lock.readers = lock.readers - 1
+  ret true
+
+pub fn rwLockWrite(mut lock: RwLock): RwLockWriteGuard:
+  lock.writer = true
+  ret RwLockWriteGuard(rwlockRef: lock)
+
+pub fn rwLockTryWrite(mut lock: RwLock): Option[RwLockWriteGuard]:
+  if lock.writer or lock.readers > 0:
+    ret None
+  lock.writer = true
+  ret Some(RwLockWriteGuard(rwlockRef: lock))
+
+pub fn rwLockWriteUnlock(mut lock: RwLock): bool:
+  if not lock.writer:
+    ret false
+  lock.writer = false
+  ret true
+
+pub fn seqLockNew(): SeqLock:
+  ret SeqLock(sequence: 0)
+
+pub fn seqLockReadBegin(sl: SeqLock): int:
+  ret sl.sequence
+
+pub fn seqLockReadRetry(sl: SeqLock, initialSeq: int): bool:
+  if (initialSeq & 1) != 0:
+    ret true
+  ret sl.sequence != initialSeq
+
+pub fn seqLockWriteBegin(mut sl: SeqLock): void:
+  sl.sequence = sl.sequence + 1
+
+pub fn seqLockWriteEnd(mut sl: SeqLock): void:
+  sl.sequence = sl.sequence + 1

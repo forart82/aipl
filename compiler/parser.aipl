@@ -1,0 +1,3136 @@
+module CompilerParser
+
+import {
+  Span,
+  Token,
+  TypeNode,
+  ExprNode,
+  StmtNode,
+  DeclNode,
+  AstArena,
+  emptySpan,
+  arenaNew,
+  arenaAllocType,
+  arenaAllocExpr,
+  arenaAllocStmt,
+  arenaAllocDecl
+} from "./ast.aipl"
+
+// ============================================================================
+// Step 15.2: Self-Hosted Pratt & Recursive-Descent Parser
+// ============================================================================
+
+pub struct ParseRes:
+  pos: int
+  nodeId: int
+
+pub struct MatchPatternRes:
+  pos: int
+  patName: str
+  bindVars: [str]
+  isTuplePayload: bool
+  guardId: int
+  span: Span
+
+pub struct GenericParamsRes:
+  pos: int
+  names: [str]
+  bounds: [str]
+
+pub fn tokAt(tokens: [Token], pos: int): Token:
+  if pos >= 0 and pos < tokens.len:
+    ret tokens[pos]
+  if tokens.len > 0:
+    ret tokens[tokens.len - 1]
+  ret Token(kind = "EOF", lexeme = "", span = emptySpan())
+
+pub fn parseGenericTypeParams(tokens: [Token], mut pos: int): GenericParamsRes:
+  mut names: [str] = []
+  mut bounds: [str] = []
+  if tokAt(tokens, pos).kind == "[" or tokAt(tokens, pos).lexeme == "[":
+    pos += 1
+    while pos < tokens.len and tokAt(tokens, pos).kind != "]" and tokAt(tokens, pos).lexeme != "]" and tokAt(tokens, pos).kind != "EOF":
+      if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+        continue
+      if tokAt(tokens, pos).kind == "]" or tokAt(tokens, pos).lexeme == "]":
+        break
+      let pName = tokAt(tokens, pos).lexeme
+      pos += 1
+      mut pBound = ""
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+        while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        let bTok = tokAt(tokens, pos)
+        pBound = bTok.lexeme
+        pos += 1
+        if tokAt(tokens, pos).kind == "[" or tokAt(tokens, pos).lexeme == "[":
+          pos += 1
+          mut depth = 1
+          while pos < tokens.len and depth > 0 and tokAt(tokens, pos).kind != "EOF":
+            if tokAt(tokens, pos).kind == "[" or tokAt(tokens, pos).lexeme == "[":
+              depth += 1
+            elif tokAt(tokens, pos).kind == "]" or tokAt(tokens, pos).lexeme == "]":
+              depth -= 1
+            pos += 1
+      names.push(pName)
+      bounds.push(pBound)
+      if tokAt(tokens, pos).kind == ",":
+        pos += 1
+      else:
+        break
+    if tokAt(tokens, pos).kind == "]" or tokAt(tokens, pos).lexeme == "]":
+      pos += 1
+  ret GenericParamsRes(pos = pos, names = names, bounds = bounds)
+
+pub fn parseGenericTypeParamNames(tokens: [Token], pos: int): [str]:
+  let res = parseGenericTypeParams(tokens, pos)
+  ret res.names
+
+pub fn parseGenericTypeParamBounds(tokens: [Token], pos: int): [str]:
+  let res = parseGenericTypeParams(tokens, pos)
+  ret res.bounds
+
+pub fn skipGenericTypeParams(tokens: [Token], pos: int): int:
+  let res = parseGenericTypeParams(tokens, pos)
+  ret res.pos
+
+pub fn skipLayout(tokens: [Token], mut pos: int): int:
+  while pos < tokens.len:
+    let k = tokens[pos].kind
+    let l = tokens[pos].lexeme
+    if k == "NEWLINE" or k == ";" or l == ";":
+      pos += 1
+    else:
+      break
+  ret pos
+
+pub fn skipToNextLine(tokens: [Token], mut pos: int): int:
+  if pos < tokens.len and (tokens[pos].kind == "DEDENT" or tokens[pos].kind == "INDENT"):
+    ret pos
+  mut checkPos = pos - 1
+  while checkPos >= 0 and (tokens[checkPos].kind == "NEWLINE" or tokens[checkPos].kind == ";" or tokens[checkPos].lexeme == ";"):
+    checkPos -= 1
+  if checkPos >= 0 and tokens[checkPos].kind == "DEDENT":
+    ret pos
+  if pos < tokens.len and (tokens[pos].kind == ";" or tokens[pos].lexeme == ";"):
+    pos += 1
+    while pos < tokens.len and (tokens[pos].kind == "NEWLINE" or tokens[pos].kind == ";" or tokens[pos].lexeme == ";"):
+      pos += 1
+    ret pos
+  while pos < tokens.len:
+    let k = tokens[pos].kind
+    let l = tokens[pos].lexeme
+    if k == "NEWLINE" or k == "DEDENT" or k == "INDENT" or k == "EOF" or k == ";" or l == ";":
+      break
+    pos += 1
+  if pos < tokens.len and (tokens[pos].kind == ";" or tokens[pos].lexeme == ";"):
+    pos += 1
+  while pos < tokens.len and (tokens[pos].kind == "NEWLINE" or tokens[pos].kind == ";" or tokens[pos].lexeme == ";"):
+    pos += 1
+  ret pos
+
+pub fn pushSyntaxError(mut arena: AstArena, tok: Token): int:
+  mut lex = tok.lexeme
+  if tok.kind == "NEWLINE" or lex == "\n":
+    lex = "\\n"
+  elif tok.kind == "EOF":
+    lex = "EOF"
+  let msg = "line " + str(tok.span.line) + ":" + str(tok.span.column) + ": Syntax error near '" + lex + "'"
+  if arena.errors.len == 0 or arena.errors[arena.errors.len - 1] != msg:
+    arena.errors.push(msg)
+  ret arena.errors.len
+
+pub fn isStmtOrDeclStarter(tok: Token): bool:
+  let k = tok.kind
+  let l = tok.lexeme
+  ret k == "KW_FN" or k == "KW_PUB" or k == "KW_STRUCT" or k == "KW_ENUM" or
+      k == "KW_TYPE" or k == "KW_CONST" or k == "KW_LET" or k == "KW_MUT" or
+      k == "KW_IF" or k == "KW_WHILE" or k == "KW_FOR" or k == "KW_RET" or
+      k == "KW_MATCH" or k == "KW_REQUIRES" or k == "KW_ENSURES" or
+      k == "KW_WITH" or l == "with" or
+      l == "fn" or l == "pub" or l == "struct" or l == "enum" or
+      l == "type" or l == "const" or l == "let" or l == "mut" or
+      l == "if" or l == "while" or l == "for" or l == "ret" or
+      l == "match" or l == "assert" or
+      l == "require" or l == "requires" or l == "ensure" or l == "ensures" or
+      l == "invariant" or l == "decreases" or l == "decrease" or
+      l == "component" or l == "system" or l == "shader"
+
+pub fn isTopDeclStarter(tok: Token): bool:
+  let k = tok.kind
+  let l = tok.lexeme
+  ret k == "KW_FN" or k == "KW_PUB" or k == "KW_STRUCT" or k == "KW_ENUM" or
+      k == "KW_TYPE" or k == "KW_CONST" or k == "KW_MODULE" or k == "KW_IMPORT" or
+      l == "fn" or l == "pub" or l == "struct" or l == "enum" or
+      l == "type" or l == "const" or l == "module" or l == "import" or
+      l == "component" or l == "system" or l == "shader"
+
+pub fn synchronizeToNextStmt(tokens: [Token], startPos: int): int:
+  mut pos = startPos
+  if pos < tokens.len and tokens[pos].kind != "EOF" and tokens[pos].kind != "DEDENT":
+    pos += 1
+  while pos < tokens.len:
+    let k = tokens[pos].kind
+    let l = tokens[pos].lexeme
+    if k == "EOF" or k == "DEDENT":
+      break
+    if k == "NEWLINE" or k == ";" or l == ";":
+      mut nextPos = pos + 1
+      while nextPos < tokens.len and (tokens[nextPos].kind == "NEWLINE" or tokens[nextPos].kind == ";" or tokens[nextPos].lexeme == ";"):
+        nextPos += 1
+      if nextPos < tokens.len:
+        let nextTok = tokens[nextPos]
+        if nextTok.kind == "EOF" or nextTok.kind == "DEDENT" or isStmtOrDeclStarter(nextTok):
+          pos = nextPos
+          break
+    pos += 1
+  ret pos
+
+pub fn extractLeadingDocComment(source: str, declLine: int): str:
+  if source.len == 0 or declLine <= 1:
+    ret ""
+  let lines = source.split("\n")
+  mut idx = declLine - 2
+  if idx >= lines.len:
+    idx = lines.len - 1
+
+  mut collected: [str] = []
+  while idx >= 0:
+    let raw = lines[idx]
+    let trimmed = raw.trim()
+    if trimmed.startsWith("///"):
+      mut content = trimmed.slice(3, trimmed.len)
+      if content.startsWith(" "):
+        content = content.slice(1, content.len)
+      collected.push(content)
+      idx -= 1
+    elif trimmed.startsWith("//!"):
+      mut content = trimmed.slice(3, trimmed.len)
+      if content.startsWith(" "):
+        content = content.slice(1, content.len)
+      collected.push(content)
+      idx -= 1
+    elif trimmed.startsWith("# ") and collected.len > 0:
+      mut content = trimmed.slice(2, trimmed.len)
+      collected.push(content)
+      idx -= 1
+    else:
+      break
+
+  if collected.len == 0:
+    ret ""
+
+  mut result: [str] = []
+  mut i = collected.len - 1
+  while i >= 0:
+    result.push(collected[i])
+    i -= 1
+  ret result.join("\n")
+
+pub fn parseIntLexeme(lex: str): int:
+  let clean = lex.replace("_", "")
+  if clean.startsWith("0x") or clean.startsWith("0X"):
+    mut acc = 0
+    mut i = 2
+    while i < clean.len:
+      let c = clean.charCodeAt(i)
+      mut digit = 0
+      if c >= 48 and c <= 57:
+        digit = c - 48
+      elif c >= 65 and c <= 70:
+        digit = c - 55
+      elif c >= 97 and c <= 102:
+        digit = c - 87
+      acc = acc * 16 + digit
+      i += 1
+    ret acc
+  elif clean.startsWith("0b") or clean.startsWith("0B"):
+    mut acc = 0
+    mut i = 2
+    while i < clean.len:
+      let c = clean.charCodeAt(i)
+      mut digit = 0
+      if c == 49:
+        digit = 1
+      acc = acc * 2 + digit
+      i += 1
+    ret acc
+  ret int(clean)
+
+pub fn parseTypeAnnotation(tokens: [Token], mut arena: AstArena, mut pos: int): ParseRes:
+  while tokAt(tokens, pos).kind == "DIRECTIVE" or (tokAt(tokens, pos).kind != "STRING" and tokAt(tokens, pos).lexeme.startsWith("@")):
+    pos += 1
+    if tokAt(tokens, pos).kind == "(":
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        pos += 1
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+
+  let t = tokAt(tokens, pos)
+  let emptyArgs: [int] = []
+
+  // Function type: fn(...) -> RetType
+  if t.kind == "KW_FN" or t.lexeme == "fn":
+    pos += 1
+    mut fnParamTypes: [int] = []
+    if tokAt(tokens, pos).kind == "(":
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+          continue
+        let pt = parseTypeAnnotation(tokens, arena, pos)
+        pos = pt.pos
+        fnParamTypes.push(pt.nodeId)
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+        else:
+          break
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+    mut retTyId = -1
+    if tokAt(tokens, pos).lexeme == "->" or tokAt(tokens, pos).kind == ":":
+      pos += 1
+      let rt = parseTypeAnnotation(tokens, arena, pos)
+      pos = rt.pos
+      retTyId = rt.nodeId
+    fnParamTypes.push(retTyId)
+    let allocId = arenaAllocType(arena, "Function", "fn", fnParamTypes, "", -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Mutable modifier: mut Type
+  if t.kind == "KW_MUT" or t.lexeme == "mut":
+    pos += 1
+    ret parseTypeAnnotation(tokens, arena, pos)
+
+  // Reference type: &Type or &mut Type
+  if (t.kind == "OP" and t.lexeme == "&") or t.lexeme == "&":
+    pos += 1
+    if tokAt(tokens, pos).kind == "KW_MUT":
+      pos += 1
+    let innerRes = parseTypeAnnotation(tokens, arena, pos)
+    pos = innerRes.pos
+    if innerRes.nodeId >= 0 and innerRes.nodeId < arena.types.len:
+      let oldNode = arena.types[innerRes.nodeId]
+      let refTyId = arenaAllocType(arena, oldNode.kind, "&" + oldNode.name, oldNode.typeArgs, oldNode.refineVar, oldNode.refinePredExpr, oldNode.span)
+      ret ParseRes(pos = pos, nodeId = refTyId)
+    ret innerRes
+
+  // Array shorthand: [ElemType] or [ElemType; N]
+  if t.kind == "[":
+    pos += 1
+    while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+      pos += 1
+    let elemRes = parseTypeAnnotation(tokens, arena, pos)
+    pos = elemRes.pos
+    while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+      pos += 1
+    if tokAt(tokens, pos).kind == ";" or tokAt(tokens, pos).lexeme == ";":
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != "]" and tokAt(tokens, pos).lexeme != "]" and tokAt(tokens, pos).kind != "EOF":
+        pos += 1
+    while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+      pos += 1
+    if tokAt(tokens, pos).kind == "]" or tokAt(tokens, pos).lexeme == "]":
+      pos += 1
+    mut args: [int] = []
+    args.push(elemRes.nodeId)
+    let allocId = arenaAllocType(arena, "Array", "Array", args, "", -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Tuple type shorthand: (T1, T2, ...)
+  if t.kind == "(":
+    pos += 1
+    mut tupleArgs: [int] = []
+    while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+      if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+        continue
+      let subRes = parseTypeAnnotation(tokens, arena, pos)
+      pos = subRes.pos
+      tupleArgs.push(subRes.nodeId)
+      if tokAt(tokens, pos).kind == ",":
+        pos += 1
+      else:
+        break
+    if tokAt(tokens, pos).kind == ")":
+      pos += 1
+    let allocId = arenaAllocType(arena, "Tuple", "Tuple", tupleArgs, "", -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Refinement type: { x: BaseType | pred }
+  if t.kind == "{":
+    pos += 1
+    let varTok = tokAt(tokens, pos)
+    mut varName = varTok.lexeme
+    if varTok.kind == "IDENT":
+      pos += 1
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    let baseRes = parseTypeAnnotation(tokens, arena, pos)
+    pos = baseRes.pos
+    if tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "|":
+      pos += 1
+    let predRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = predRes.pos
+    if tokAt(tokens, pos).kind == "}":
+      pos += 1
+    mut rArgs: [int] = []
+    rArgs.push(baseRes.nodeId)
+    let allocId = arenaAllocType(arena, "Refinement", "Refinement", rArgs, varName, predRes.nodeId, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Nominal or generic type: Name or Name[T1, T2]
+  mut typeName = t.lexeme
+  if t.kind == "IDENT" or t.kind == "KW_TYPE":
+    pos += 1
+    while pos < tokens.len and (tokAt(tokens, pos).kind == "." or tokAt(tokens, pos).lexeme == "::"):
+      pos += 1
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+      typeName = typeName + "." + tokAt(tokens, pos).lexeme
+      pos += 1
+  else:
+    typeName = "any"
+
+  mut typeArgs: [int] = []
+  if tokAt(tokens, pos).kind == "[":
+    pos += 1
+    while pos < tokens.len and tokAt(tokens, pos).kind != "]" and tokAt(tokens, pos).kind != "EOF":
+      if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+        continue
+      let subRes = parseTypeAnnotation(tokens, arena, pos)
+      pos = subRes.pos
+      typeArgs.push(subRes.nodeId)
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+      if tokAt(tokens, pos).kind == ",":
+        pos += 1
+      elif tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+      else:
+        break
+    while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+      pos += 1
+    if tokAt(tokens, pos).kind == "]":
+      pos += 1
+  elif tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "<":
+    pos += 1
+    while pos < tokens.len and not (tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == ">") and tokAt(tokens, pos).kind != "EOF":
+      if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+        continue
+      let subRes = parseTypeAnnotation(tokens, arena, pos)
+      pos = subRes.pos
+      typeArgs.push(subRes.nodeId)
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+      if tokAt(tokens, pos).kind == ",":
+        pos += 1
+      elif tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+      else:
+        break
+    while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+      pos += 1
+    if tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == ">":
+      pos += 1
+
+  mut kind = "Nominal"
+  if typeArgs.len > 0:
+    kind = "Generic"
+  let allocId = arenaAllocType(arena, kind, typeName, typeArgs, "", -1, t.span)
+  ret ParseRes(pos = pos, nodeId = allocId)
+
+pub fn binaryOpPrecedence(tok: Token): int:
+  let k = tok.kind
+  if k != "OP" and k != "KW_OR" and k != "KW_AND" and k != "KW_IS" and k != "KW_IN" and k != "DOT_DOT_EQ" and k != "KW_AS":
+    ret 0
+  let lex = tok.lexeme
+  if lex == "|>":
+    ret 1
+  if k == "KW_OR" or lex == "||" or lex == "??":
+    ret 2
+  if k == "KW_AND" or lex == "&&":
+    ret 3
+  if lex == ".." or k == "DOT_DOT_EQ" or lex == "..=":
+    ret 6
+  if lex == "==" or lex == "!=" or lex == "<" or lex == "<=" or lex == ">" or lex == ">=" or k == "KW_IS" or lex == "is" or k == "KW_IN" or lex == "in":
+    ret 7
+  if lex == "|" or lex == "%%" or k == "KW_AS" or lex == "as":
+    ret 8
+  if lex == "^" or lex == "**":
+    ret 9
+  if lex == "&":
+    ret 10
+  if lex == "<<" or lex == ">>":
+    ret 11
+  if lex == "+" or lex == "-":
+    ret 12
+  if lex == "*" or lex == "/" or lex == "%" or lex == "//":
+    ret 13
+  ret 0
+
+pub fn parseMatchPatternAndGuard(tokens: [Token], mut arena: AstArena, mut pos: int): MatchPatternRes:
+  let t = tokAt(tokens, pos)
+  mut patName = ""
+  mut bindVars: [str] = []
+  mut isTuplePayload = false
+
+  // Case 1: Tuple pattern (p1, p2, ...)
+  if t.kind == "(":
+    pos += 1
+    mut subPats: [str] = []
+    while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+      if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+        continue
+      let subTok = tokAt(tokens, pos)
+      mut subPat = subTok.lexeme
+      pos += 1
+      if subTok.kind == "STRING" or subTok.kind == "CHAR":
+        subPat = "\"" + subTok.lexeme + "\""
+      subPats.push(subPat)
+      if tokAt(tokens, pos).kind == ",":
+        pos += 1
+    if tokAt(tokens, pos).kind == ")":
+      pos += 1
+    patName = "__tuple__:" + subPats.join(",")
+  // Case 2: prefix("...")
+  elif (t.kind == "IDENT" or t.kind.startsWith("KW_")) and t.lexeme == "prefix" and tokAt(tokens, pos + 1).kind == "(":
+    pos += 2
+    let strTok = tokAt(tokens, pos)
+    pos += 1
+    if tokAt(tokens, pos).kind == ")":
+      pos += 1
+    patName = "__prefix__:" + strTok.lexeme
+  // Case 3: Standard pattern: Variant, literal, identifier, wildcard
+  else:
+    let patTok = tokAt(tokens, pos)
+    patName = patTok.lexeme
+    pos += 1
+    if patTok.kind == "STRING" or patTok.kind == "CHAR":
+      patName = "\"" + patTok.lexeme + "\""
+    while (tokAt(tokens, pos).kind == "." and (tokAt(tokens, pos + 1).kind == "IDENT" or tokAt(tokens, pos + 1).kind.startsWith("KW_"))) or (tokAt(tokens, pos).lexeme == "::" and (tokAt(tokens, pos + 1).kind == "IDENT" or tokAt(tokens, pos + 1).kind.startsWith("KW_"))) or (tokAt(tokens, pos).kind == ":" and tokAt(tokens, pos + 1).kind == ":" and (tokAt(tokens, pos + 2).kind == "IDENT" or tokAt(tokens, pos + 2).kind.startsWith("KW_"))):
+      let prefixEnum = patName
+      if tokAt(tokens, pos).kind == "." or tokAt(tokens, pos).lexeme == "::":
+        pos += 1
+      else:
+        pos += 2
+      let vTok = tokAt(tokens, pos)
+      let vName = vTok.lexeme
+      pos += 1
+      if vName == "None":
+        mut hasNoneVariant = false
+        mut di = 0
+        while di < arena.decls.len:
+          let d = arena.decls[di]
+          if d.kind == "Enum" and d.name == prefixEnum:
+            mut vi = 0
+            while vi < d.variants.len:
+              if d.variants[vi] == "None":
+                hasNoneVariant = true
+                break
+              vi += 1
+            break
+          di += 1
+        if hasNoneVariant or (prefixEnum.len > 0 and prefixEnum != "Option" and prefixEnum != "Optional"):
+          patName = prefixEnum + "::None"
+        else:
+          patName = vName
+      else:
+        patName = vName
+    if tokAt(tokens, pos).kind == "(":
+      pos += 1
+      if tokAt(tokens, pos).kind == "(":
+        isTuplePayload = true
+        pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        let bTok = tokAt(tokens, pos)
+        if bTok.kind == "IDENT" or bTok.lexeme == "_" or bTok.kind.startsWith("KW_"):
+          bindVars.push(bTok.lexeme)
+          pos += 1
+        else:
+          pos += 1
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+      while tokAt(tokens, pos).kind == ")":
+        pos += 1
+
+  // Multi-pattern arms: pat1 | pat2 | ...
+  while tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "|":
+    pos += 1
+    let nextTok = tokAt(tokens, pos)
+    mut nextPat = nextTok.lexeme
+    if nextTok.kind == "(":
+      pos += 1
+      mut subPats: [str] = []
+      while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        if tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+          continue
+        let subTok = tokAt(tokens, pos)
+        mut subPat = subTok.lexeme
+        pos += 1
+        if subTok.kind == "STRING" or subTok.kind == "CHAR":
+          subPat = "\"" + subTok.lexeme + "\""
+        subPats.push(subPat)
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+      nextPat = "__tuple__:" + subPats.join(",")
+    elif (nextTok.kind == "IDENT" or nextTok.kind.startsWith("KW_")) and nextTok.lexeme == "prefix" and tokAt(tokens, pos + 1).kind == "(":
+      pos += 2
+      let strTok = tokAt(tokens, pos)
+      pos += 1
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+      nextPat = "__prefix__:" + strTok.lexeme
+    else:
+      pos += 1
+      if nextTok.kind == "STRING" or nextTok.kind == "CHAR":
+        nextPat = "\"" + nextTok.lexeme + "\""
+      while (tokAt(tokens, pos).kind == "." and (tokAt(tokens, pos + 1).kind == "IDENT" or tokAt(tokens, pos + 1).kind.startsWith("KW_"))) or (tokAt(tokens, pos).lexeme == "::" and (tokAt(tokens, pos + 1).kind == "IDENT" or tokAt(tokens, pos + 1).kind.startsWith("KW_"))) or (tokAt(tokens, pos).kind == ":" and tokAt(tokens, pos + 1).kind == ":" and (tokAt(tokens, pos + 2).kind == "IDENT" or tokAt(tokens, pos + 2).kind.startsWith("KW_"))):
+        let prefixEnum = nextPat
+        if tokAt(tokens, pos).kind == "." or tokAt(tokens, pos).lexeme == "::":
+          pos += 1
+        else:
+          pos += 2
+        let vTok = tokAt(tokens, pos)
+        let vName = vTok.lexeme
+        pos += 1
+        if vName == "None":
+          mut hasNoneVariant = false
+          mut di = 0
+          while di < arena.decls.len:
+            let d = arena.decls[di]
+            if d.kind == "Enum" and d.name == prefixEnum:
+              mut vi = 0
+              while vi < d.variants.len:
+                if d.variants[vi] == "None":
+                  hasNoneVariant = true
+                  break
+                vi += 1
+              break
+            di += 1
+          if hasNoneVariant or (prefixEnum.len > 0 and prefixEnum != "Option" and prefixEnum != "Optional"):
+            nextPat = prefixEnum + "::None"
+          else:
+            nextPat = vName
+        else:
+          nextPat = vName
+    patName = patName + "|" + nextPat
+
+  // Case Guard: pat if cond
+  mut guardId = -1
+  if tokAt(tokens, pos).kind == "KW_IF":
+    pos += 1
+    let gRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = gRes.pos
+    guardId = gRes.nodeId
+
+  ret MatchPatternRes(pos = pos, patName = patName, bindVars = bindVars, isTuplePayload = isTuplePayload, guardId = guardId, span = t.span)
+
+pub fn parsePrimaryExpr(tokens: [Token], mut arena: AstArena, mut pos: int): ParseRes:
+  let t = tokAt(tokens, pos)
+  let emptyInts: [int] = []
+  let emptyNames: [str] = []
+
+  // If-expression: multiline indented or single-line if / elif / else
+  if t.kind == "KW_IF":
+    mut condList: [int] = []
+    mut thenList: [int] = []
+    mut spanList: [Span] = []
+
+    pos += 1
+    let condRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = condRes.pos
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    mut isBlockIf = false
+    mut lookPos = pos
+    while lookPos < tokens.len and tokAt(tokens, lookPos).kind == "NEWLINE":
+      lookPos += 1
+    if tokAt(tokens, lookPos).kind == "INDENT":
+      isBlockIf = true
+
+    if isBlockIf:
+      let thenBlk = parseIndentedBlock(tokens, arena, lookPos)
+      pos = thenBlk.pos
+      let thenStmts = arena.stmts[thenBlk.nodeId].bodyStmts
+
+      mut elifConds: [int] = []
+      mut elifBlkIds: [int] = []
+      mut elifSpans: [Span] = []
+
+      pos = skipLayout(tokens, pos)
+      while tokAt(tokens, pos).kind == "KW_ELIF" or (tokAt(tokens, pos).kind == "KW_ELSE" and tokAt(tokens, pos + 1).kind == "KW_IF"):
+        let elifTok = tokAt(tokens, pos)
+        if elifTok.kind == "KW_ELSE":
+          pos += 2
+        else:
+          pos += 1
+        let eCond = parseExprPrec(tokens, arena, pos, 1)
+        pos = eCond.pos
+        if tokAt(tokens, pos).kind == ":":
+          pos += 1
+        pos = skipLayout(tokens, pos)
+        let eBlk = parseIndentedBlock(tokens, arena, pos)
+        pos = eBlk.pos
+        elifConds.push(eCond.nodeId)
+        elifBlkIds.push(eBlk.nodeId)
+        elifSpans.push(elifTok.span)
+        pos = skipLayout(tokens, pos)
+
+      mut elseBlockExprId = -1
+      if tokAt(tokens, pos).kind == "KW_ELSE":
+        let elseTok = tokAt(tokens, pos)
+        pos += 1
+        if tokAt(tokens, pos).kind == ":":
+          pos += 1
+        pos = skipLayout(tokens, pos)
+        let elBlk = parseIndentedBlock(tokens, arena, pos)
+        pos = elBlk.pos
+        let elBody = arena.stmts[elBlk.nodeId].bodyStmts
+        elseBlockExprId = arenaAllocExpr(arena, "DoBlock", "", 0, 0.0, "", false, -1, -1, -1, elBody, emptyNames, -1, elseTok.span)
+
+      mut ei = elifConds.len - 1
+      while ei >= 0:
+        let eStmts = arena.stmts[elifBlkIds[ei]].bodyStmts
+        elseBlockExprId = arenaAllocExpr(arena, "BlockIfExpr", "", 0, 0.0, "", false, elifConds[ei], elseBlockExprId, -1, eStmts, emptyNames, -1, elifSpans[ei])
+        ei -= 1
+
+      let allocId = arenaAllocExpr(arena, "BlockIfExpr", "", 0, 0.0, "", false, condRes.nodeId, elseBlockExprId, -1, thenStmts, emptyNames, -1, t.span)
+      ret ParseRes(pos = pos, nodeId = allocId)
+
+    mut thenIndented = false
+    if tokAt(tokens, pos).kind == "NEWLINE":
+      while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+      if tokAt(tokens, pos).kind == "INDENT":
+        thenIndented = true
+        pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+
+    let thenRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = thenRes.pos
+
+    if thenIndented:
+      while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+      if tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+
+    condList.push(condRes.nodeId)
+    thenList.push(thenRes.nodeId)
+    spanList.push(t.span)
+
+    while tokAt(tokens, pos).kind == "KW_ELIF" or (tokAt(tokens, pos).kind == "KW_ELSE" and tokAt(tokens, pos + 1).kind == "KW_IF") or (tokAt(tokens, pos).kind == "DEDENT" and (tokAt(tokens, pos + 1).kind == "KW_ELIF" or (tokAt(tokens, pos + 1).kind == "KW_ELSE" and tokAt(tokens, pos + 2).kind == "KW_IF"))):
+      if tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+      let elifTok = tokAt(tokens, pos)
+      if elifTok.kind == "KW_ELSE":
+        pos += 2
+      else:
+        pos += 1
+      let elifCond = parseExprPrec(tokens, arena, pos, 1)
+      pos = elifCond.pos
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+
+      mut elifIndented = false
+      if tokAt(tokens, pos).kind == "NEWLINE":
+        while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        if tokAt(tokens, pos).kind == "INDENT":
+          elifIndented = true
+          pos += 1
+        while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+
+      let elifThen = parseExprPrec(tokens, arena, pos, 1)
+      pos = elifThen.pos
+
+      if elifIndented:
+        while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        if tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+        while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+
+      condList.push(elifCond.nodeId)
+      thenList.push(elifThen.nodeId)
+      spanList.push(elifTok.span)
+
+    if tokAt(tokens, pos).kind == "DEDENT" and tokAt(tokens, pos + 1).kind == "KW_ELSE":
+      pos += 1
+    if thenIndented:
+      while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+
+    mut elseNodeId = -1
+    if tokAt(tokens, pos).kind == "KW_ELSE":
+      pos += 1
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+
+      mut elseIndented = false
+      if tokAt(tokens, pos).kind == "NEWLINE":
+        while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        if tokAt(tokens, pos).kind == "INDENT":
+          elseIndented = true
+          pos += 1
+        while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+
+      let elseRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = elseRes.pos
+
+      if elseIndented:
+        while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        if tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+        while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+
+      elseNodeId = elseRes.nodeId
+
+    mut curr = elseNodeId
+    mut ci = condList.len - 1
+    while ci >= 0:
+      curr = arenaAllocExpr(arena, "IfExpr", "", 0, 0.0, "", false, thenList[ci], curr, condList[ci], emptyInts, emptyNames, -1, spanList[ci])
+      ci -= 1
+
+    ret ParseRes(pos = pos, nodeId = curr)
+
+  // Parenthesized expression, unit (), or tuple: (e) or (e1, e2, ...)
+  if t.kind == "(":
+    if tokAt(tokens, pos + 1).kind == ")":
+      pos += 2
+      let allocId = arenaAllocExpr(arena, "IntLit", "", 0, 0.0, "0", false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+      ret ParseRes(pos = pos, nodeId = allocId)
+    pos += 1
+    let first = parseExprPrec(tokens, arena, pos, 1)
+    pos = first.pos
+    if tokAt(tokens, pos).kind == ",":
+      mut elems: [int] = []
+      elems.push(first.nodeId)
+      while tokAt(tokens, pos).kind == ",":
+        pos += 1
+        if tokAt(tokens, pos).kind == ")":
+          break
+        let nextElem = parseExprPrec(tokens, arena, pos, 1)
+        pos = nextElem.pos
+        elems.push(nextElem.nodeId)
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+      else:
+        let errTok = tokAt(tokens, pos)
+        pushSyntaxError(arena, errTok)
+      let allocId = arenaAllocExpr(arena, "Tuple", "", 0, 0.0, "", false, -1, -1, -1, elems, emptyNames, -1, t.span)
+      ret ParseRes(pos = pos, nodeId = allocId)
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+      let tyRes = parseTypeAnnotation(tokens, arena, pos)
+      pos = tyRes.pos
+      let targetType = if tyRes.nodeId >= 0 and tyRes.nodeId < arena.types.len: arena.types[tyRes.nodeId].name else: "any"
+      let castId = arenaAllocExpr(arena, "Cast", "", 0, 0.0, targetType, false, first.nodeId, -1, -1, emptyInts, emptyNames, tyRes.nodeId, t.span)
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+      else:
+        let errTok = tokAt(tokens, pos)
+        pushSyntaxError(arena, errTok)
+      if tokAt(tokens, pos).lexeme == "->" or (tokAt(tokens, pos).kind == ":" and (tokAt(tokens, pos + 2).lexeme == "=>" or tokAt(tokens, pos + 2).lexeme == "->")):
+        pos += 1
+        let retTr = parseTypeAnnotation(tokens, arena, pos)
+        pos = retTr.pos
+      if tokAt(tokens, pos).lexeme == "=>" or tokAt(tokens, pos).lexeme == "->":
+        pos += 1
+        let bodyRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = bodyRes.pos
+        mut lambdaParamNames: [str] = []
+        let allocId = arenaAllocExpr(arena, "Lambda", "", 0, 0.0, "", false, bodyRes.nodeId, -1, -1, emptyInts, lambdaParamNames, -1, t.span)
+        ret ParseRes(pos = pos, nodeId = allocId)
+      ret ParseRes(pos = pos, nodeId = castId)
+    if tokAt(tokens, pos).kind == ")":
+      pos += 1
+    else:
+      let errTok = tokAt(tokens, pos)
+      pushSyntaxError(arena, errTok)
+    if tokAt(tokens, pos).lexeme == "=>":
+      pos += 1
+      let bodyRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = bodyRes.pos
+      mut lambdaParamNames: [str] = []
+      let allocId = arenaAllocExpr(arena, "Lambda", "", 0, 0.0, "", false, bodyRes.nodeId, -1, -1, emptyInts, lambdaParamNames, -1, t.span)
+      ret ParseRes(pos = pos, nodeId = allocId)
+    ret ParseRes(pos = pos, nodeId = first.nodeId)
+
+  // Array literal [e1, e2, ...] or Array repeat [initVal; count]
+  if t.kind == "[":
+    pos += 1
+    mut elems: [int] = []
+    while pos < tokens.len and tokAt(tokens, pos).kind != "]" and tokAt(tokens, pos).kind != "EOF":
+      if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+        continue
+      if tokAt(tokens, pos).kind == "KW_FOR" or tokAt(tokens, pos).lexeme == "for":
+        let forRes = parseStmt(tokens, arena, pos)
+        pos = forRes.pos
+        if forRes.nodeId >= 0:
+          elems.push(forRes.nodeId)
+        continue
+      let elemRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = elemRes.pos
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+      if elems.len == 0 and (tokAt(tokens, pos).kind == "KW_FOR" or tokAt(tokens, pos).lexeme == "for"):
+        pos += 1
+        while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+          pos += 1
+        mut iterVar = ""
+        if tokAt(tokens, pos).kind == "(":
+          let patRes = parseTuplePatternVars(tokens, pos, "")
+          pos = patRes.pos
+          iterVar = patRes.vars.join(",")
+        else:
+          iterVar = tokAt(tokens, pos).lexeme
+          pos += 1
+        while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+          pos += 1
+        if tokAt(tokens, pos).kind == "KW_IN" or tokAt(tokens, pos).lexeme == "in":
+          pos += 1
+        while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+          pos += 1
+        let iterRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = iterRes.pos
+        while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+          pos += 1
+        mut condId = -1
+        if tokAt(tokens, pos).kind == "KW_IF" or tokAt(tokens, pos).lexeme == "if":
+          pos += 1
+          while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+            pos += 1
+          let condRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = condRes.pos
+          condId = condRes.nodeId
+        while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+          pos += 1
+        if tokAt(tokens, pos).kind == "]" or tokAt(tokens, pos).lexeme == "]":
+          pos += 1
+        else:
+          let errTok = tokAt(tokens, pos)
+          pushSyntaxError(arena, errTok)
+        mut compChildren: [int] = [elemRes.nodeId, iterRes.nodeId]
+        if condId >= 0:
+          compChildren.push(condId)
+        mut compNames: [str] = [iterVar]
+        let allocId = arenaAllocExpr(arena, "ListComp", "", 0, 0.0, iterVar, false, elemRes.nodeId, iterRes.nodeId, condId, compChildren, compNames, -1, t.span)
+        ret ParseRes(pos = pos, nodeId = allocId)
+      if elems.len == 0 and (tokAt(tokens, pos).kind == ";" or tokAt(tokens, pos).lexeme == ";"):
+        pos += 1
+        let countRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = countRes.pos
+        if tokAt(tokens, pos).kind == "]":
+          pos += 1
+        let allocId = arenaAllocExpr(arena, "ArrayRepeat", "", 0, 0.0, "", false, elemRes.nodeId, countRes.nodeId, -1, emptyInts, emptyNames, -1, t.span)
+        ret ParseRes(pos = pos, nodeId = allocId)
+      elems.push(elemRes.nodeId)
+      if tokAt(tokens, pos).kind == ",":
+        pos += 1
+      elif tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+      else:
+        break
+    if tokAt(tokens, pos).kind == "]":
+      pos += 1
+    else:
+      let errTok = tokAt(tokens, pos)
+      pushSyntaxError(arena, errTok)
+    let allocId = arenaAllocExpr(arena, "Array", "", 0, 0.0, "", false, -1, -1, -1, elems, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Map literal { "k": v } or brace struct literal / record { ..base, field: val }
+  if t.kind == "{":
+    pos += 1
+    while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+      pos += 1
+    if tokAt(tokens, pos).kind == "}":
+      pos += 1
+      let allocId = arenaAllocExpr(arena, "MapLit", "", 0, 0.0, "", false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+      ret ParseRes(pos = pos, nodeId = allocId)
+
+    if tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "..":
+      mut fieldExprs: [int] = []
+      mut fieldNames: [str] = []
+      mut baseExpr = -1
+      while pos < tokens.len and tokAt(tokens, pos).kind != "}" and tokAt(tokens, pos).kind != "EOF":
+        if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+          continue
+        if tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "..":
+          pos += 1
+          let spRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = spRes.pos
+          baseExpr = spRes.nodeId
+          if tokAt(tokens, pos).kind == ",":
+            pos += 1
+          continue
+        else:
+          let fnTok = tokAt(tokens, pos)
+          mut fnName = fnTok.lexeme
+          if fnName.startsWith("\"") and fnName.endsWith("\"") and fnName.len >= 2:
+            fnName = fnName.slice(1, fnName.len - 1)
+          fieldNames.push(fnName)
+          pos += 1
+          if tokAt(tokens, pos).kind == ":" or tokAt(tokens, pos).lexeme == "=":
+            pos += 1
+            let fvRes = parseExprPrec(tokens, arena, pos, 1)
+            pos = fvRes.pos
+            fieldExprs.push(fvRes.nodeId)
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+        elif tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        else:
+          break
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+      if tokAt(tokens, pos).kind == "}":
+        pos += 1
+      let allocId = arenaAllocExpr(arena, "StructLit", "", 0, 0.0, "", false, baseExpr, -1, baseExpr, fieldExprs, fieldNames, -1, t.span)
+      ret ParseRes(pos = pos, nodeId = allocId)
+
+    mut mapPairs: [int] = []
+    while pos < tokens.len and tokAt(tokens, pos).kind != "}" and tokAt(tokens, pos).kind != "EOF":
+      if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+        continue
+      let keyRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = keyRes.pos
+      mapPairs.push(keyRes.nodeId)
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+      if tokAt(tokens, pos).kind == ":" or tokAt(tokens, pos).lexeme == "=":
+        pos += 1
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+      let valRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = valRes.pos
+      mapPairs.push(valRes.nodeId)
+      if tokAt(tokens, pos).kind == ",":
+        pos += 1
+      elif tokAt(tokens, pos).kind == "NEWLINE":
+        pos += 1
+      else:
+        break
+    while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+      pos += 1
+    if tokAt(tokens, pos).kind == "}":
+      pos += 1
+    let allocId = arenaAllocExpr(arena, "MapLit", "", 0, 0.0, "", false, -1, -1, -1, mapPairs, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Inline match expression: match target: arms...
+  if t.kind == "KW_MATCH":
+    pos += 1
+    let targetRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = targetRes.pos
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    pos = skipLayout(tokens, pos)
+    mut armValExprIds: [int] = []
+    mut armPatternNames: [str] = []
+    if tokAt(tokens, pos).kind == "INDENT":
+      pos += 1
+      while pos < tokens.len:
+        pos = skipLayout(tokens, pos)
+        let ak = tokAt(tokens, pos).kind
+        if ak == "DEDENT":
+          pos += 1
+          break
+        if ak == "EOF":
+          break
+        let armPatRes = parseMatchPatternAndGuard(tokens, arena, pos)
+        pos = armPatRes.pos
+        mut encName = armPatRes.patName
+        if armPatRes.bindVars.len > 0:
+          encName = encName + "@" + armPatRes.bindVars.join(",")
+        if armPatRes.guardId >= 0:
+          encName = encName + "?" + str(armPatRes.guardId)
+        armPatternNames.push(encName)
+        if tokAt(tokens, pos).lexeme == "=>" or tokAt(tokens, pos).kind == ":":
+          pos += 1
+        pos = skipLayout(tokens, pos)
+        if tokAt(tokens, pos).kind == "INDENT":
+          let blkRes = parseIndentedBlock(tokens, arena, pos)
+          pos = blkRes.pos
+          let doExprId = arenaAllocExpr(arena, "DoBlock", "", 0, 0.0, "", false, -1, -1, -1, arena.stmts[blkRes.nodeId].bodyStmts, emptyNames, -1, t.span)
+          armValExprIds.push(doExprId)
+        elif tokAt(tokens, pos).kind == "KW_RET":
+          pos += 1
+          let retRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = retRes.pos
+          let retExprId = arenaAllocExpr(arena, "ReturnExpr", "", 0, 0.0, "", false, retRes.nodeId, -1, -1, emptyInts, emptyNames, -1, t.span)
+          armValExprIds.push(retExprId)
+          pos = skipToNextLine(tokens, pos)
+        else:
+          let valRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = valRes.pos
+          armValExprIds.push(valRes.nodeId)
+          pos = skipToNextLine(tokens, pos)
+    else:
+      while pos < tokens.len:
+        while tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        let ak = tokAt(tokens, pos).kind
+        if ak == "DEDENT" or ak == "EOF" or ak == ")":
+          break
+        let armPatRes = parseMatchPatternAndGuard(tokens, arena, pos)
+        pos = armPatRes.pos
+        mut encName = armPatRes.patName
+        if armPatRes.bindVars.len > 0:
+          encName = encName + "@" + armPatRes.bindVars.join(",")
+        if armPatRes.guardId >= 0:
+          encName = encName + "?" + str(armPatRes.guardId)
+        armPatternNames.push(encName)
+        if tokAt(tokens, pos).lexeme == "=>" or tokAt(tokens, pos).kind == ":":
+          pos += 1
+        if tokAt(tokens, pos).kind == "KW_RET":
+          pos += 1
+          let retRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = retRes.pos
+          let retExprId = arenaAllocExpr(arena, "ReturnExpr", "", 0, 0.0, "", false, retRes.nodeId, -1, -1, emptyInts, emptyNames, -1, t.span)
+          armValExprIds.push(retExprId)
+        else:
+          let valRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = valRes.pos
+          armValExprIds.push(valRes.nodeId)
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+        while tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        if tokAt(tokens, pos).kind == ")" or tokAt(tokens, pos).kind == "EOF":
+          break
+    let allocId = arenaAllocExpr(arena, "MatchExpr", "", 0, 0.0, "", false, targetRes.nodeId, -1, -1, armValExprIds, armPatternNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Do block expression: do: statements...
+  if t.kind == "KW_DO" or (t.kind == "IDENT" and t.lexeme == "do" and tokAt(tokens, pos + 1).kind == ":"):
+    pos += 1
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    let blkRes = parseIndentedBlock(tokens, arena, pos)
+    pos = blkRes.pos
+    let bStmts = arena.stmts[blkRes.nodeId].bodyStmts
+    let allocId = arenaAllocExpr(arena, "DoBlock", "", 0, 0.0, "", false, -1, -1, -1, bStmts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Anonymous Lambda: fn(a: int, b: int) => expr
+  if t.kind == "KW_FN" and tokAt(tokens, pos + 1).kind == "(":
+    pos += 2
+    mut paramNames: [str] = []
+    while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+      if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+        pos += 1
+        continue
+      if tokAt(tokens, pos).kind == "KW_MUT":
+        pos += 1
+      let pTok = tokAt(tokens, pos)
+      if pTok.kind == "IDENT" or pTok.lexeme == "_" or pTok.kind.startsWith("KW_"):
+        paramNames.push(pTok.lexeme)
+        pos += 1
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+        let tr = parseTypeAnnotation(tokens, arena, pos)
+        pos = tr.pos
+      if tokAt(tokens, pos).kind == ",":
+        pos += 1
+      else:
+        break
+    if tokAt(tokens, pos).kind == ")":
+      pos += 1
+    if tokAt(tokens, pos).lexeme == "->":
+      pos += 1
+      let retTr = parseTypeAnnotation(tokens, arena, pos)
+      pos = retTr.pos
+    elif tokAt(tokens, pos).kind == ":" and tokAt(tokens, pos + 1).kind == "IDENT" and (tokAt(tokens, pos + 2).lexeme == "=>" or tokAt(tokens, pos + 2).kind == ":"):
+      pos += 1
+      let retTr = parseTypeAnnotation(tokens, arena, pos)
+      pos = retTr.pos
+    if tokAt(tokens, pos).lexeme == "=>" or tokAt(tokens, pos).kind == ":":
+      pos += 1
+    let bodyRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = bodyRes.pos
+    let allocId = arenaAllocExpr(arena, "Lambda", "", 0, 0.0, "", false, bodyRes.nodeId, -1, -1, emptyInts, paramNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Anonymous Lambda shorthand: || expr
+  if t.kind == "OP" and t.lexeme == "||":
+    pos += 1
+    if tokAt(tokens, pos).lexeme == "=>":
+      pos += 1
+    let bodyRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = bodyRes.pos
+    let allocId = arenaAllocExpr(arena, "Lambda", "", 0, 0.0, "", false, bodyRes.nodeId, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Anonymous Lambda shorthand: |x| expr or |a, b| expr
+  if t.kind == "OP" and t.lexeme == "|":
+    mut scanPos = pos + 1
+    mut hasClosingPipe = false
+    while scanPos < tokens.len and tokAt(tokens, scanPos).kind != "NEWLINE" and tokAt(tokens, scanPos).kind != "EOF":
+      if tokAt(tokens, scanPos).kind == "OP" and tokAt(tokens, scanPos).lexeme == "|":
+        hasClosingPipe = true
+        break
+      scanPos += 1
+    if hasClosingPipe:
+      pos += 1
+      mut paramNames: [str] = []
+      while pos < tokens.len and (tokAt(tokens, pos).kind != "OP" or tokAt(tokens, pos).lexeme != "|") and tokAt(tokens, pos).kind != "EOF" and tokAt(tokens, pos).kind != "NEWLINE":
+        let pTok = tokAt(tokens, pos)
+        if pTok.kind == "IDENT" or pTok.lexeme == "_" or pTok.kind.startsWith("KW_"):
+          paramNames.push(pTok.lexeme)
+          pos += 1
+        else:
+          break
+        if tokAt(tokens, pos).kind == ":":
+          pos += 1
+          let tr = parseTypeAnnotation(tokens, arena, pos)
+          pos = tr.pos
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+      if tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "|":
+        pos += 1
+      if tokAt(tokens, pos).lexeme == "=>":
+        pos += 1
+      let bodyRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = bodyRes.pos
+      let allocId = arenaAllocExpr(arena, "Lambda", "", 0, 0.0, "", false, bodyRes.nodeId, -1, -1, emptyInts, paramNames, -1, t.span)
+      ret ParseRes(pos = pos, nodeId = allocId)
+
+  if t.kind == "INT":
+    pos += 1
+    let iv = parseIntLexeme(t.lexeme)
+    let allocId = arenaAllocExpr(arena, "IntLit", "", iv, 0.0, t.lexeme, false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  if t.kind == "FLOAT":
+    pos += 1
+    let fv = float(t.lexeme.replace("_", ""))
+    let allocId = arenaAllocExpr(arena, "FloatLit", "", 0, fv, t.lexeme, false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  if t.kind == "STRING" or t.kind == "RAW_STRING" or t.kind == "INTERP_STRING":
+    pos += 1
+    let allocId = arenaAllocExpr(arena, t.kind, "", 0, 0.0, t.lexeme, false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  if t.kind == "BOOL":
+    pos += 1
+    let bv = t.lexeme == "true"
+    let allocId = arenaAllocExpr(arena, "BoolLit", "", 0, 0.0, t.lexeme, bv, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  if t.kind == "NIL":
+    pos += 1
+    let allocId = arenaAllocExpr(arena, "NilLit", "", 0, 0.0, "nil", false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  if t.kind == "KW_PASS" or (t.kind == "IDENT" and t.lexeme == "pass"):
+    pos += 1
+    let allocId = arenaAllocExpr(arena, "Ident", "", 0, 0.0, "pass", false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Identifier or Struct/Call/Postfix start
+  if t.kind == "IDENT" or t.kind.startsWith("KW_"):
+    pos += 1
+    // Check for Brace struct literal: StructName { f1: v1, ... }
+    if tokAt(tokens, pos).kind == "{" and t.lexeme.len > 0 and t.lexeme.charCodeAt(0) >= 65 and t.lexeme.charCodeAt(0) <= 90:
+      pos += 1
+      mut fExprs: [int] = []
+      mut fNames: [str] = []
+      mut spreadId = -1
+      while pos < tokens.len and tokAt(tokens, pos).kind != "}" and tokAt(tokens, pos).kind != "EOF":
+        if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+          continue
+        if tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "..":
+          pos += 1
+          let sRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = sRes.pos
+          spreadId = sRes.nodeId
+          if tokAt(tokens, pos).kind == ",":
+            pos += 1
+          continue
+        else:
+          let fTok = tokAt(tokens, pos)
+          mut fnName = fTok.lexeme
+          if fnName.startsWith("\"") and fnName.endsWith("\"") and fnName.len >= 2:
+            fnName = fnName.slice(1, fnName.len - 1)
+          fNames.push(fnName)
+          pos += 1
+          if tokAt(tokens, pos).kind == ":" or tokAt(tokens, pos).lexeme == "=":
+            pos += 1
+            let valRes = parseExprPrec(tokens, arena, pos, 1)
+            pos = valRes.pos
+            fExprs.push(valRes.nodeId)
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+        elif tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        else:
+          break
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+      if tokAt(tokens, pos).kind == "}":
+        pos += 1
+      let allocId = arenaAllocExpr(arena, "StructLit", "", 0, 0.0, t.lexeme, false, spreadId, -1, spreadId, fExprs, fNames, -1, t.span)
+      ret ParseRes(pos = pos, nodeId = allocId)
+
+    let allocId = arenaAllocExpr(arena, "Ident", "", 0, 0.0, t.lexeme, false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // Fallback recovery
+  let errTok = tokAt(tokens, pos)
+  pushSyntaxError(arena, errTok)
+  pos += 1
+  let allocId = arenaAllocExpr(arena, "Error", "", 0, 0.0, errTok.lexeme, false, -1, -1, -1, emptyInts, emptyNames, -1, errTok.span)
+  ret ParseRes(pos = pos, nodeId = allocId)
+
+pub fn parsePostfixExpr(tokens: [Token], mut arena: AstArena, mut pos: int): ParseRes:
+  let prim = parsePrimaryExpr(tokens, arena, pos)
+  pos = prim.pos
+  mut lhs = prim.nodeId
+  let emptyInts: [int] = []
+  let emptyNames: [str] = []
+
+  while pos < tokens.len:
+    let t = tokAt(tokens, pos)
+    // Function or method call: lhs(args...) or Struct functional update: Struct(..base, f = v)
+    if t.kind == "(":
+      if tokAt(tokens, pos + 1).kind == "OP" and tokAt(tokens, pos + 1).lexeme == "..":
+        pos += 2
+        let baseRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = baseRes.pos
+        mut updateArgs: [int] = []
+        mut updateNames: [str] = []
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+        while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+          if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+            pos += 1
+            continue
+          let fTok = tokAt(tokens, pos)
+          updateNames.push(fTok.lexeme)
+          pos += 1
+          if tokAt(tokens, pos).lexeme == "=" or tokAt(tokens, pos).kind == ":":
+            pos += 1
+          let fRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = fRes.pos
+          updateArgs.push(fRes.nodeId)
+          if tokAt(tokens, pos).kind == ",":
+            pos += 1
+            if tokAt(tokens, pos).kind == "NEWLINE":
+              pos += 1
+          elif tokAt(tokens, pos).kind == "NEWLINE":
+            pos += 1
+          else:
+            break
+        if tokAt(tokens, pos).kind == ")":
+          pos += 1
+        let structName = arena.exprs[lhs].strVal
+        lhs = arenaAllocExpr(arena, "StructLit", "", 0, 0.0, structName, false, baseRes.nodeId, -1, baseRes.nodeId, updateArgs, updateNames, -1, t.span)
+        continue
+
+      pos += 1
+      mut argIds: [int] = []
+      mut argNames: [str] = []
+      while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+          continue
+        // Named argument: name = expr or name: expr
+        if (tokAt(tokens, pos).kind == "IDENT" or tokAt(tokens, pos).kind.startsWith("KW_")) and (tokAt(tokens, pos + 1).lexeme == "=" or tokAt(tokens, pos + 1).kind == ":"):
+          argNames.push(tokAt(tokens, pos).lexeme)
+          pos += 2
+        else:
+          argNames.push("")
+        let aRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = aRes.pos
+        argIds.push(aRes.nodeId)
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+          if tokAt(tokens, pos).kind == "NEWLINE":
+            pos += 1
+        elif tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        else:
+          break
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+      lhs = arenaAllocExpr(arena, "Call", "", 0, 0.0, "", false, lhs, -1, -1, argIds, argNames, -1, t.span)
+      continue
+
+    // Member access: lhs.field, lhs::variant, lhs.0
+    if t.kind == "." or t.lexeme == "::":
+      pos += 1
+      let memTok = tokAt(tokens, pos)
+      pos += 1
+      lhs = arenaAllocExpr(arena, "Member", "", 0, 0.0, memTok.lexeme, false, lhs, -1, -1, emptyInts, emptyNames, -1, t.span)
+      continue
+
+    // Brace struct literal on postfix: mod.Point { ..p1, x: 10 } or orig { field = val }
+    if t.kind == "{" and lhs >= 0 and lhs < arena.exprs.len:
+      let lhsNode = arena.exprs[lhs]
+      mut structName = ""
+      if lhsNode.kind == "Member" and lhsNode.strVal.len > 0 and lhsNode.strVal.charCodeAt(0) >= 65 and lhsNode.strVal.charCodeAt(0) <= 90:
+        if lhsNode.left >= 0 and arena.exprs[lhsNode.left].kind == "Ident":
+          structName = arena.exprs[lhsNode.left].strVal + "." + lhsNode.strVal
+        else:
+          structName = lhsNode.strVal
+      mut isPostfixStructUpdate = false
+      if structName.len == 0 and (lhsNode.kind == "Ident" or lhsNode.kind == "Member" or lhsNode.kind == "Call" or lhsNode.kind == "Index" or lhsNode.kind == "StructLit"):
+        mut lookPos = pos + 1
+        while lookPos < tokens.len and (tokAt(tokens, lookPos).kind == "NEWLINE" or tokAt(tokens, lookPos).kind == "INDENT" or tokAt(tokens, lookPos).kind == "DEDENT"):
+          lookPos += 1
+        let firstInBrace = tokAt(tokens, lookPos)
+        let secondInBrace = tokAt(tokens, lookPos + 1)
+        if firstInBrace.kind == "OP" and firstInBrace.lexeme == "..":
+          isPostfixStructUpdate = true
+        elif (firstInBrace.kind == "IDENT" or firstInBrace.kind.startsWith("KW_")) and (secondInBrace.kind == ":" or secondInBrace.lexeme == "="):
+          isPostfixStructUpdate = true
+      if structName.len > 0 or isPostfixStructUpdate:
+        pos += 1
+        mut fExprs: [int] = []
+        mut fNames: [str] = []
+        mut spreadId = if isPostfixStructUpdate: lhs else: -1
+        while pos < tokens.len and tokAt(tokens, pos).kind != "}" and tokAt(tokens, pos).kind != "EOF":
+          if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+            pos += 1
+            continue
+          if tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "..":
+            pos += 1
+            let sRes = parseExprPrec(tokens, arena, pos, 1)
+            pos = sRes.pos
+            spreadId = sRes.nodeId
+            if tokAt(tokens, pos).kind == ",":
+              pos += 1
+            continue
+          else:
+            let fTok = tokAt(tokens, pos)
+            mut fnName = fTok.lexeme
+            if fnName.startsWith("\"") and fnName.endsWith("\"") and fnName.len >= 2:
+              fnName = fnName.slice(1, fnName.len - 1)
+            fNames.push(fnName)
+            pos += 1
+            if tokAt(tokens, pos).kind == ":" or tokAt(tokens, pos).lexeme == "=":
+              pos += 1
+              let valRes = parseExprPrec(tokens, arena, pos, 1)
+              pos = valRes.pos
+              fExprs.push(valRes.nodeId)
+          if tokAt(tokens, pos).kind == ",":
+            pos += 1
+          elif tokAt(tokens, pos).kind == "NEWLINE":
+            pos += 1
+          else:
+            break
+        while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+          pos += 1
+        if tokAt(tokens, pos).kind == "}":
+          pos += 1
+        lhs = arenaAllocExpr(arena, "StructLit", "", 0, 0.0, structName, false, spreadId, -1, spreadId, fExprs, fNames, -1, t.span)
+        continue
+
+    // Index / slice access: lhs[idx], lhs[..end], lhs[start..], lhs[r, c]
+    if t.kind == "[":
+      pos += 1
+      // Case 1: expr[..end] or expr[..]
+      if (tokAt(tokens, pos).kind == "OP" and (tokAt(tokens, pos).lexeme == ".." or tokAt(tokens, pos).lexeme == "..=")) or tokAt(tokens, pos).kind == "DOT_DOT_EQ":
+        let op = tokAt(tokens, pos).lexeme
+        let zeroId = arenaAllocExpr(arena, "IntLit", "", 0, 0.0, "0", false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+        pos += 1
+        mut endId = -1
+        if tokAt(tokens, pos).kind == "]":
+          endId = arenaAllocExpr(arena, "IntLit", "", 9223372036854775807, 0.0, "9223372036854775807", false, -1, -1, -1, emptyInts, emptyNames, -1, t.span)
+          pos += 1
+        else:
+          let endRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = endRes.pos
+          endId = endRes.nodeId
+          if tokAt(tokens, pos).kind == "]":
+            pos += 1
+        let rngId = arenaAllocExpr(arena, "Binary", op, 0, 0.0, "", false, zeroId, endId, -1, emptyInts, emptyNames, -1, t.span)
+        lhs = arenaAllocExpr(arena, "Index", "", 0, 0.0, "", false, lhs, rngId, -1, emptyInts, emptyNames, -1, t.span)
+        continue
+
+      let idxRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = idxRes.pos
+
+      // Case 3: 2D Matrix Subscript grid[r, c]
+      if tokAt(tokens, pos).kind == ",":
+        pos += 1
+        let colRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = colRes.pos
+        if tokAt(tokens, pos).kind == "]":
+          pos += 1
+        lhs = arenaAllocExpr(arena, "Index2D", "", 0, 0.0, "", false, lhs, idxRes.nodeId, colRes.nodeId, emptyInts, emptyNames, -1, t.span)
+        continue
+
+      if tokAt(tokens, pos).kind == "]":
+        pos += 1
+      lhs = arenaAllocExpr(arena, "Index", "", 0, 0.0, "", false, lhs, idxRes.nodeId, -1, emptyInts, emptyNames, -1, t.span)
+      continue
+
+    // Ternary operator: cond ? thenExpr : elseExpr (handled in parseExprPrec) or Postfix try operator: lhs?
+    if t.kind == "?":
+      mut isTernary = false
+      mut scan = pos + 1
+      mut depth = 0
+      while scan < tokens.len:
+        let sk = tokens[scan].kind
+        let sl = tokens[scan].lexeme
+        if sk == "NEWLINE" or sk == ";" or sl == ";" or sk == "EOF":
+          break
+        if sk == "(" or sk == "[" or sk == "{":
+          depth += 1
+        elif sk == ")" or sk == "]" or sk == "}":
+          if depth == 0:
+            break
+          depth -= 1
+        elif depth == 0 and sk == ":":
+          if scan > pos + 1 and tokAt(tokens, scan + 1).kind != "NEWLINE" and tokAt(tokens, scan + 1).kind != "EOF":
+            isTernary = true
+          break
+        scan += 1
+      if isTernary:
+        break
+      else:
+        pos += 1
+        lhs = arenaAllocExpr(arena, "Try", "?", 0, 0.0, "", false, lhs, -1, -1, emptyInts, emptyNames, -1, t.span)
+        continue
+
+    break
+
+  ret ParseRes(pos = pos, nodeId = lhs)
+
+pub fn parsePrefixExpr(tokens: [Token], mut arena: AstArena, mut pos: int): ParseRes:
+  let t = tokAt(tokens, pos)
+  let emptyInts: [int] = []
+  let emptyNames: [str] = []
+  if t.kind == "KW_AWAIT" or (t.kind == "IDENT" and t.lexeme == "await"):
+    pos += 1
+    let sub = parsePrefixExpr(tokens, arena, pos)
+    pos = sub.pos
+    let allocId = arenaAllocExpr(arena, "Unary", "await", 0, 0.0, "", false, sub.nodeId, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+  if t.kind == "DIRECTIVE" or t.kind == "AT_AGENT" or t.kind == "AT_CAPABILITIES" or (t.kind != "STRING" and t.lexeme.startsWith("@")):
+    pos += 1
+    mut dirName = t.lexeme
+    mut argExprId = -1
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+      let argRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = argRes.pos
+      argExprId = argRes.nodeId
+    elif tokAt(tokens, pos).kind == "(":
+      pos += 1
+      if tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        let argRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = argRes.pos
+        argExprId = argRes.nodeId
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+    let allocId = arenaAllocExpr(arena, "Directive", dirName, 0, 0.0, dirName, false, argExprId, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+  if t.kind == "KW_NOT":
+    pos += 1
+    let sub = parseExprPrec(tokens, arena, pos, 4)
+    pos = sub.pos
+    let allocId = arenaAllocExpr(arena, "Unary", t.lexeme, 0, 0.0, "", false, sub.nodeId, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+  if t.kind == "OP" and (t.lexeme == "-" or t.lexeme == "!" or t.lexeme == "~"):
+    pos += 1
+    let sub = parsePrefixExpr(tokens, arena, pos)
+    pos = sub.pos
+    let allocId = arenaAllocExpr(arena, "Unary", t.lexeme, 0, 0.0, "", false, sub.nodeId, -1, -1, emptyInts, emptyNames, -1, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+  ret parsePostfixExpr(tokens, arena, pos)
+
+pub fn parseExprPrec(tokens: [Token], mut arena: AstArena, mut pos: int, minPrec: int): ParseRes:
+  let leftRes = parsePrefixExpr(tokens, arena, pos)
+  pos = leftRes.pos
+  mut lhs = leftRes.nodeId
+  let emptyInts: [int] = []
+  let emptyNames: [str] = []
+  mut exprIndentDepth = 0
+
+  while pos < tokens.len:
+    // Check for multiline pipeline continuation: \n |> or \n INDENT |>
+    if tokAt(tokens, pos).kind == "NEWLINE":
+      mut lookahead = pos + 1
+      while lookahead < tokens.len and (tokAt(tokens, lookahead).kind == "NEWLINE" or tokAt(tokens, lookahead).kind == "INDENT"):
+        lookahead += 1
+      if tokAt(tokens, lookahead).lexeme == "|>":
+        pos = lookahead
+
+    let opTok = tokAt(tokens, pos)
+    let prec = binaryOpPrecedence(opTok)
+    if prec < minPrec or prec == 0:
+      break
+    pos += 1
+
+    if opTok.kind == "KW_IS" or opTok.lexeme == "is":
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT"):
+        pos += 1
+      let patTok = tokAt(tokens, pos)
+      mut variantName = patTok.lexeme
+      pos += 1
+      while (tokAt(tokens, pos).kind == "." and tokAt(tokens, pos + 1).kind == "IDENT") or (tokAt(tokens, pos).lexeme == "::" and tokAt(tokens, pos + 1).kind == "IDENT"):
+        if tokAt(tokens, pos).kind == "." or tokAt(tokens, pos).lexeme == "::":
+          pos += 1
+        variantName = tokAt(tokens, pos).lexeme
+        pos += 1
+      mut bindingVar = ""
+      if tokAt(tokens, pos).kind == "(":
+        pos += 1
+        if tokAt(tokens, pos).kind == "IDENT" or tokAt(tokens, pos).lexeme == "_" or tokAt(tokens, pos).kind.startsWith("KW_"):
+          bindingVar = tokAt(tokens, pos).lexeme
+          pos += 1
+        if tokAt(tokens, pos).kind == ")":
+          pos += 1
+      lhs = arenaAllocExpr(arena, "IsPattern", bindingVar, 0, 0.0, variantName, false, lhs, -1, -1, emptyInts, emptyNames, -1, opTok.span)
+      continue
+
+    if opTok.kind == "KW_AS" or opTok.lexeme == "as":
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT"):
+        pos += 1
+      let tyRes = parseTypeAnnotation(tokens, arena, pos)
+      pos = tyRes.pos
+      let targetType = if tyRes.nodeId >= 0 and tyRes.nodeId < arena.types.len: arena.types[tyRes.nodeId].name else: "any"
+      lhs = arenaAllocExpr(arena, "Cast", "", 0, 0.0, targetType, false, lhs, -1, -1, emptyInts, emptyNames, tyRes.nodeId, opTok.span)
+      continue
+
+    // Multiline Infix Continuation: after consuming operator, skip any NEWLINE / INDENT / DEDENT
+    while pos < tokens.len:
+      let k = tokAt(tokens, pos).kind
+      if k == "NEWLINE":
+        pos += 1
+      elif k == "INDENT":
+        pos += 1
+        exprIndentDepth += 1
+      elif k == "DEDENT" and exprIndentDepth > 0:
+        pos += 1
+        exprIndentDepth -= 1
+      else:
+        break
+
+    mut rightId = -1
+    // Case 2: expr[start..] with omitted end
+    if ((opTok.kind == "OP" and (opTok.lexeme == ".." or opTok.lexeme == "..=")) or opTok.kind == "DOT_DOT_EQ") and tokAt(tokens, pos).kind == "]":
+      rightId = arenaAllocExpr(arena, "IntLit", "", 9223372036854775807, 0.0, "9223372036854775807", false, -1, -1, -1, emptyInts, emptyNames, -1, opTok.span)
+    else:
+      let nextMinPrec = if opTok.lexeme == "**": prec else: prec + 1
+      let rightRes = parseExprPrec(tokens, arena, pos, nextMinPrec)
+      pos = rightRes.pos
+      rightId = rightRes.nodeId
+    lhs = arenaAllocExpr(arena, "Binary", opTok.lexeme, 0, 0.0, "", false, lhs, rightId, -1, emptyInts, emptyNames, -1, opTok.span)
+
+  while exprIndentDepth > 0:
+    while pos < tokens.len and tokAt(tokens, pos).kind == "NEWLINE":
+      pos += 1
+    if tokAt(tokens, pos).kind == "DEDENT":
+      pos += 1
+      exprIndentDepth -= 1
+    else:
+      break
+
+  if minPrec <= 1 and tokAt(tokens, pos).kind == "?":
+    let qTok = tokAt(tokens, pos)
+    mut isTernary = false
+    mut scan = pos + 1
+    mut depth = 0
+    while scan < tokens.len:
+      let sk = tokens[scan].kind
+      let sl = tokens[scan].lexeme
+      if sk == "NEWLINE" or sk == ";" or sl == ";" or sk == "EOF":
+        break
+      if sk == "(" or sk == "[" or sk == "{":
+        depth += 1
+      elif sk == ")" or sk == "]" or sk == "}":
+        if depth == 0:
+          break
+        depth -= 1
+      elif depth == 0 and sk == ":":
+        if scan > pos + 1 and tokAt(tokens, scan + 1).kind != "NEWLINE" and tokAt(tokens, scan + 1).kind != "EOF":
+          isTernary = true
+        break
+      scan += 1
+    if isTernary:
+      pos += 1
+      let thenRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = thenRes.pos
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+      let elseRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = elseRes.pos
+      lhs = arenaAllocExpr(arena, "IfExpr", "", 0, 0.0, "", false, thenRes.nodeId, elseRes.nodeId, lhs, emptyInts, emptyNames, -1, qTok.span)
+
+  ret ParseRes(pos = pos, nodeId = lhs)
+
+pub fn parseIndentedBlock(tokens: [Token], mut arena: AstArena, mut pos: int): ParseRes:
+  pos = skipLayout(tokens, pos)
+  mut stmtIds: [int] = []
+  let emptyInts: [int] = []
+  if tokAt(tokens, pos).kind == "{":
+    pos += 1
+    while pos < tokens.len and tokAt(tokens, pos).kind != "}" and tokAt(tokens, pos).kind != "EOF":
+      pos = skipLayout(tokens, pos)
+      if tokAt(tokens, pos).kind == "}":
+        break
+      let prevPos = pos
+      let stRes = parseStmt(tokens, arena, pos)
+      if stRes.pos <= prevPos:
+        let errTok = tokAt(tokens, pos)
+        pushSyntaxError(arena, errTok)
+        pos = synchronizeToNextStmt(tokens, pos)
+      else:
+        pos = stRes.pos
+      if stRes.nodeId >= 0:
+        stmtIds.push(stRes.nodeId)
+      pos = skipLayout(tokens, pos)
+    if tokAt(tokens, pos).kind == "}":
+      pos += 1
+    let allocId = arenaAllocStmt(arena, "Block", "", false, -1, -1, -1, stmtIds, emptyInts, emptyInts, tokAt(tokens, pos).span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  if tokAt(tokens, pos).kind != "INDENT":
+    // Single-line block fallback
+    let singleRes = parseStmt(tokens, arena, pos)
+    pos = singleRes.pos
+    if singleRes.nodeId >= 0:
+      stmtIds.push(singleRes.nodeId)
+    let allocId = arenaAllocStmt(arena, "Block", "", false, -1, -1, -1, stmtIds, emptyInts, emptyInts, tokAt(tokens, pos).span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  pos += 1
+  while pos < tokens.len:
+    pos = skipLayout(tokens, pos)
+    let tk = tokAt(tokens, pos).kind
+    if tk == "DEDENT":
+      pos += 1
+      break
+    if tk == "EOF":
+      break
+    let prevPos = pos
+    let stRes = parseStmt(tokens, arena, pos)
+    if stRes.pos <= prevPos:
+      let errTok = tokAt(tokens, pos)
+      pushSyntaxError(arena, errTok)
+      pos = synchronizeToNextStmt(tokens, pos)
+    else:
+      pos = stRes.pos
+    if stRes.nodeId >= 0:
+      stmtIds.push(stRes.nodeId)
+
+  let allocId = arenaAllocStmt(arena, "Block", "", false, -1, -1, -1, stmtIds, emptyInts, emptyInts, tokAt(tokens, pos).span)
+  ret ParseRes(pos = pos, nodeId = allocId)
+
+pub struct TuplePatternRes:
+  pos: int
+  vars: [str]
+
+pub fn parseTuplePatternVars(tokens: [Token], mut pos: int, prefix: str): TuplePatternRes:
+  mut varNames: [str] = []
+  if tokAt(tokens, pos).kind == "(":
+    pos += 1
+  mut ti = 0
+  while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+    if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+      pos += 1
+      continue
+    let curPath = if prefix.len > 0: prefix + "." + str(ti) else: str(ti)
+    if tokAt(tokens, pos).kind == "(":
+      let subRes = parseTuplePatternVars(tokens, pos, curPath)
+      pos = subRes.pos
+      mut si = 0
+      while si < subRes.vars.len:
+        varNames.push(subRes.vars[si])
+        si += 1
+      ti += 1
+    elif tokAt(tokens, pos).kind == "IDENT" or tokAt(tokens, pos).lexeme == "_":
+      varNames.push(tokAt(tokens, pos).lexeme + ":" + curPath)
+      pos += 1
+      ti += 1
+    else:
+      pos += 1
+    if tokAt(tokens, pos).kind == ",":
+      pos += 1
+  if tokAt(tokens, pos).kind == ")":
+    pos += 1
+  ret TuplePatternRes(pos = pos, vars = varNames)
+
+fn isStandalonePassToken(tokens: [Token], pos: int): bool:
+  if pos + 1 >= tokens.len:
+    ret true
+  let cur = tokAt(tokens, pos)
+  let nxt = tokAt(tokens, pos + 1)
+  if nxt.kind == "NEWLINE" or nxt.kind == "DEDENT" or nxt.kind == "INDENT" or nxt.kind == "EOF":
+    ret true
+  if nxt.span.line != cur.span.line:
+    ret true
+  let l = nxt.lexeme
+  if l == "=" or l == "+=" or l == "-=" or l == "*=" or l == "/=" or l == "%=" or l == "." or l == "[" or l == "(" or l == ",":
+    ret false
+  ret true
+
+pub fn parseStmt(tokens: [Token], mut arena: AstArena, mut pos: int): ParseRes:
+  pos = skipLayout(tokens, pos)
+  let t = tokAt(tokens, pos)
+  let emptyInts: [int] = []
+  let emptyNames: [str] = []
+
+  // with statement: with arena: ...
+  if t.kind == "KW_WITH" or t.lexeme == "with":
+    pos += 1
+    let withExpr = parseExprPrec(tokens, arena, pos, 1)
+    pos = withExpr.pos
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    let bodyBlk = parseIndentedBlock(tokens, arena, pos)
+    pos = bodyBlk.pos
+    let bStmts = arena.stmts[bodyBlk.nodeId].bodyStmts
+    mut stmtKind = "Block"
+    if withExpr.nodeId >= 0 and withExpr.nodeId < arena.exprs.len:
+      let we = arena.exprs[withExpr.nodeId]
+      if we.kind == "Ident" and (we.strVal == "arena" or we.strVal == "scratch"):
+        stmtKind = "ArenaScope"
+    let allocId = arenaAllocStmt(arena, stmtKind, "with", false, -1, withExpr.nodeId, -1, bStmts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 1. let / mut / const binding
+  if t.kind == "KW_LET" or t.kind == "KW_MUT" or t.kind == "KW_CONST":
+    mut isMut = false
+    if t.kind == "KW_MUT":
+      isMut = true
+    pos += 1
+    if t.kind == "KW_LET" and tokAt(tokens, pos).kind == "KW_MUT":
+      isMut = true
+      pos += 1
+    if tokAt(tokens, pos).kind == "(":
+      let patRes = parseTuplePatternVars(tokens, pos, "")
+      pos = patRes.pos
+      let varNames = patRes.vars
+      mut tyId = -1
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+        let tyRes = parseTypeAnnotation(tokens, arena, pos)
+        pos = tyRes.pos
+        tyId = tyRes.nodeId
+      mut rhsExprId = -1
+      if tokAt(tokens, pos).lexeme == "=":
+        pos += 1
+        let exRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = exRes.pos
+        rhsExprId = exRes.nodeId
+        if rhsExprId >= 0 and arena.exprs[rhsExprId].kind == "Error":
+          pos = synchronizeToNextStmt(tokens, pos)
+          ret ParseRes(pos = pos, nodeId = -1)
+      else:
+        let errTok = tokAt(tokens, pos)
+        pushSyntaxError(arena, errTok)
+        pos = synchronizeToNextStmt(tokens, pos)
+        ret ParseRes(pos = pos, nodeId = -1)
+      pos = skipToNextLine(tokens, pos)
+      let allocId = arenaAllocStmt(arena, "TupleVarDecl", varNames.join(","), isMut, tyId, rhsExprId, -1, emptyInts, emptyInts, emptyInts, t.span)
+      ret ParseRes(pos = pos, nodeId = allocId)
+
+    let nameTok = tokAt(tokens, pos)
+    if nameTok.kind != "IDENT" and not nameTok.kind.startsWith("KW_"):
+      pushSyntaxError(arena, nameTok)
+      pos = synchronizeToNextStmt(tokens, pos)
+      ret ParseRes(pos = pos, nodeId = -1)
+    pos += 1
+    mut tyId = -1
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+      let tyRes = parseTypeAnnotation(tokens, arena, pos)
+      pos = tyRes.pos
+      tyId = tyRes.nodeId
+    mut initId = -1
+    if tokAt(tokens, pos).lexeme == "=":
+      pos += 1
+      if tokAt(tokens, pos).kind == "KW_MATCH":
+        pos += 1
+        let targetRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = targetRes.pos
+        if tokAt(tokens, pos).kind == ":":
+          pos += 1
+        pos = skipLayout(tokens, pos)
+        mut armIds: [int] = []
+        if tokAt(tokens, pos).kind == "INDENT":
+          pos += 1
+          while pos < tokens.len:
+            pos = skipLayout(tokens, pos)
+            let ak = tokAt(tokens, pos).kind
+            if ak == "DEDENT":
+              pos += 1
+              break
+            if ak == "EOF":
+              break
+            let patRes = parseMatchPatternAndGuard(tokens, arena, pos)
+            pos = patRes.pos
+            if tokAt(tokens, pos).lexeme == "=>" or tokAt(tokens, pos).kind == ":":
+              pos += 1
+            pos = skipLayout(tokens, pos)
+            mut armStmts: [int] = []
+            mut bk = 0
+            while bk < patRes.bindVars.len:
+              if patRes.bindVars[bk].len > 0 and patRes.bindVars[bk] != "_":
+                let unwrapIdx = if patRes.bindVars.len == 1 and not patRes.isTuplePayload: -1 else: bk
+                let unwrapExprId = arenaAllocExpr(arena, "Unwrap", patRes.patName, unwrapIdx, 0.0, "", false, targetRes.nodeId, -1, -1, emptyInts, emptyNames, -1, patRes.span)
+                let bindVarId = arenaAllocStmt(arena, "VarDecl", patRes.bindVars[bk], false, -1, unwrapExprId, -1, emptyInts, emptyInts, emptyInts, patRes.span)
+                armStmts.push(bindVarId)
+              bk += 1
+            if tokAt(tokens, pos).kind == "KW_RET":
+              let retSt = parseStmt(tokens, arena, pos)
+              pos = retSt.pos
+              if retSt.nodeId >= 0:
+                armStmts.push(retSt.nodeId)
+            elif tokAt(tokens, pos).kind == "INDENT":
+              let armBlk = parseIndentedBlock(tokens, arena, pos)
+              pos = armBlk.pos
+              let blkStmts = arena.stmts[armBlk.nodeId].bodyStmts
+              mut bi = 0
+              while bi < blkStmts.len:
+                armStmts.push(blkStmts[bi])
+                bi += 1
+            else:
+              let rhsRes = parseExprPrec(tokens, arena, pos, 1)
+              pos = rhsRes.pos
+              let lhsId = arenaAllocExpr(arena, "Ident", "", 0, 0.0, nameTok.lexeme, false, -1, -1, -1, emptyInts, emptyNames, -1, patRes.span)
+              let assignId = arenaAllocAssignStmt(arena, "=", lhsId, rhsRes.nodeId, patRes.span)
+              armStmts.push(assignId)
+              pos = skipToNextLine(tokens, pos)
+            let allocArmId = arenaAllocStmt(arena, "MatchArm", patRes.patName, false, -1, patRes.guardId, -1, armStmts, emptyInts, emptyInts, patRes.span)
+            armIds.push(allocArmId)
+        else:
+          while pos < tokens.len:
+            let ak = tokAt(tokens, pos).kind
+            if ak == "NEWLINE" or ak == "DEDENT" or ak == "EOF":
+              break
+            let patRes = parseMatchPatternAndGuard(tokens, arena, pos)
+            pos = patRes.pos
+            if tokAt(tokens, pos).lexeme == "=>" or tokAt(tokens, pos).kind == ":":
+              pos += 1
+            mut armStmts: [int] = []
+            mut bk = 0
+            while bk < patRes.bindVars.len:
+              if patRes.bindVars[bk].len > 0 and patRes.bindVars[bk] != "_":
+                let unwrapIdx = if patRes.bindVars.len == 1 and not patRes.isTuplePayload: -1 else: bk
+                let unwrapExprId = arenaAllocExpr(arena, "Unwrap", patRes.patName, unwrapIdx, 0.0, "", false, targetRes.nodeId, -1, -1, emptyInts, emptyNames, -1, patRes.span)
+                let bindVarId = arenaAllocStmt(arena, "VarDecl", patRes.bindVars[bk], false, -1, unwrapExprId, -1, emptyInts, emptyInts, emptyInts, patRes.span)
+                armStmts.push(bindVarId)
+              bk += 1
+            if tokAt(tokens, pos).kind == "KW_RET":
+              let retSt = parseStmt(tokens, arena, pos)
+              pos = retSt.pos
+              if retSt.nodeId >= 0:
+                armStmts.push(retSt.nodeId)
+            else:
+              let rhsRes = parseExprPrec(tokens, arena, pos, 1)
+              pos = rhsRes.pos
+              let lhsId = arenaAllocExpr(arena, "Ident", "", 0, 0.0, nameTok.lexeme, false, -1, -1, -1, emptyInts, emptyNames, -1, patRes.span)
+              let assignId = arenaAllocAssignStmt(arena, "=", lhsId, rhsRes.nodeId, patRes.span)
+              armStmts.push(assignId)
+            let allocArmId = arenaAllocStmt(arena, "MatchArm", patRes.patName, false, -1, patRes.guardId, -1, armStmts, emptyInts, emptyInts, patRes.span)
+            armIds.push(allocArmId)
+            if tokAt(tokens, pos).kind == ",":
+              pos += 1
+            else:
+              break
+          pos = skipToNextLine(tokens, pos)
+        let allocVarId = arenaAllocStmt(arena, "VarDecl", nameTok.lexeme, isMut, tyId, -1, -1, emptyInts, emptyInts, emptyInts, t.span)
+        let allocMatchId = arenaAllocStmt(arena, "Match", "", false, -1, targetRes.nodeId, -1, emptyInts, emptyInts, armIds, t.span)
+        mut blkStmts: [int] = []
+        blkStmts.push(allocVarId)
+        blkStmts.push(allocMatchId)
+        let allocBlockId = arenaAllocStmt(arena, "Block", "", false, -1, -1, -1, blkStmts, emptyInts, emptyInts, t.span)
+        ret ParseRes(pos = pos, nodeId = allocBlockId)
+      else:
+        if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "EOF" or tokAt(tokens, pos).kind == "DEDENT":
+          let errTok = tokAt(tokens, pos)
+          pushSyntaxError(arena, errTok)
+          pos = synchronizeToNextStmt(tokens, pos)
+          ret ParseRes(pos = pos, nodeId = -1)
+        let exRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = exRes.pos
+        initId = exRes.nodeId
+        if initId >= 0 and arena.exprs[initId].kind == "Error":
+          pos = synchronizeToNextStmt(tokens, pos)
+          ret ParseRes(pos = pos, nodeId = -1)
+        pos = skipToNextLine(tokens, pos)
+        let allocId = arenaAllocStmt(arena, "VarDecl", nameTok.lexeme, isMut, tyId, initId, -1, emptyInts, emptyInts, emptyInts, t.span)
+        ret ParseRes(pos = pos, nodeId = allocId)
+    else:
+      let errTok = tokAt(tokens, pos)
+      pushSyntaxError(arena, errTok)
+      pos = synchronizeToNextStmt(tokens, pos)
+      ret ParseRes(pos = pos, nodeId = -1)
+
+  // 2. ret statement
+  if t.kind == "KW_RET":
+    pos += 1
+    mut retExpr = -1
+    let nextK = tokAt(tokens, pos).kind
+    if nextK != "NEWLINE" and nextK != "DEDENT" and nextK != "EOF":
+      let exRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = exRes.pos
+      retExpr = exRes.nodeId
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, "Return", "", false, -1, retExpr, -1, emptyInts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 3. break / continue
+  if t.kind == "KW_BREAK" or t.kind == "KW_CONTINUE":
+    pos += 1
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, t.lexeme, "", false, -1, -1, -1, emptyInts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 3b. pass statement (a `pass` followed by `=`, `+=`, `.`, `[` ... on the same line is a
+  // variable named `pass`, e.g. `pass = "{pass}{c}"`, and falls through to assignment parsing)
+  if (t.kind == "KW_PASS" or (t.kind == "IDENT" and t.lexeme == "pass")) and isStandalonePassToken(tokens, pos):
+    pos += 1
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, "Pass", "", false, -1, -1, -1, emptyInts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 3c. discard statement
+  if t.kind == "KW_DISCARD" or (t.kind == "IDENT" and t.lexeme == "discard"):
+    pos += 1
+    mut eResNodeId = -1
+    if tokAt(tokens, pos).kind != "NEWLINE" and tokAt(tokens, pos).kind != "EOF" and tokAt(tokens, pos).kind != ";" and tokAt(tokens, pos).lexeme != ";":
+      let eRes = parseExprPrec(tokens, arena, pos, 0)
+      pos = eRes.pos
+      eResNodeId = eRes.nodeId
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, "Discard", "", false, -1, eResNodeId, -1, emptyInts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 3d. require statement
+  if t.kind == "KW_REQUIRES" or (t.kind == "IDENT" and (t.lexeme == "require" or t.lexeme == "requires")):
+    pos += 1
+    let cRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = cRes.pos
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, "Require", "", false, -1, cRes.nodeId, -1, emptyInts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 3e. ensure statement
+  if t.kind == "KW_ENSURES" or (t.kind == "IDENT" and (t.lexeme == "ensure" or t.lexeme == "ensures")):
+    pos += 1
+    let cRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = cRes.pos
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, "Ensure", "", false, -1, cRes.nodeId, -1, emptyInts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 3f. invariant statement
+  if t.kind == "KW_INVARIANT" or (t.kind == "IDENT" and t.lexeme == "invariant"):
+    pos += 1
+    let cRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = cRes.pos
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, "Invariant", "", false, -1, cRes.nodeId, -1, emptyInts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 3g. decreases statement
+  if t.kind == "KW_DECREASES" or (t.kind == "IDENT" and (t.lexeme == "decreases" or t.lexeme == "decrease")):
+    pos += 1
+    let cRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = cRes.pos
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, "Decreases", "", false, -1, cRes.nodeId, -1, emptyInts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 4. if / elif / else
+  if t.kind == "KW_IF":
+    pos += 1
+    mut condNodeId = -1
+    if tokAt(tokens, pos).kind == "KW_LET":
+      pos += 1
+      let patRes = parseMatchPatternAndGuard(tokens, arena, pos)
+      pos = patRes.pos
+      if tokAt(tokens, pos).lexeme == "=":
+        pos += 1
+      let rhsRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = rhsRes.pos
+      condNodeId = arenaAllocExpr(arena, "IsPattern", patRes.bindVars.join(","), 0, 0.0, patRes.patName, false, rhsRes.nodeId, -1, -1, emptyInts, emptyNames, -1, t.span)
+    else:
+      let condRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = condRes.pos
+      condNodeId = condRes.nodeId
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    let thenBlk = parseIndentedBlock(tokens, arena, pos)
+    pos = thenBlk.pos
+    let thenStmts = arena.stmts[thenBlk.nodeId].bodyStmts
+    mut elseStmts: [int] = []
+
+    pos = skipLayout(tokens, pos)
+    while tokAt(tokens, pos).kind == "KW_ELIF" or (tokAt(tokens, pos).kind == "KW_ELSE" and tokAt(tokens, pos + 1).kind == "KW_IF"):
+      let elifTok = tokAt(tokens, pos)
+      if elifTok.kind == "KW_ELSE":
+        pos += 2
+      else:
+        pos += 1
+      mut eCondId = -1
+      if tokAt(tokens, pos).kind == "KW_LET":
+        pos += 1
+        let patRes = parseMatchPatternAndGuard(tokens, arena, pos)
+        pos = patRes.pos
+        if tokAt(tokens, pos).lexeme == "=":
+          pos += 1
+        let rhsRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = rhsRes.pos
+        eCondId = arenaAllocExpr(arena, "IsPattern", patRes.bindVars.join(","), 0, 0.0, patRes.patName, false, rhsRes.nodeId, -1, -1, emptyInts, emptyNames, -1, elifTok.span)
+      else:
+        let eCond = parseExprPrec(tokens, arena, pos, 1)
+        pos = eCond.pos
+        eCondId = eCond.nodeId
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+      let eBlk = parseIndentedBlock(tokens, arena, pos)
+      pos = eBlk.pos
+      let eStmts = arena.stmts[eBlk.nodeId].bodyStmts
+      let allocStmtId = arenaAllocStmt(arena, "Elif", "", false, -1, -1, eCondId, eStmts, emptyInts, emptyInts, elifTok.span)
+      elseStmts.push(allocStmtId)
+      pos = skipLayout(tokens, pos)
+
+    if tokAt(tokens, pos).kind == "KW_ELSE":
+      pos += 1
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+      let elBlk = parseIndentedBlock(tokens, arena, pos)
+      pos = elBlk.pos
+      let elBody = arena.stmts[elBlk.nodeId].bodyStmts
+      mut ei = 0
+      while ei < elBody.len:
+        elseStmts.push(elBody[ei])
+        ei += 1
+
+    let allocId = arenaAllocStmt(arena, "If", "", false, -1, -1, condNodeId, thenStmts, elseStmts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 5. while loop
+  if t.kind == "KW_WHILE":
+    pos += 1
+    mut condNodeId = -1
+    if tokAt(tokens, pos).kind == "KW_LET":
+      pos += 1
+      let patRes = parseMatchPatternAndGuard(tokens, arena, pos)
+      pos = patRes.pos
+      if tokAt(tokens, pos).lexeme == "=":
+        pos += 1
+      let rhsRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = rhsRes.pos
+      condNodeId = arenaAllocExpr(arena, "IsPattern", patRes.bindVars.join(","), 0, 0.0, patRes.patName, false, rhsRes.nodeId, -1, -1, emptyInts, emptyNames, -1, t.span)
+    else:
+      let condRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = condRes.pos
+      condNodeId = condRes.nodeId
+
+    mut loopInlineStmts: [int] = []
+    while pos < tokens.len:
+      let curTok = tokAt(tokens, pos)
+      let curKind = curTok.kind
+      let curLex = curTok.lexeme
+      if curKind == "KW_INVARIANT" or (curKind == "IDENT" and curLex == "invariant"):
+        pos += 1
+        let invRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = invRes.pos
+        let invStmtId = arenaAllocStmt(arena, "Invariant", "", false, -1, invRes.nodeId, -1, emptyInts, emptyInts, emptyInts, curTok.span)
+        loopInlineStmts.push(invStmtId)
+      elif curKind == "KW_DECREASES" or (curKind == "IDENT" and (curLex == "decreases" or curLex == "decrease")):
+        pos += 1
+        let decRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = decRes.pos
+        let decStmtId = arenaAllocStmt(arena, "Decreases", "", false, -1, decRes.nodeId, -1, emptyInts, emptyInts, emptyInts, curTok.span)
+        loopInlineStmts.push(decStmtId)
+      else:
+        break
+
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    let bodyBlk = parseIndentedBlock(tokens, arena, pos)
+    pos = bodyBlk.pos
+    let bStmts = arena.stmts[bodyBlk.nodeId].bodyStmts
+
+    mut finalWhileStmts: [int] = []
+    mut lsi = 0
+    while lsi < loopInlineStmts.len:
+      finalWhileStmts.push(loopInlineStmts[lsi])
+      lsi += 1
+    mut bsi = 0
+    while bsi < bStmts.len:
+      finalWhileStmts.push(bStmts[bsi])
+      bsi += 1
+
+    let allocId = arenaAllocStmt(arena, "While", "", false, -1, -1, condNodeId, finalWhileStmts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 6. for .. in loop
+  if t.kind == "KW_FOR":
+    pos += 1
+    mut isMut = false
+    if tokAt(tokens, pos).kind == "KW_MUT":
+      isMut = true
+      pos += 1
+    mut iterVar = ""
+    if tokAt(tokens, pos).kind == "(":
+      let patRes = parseTuplePatternVars(tokens, pos, "")
+      pos = patRes.pos
+      iterVar = patRes.vars.join(",")
+    else:
+      iterVar = tokAt(tokens, pos).lexeme
+      pos += 1
+
+    if tokAt(tokens, pos).kind == "KW_IN" or tokAt(tokens, pos).lexeme == "in":
+      pos += 1
+
+    let iterExpr = parseExprPrec(tokens, arena, pos, 1)
+    pos = iterExpr.pos
+    mut finalIterExprId = iterExpr.nodeId
+    if tokAt(tokens, pos).lexeme == "step" or tokAt(tokens, pos).lexeme == "by" or tokAt(tokens, pos).kind == "KW_STEP":
+      pos += 1
+      let stepRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = stepRes.pos
+      finalIterExprId = arenaAllocExpr(arena, "RangeStep", "step", 0, 0.0, "", false, iterExpr.nodeId, stepRes.nodeId, -1, emptyInts, emptyNames, -1, t.span)
+
+    mut forInlineStmts: [int] = []
+    while pos < tokens.len:
+      let curTok = tokAt(tokens, pos)
+      let curKind = curTok.kind
+      let curLex = curTok.lexeme
+      if curKind == "KW_INVARIANT" or (curKind == "IDENT" and curLex == "invariant"):
+        pos += 1
+        let invRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = invRes.pos
+        let invStmtId = arenaAllocStmt(arena, "Invariant", "", false, -1, invRes.nodeId, -1, emptyInts, emptyInts, emptyInts, curTok.span)
+        forInlineStmts.push(invStmtId)
+      elif curKind == "KW_DECREASES" or (curKind == "IDENT" and (curLex == "decreases" or curLex == "decrease")):
+        pos += 1
+        let decRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = decRes.pos
+        let decStmtId = arenaAllocStmt(arena, "Decreases", "", false, -1, decRes.nodeId, -1, emptyInts, emptyInts, emptyInts, curTok.span)
+        forInlineStmts.push(decStmtId)
+      else:
+        break
+
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    let bodyBlk = parseIndentedBlock(tokens, arena, pos)
+    pos = bodyBlk.pos
+    let bStmts = arena.stmts[bodyBlk.nodeId].bodyStmts
+
+    mut finalForStmts: [int] = []
+    mut fsi = 0
+    while fsi < forInlineStmts.len:
+      finalForStmts.push(forInlineStmts[fsi])
+      fsi += 1
+    mut bsi = 0
+    while bsi < bStmts.len:
+      finalForStmts.push(bStmts[bsi])
+      bsi += 1
+
+    let allocId = arenaAllocStmt(arena, "For", iterVar, isMut, -1, finalIterExprId, -1, finalForStmts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 7. match statement
+  if t.kind == "KW_MATCH":
+    pos += 1
+    let targetRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = targetRes.pos
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    pos = skipLayout(tokens, pos)
+    mut armIds: [int] = []
+    if tokAt(tokens, pos).kind == "INDENT":
+      pos += 1
+      while pos < tokens.len:
+        pos = skipLayout(tokens, pos)
+        let ak = tokAt(tokens, pos).kind
+        if ak == "DEDENT":
+          pos += 1
+          break
+        if ak == "EOF":
+          break
+        let patRes = parseMatchPatternAndGuard(tokens, arena, pos)
+        pos = patRes.pos
+        if tokAt(tokens, pos).lexeme == "=>" or tokAt(tokens, pos).kind == ":":
+          pos += 1
+        pos = skipLayout(tokens, pos)
+        mut armBody: [int] = []
+        mut bk = 0
+        while bk < patRes.bindVars.len:
+          if patRes.bindVars[bk].len > 0 and patRes.bindVars[bk] != "_":
+            let unwrapIdx = if patRes.bindVars.len == 1 and not patRes.isTuplePayload: -1 else: bk
+            let unwrapExprId = arenaAllocExpr(arena, "Unwrap", patRes.patName, unwrapIdx, 0.0, "", false, targetRes.nodeId, -1, -1, emptyInts, emptyNames, -1, patRes.span)
+            let bindVarId = arenaAllocStmt(arena, "VarDecl", patRes.bindVars[bk], false, -1, unwrapExprId, -1, emptyInts, emptyInts, emptyInts, patRes.span)
+            armBody.push(bindVarId)
+          bk += 1
+        if tokAt(tokens, pos).kind == "INDENT":
+          let armBlk = parseIndentedBlock(tokens, arena, pos)
+          pos = armBlk.pos
+          let blkStmts = arena.stmts[armBlk.nodeId].bodyStmts
+          mut bi = 0
+          while bi < blkStmts.len:
+            armBody.push(blkStmts[bi])
+            bi += 1
+        else:
+          let armSt = parseStmt(tokens, arena, pos)
+          pos = armSt.pos
+          if armSt.nodeId >= 0:
+            armBody.push(armSt.nodeId)
+        let allocStmtId = arenaAllocStmt(arena, "MatchArm", patRes.patName, false, -1, patRes.guardId, -1, armBody, emptyInts, emptyInts, patRes.span)
+        armIds.push(allocStmtId)
+    else:
+      while pos < tokens.len:
+        let ak = tokAt(tokens, pos).kind
+        if ak == "NEWLINE" or ak == "DEDENT" or ak == "EOF":
+          break
+        let patRes = parseMatchPatternAndGuard(tokens, arena, pos)
+        pos = patRes.pos
+        if tokAt(tokens, pos).lexeme == "=>" or tokAt(tokens, pos).kind == ":":
+          pos += 1
+        mut armBody: [int] = []
+        mut bk = 0
+        while bk < patRes.bindVars.len:
+          if patRes.bindVars[bk].len > 0 and patRes.bindVars[bk] != "_":
+            let unwrapIdx = if patRes.bindVars.len == 1 and not patRes.isTuplePayload: -1 else: bk
+            let unwrapExprId = arenaAllocExpr(arena, "Unwrap", patRes.patName, unwrapIdx, 0.0, "", false, targetRes.nodeId, -1, -1, emptyInts, emptyNames, -1, patRes.span)
+            let bindVarId = arenaAllocStmt(arena, "VarDecl", patRes.bindVars[bk], false, -1, unwrapExprId, -1, emptyInts, emptyInts, emptyInts, patRes.span)
+            armBody.push(bindVarId)
+          bk += 1
+        if tokAt(tokens, pos).kind == "KW_RET":
+          pos += 1
+          let eRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = eRes.pos
+          let retId = arenaAllocStmt(arena, "Return", "", false, -1, eRes.nodeId, -1, emptyInts, emptyInts, emptyInts, patRes.span)
+          armBody.push(retId)
+        elif tokAt(tokens, pos).kind == "KW_BREAK":
+          pos += 1
+          let brkId = arenaAllocStmt(arena, "Break", "", false, -1, -1, -1, emptyInts, emptyInts, emptyInts, patRes.span)
+          armBody.push(brkId)
+        elif tokAt(tokens, pos).kind == "KW_CONTINUE":
+          pos += 1
+          let contId = arenaAllocStmt(arena, "Continue", "", false, -1, -1, -1, emptyInts, emptyInts, emptyInts, patRes.span)
+          armBody.push(contId)
+        else:
+          let eRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = eRes.pos
+          let exprStmtId = arenaAllocStmt(arena, "ExprStmt", "", false, -1, eRes.nodeId, -1, emptyInts, emptyInts, emptyInts, patRes.span)
+          armBody.push(exprStmtId)
+        let allocStmtId = arenaAllocStmt(arena, "MatchArm", patRes.patName, false, -1, patRes.guardId, -1, armBody, emptyInts, emptyInts, patRes.span)
+        armIds.push(allocStmtId)
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+        else:
+          break
+      pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, "Match", "", false, -1, targetRes.nodeId, -1, emptyInts, emptyInts, armIds, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 8. Expression or Assignment statement
+  let lhsRes = parseExprPrec(tokens, arena, pos, 1)
+  pos = lhsRes.pos
+  if lhsRes.nodeId >= 0 and arena.exprs[lhsRes.nodeId].kind == "Error":
+    pos = synchronizeToNextStmt(tokens, pos)
+    ret ParseRes(pos = pos, nodeId = -1)
+  let opTok = tokAt(tokens, pos)
+  if opTok.lexeme == "=" or opTok.lexeme == "+=" or opTok.lexeme == "-=" or opTok.lexeme == "*=" or opTok.lexeme == "/=" or opTok.lexeme == "%=":
+    pos += 1
+    let rhsRes = parseExprPrec(tokens, arena, pos, 1)
+    pos = rhsRes.pos
+    if rhsRes.nodeId >= 0 and arena.exprs[rhsRes.nodeId].kind == "Error":
+      pos = synchronizeToNextStmt(tokens, pos)
+      ret ParseRes(pos = pos, nodeId = -1)
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocStmt(arena, "Assign", opTok.lexeme, false, -1, rhsRes.nodeId, lhsRes.nodeId, emptyInts, emptyInts, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  pos = skipToNextLine(tokens, pos)
+  let allocId = arenaAllocStmt(arena, "ExprStmt", "", false, -1, lhsRes.nodeId, -1, emptyInts, emptyInts, emptyInts, t.span)
+  ret ParseRes(pos = pos, nodeId = allocId)
+
+pub fn parseTopDecl(tokens: [Token], mut arena: AstArena, mut pos: int, source: str = ""): ParseRes:
+  pos = skipLayout(tokens, pos)
+  let declStartLine = tokAt(tokens, pos).span.line
+  mut pendingAgent = ""
+  mut pendingCaps: [str] = []
+  mut pendingIntrinsic = ""
+
+  while tokAt(tokens, pos).kind == "AT_AGENT" or tokAt(tokens, pos).kind == "AT_CAPABILITIES" or tokAt(tokens, pos).kind == "AT_INTRINSIC" or tokAt(tokens, pos).kind == "DIRECTIVE" or (tokAt(tokens, pos).lexeme.startsWith("@") and tokAt(tokens, pos).kind != "STRING"):
+    let dTok = tokAt(tokens, pos)
+    let dLex = dTok.lexeme
+    if dTok.kind == "DIRECTIVE" and dLex != "@intrinsic":
+      pendingCaps.push(dTok.lexeme)
+    pos += 1
+    if tokAt(tokens, pos).kind == "(":
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        let argT = tokAt(tokens, pos)
+        if (dTok.kind == "AT_AGENT" or dLex == "@agent") and argT.kind == "STRING":
+          pendingAgent = argT.lexeme
+        elif (dTok.kind == "AT_CAPABILITIES" or dLex == "@capabilities") and argT.kind == "STRING":
+          pendingCaps.push(argT.lexeme)
+        elif (dTok.kind == "AT_INTRINSIC" or dLex == "@intrinsic") and argT.kind == "STRING":
+          pendingIntrinsic = argT.lexeme
+        pos += 1
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+    pos = skipLayout(tokens, pos)
+
+  mut isPub = false
+  if tokAt(tokens, pos).kind == "KW_PUB":
+    isPub = true
+    pos += 1
+
+  mut isAsync = false
+  if tokAt(tokens, pos).lexeme == "async":
+    isAsync = true
+    pos += 1
+
+  let t = tokAt(tokens, pos)
+  let emptyStrs: [str] = []
+  let emptyInts: [int] = []
+
+  // 1. module declaration
+  if t.kind == "KW_MODULE":
+    pos += 1
+    let modName = tokAt(tokens, pos).lexeme
+    pos = skipToNextLine(tokens, pos)
+    arena.moduleName = modName
+    let allocId = arenaAllocDecl(arena, "Module", modName, true, emptyStrs, emptyInts, -1, emptyStrs, emptyInts, emptyStrs, emptyInts, emptyInts, emptyInts, "", emptyStrs, "", emptyStrs, "", emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 2. import declaration
+  if t.kind == "KW_IMPORT":
+    pos += 1
+    mut specs: [str] = []
+    mut impPath = ""
+    mut impAlias = ""
+    if tokAt(tokens, pos).kind == "{":
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != "}" and tokAt(tokens, pos).kind != "EOF":
+        let tk = tokAt(tokens, pos)
+        if tk.kind == "IDENT":
+          specs.push(tk.lexeme)
+        pos += 1
+      if tokAt(tokens, pos).kind == "}":
+        pos += 1
+      if tokAt(tokens, pos).kind == "KW_FROM":
+        pos += 1
+      impPath = tokAt(tokens, pos).lexeme
+      pos += 1
+      while pos + 1 < tokens.len and (tokAt(tokens, pos).lexeme == "." or tokAt(tokens, pos).lexeme == "/"):
+        let sep = tokAt(tokens, pos).lexeme
+        let nxt = tokAt(tokens, pos + 1).lexeme
+        impPath = impPath + sep + nxt
+        pos += 2
+    elif tokAt(tokens, pos).lexeme == "*":
+      pos += 1
+      if tokAt(tokens, pos).kind == "KW_FROM":
+        pos += 1
+      impPath = tokAt(tokens, pos).lexeme
+      pos += 1
+      while pos + 1 < tokens.len and (tokAt(tokens, pos).lexeme == "." or tokAt(tokens, pos).lexeme == "/"):
+        let sep = tokAt(tokens, pos).lexeme
+        let nxt = tokAt(tokens, pos + 1).lexeme
+        impPath = impPath + sep + nxt
+        pos += 2
+      if tokAt(tokens, pos).kind == "KW_AS":
+        pos += 1
+        impAlias = tokAt(tokens, pos).lexeme
+        pos += 1
+    else:
+      if tokAt(tokens, pos).kind == "KW_FROM":
+        pos += 1
+      impPath = tokAt(tokens, pos).lexeme
+      pos += 1
+      while pos + 1 < tokens.len and (tokAt(tokens, pos).lexeme == "." or tokAt(tokens, pos).lexeme == "/"):
+        let sep = tokAt(tokens, pos).lexeme
+        let nxt = tokAt(tokens, pos + 1).lexeme
+        impPath = impPath + sep + nxt
+        pos += 2
+      if tokAt(tokens, pos).kind == "KW_AS":
+        pos += 1
+        impAlias = tokAt(tokens, pos).lexeme
+        pos += 1
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocDecl(arena, "Import", impPath, isPub, emptyStrs, emptyInts, -1, emptyStrs, emptyInts, emptyStrs, emptyInts, emptyInts, emptyInts, "", emptyStrs, impPath, specs, impAlias, emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 3. const or module-level let/mut declaration
+  if t.kind == "KW_CONST" or ((t.kind == "KW_LET" or t.kind == "KW_MUT") and (isPub or arena.topStmts.len == 0)):
+    mut cPos = pos + 1
+    if (t.kind == "KW_LET" or t.kind == "KW_CONST") and tokAt(tokens, cPos).kind == "KW_MUT":
+      cPos += 1
+    if tokAt(tokens, cPos).kind == "IDENT" or tokAt(tokens, cPos).kind.startsWith("KW_"):
+      pos = cPos
+      let constName = tokAt(tokens, pos).lexeme
+      pos += 1
+      mut tyId = -1
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+        let tr = parseTypeAnnotation(tokens, arena, pos)
+        pos = tr.pos
+        tyId = tr.nodeId
+      mut initExprId = -1
+      if tokAt(tokens, pos).lexeme == "=":
+        pos += 1
+        let exRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = exRes.pos
+        initExprId = exRes.nodeId
+      pos = skipToNextLine(tokens, pos)
+      mut initStmts: [int] = []
+      if initExprId >= 0:
+        initStmts.push(initExprId)
+      let allocId = arenaAllocDecl(arena, "Const", constName, isPub, emptyStrs, emptyInts, tyId, emptyStrs, emptyInts, emptyStrs, emptyInts, initStmts, emptyInts, pendingAgent, pendingCaps, "", emptyStrs, "", initStmts, t.span)
+      if source.len > 0:
+        arena.decls[allocId].docComment = extractLeadingDocComment(source, declStartLine)
+      ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 3b. type alias declaration: [pub] type Name = ...
+  if t.kind == "KW_TYPE":
+    pos += 1
+    let typeName = tokAt(tokens, pos).lexeme
+    pos += 1
+    if tokAt(tokens, pos).kind == "[":
+      while pos < tokens.len and tokAt(tokens, pos).kind != "]" and tokAt(tokens, pos).kind != "EOF":
+        pos += 1
+      if tokAt(tokens, pos).kind == "]":
+        pos += 1
+    if tokAt(tokens, pos).lexeme == "=" or tokAt(tokens, pos).kind == ":":
+      pos += 1
+    let tyRes = parseTypeAnnotation(tokens, arena, pos)
+    pos = tyRes.pos
+    pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocDecl(arena, "TypeAlias", typeName, isPub, emptyStrs, emptyInts, tyRes.nodeId, emptyStrs, emptyInts, emptyStrs, emptyInts, emptyInts, emptyInts, pendingAgent, pendingCaps, "", emptyStrs, "", emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 4. struct declaration
+  if t.kind == "KW_STRUCT":
+    pos += 1
+    let sName = tokAt(tokens, pos).lexeme
+    pos += 1
+    let gRes = parseGenericTypeParams(tokens, pos)
+    pos = gRes.pos
+    let typeParams = gRes.names
+    let typeParamBounds = gRes.bounds
+    mut hadColon = false
+    if tokAt(tokens, pos).kind == ":":
+      hadColon = true
+      pos += 1
+    let hasInlineColonFields = hadColon and tokAt(tokens, pos).kind != "NEWLINE" and tokAt(tokens, pos).kind != "{" and tokAt(tokens, pos).kind != "(" and tokAt(tokens, pos).kind != "INDENT" and tokAt(tokens, pos).kind != "EOF"
+    if not hasInlineColonFields:
+      pos = skipLayout(tokens, pos)
+    mut fNames: [str] = []
+    mut fTypes: [int] = []
+    mut fDefaults: [int] = []
+    if tokAt(tokens, pos).kind == "{" or tokAt(tokens, pos).kind == "(":
+      let closeKind = if tokAt(tokens, pos).kind == "(": ")" else: "}"
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != closeKind and tokAt(tokens, pos).kind != "EOF":
+        let fk = tokAt(tokens, pos).kind
+        let flex = tokAt(tokens, pos).lexeme
+        if fk == "NEWLINE" or fk == "INDENT" or fk == "DEDENT" or fk == "," or fk == ";" or flex == "," or flex == ";":
+          pos += 1
+          continue
+        if fk == closeKind:
+          break
+        if tokAt(tokens, pos).kind == "KW_MUT" or tokAt(tokens, pos).lexeme == "mut" or tokAt(tokens, pos).kind == "KW_PUB" or tokAt(tokens, pos).lexeme == "pub":
+          pos += 1
+        let fName = tokAt(tokens, pos).lexeme
+        pos += 1
+        mut fTy = -1
+        if tokAt(tokens, pos).kind == ":":
+          pos += 1
+          let tr = parseTypeAnnotation(tokens, arena, pos)
+          pos = tr.pos
+          fTy = tr.nodeId
+        mut defExprId = -1
+        if tokAt(tokens, pos).lexeme == "=":
+          pos += 1
+          let defRes = parseExprPrec(tokens, arena, pos, 1)
+          defExprId = defRes.nodeId
+          pos = defRes.pos
+        fNames.push(fName)
+        fTypes.push(fTy)
+        fDefaults.push(defExprId)
+        if tokAt(tokens, pos).kind == "," or tokAt(tokens, pos).kind == ";" or tokAt(tokens, pos).lexeme == "," or tokAt(tokens, pos).lexeme == ";":
+          pos += 1
+      if tokAt(tokens, pos).kind == closeKind:
+        pos += 1
+    elif tokAt(tokens, pos).kind == "INDENT":
+      pos += 1
+      while pos < tokens.len:
+        pos = skipLayout(tokens, pos)
+        let fk = tokAt(tokens, pos).kind
+        if fk == "DEDENT":
+          pos += 1
+          break
+        if fk == "EOF":
+          break
+        if tokAt(tokens, pos).kind == "KW_MUT" or tokAt(tokens, pos).lexeme == "mut" or tokAt(tokens, pos).kind == "KW_PUB" or tokAt(tokens, pos).lexeme == "pub":
+          pos += 1
+        let fName = tokAt(tokens, pos).lexeme
+        pos += 1
+        mut fTy = -1
+        if tokAt(tokens, pos).kind == ":":
+          pos += 1
+          let tr = parseTypeAnnotation(tokens, arena, pos)
+          pos = tr.pos
+          fTy = tr.nodeId
+        mut defExprId = -1
+        if tokAt(tokens, pos).lexeme == "=":
+          pos += 1
+          let defRes = parseExprPrec(tokens, arena, pos, 1)
+          defExprId = defRes.nodeId
+          pos = defRes.pos
+        fNames.push(fName)
+        fTypes.push(fTy)
+        fDefaults.push(defExprId)
+        pos = skipToNextLine(tokens, pos)
+    elif hasInlineColonFields:
+      while pos < tokens.len and tokAt(tokens, pos).kind != "NEWLINE" and tokAt(tokens, pos).kind != "DEDENT" and tokAt(tokens, pos).kind != "EOF":
+        let fk = tokAt(tokens, pos).kind
+        let flex = tokAt(tokens, pos).lexeme
+        if fk == "," or fk == ";" or flex == "," or flex == ";":
+          pos += 1
+          continue
+        if tokAt(tokens, pos).kind == "KW_MUT" or tokAt(tokens, pos).lexeme == "mut" or tokAt(tokens, pos).kind == "KW_PUB" or tokAt(tokens, pos).lexeme == "pub":
+          pos += 1
+        let fName = tokAt(tokens, pos).lexeme
+        pos += 1
+        mut fTy = -1
+        if tokAt(tokens, pos).kind == ":":
+          pos += 1
+          let tr = parseTypeAnnotation(tokens, arena, pos)
+          pos = tr.pos
+          fTy = tr.nodeId
+        mut defExprId = -1
+        if tokAt(tokens, pos).lexeme == "=":
+          pos += 1
+          let defRes = parseExprPrec(tokens, arena, pos, 1)
+          defExprId = defRes.nodeId
+          pos = defRes.pos
+        fNames.push(fName)
+        fTypes.push(fTy)
+        fDefaults.push(defExprId)
+        if tokAt(tokens, pos).kind == "," or tokAt(tokens, pos).kind == ";" or tokAt(tokens, pos).lexeme == "," or tokAt(tokens, pos).lexeme == ";":
+          pos += 1
+      pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocDecl(arena, "Struct", sName, isPub, emptyStrs, emptyInts, -1, fNames, fTypes, emptyStrs, fDefaults, emptyInts, emptyInts, pendingAgent, pendingCaps, "", emptyStrs, "", emptyInts, t.span)
+    arena.decls[allocId].typeParams = typeParams
+    arena.decls[allocId].typeParamBounds = typeParamBounds
+    if source.len > 0:
+      arena.decls[allocId].docComment = extractLeadingDocComment(source, declStartLine)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 4. enum declaration
+  if t.kind == "KW_ENUM":
+    pos += 1
+    let eName = tokAt(tokens, pos).lexeme
+    pos += 1
+    let gRes = parseGenericTypeParams(tokens, pos)
+    pos = gRes.pos
+    let typeParams = gRes.names
+    let typeParamBounds = gRes.bounds
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    pos = skipLayout(tokens, pos)
+    mut vNames: [str] = []
+    mut vPayloads: [int] = []
+    if tokAt(tokens, pos).kind == "{":
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != "}" and tokAt(tokens, pos).kind != "EOF":
+        let vk = tokAt(tokens, pos).kind
+        let vlex = tokAt(tokens, pos).lexeme
+        if vk == "NEWLINE" or vk == "INDENT" or vk == "DEDENT" or vk == "," or vk == ";" or vlex == "," or vlex == ";":
+          pos += 1
+          continue
+        if vk == "}":
+          break
+        let vName = tokAt(tokens, pos).lexeme
+        pos += 1
+        mut payloadTy = -1
+        if tokAt(tokens, pos).kind == "(":
+          pos += 1
+          if tokAt(tokens, pos).kind != ")":
+            let tr = parseTypeAnnotation(tokens, arena, pos)
+            pos = tr.pos
+            payloadTy = tr.nodeId
+          while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+            pos += 1
+          if tokAt(tokens, pos).kind == ")":
+            pos += 1
+        vNames.push(vName)
+        vPayloads.push(payloadTy)
+        if tokAt(tokens, pos).kind == "," or tokAt(tokens, pos).kind == ";" or tokAt(tokens, pos).lexeme == "," or tokAt(tokens, pos).lexeme == ";":
+          pos += 1
+      if tokAt(tokens, pos).kind == "}":
+        pos += 1
+    elif tokAt(tokens, pos).kind == "INDENT":
+      pos += 1
+      while pos < tokens.len:
+        pos = skipLayout(tokens, pos)
+        let vk = tokAt(tokens, pos).kind
+        if vk == "DEDENT":
+          pos += 1
+          break
+        if vk == "EOF":
+          break
+        let vName = tokAt(tokens, pos).lexeme
+        pos += 1
+        mut payloadTy = -1
+        if tokAt(tokens, pos).kind == "(":
+          pos += 1
+          if tokAt(tokens, pos).kind != ")":
+            let tr = parseTypeAnnotation(tokens, arena, pos)
+            pos = tr.pos
+            payloadTy = tr.nodeId
+          while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+            pos += 1
+          if tokAt(tokens, pos).kind == ")":
+            pos += 1
+        vNames.push(vName)
+        vPayloads.push(payloadTy)
+        pos = skipToNextLine(tokens, pos)
+    let allocId = arenaAllocDecl(arena, "Enum", eName, isPub, emptyStrs, emptyInts, -1, emptyStrs, emptyInts, vNames, vPayloads, emptyInts, emptyInts, pendingAgent, pendingCaps, "", emptyStrs, "", emptyInts, t.span)
+    arena.decls[allocId].typeParams = typeParams
+    arena.decls[allocId].typeParamBounds = typeParamBounds
+    if source.len > 0:
+      arena.decls[allocId].docComment = extractLeadingDocComment(source, declStartLine)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 5. fn declaration
+  if t.kind == "KW_FN":
+    pos += 1
+    mut fnName = ""
+    mut recvName = ""
+    mut recvTy = -1
+    mut recvIsMut = false
+    mut recvIsRef = false
+    mut hasReceiver = false
+
+    if tokAt(tokens, pos).kind == "(":
+      // Receiver method syntax: fn (self: Type) method(...)
+      pos += 1
+      hasReceiver = true
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+      if tokAt(tokens, pos).lexeme == "&" or (tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "&"):
+        pos += 1
+        recvIsRef = true
+        if tokAt(tokens, pos).kind == "KW_MUT" or tokAt(tokens, pos).lexeme == "mut":
+          pos += 1
+          recvIsMut = true
+      elif tokAt(tokens, pos).kind == "KW_MUT" or tokAt(tokens, pos).lexeme == "mut":
+        pos += 1
+        recvIsMut = true
+        if tokAt(tokens, pos).lexeme == "&" or (tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "&"):
+          pos += 1
+          recvIsRef = true
+      recvName = tokAt(tokens, pos).lexeme
+      pos += 1
+      if tokAt(tokens, pos).kind == ":":
+        pos += 1
+        let tr = parseTypeAnnotation(tokens, arena, pos)
+        pos = tr.pos
+        recvTy = tr.nodeId
+        if recvIsRef and recvTy >= 0 and recvTy < arena.types.len:
+          let oldNode = arena.types[recvTy]
+          let newName = if oldNode.name.startsWith("&"): oldNode.name else: "&" + oldNode.name
+          recvTy = arenaAllocType(arena, oldNode.kind, newName, oldNode.typeArgs, oldNode.refineVar, oldNode.refinePredExpr, oldNode.span)
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+      while pos < tokens.len and (tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT"):
+        pos += 1
+
+      fnName = tokAt(tokens, pos).lexeme
+      if tokAt(tokens, pos).kind != "IDENT" and not tokAt(tokens, pos).kind.startsWith("KW_"):
+        let errTok = tokAt(tokens, pos)
+        pushSyntaxError(arena, errTok)
+        pos = synchronizeToNextStmt(tokens, pos)
+        ret ParseRes(pos = pos, nodeId = -1)
+      pos += 1
+      if recvTy >= 0 and recvTy < arena.types.len:
+        let tn = arena.types[recvTy].name.replace("&", "").trim()
+        if tn.len > 0:
+          fnName = tn + "_" + fnName
+    else:
+      // Standard function or dotted constructor: fn name(...) or fn Type.name(...)
+      fnName = tokAt(tokens, pos).lexeme
+      if tokAt(tokens, pos).kind != "IDENT" and not tokAt(tokens, pos).kind.startsWith("KW_"):
+        let errTok = tokAt(tokens, pos)
+        pushSyntaxError(arena, errTok)
+        pos = synchronizeToNextStmt(tokens, pos)
+        ret ParseRes(pos = pos, nodeId = -1)
+      pos += 1
+      if tokAt(tokens, pos).kind == "." or tokAt(tokens, pos).lexeme == ".":
+        pos += 1
+        if tokAt(tokens, pos).kind == "IDENT" or tokAt(tokens, pos).kind.startsWith("KW_"):
+          fnName = fnName + "_" + tokAt(tokens, pos).lexeme
+          pos += 1
+
+    let gRes = parseGenericTypeParams(tokens, pos)
+    pos = gRes.pos
+    let typeParams = gRes.names
+    let typeParamBounds = gRes.bounds
+    mut pNames: [str] = []
+    mut pTypes: [int] = []
+    mut pDefaults: [int] = []
+    if hasReceiver and recvName.len > 0:
+      pNames.push(recvName)
+      pTypes.push(recvTy)
+      pDefaults.push(-1)
+    if tokAt(tokens, pos).kind == "(":
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+          continue
+        mut isMut = false
+        mut isRef = false
+        if tokAt(tokens, pos).lexeme == "&" or (tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "&"):
+          pos += 1
+          isRef = true
+          if tokAt(tokens, pos).kind == "KW_MUT" or tokAt(tokens, pos).lexeme == "mut":
+            pos += 1
+            isMut = true
+        elif tokAt(tokens, pos).kind == "KW_MUT" or tokAt(tokens, pos).lexeme == "mut":
+          pos += 1
+          isMut = true
+          if tokAt(tokens, pos).lexeme == "&" or (tokAt(tokens, pos).kind == "OP" and tokAt(tokens, pos).lexeme == "&"):
+            pos += 1
+            isRef = true
+        let pName = tokAt(tokens, pos).lexeme
+        pos += 1
+        mut pTy = -1
+        if tokAt(tokens, pos).kind == ":":
+          pos += 1
+          if tokAt(tokens, pos).kind == "KW_MUT" or tokAt(tokens, pos).lexeme == "mut":
+            pos += 1
+            isMut = true
+          let tr = parseTypeAnnotation(tokens, arena, pos)
+          pos = tr.pos
+          pTy = tr.nodeId
+          if isRef and pTy >= 0 and pTy < arena.types.len:
+            let oldNode = arena.types[pTy]
+            let newName = if oldNode.name.startsWith("&"): oldNode.name else: "&" + oldNode.name
+            let refTyId = arenaAllocType(arena, oldNode.kind, newName, oldNode.typeArgs, oldNode.refineVar, oldNode.refinePredExpr, oldNode.span)
+            pTy = refTyId
+        mut defExprId = -1
+        // Default parameter value (= expr)
+        if tokAt(tokens, pos).lexeme == "=":
+          pos += 1
+          let defRes = parseExprPrec(tokens, arena, pos, 1)
+          pos = defRes.pos
+          defExprId = defRes.nodeId
+        pNames.push(pName)
+        pTypes.push(pTy)
+        pDefaults.push(defExprId)
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+        elif tokAt(tokens, pos).kind == "NEWLINE":
+          pos += 1
+        else:
+          break
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+    else:
+      let errTok = tokAt(tokens, pos)
+      pushSyntaxError(arena, errTok)
+      pos = synchronizeToNextStmt(tokens, pos)
+      ret ParseRes(pos = pos, nodeId = -1)
+
+    mut retTy = -1
+    let nextTok = tokAt(tokens, pos + 1)
+    let isNextContract = nextTok.kind == "KW_REQUIRES" or nextTok.kind == "KW_ENSURES" or nextTok.lexeme == "require" or nextTok.lexeme == "requires" or nextTok.lexeme == "ensure" or nextTok.lexeme == "ensures"
+    if tokAt(tokens, pos).kind == ":" and nextTok.kind != "NEWLINE" and nextTok.kind != "INDENT" and not isNextContract:
+      pos += 1
+      let rRes = parseTypeAnnotation(tokens, arena, pos)
+      pos = rRes.pos
+      retTy = rRes.nodeId
+    elif tokAt(tokens, pos).lexeme == "->":
+      pos += 1
+      let rRes = parseTypeAnnotation(tokens, arena, pos)
+      pos = rRes.pos
+      retTy = rRes.nodeId
+
+    mut reqExprs: [int] = []
+    mut ensExprs: [int] = []
+    mut inlineContractStmts: [int] = []
+    while pos < tokens.len:
+      let cTok = tokAt(tokens, pos)
+      let isReq = cTok.kind == "KW_REQUIRES" or (cTok.kind == "IDENT" and (cTok.lexeme == "require" or cTok.lexeme == "requires"))
+      let isEns = cTok.kind == "KW_ENSURES" or (cTok.kind == "IDENT" and (cTok.lexeme == "ensure" or cTok.lexeme == "ensures"))
+      if isReq:
+        pos += 1
+        let cRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = cRes.pos
+        reqExprs.push(cRes.nodeId)
+        let stmtId = arenaAllocStmt(arena, "Require", "", false, -1, cRes.nodeId, -1, emptyInts, emptyInts, emptyInts, cTok.span)
+        inlineContractStmts.push(stmtId)
+      elif isEns:
+        pos += 1
+        let cRes = parseExprPrec(tokens, arena, pos, 1)
+        pos = cRes.pos
+        ensExprs.push(cRes.nodeId)
+        let stmtId = arenaAllocStmt(arena, "Ensure", "", false, -1, cRes.nodeId, -1, emptyInts, emptyInts, emptyInts, cTok.span)
+        inlineContractStmts.push(stmtId)
+      else:
+        break
+
+    if tokAt(tokens, pos).lexeme == "=":
+      let eqSpan = tokAt(tokens, pos).span
+      pos += 1
+      mut hasIndent = false
+      pos = skipLayout(tokens, pos)
+      if tokAt(tokens, pos).kind == "INDENT":
+        hasIndent = true
+        pos += 1
+      let exprRes = parseExprPrec(tokens, arena, pos, 1)
+      pos = exprRes.pos
+      if hasIndent:
+        pos = skipLayout(tokens, pos)
+        if tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+      pos = skipToNextLine(tokens, pos)
+      let retStmtId = arenaAllocStmt(arena, "Return", "", false, -1, exprRes.nodeId, -1, emptyInts, emptyInts, emptyInts, eqSpan)
+      mut finalBodyStmts: [int] = [retStmtId]
+      let allocId = arenaAllocDecl(arena, "Function", fnName, isPub, pNames, pTypes, retTy, emptyStrs, emptyInts, emptyStrs, pDefaults, reqExprs, ensExprs, pendingAgent, pendingCaps, "", emptyStrs, "", finalBodyStmts, t.span)
+      arena.decls[allocId].typeParams = typeParams
+      arena.decls[allocId].typeParamBounds = typeParamBounds
+      if source.len > 0:
+        let baseDoc = extractLeadingDocComment(source, declStartLine)
+        arena.decls[allocId].docComment = if pendingIntrinsic.len > 0 and not baseDoc.contains("@intrinsic"): "/// @intrinsic(" + pendingIntrinsic + ")\n" + baseDoc else: baseDoc
+      elif pendingIntrinsic.len > 0:
+        arena.decls[allocId].docComment = "/// @intrinsic(" + pendingIntrinsic + ")\n"
+      ret ParseRes(pos = pos, nodeId = allocId)
+
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    elif tokAt(tokens, pos).kind != "NEWLINE" and tokAt(tokens, pos).kind != "INDENT" and tokAt(tokens, pos).kind != "EOF" and tokAt(tokens, pos).kind != "{":
+      let errTok = tokAt(tokens, pos)
+      pushSyntaxError(arena, errTok)
+      pos = synchronizeToNextStmt(tokens, pos)
+      ret ParseRes(pos = pos, nodeId = -1)
+
+    pos = skipLayout(tokens, pos)
+    if tokAt(tokens, pos).kind != "INDENT" and tokAt(tokens, pos).kind != "{":
+      if tokAt(tokens, pos).kind == "EOF" or isTopDeclStarter(tokAt(tokens, pos)):
+        mut finalBodyStmts: [int] = []
+        let allocId = arenaAllocDecl(arena, "Function", fnName, isPub, pNames, pTypes, retTy, emptyStrs, emptyInts, emptyStrs, pDefaults, reqExprs, ensExprs, pendingAgent, pendingCaps, "", emptyStrs, "", finalBodyStmts, t.span)
+        arena.decls[allocId].typeParams = typeParams
+        arena.decls[allocId].typeParamBounds = typeParamBounds
+        if source.len > 0:
+          let baseDoc = extractLeadingDocComment(source, declStartLine)
+          arena.decls[allocId].docComment = if pendingIntrinsic.len > 0 and not baseDoc.contains("@intrinsic"): "/// @intrinsic(" + pendingIntrinsic + ")\n" + baseDoc else: baseDoc
+        elif pendingIntrinsic.len > 0:
+          arena.decls[allocId].docComment = "/// @intrinsic(" + pendingIntrinsic + ")\n"
+        ret ParseRes(pos = pos, nodeId = allocId)
+
+    let bodyBlk = parseIndentedBlock(tokens, arena, pos)
+    pos = bodyBlk.pos
+    let bStmts = arena.stmts[bodyBlk.nodeId].bodyStmts
+    mut finalBodyStmts: [int] = []
+    mut icsi = 0
+    while icsi < inlineContractStmts.len:
+      finalBodyStmts.push(inlineContractStmts[icsi])
+      icsi += 1
+    mut bsi = 0
+    while bsi < bStmts.len:
+      let sid = bStmts[bsi]
+      if sid >= 0 and sid < arena.stmts.len:
+        let sNode = arena.stmts[sid]
+        if sNode.kind == "Require" or sNode.kind == "Requires":
+          reqExprs.push(sNode.exprId)
+          finalBodyStmts.push(sid)
+        elif sNode.kind == "Ensure" or sNode.kind == "Ensures":
+          ensExprs.push(sNode.exprId)
+          finalBodyStmts.push(sid)
+        else:
+          finalBodyStmts.push(sid)
+      bsi += 1
+    let allocId = arenaAllocDecl(arena, "Function", fnName, isPub, pNames, pTypes, retTy, emptyStrs, emptyInts, emptyStrs, pDefaults, reqExprs, ensExprs, pendingAgent, pendingCaps, "", emptyStrs, "", finalBodyStmts, t.span)
+    arena.decls[allocId].typeParams = typeParams
+    arena.decls[allocId].typeParamBounds = typeParamBounds
+    if source.len > 0:
+      let baseDoc = extractLeadingDocComment(source, declStartLine)
+      arena.decls[allocId].docComment = if pendingIntrinsic.len > 0 and not baseDoc.contains("@intrinsic"): "/// @intrinsic(" + pendingIntrinsic + ")\n" + baseDoc else: baseDoc
+    elif pendingIntrinsic.len > 0:
+      arena.decls[allocId].docComment = "/// @intrinsic(" + pendingIntrinsic + ")\n"
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // component declaration
+  if (t.kind == "IDENT" or t.kind.startsWith("KW_")) and t.lexeme == "component":
+    pos += 1
+    let compName = tokAt(tokens, pos).lexeme
+    pos += 1
+    mut pNames: [str] = []
+    mut pTypes: [int] = []
+    if tokAt(tokens, pos).kind == "(":
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+          continue
+        let pName = tokAt(tokens, pos).lexeme
+        pos += 1
+        mut pTy = -1
+        if tokAt(tokens, pos).kind == ":":
+          pos += 1
+          let tr = parseTypeAnnotation(tokens, arena, pos)
+          pos = tr.pos
+          pTy = tr.nodeId
+        pNames.push(pName)
+        pTypes.push(pTy)
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    mut fNames: [str] = []
+    mut fTypes: [int] = []
+    mut fDefaults: [int] = []
+    pos = skipLayout(tokens, pos)
+    if tokAt(tokens, pos).kind == "INDENT":
+      pos += 1
+      while pos < tokens.len:
+        pos = skipLayout(tokens, pos)
+        let fk = tokAt(tokens, pos).kind
+        if fk == "DEDENT":
+          pos += 1
+          break
+        if fk == "EOF":
+          break
+        if tokAt(tokens, pos).kind == "IDENT" and tokAt(tokens, pos + 1).kind == ":":
+          let fName = tokAt(tokens, pos).lexeme
+          pos += 2
+          let tr = parseTypeAnnotation(tokens, arena, pos)
+          pos = tr.pos
+          fNames.push(fName)
+          fTypes.push(tr.nodeId)
+          fDefaults.push(-1)
+          pos = skipToNextLine(tokens, pos)
+        else:
+          let stRes = parseStmt(tokens, arena, pos)
+          if stRes.pos <= pos:
+            pos = skipToNextLine(tokens, pos)
+          else:
+            pos = stRes.pos
+    let allocId = arenaAllocDecl(arena, "Component", compName, isPub, pNames, pTypes, -1, fNames, fTypes, emptyStrs, fDefaults, emptyInts, emptyInts, pendingAgent, pendingCaps, "", emptyStrs, "", emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // system declaration
+  if (t.kind == "IDENT" or t.kind.startsWith("KW_")) and t.lexeme == "system":
+    pos += 1
+    let sysName = tokAt(tokens, pos).lexeme
+    pos += 1
+    mut qParams: [str] = []
+    if tokAt(tokens, pos).kind == "(":
+      pos += 1
+      while pos < tokens.len and tokAt(tokens, pos).kind != ")" and tokAt(tokens, pos).kind != "EOF":
+        if tokAt(tokens, pos).kind == "NEWLINE" or tokAt(tokens, pos).kind == "INDENT" or tokAt(tokens, pos).kind == "DEDENT":
+          pos += 1
+          continue
+        if tokAt(tokens, pos).kind == "KW_MUT" or tokAt(tokens, pos).lexeme == "mut":
+          pos += 1
+        qParams.push(tokAt(tokens, pos).lexeme)
+        pos += 1
+        if tokAt(tokens, pos).kind == ",":
+          pos += 1
+      if tokAt(tokens, pos).kind == ")":
+        pos += 1
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    let bodyBlk = parseIndentedBlock(tokens, arena, pos)
+    pos = bodyBlk.pos
+    let bStmts = arena.stmts[bodyBlk.nodeId].bodyStmts
+    let allocId = arenaAllocDecl(arena, "System", sysName, isPub, qParams, emptyInts, -1, emptyStrs, emptyInts, emptyStrs, emptyInts, emptyInts, emptyInts, pendingAgent, pendingCaps, "", emptyStrs, "", bStmts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // shader declaration
+  if (t.kind == "IDENT" or t.kind.startsWith("KW_")) and t.lexeme == "shader":
+    pos += 1
+    let shaderName = tokAt(tokens, pos).lexeme
+    pos += 1
+    while pos < tokens.len and tokAt(tokens, pos).kind != ":" and tokAt(tokens, pos).kind != "NEWLINE" and tokAt(tokens, pos).kind != "EOF":
+      pos += 1
+    if tokAt(tokens, pos).kind == ":":
+      pos += 1
+    pos = skipLayout(tokens, pos)
+    if tokAt(tokens, pos).kind == "INDENT":
+      pos += 1
+      mut depth = 1
+      while pos < tokens.len and depth > 0:
+        let sk = tokAt(tokens, pos).kind
+        if sk == "INDENT":
+          depth += 1
+        elif sk == "DEDENT":
+          depth -= 1
+        elif sk == "EOF":
+          break
+        pos += 1
+    let allocId = arenaAllocDecl(arena, "Shader", shaderName, isPub, emptyStrs, emptyInts, -1, emptyStrs, emptyInts, emptyStrs, emptyInts, emptyInts, emptyInts, pendingAgent, pendingCaps, "", emptyStrs, "", emptyInts, t.span)
+    ret ParseRes(pos = pos, nodeId = allocId)
+
+  // 6. Top-level statement fallback
+  let stRes = parseStmt(tokens, arena, pos)
+  pos = stRes.pos
+  if stRes.nodeId >= 0:
+    arena.topStmts.push(stRes.nodeId)
+  ret ParseRes(pos = pos, nodeId = -1)
+
+pub fn parseModule(tokens: [Token], source: str): AstArena:
+  mut arena = arenaNew("Main")
+  mut pos = 0
+  while pos < tokens.len:
+    pos = skipLayout(tokens, pos)
+    if pos >= tokens.len or tokAt(tokens, pos).kind == "EOF":
+      break
+    if tokAt(tokens, pos).kind == "DEDENT" or tokAt(tokens, pos).kind == "INDENT":
+      pos += 1
+      continue
+    let prevPos = pos
+    let prevDeclCount = arena.decls.len
+    let dRes = parseTopDecl(tokens, arena, pos, source)
+    if dRes.pos <= prevPos:
+      let errTok = tokAt(tokens, pos)
+      pushSyntaxError(arena, errTok)
+      pos = synchronizeToNextStmt(tokens, pos)
+    else:
+      pos = dRes.pos
+    if arena.decls.len > prevDeclCount:
+      let dId = prevDeclCount
+      let dk = arena.decls[dId].kind
+      if (dk == "Function" or dk == "Struct" or dk == "Enum" or dk == "Const") and arena.decls[dId].docComment == "":
+        arena.decls[dId].docComment = extractLeadingDocComment(source, arena.decls[dId].span.line)
+  ret arena

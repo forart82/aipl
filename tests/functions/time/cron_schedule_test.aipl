@@ -1,0 +1,98 @@
+module tests.functions.time.cron_schedule_test
+
+import * from "std/prelude"
+import * from "std/time/cron_schedule"
+import { DateTimeUtc, dayOfWeek, dateTimeUtcToUnix, unixToDateTimeUtc } from "std/time/datetime"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_cron_schedule_parseCronUint_1(): int:
+  let arg_s = "42"
+  let edge_s = "0"
+  let resNom = parseCronUint(arg_s)
+  let resEdge = parseCronUint(edge_s)
+  assert(resNom.isSome() == true, "parseCronUint nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "parseCronUint boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_cron_schedule_parseCronFieldBitset_2(): int:
+  let arg_fieldStr = "test"
+  let edge_fieldStr = "a"
+  let arg_minVal = 4
+  let edge_minVal = 1
+  let arg_maxVal = 4
+  let edge_maxVal = 1
+  let resNom = parseCronFieldBitset(arg_fieldStr, arg_minVal, arg_maxVal)
+  let resEdge = parseCronFieldBitset(edge_fieldStr, edge_minVal, edge_maxVal)
+  assert(resNom.isOk() == false, "parseCronFieldBitset nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "parseCronFieldBitset boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_cron_schedule_parseCron_3(): int:
+  let arg_expression = "test"
+  let edge_expression = "a"
+  let resNom = parseCron(arg_expression)
+  let resEdge = parseCron(edge_expression)
+  assert(resNom.isOk() == false, "parseCron nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "parseCron boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_cron_schedule_CronSchedule_isMatch_4(): int:
+  let recv_self = CronSchedule(minuteBitset = 4, hourBitset = 4, dayOfMonthBitset = 4, monthBitset = 4, dayOfWeekBitset = 4, hasSeconds = true, secondBitset = 4)
+  let edge_self = CronSchedule(minuteBitset = 1, hourBitset = 1, dayOfMonthBitset = 1, monthBitset = 1, dayOfWeekBitset = 1, hasSeconds = false, secondBitset = 1)
+  let arg_dt = DateTimeUtc(date = CivilDate(year = 1, month = 4, day = 1), time = CivilTime(hour = 2, minute = 4, second = 4, nanosecond = 4), offset = TimeZoneOffset(offsetMinutes = 4, name = "test"), unixNanos = 4, year = 1, month = 4, day = 1, hour = 2, minute = 4, second = 4)
+  let edge_dt = DateTimeUtc(date = CivilDate(year = 0, month = 1, day = 0), time = CivilTime(hour = 0, minute = 1, second = 1, nanosecond = 1), offset = TimeZoneOffset(offsetMinutes = 1, name = "a"), unixNanos = 1, year = 0, month = 1, day = 0, hour = 0, minute = 1, second = 1)
+  let resNom = recv_self.isMatch(arg_dt)
+  let resEdge = edge_self.isMatch(edge_dt)
+  assert(resNom == false, "isMatch nominal resNom == false")
+  assert(resEdge == false, "isMatch boundary resEdge == false")
+  ret 0
+
+pub fn test_cron_schedule_CronSchedule_nextFireAfter_5(): int:
+  let recv_self = CronSchedule(minuteBitset = 4, hourBitset = 4, dayOfMonthBitset = 4, monthBitset = 4, dayOfWeekBitset = 4, hasSeconds = true, secondBitset = 4)
+  let edge_self = CronSchedule(minuteBitset = 1, hourBitset = 1, dayOfMonthBitset = 1, monthBitset = 1, dayOfWeekBitset = 1, hasSeconds = false, secondBitset = 1)
+  let arg_dt = DateTimeUtc(date = CivilDate(year = 1, month = 4, day = 1), time = CivilTime(hour = 2, minute = 4, second = 4, nanosecond = 4), offset = TimeZoneOffset(offsetMinutes = 4, name = "test"), unixNanos = 4, year = 1, month = 4, day = 1, hour = 2, minute = 4, second = 4)
+  let edge_dt = DateTimeUtc(date = CivilDate(year = 0, month = 1, day = 0), time = CivilTime(hour = 0, minute = 1, second = 1, nanosecond = 1), offset = TimeZoneOffset(offsetMinutes = 1, name = "a"), unixNanos = 1, year = 0, month = 1, day = 0, hour = 0, minute = 1, second = 1)
+  let resNom = recv_self.nextFireAfter(arg_dt)
+  let resEdge = edge_self.nextFireAfter(edge_dt)
+  assert(resNom.isSome() == false, "nextFireAfter nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "nextFireAfter boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_cron_schedule_explainCronToken_6(): int:
+  let arg_rawField = "test"
+  let edge_rawField = "a"
+  let arg_unitName = "test"
+  let edge_unitName = "a"
+  let resNom = explainCronToken(arg_rawField, arg_unitName)
+  let resEdge = explainCronToken(edge_rawField, edge_unitName)
+  assertEqStr(resNom, "test test", "explainCronToken nominal string matches")
+  assertEqStr(resEdge, "a a", "explainCronToken boundary string matches")
+  ret 0
+
+pub fn test_cron_schedule_explainCron_7(): int:
+  let arg_expr = "test"
+  let edge_expr = "a"
+  let resNom = explainCron(arg_expr)
+  let resEdge = explainCron(edge_expr)
+  assert(resNom.isOk() == false, "explainCron nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "explainCron boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_cron_schedule_cronMatches_8(): int:
+  let arg_expr = "test"
+  let edge_expr = "a"
+  let arg_minute = 4
+  let edge_minute = 1
+  let arg_hour = 2
+  let edge_hour = 0
+  let arg_dom = 4
+  let edge_dom = 1
+  let arg_month = 4
+  let edge_month = 1
+  let arg_dow = 2
+  let edge_dow = 0
+  let resNom = cronMatches(arg_expr, arg_minute, arg_hour, arg_dom, arg_month, arg_dow)
+  let resEdge = cronMatches(edge_expr, edge_minute, edge_hour, edge_dom, edge_month, edge_dow)
+  assert(resNom == false, "cronMatches nominal resNom == false")
+  assert(resEdge == false, "cronMatches boundary resEdge == false")
+  ret 0

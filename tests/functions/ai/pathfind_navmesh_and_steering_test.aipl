@@ -1,0 +1,1477 @@
+module tests.functions.ai.pathfind_navmesh_and_steering_test
+
+import * from "std/ai/navmesh"
+import { absFloat, maxFloat, minFloat, maxInt } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import * from "std/ai/pathfind"
+import { absInt, minFloat } from "std/math/consts"
+import { Vec2, IVec2 } from "std/math/vec_math"
+import { CellularGrid2D } from "std/procgen/cellular_automata"
+import * from "std/ai/steering"
+import { TAU } from "std/math/consts"
+import { sin, cos, sqrt, hypot } from "std/math/trig"
+
+pub fn test_navmesh_navMeshNew_1(): int:
+  let arg_polygons = [NavMeshPoly2D(id = 1, vertices = [], center = Vec2(x = 1.0, y = 1.0), portals = [])]
+  let edge_polygons = []
+  let resNom = navMeshNew(arg_polygons)
+  let resEdge = navMeshNew(edge_polygons)
+  assertEqInt(resNom.polygons.len(), 1, "navMeshNew nominal resNom.polygons.len() == 1")
+  assertEqInt(resEdge.polygons.len(), 0, "navMeshNew boundary resEdge.polygons.len() == 0")
+  ret 0
+
+pub fn test_navmesh_findClosestPolyIndex_2(): int:
+  let arg_mesh = NavMesh2D(polygons = [])
+  let edge_mesh = NavMesh2D(polygons = [])
+  let arg_pt = Vec2(x = 1.0, y = 1.0)
+  let edge_pt = Vec2(x = 0.5, y = 0.5)
+  let resNom = findClosestPolyIndex(arg_mesh, arg_pt)
+  let resEdge = findClosestPolyIndex(edge_mesh, edge_pt)
+  assertEqInt(resNom, -1, "findClosestPolyIndex nominal resNom == -1")
+  assertEqInt(resEdge, -1, "findClosestPolyIndex boundary resEdge == -1")
+  ret 0
+
+pub fn test_navmesh_navMeshFindPath_3(): int:
+  let arg_mesh = NavMesh2D(polygons = [])
+  let edge_mesh = NavMesh2D(polygons = [])
+  let arg_start = Vec2(x = 1.0, y = 1.0)
+  let edge_start = Vec2(x = 0.5, y = 0.5)
+  let arg_goal = Vec2(x = 1.0, y = 1.0)
+  let edge_goal = Vec2(x = 0.5, y = 0.5)
+  let resNom = navMeshFindPath(arg_mesh, arg_start, arg_goal)
+  let resEdge = navMeshFindPath(edge_mesh, edge_start, edge_goal)
+  assert(resNom.isSome() == false, "navMeshFindPath nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "navMeshFindPath boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_navmesh_navPortalsCross2D_4(): int:
+  let arg_ax = 1.0
+  let edge_ax = 0.5
+  let arg_ay = 1.0
+  let edge_ay = 0.5
+  let arg_bx = 1.0
+  let edge_bx = 0.5
+  let arg_by = 1.0
+  let edge_by = 0.5
+  let arg_cx = 1.0
+  let edge_cx = 0.5
+  let arg_cy = 1.0
+  let edge_cy = 0.5
+  let resNom = navPortalsCross2D(arg_ax, arg_ay, arg_bx, arg_by, arg_cx, arg_cy)
+  let resEdge = navPortalsCross2D(edge_ax, edge_ay, edge_bx, edge_by, edge_cx, edge_cy)
+  assertApproxEq(resNom, 0.0, 0.001, "navPortalsCross2D nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "navPortalsCross2D boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_navmesh_navFunnelSmoothPortals_5(): int:
+  let arg_lefts = [1.0]
+  let edge_lefts = []
+  let arg_rights = [2.0]
+  let edge_rights = []
+  let resNom = navFunnelSmoothPortals(arg_lefts, arg_rights)
+  let resEdge = navFunnelSmoothPortals(edge_lefts, edge_rights)
+  assertEqInt(resNom.len(), 0, "navFunnelSmoothPortals nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "navFunnelSmoothPortals boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_navmesh_navHeuristicOctile_6(): int:
+  let arg_x0 = 1.0
+  let edge_x0 = 0.5
+  let arg_y0 = 1.0
+  let edge_y0 = 0.5
+  let arg_x1 = 1.0
+  let edge_x1 = 0.5
+  let arg_y1 = 1.0
+  let edge_y1 = 0.5
+  let resNom = navHeuristicOctile(arg_x0, arg_y0, arg_x1, arg_y1)
+  let resEdge = navHeuristicOctile(edge_x0, edge_y0, edge_x1, edge_y1)
+  assertApproxEq(resNom, 0.0, 0.001, "navHeuristicOctile nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "navHeuristicOctile boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_navmesh_navStepTowardTarget_7(): int:
+  let arg_curX = 1.0
+  let edge_curX = 0.5
+  let arg_curY = 1.0
+  let edge_curY = 0.5
+  let arg_tgtX = 1.0
+  let edge_tgtX = 0.5
+  let arg_tgtY = 1.0
+  let edge_tgtY = 0.5
+  let arg_maxStep = 2.0
+  let edge_maxStep = 1.0
+  let resNom = navStepTowardTarget(arg_curX, arg_curY, arg_tgtX, arg_tgtY, arg_maxStep)
+  let resEdge = navStepTowardTarget(edge_curX, edge_curY, edge_tgtX, edge_tgtY, edge_maxStep)
+  assertEqInt(resNom.len(), 2, "navStepTowardTarget nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "navStepTowardTarget boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_navmesh_navBresenhamLineOfSight_8(): int:
+  let arg_x0 = 1
+  let edge_x0 = 0
+  let arg_y0 = 1
+  let edge_y0 = 0
+  let arg_x1 = 1
+  let edge_x1 = 0
+  let arg_y1 = 1
+  let edge_y1 = 0
+  let arg_blockerX = 4
+  let edge_blockerX = 1
+  let arg_blockerY = 4
+  let edge_blockerY = 1
+  let arg_blockerRadius = 4
+  let edge_blockerRadius = 1
+  let resNom = navBresenhamLineOfSight(arg_x0, arg_y0, arg_x1, arg_y1, arg_blockerX, arg_blockerY, arg_blockerRadius)
+  let resEdge = navBresenhamLineOfSight(edge_x0, edge_y0, edge_x1, edge_y1, edge_blockerX, edge_blockerY, edge_blockerRadius)
+  assert(resNom == true, "navBresenhamLineOfSight nominal resNom == true")
+  assert(resEdge == true, "navBresenhamLineOfSight boundary resEdge == true")
+  ret 0
+
+pub fn test_navmesh_navComputeBhopVelocity_9(): int:
+  let arg_curSpeed = 1.0
+  let edge_curSpeed = 0.5
+  let arg_wishSpeed = 2.0
+  let edge_wishSpeed = 1.0
+  let arg_airAccelerate = 2.0
+  let edge_airAccelerate = 1.0
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = navComputeBhopVelocity(arg_curSpeed, arg_wishSpeed, arg_airAccelerate, arg_dt)
+  let resEdge = navComputeBhopVelocity(edge_curSpeed, edge_wishSpeed, edge_airAccelerate, edge_dt)
+  assertApproxEq(resNom, 3.0, 0.001, "navComputeBhopVelocity nominal resNom ~= 3.0")
+  assertApproxEq(resEdge, 1.5, 0.001, "navComputeBhopVelocity boundary resEdge ~= 1.5")
+  ret 0
+
+pub fn test_navmesh_navIsWithinLeashRadius_10(): int:
+  let arg_unitX = 1.0
+  let edge_unitX = 0.5
+  let arg_unitY = 1.0
+  let edge_unitY = 0.5
+  let arg_campX = 1.0
+  let edge_campX = 0.5
+  let arg_campY = 1.0
+  let edge_campY = 0.5
+  let arg_leashRadius = 2.0
+  let edge_leashRadius = 1.0
+  let resNom = navIsWithinLeashRadius(arg_unitX, arg_unitY, arg_campX, arg_campY, arg_leashRadius)
+  let resEdge = navIsWithinLeashRadius(edge_unitX, edge_unitY, edge_campX, edge_campY, edge_leashRadius)
+  assert(resNom == true, "navIsWithinLeashRadius nominal resNom == true")
+  assert(resEdge == true, "navIsWithinLeashRadius boundary resEdge == true")
+  ret 0
+
+pub fn test_navmesh_gridComputeRadialVisibility_11(): int:
+  let arg_gridW = 1
+  let edge_gridW = 0
+  let arg_gridH = 1
+  let edge_gridH = 0
+  let arg_viewerX = 1
+  let edge_viewerX = 0
+  let arg_viewerY = 1
+  let edge_viewerY = 0
+  let arg_radius = 2
+  let edge_radius = 0
+  let resNom = gridComputeRadialVisibility(arg_gridW, arg_gridH, arg_viewerX, arg_viewerY, arg_radius)
+  let resEdge = gridComputeRadialVisibility(edge_gridW, edge_gridH, edge_viewerX, edge_viewerY, edge_radius)
+  assertEqInt(resNom.len(), 1, "gridComputeRadialVisibility nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "gridComputeRadialVisibility boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_navmesh_rtsUpdateFogOfWarGrid_12(): int:
+  let arg_gridW = 1
+  let edge_gridW = 0
+  let arg_gridH = 1
+  let edge_gridH = 0
+  let arg_viewerX = 1
+  let edge_viewerX = 0
+  let arg_viewerY = 1
+  let edge_viewerY = 0
+  let arg_radius = 2
+  let edge_radius = 0
+  let resNom = rtsUpdateFogOfWarGrid(arg_gridW, arg_gridH, arg_viewerX, arg_viewerY, arg_radius)
+  let resEdge = rtsUpdateFogOfWarGrid(edge_gridW, edge_gridH, edge_viewerX, edge_viewerY, edge_radius)
+  assertEqInt(resNom.len(), 1, "rtsUpdateFogOfWarGrid nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "rtsUpdateFogOfWarGrid boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_navmesh_navComputeNavMeshAreaCost_13(): int:
+  let arg_areaWidth = 2.0
+  let edge_areaWidth = 1.0
+  let arg_areaHeight = 2.0
+  let edge_areaHeight = 1.0
+  let arg_dangerPenalty = 1.0
+  let edge_dangerPenalty = 0.5
+  let arg_crouchPenalty = 2.0
+  let edge_crouchPenalty = 1.0
+  let arg_baseDist = 1.0
+  let edge_baseDist = 0.5
+  let resNom = navComputeNavMeshAreaCost(arg_areaWidth, arg_areaHeight, arg_dangerPenalty, arg_crouchPenalty, arg_baseDist)
+  let resEdge = navComputeNavMeshAreaCost(edge_areaWidth, edge_areaHeight, edge_dangerPenalty, edge_crouchPenalty, edge_baseDist)
+  assertApproxEq(resNom, 4.25, 0.001, "navComputeNavMeshAreaCost nominal resNom ~= 4.25")
+  assertApproxEq(resEdge, 2.75, 0.001, "navComputeNavMeshAreaCost boundary resEdge ~= 2.75")
+  ret 0
+
+pub fn test_navmesh_navComputePortalShortcutDist_14(): int:
+  let arg_directDist = 1.0
+  let edge_directDist = 0.5
+  let arg_distToGateA = 1.0
+  let edge_distToGateA = 0.5
+  let arg_distFromGateB = 1.0
+  let edge_distFromGateB = 0.5
+  let arg_gateCost = 1.0
+  let edge_gateCost = 0.5
+  let resNom = navComputePortalShortcutDist(arg_directDist, arg_distToGateA, arg_distFromGateB, arg_gateCost)
+  let resEdge = navComputePortalShortcutDist(edge_directDist, edge_distToGateA, edge_distFromGateB, edge_gateCost)
+  assertApproxEq(resNom, 1.0, 0.001, "navComputePortalShortcutDist nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "navComputePortalShortcutDist boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_navmesh_navBuildFlowField2D_15(): int:
+  let arg_width = 4
+  let edge_width = 1
+  let arg_height = 4
+  let edge_height = 1
+  let arg_costField = [2]
+  let edge_costField = []
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let resNom = navBuildFlowField2D(arg_width, arg_height, arg_costField, arg_goalX, arg_goalY)
+  let resEdge = navBuildFlowField2D(edge_width, edge_height, edge_costField, edge_goalX, edge_goalY)
+  assertEqInt(resNom.width, 4, "navBuildFlowField2D nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "navBuildFlowField2D boundary resEdge.width == 1")
+  ret 0
+
+pub fn test_navmesh_navSampleFlowField2D_16(): int:
+  let arg_ff = CrowdFlowField2D(width = 4, height = 4, goalX = 1, goalY = 1, costField = [], integrationField = [], flowDirX = [], flowDirY = [])
+  let edge_ff = CrowdFlowField2D(width = 4, height = 4, goalX = 0, goalY = 0, costField = [], integrationField = [], flowDirX = [], flowDirY = [])
+  let arg_cellX = 1
+  let edge_cellX = 0
+  let arg_cellY = 1
+  let edge_cellY = 0
+  let resNom = navSampleFlowField2D(arg_ff, arg_cellX, arg_cellY)
+  let resEdge = navSampleFlowField2D(edge_ff, edge_cellX, edge_cellY)
+  assertEqInt(resNom.len(), 2, "navSampleFlowField2D nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "navSampleFlowField2D boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_pathfind_isWalkable_1(): int:
+  let arg_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = isWalkable(arg_grid, arg_x, arg_y)
+  let resEdge = isWalkable(edge_grid, edge_x, edge_y)
+  assert(resNom == false, "isWalkable nominal resNom == false")
+  assert(resEdge == false, "isWalkable boundary resEdge == false")
+  ret 0
+
+pub fn test_pathfind_aStarPathfind_2(): int:
+  let arg_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let arg_start = IVec2(x = 1, y = 1)
+  let edge_start = IVec2(x = 0, y = 0)
+  let arg_goal = IVec2(x = 1, y = 1)
+  let edge_goal = IVec2(x = 0, y = 0)
+  let arg_allowDiagonal = true
+  let edge_allowDiagonal = false
+  let resNom = aStarPathfind(arg_grid, arg_start, arg_goal, arg_allowDiagonal)
+  let resEdge = aStarPathfind(edge_grid, edge_start, edge_goal, edge_allowDiagonal)
+  assert(resNom.found == false, "aStarPathfind nominal resNom.found == false")
+  assert(resEdge.found == false, "aStarPathfind boundary resEdge.found == false")
+  ret 0
+
+pub fn test_pathfind_jpsPathfind2D_3(): int:
+  let arg_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let arg_start = IVec2(x = 1, y = 1)
+  let edge_start = IVec2(x = 0, y = 0)
+  let arg_goal = IVec2(x = 1, y = 1)
+  let edge_goal = IVec2(x = 0, y = 0)
+  let resNom = jpsPathfind2D(arg_grid, arg_start, arg_goal)
+  let resEdge = jpsPathfind2D(edge_grid, edge_start, edge_goal)
+  assert(resNom.found == false, "jpsPathfind2D nominal resNom.found == false")
+  assert(resEdge.found == false, "jpsPathfind2D boundary resEdge.found == false")
+  ret 0
+
+pub fn test_pathfind_cellularGridLineOfSight_4(): int:
+  let arg_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let arg_x0 = 1
+  let edge_x0 = 0
+  let arg_y0 = 1
+  let edge_y0 = 0
+  let arg_x1 = 1
+  let edge_x1 = 0
+  let arg_y1 = 1
+  let edge_y1 = 0
+  let resNom = cellularGridLineOfSight(arg_grid, arg_x0, arg_y0, arg_x1, arg_y1)
+  let resEdge = cellularGridLineOfSight(edge_grid, edge_x0, edge_y0, edge_x1, edge_y1)
+  assert(resNom == false, "cellularGridLineOfSight nominal resNom == false")
+  assert(resEdge == false, "cellularGridLineOfSight boundary resEdge == false")
+  ret 0
+
+pub fn test_pathfind_thetaStarPathfind2D_5(): int:
+  let arg_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let arg_start = IVec2(x = 1, y = 1)
+  let edge_start = IVec2(x = 0, y = 0)
+  let arg_goal = IVec2(x = 1, y = 1)
+  let edge_goal = IVec2(x = 0, y = 0)
+  let resNom = thetaStarPathfind2D(arg_grid, arg_start, arg_goal)
+  let resEdge = thetaStarPathfind2D(edge_grid, edge_start, edge_goal)
+  assert(resNom.found == false, "thetaStarPathfind2D nominal resNom.found == false")
+  assert(resEdge.found == false, "thetaStarPathfind2D boundary resEdge.found == false")
+  ret 0
+
+pub fn test_pathfind_computeDijkstraMap2D_6(): int:
+  let arg_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let arg_goals = [IVec2(x = 1, y = 1)]
+  let edge_goals = []
+  let resNom = computeDijkstraMap2D(arg_grid, arg_goals)
+  let resEdge = computeDijkstraMap2D(edge_grid, edge_goals)
+  assertEqInt(resNom.width, 4, "computeDijkstraMap2D nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "computeDijkstraMap2D boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_pathfind_computeFlowField2D_7(): int:
+  let arg_dijkstra = DijkstraMap2D(width = 4, height = 4, distances = [])
+  let edge_dijkstra = DijkstraMap2D(width = 4, height = 4, distances = [])
+  let resNom = computeFlowField2D(arg_dijkstra)
+  let resEdge = computeFlowField2D(edge_dijkstra)
+  assertEqInt(resNom.width, 4, "computeFlowField2D nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "computeFlowField2D boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_pathfind_gridNew_8(): int:
+  let arg_width = 4
+  let edge_width = 1
+  let arg_height = 4
+  let edge_height = 1
+  let arg_defaultVal = 2
+  let edge_defaultVal = 0
+  let resNom = gridNew(arg_width, arg_height, arg_defaultVal)
+  let resEdge = gridNew(edge_width, edge_height, edge_defaultVal)
+  assertEqInt(resNom.width, 4, "gridNew nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "gridNew boundary resEdge.width == 1")
+  ret 0
+
+pub fn test_pathfind_gridInBounds_9(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = gridInBounds(arg_grid, arg_x, arg_y)
+  let resEdge = gridInBounds(edge_grid, edge_x, edge_y)
+  assert(resNom == true, "gridInBounds nominal resNom == true")
+  assert(resEdge == true, "gridInBounds boundary resEdge == true")
+  ret 0
+
+pub fn test_pathfind_gridGet_10(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = gridGet(arg_grid, arg_x, arg_y)
+  let resEdge = gridGet(edge_grid, edge_x, edge_y)
+  assertEqStr(str(resNom), "nil", "gridGet nominal str(resNom) == nil")
+  assertEqStr(str(resEdge), "nil", "gridGet boundary str(resEdge) == nil")
+  ret 0
+
+pub fn test_pathfind_gridSet_11(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let arg_val = 2
+  let edge_val = 0
+  let resNom = gridSet(arg_grid, arg_x, arg_y, arg_val)
+  let resEdge = gridSet(edge_grid, edge_x, edge_y, edge_val)
+  assertEqInt(resNom.width, 4, "gridSet nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "gridSet boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_pathfind_gridGetWrapped_12(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = gridGetWrapped(arg_grid, arg_x, arg_y)
+  let resEdge = gridGetWrapped(edge_grid, edge_x, edge_y)
+  assertEqStr(str(resNom), "nil", "gridGetWrapped nominal str(resNom) == nil")
+  assertEqStr(str(resEdge), "nil", "gridGetWrapped boundary str(resEdge) == nil")
+  ret 0
+
+pub fn test_pathfind_gridNeighbors4_13(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = gridNeighbors4(arg_grid, arg_x, arg_y)
+  let resEdge = gridNeighbors4(edge_grid, edge_x, edge_y)
+  assertEqInt(resNom.len(), 4, "gridNeighbors4 nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 2, "gridNeighbors4 boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_pathfind_gridNeighbors8_14(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = gridNeighbors8(arg_grid, arg_x, arg_y)
+  let resEdge = gridNeighbors8(edge_grid, edge_x, edge_y)
+  assertEqInt(resNom.len(), 8, "gridNeighbors8 nominal resNom.len() == 8")
+  assertEqInt(resEdge.len(), 3, "gridNeighbors8 boundary resEdge.len() == 3")
+  ret 0
+
+pub fn test_pathfind_gridFloodFill_15(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_newVal = 4
+  let edge_newVal = 1
+  let resNom = gridFloodFill(arg_grid, arg_startX, arg_startY, arg_newVal)
+  let resEdge = gridFloodFill(edge_grid, edge_startX, edge_startY, edge_newVal)
+  assertEqInt(resNom.width, 4, "gridFloodFill nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "gridFloodFill boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_pathfind_gridCountLineOfSight_16(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_dx = 1
+  let edge_dx = 0
+  let arg_dy = 1
+  let edge_dy = 0
+  let arg_targetVal = 2
+  let edge_targetVal = 0
+  let resNom = gridCountLineOfSight(arg_grid, arg_startX, arg_startY, arg_dx, arg_dy, arg_targetVal)
+  let resEdge = gridCountLineOfSight(edge_grid, edge_startX, edge_startY, edge_dx, edge_dy, edge_targetVal)
+  assertEqInt(resNom, 0, "gridCountLineOfSight nominal resNom == 0")
+  assertEqInt(resEdge, 0, "gridCountLineOfSight boundary resEdge == 0")
+  ret 0
+
+pub fn test_pathfind_grid2dNew_17(): int:
+  let arg_width = 4
+  let edge_width = 1
+  let arg_height = 4
+  let edge_height = 1
+  let arg_initVal = 4
+  let edge_initVal = 1
+  let resNom = grid2dNew(arg_width, arg_height, arg_initVal)
+  let resEdge = grid2dNew(edge_width, edge_height, edge_initVal)
+  assertEqInt(resNom.width, 4, "grid2dNew nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "grid2dNew boundary resEdge.width == 1")
+  ret 0
+
+pub fn test_pathfind_grid2dInBounds_18(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = grid2dInBounds(arg_grid, arg_x, arg_y)
+  let resEdge = grid2dInBounds(edge_grid, edge_x, edge_y)
+  assert(resNom == true, "grid2dInBounds nominal resNom == true")
+  assert(resEdge == true, "grid2dInBounds boundary resEdge == true")
+  ret 0
+
+pub fn test_pathfind_grid2dGet_19(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = grid2dGet(arg_grid, arg_x, arg_y)
+  let resEdge = grid2dGet(edge_grid, edge_x, edge_y)
+  assertEqStr(str(resNom), "nil", "grid2dGet nominal str(resNom) == nil")
+  assertEqStr(str(resEdge), "nil", "grid2dGet boundary str(resEdge) == nil")
+  ret 0
+
+pub fn test_pathfind_grid2dSet_20(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let arg_val = 2
+  let edge_val = 0
+  let resNom = grid2dSet(arg_grid, arg_x, arg_y, arg_val)
+  let resEdge = grid2dSet(edge_grid, edge_x, edge_y, edge_val)
+  assertEqInt(resNom.width, 4, "grid2dSet nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "grid2dSet boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_pathfind_grid2dRow_21(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = grid2dRow(arg_grid, arg_y)
+  let resEdge = grid2dRow(edge_grid, edge_y)
+  assertEqInt(resNom.len(), 4, "grid2dRow nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 4, "grid2dRow boundary resEdge.len() == 4")
+  ret 0
+
+pub fn test_pathfind_grid2dCol_22(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let resNom = grid2dCol(arg_grid, arg_x)
+  let resEdge = grid2dCol(edge_grid, edge_x)
+  assertEqInt(resNom.len(), 4, "grid2dCol nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 4, "grid2dCol boundary resEdge.len() == 4")
+  ret 0
+
+pub fn test_pathfind_grid2dCollapseRows_23(): int:
+  let arg_grid = Grid2D(width = 1, height = 1, cells = [1])
+  let edge_grid = Grid2D(width = 0, height = 0, cells = [])
+  let arg_emptyVal = 4
+  let edge_emptyVal = 1
+  let resNom = grid2dCollapseRows(arg_grid, arg_emptyVal)
+  let resEdge = grid2dCollapseRows(edge_grid, edge_emptyVal)
+  assertEqInt(resNom, 1, "grid2dCollapseRows nominal resNom == 1")
+  assertEqInt(resEdge, 0, "grid2dCollapseRows boundary resEdge == 0")
+  ret 0
+
+pub fn test_pathfind_grid2dRayCount_24(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_r = 2
+  let edge_r = 0
+  let arg_c = 2
+  let edge_c = 0
+  let arg_dr = 2
+  let edge_dr = 0
+  let arg_dc = 2
+  let edge_dc = 0
+  let arg_targetVal = 2
+  let edge_targetVal = 0
+  let resNom = grid2dRayCount(arg_grid, arg_r, arg_c, arg_dr, arg_dc, arg_targetVal)
+  let resEdge = grid2dRayCount(edge_grid, edge_r, edge_c, edge_dr, edge_dc, edge_targetVal)
+  assertEqInt(resNom, 0, "grid2dRayCount nominal resNom == 0")
+  assertEqInt(resEdge, 0, "grid2dRayCount boundary resEdge == 0")
+  ret 0
+
+pub fn test_pathfind_grid2dRotate90CW_25(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let resNom = grid2dRotate90CW(arg_grid)
+  let resEdge = grid2dRotate90CW(edge_grid)
+  assertEqInt(resNom.width, 4, "grid2dRotate90CW nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "grid2dRotate90CW boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_pathfind_grid2dFlipHorizontal_26(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let resNom = grid2dFlipHorizontal(arg_grid)
+  let resEdge = grid2dFlipHorizontal(edge_grid)
+  assertEqInt(resNom.width, 4, "grid2dFlipHorizontal nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "grid2dFlipHorizontal boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_pathfind_grid2dNeighbors4_27(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = grid2dNeighbors4(arg_grid, arg_x, arg_y)
+  let resEdge = grid2dNeighbors4(edge_grid, edge_x, edge_y)
+  assertEqInt(resNom.len(), 4, "grid2dNeighbors4 nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 2, "grid2dNeighbors4 boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_pathfind_grid2dNeighbors8_28(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = grid2dNeighbors8(arg_grid, arg_x, arg_y)
+  let resEdge = grid2dNeighbors8(edge_grid, edge_x, edge_y)
+  assertEqInt(resNom.len(), 8, "grid2dNeighbors8 nominal resNom.len() == 8")
+  assertEqInt(resEdge.len(), 3, "grid2dNeighbors8 boundary resEdge.len() == 3")
+  ret 0
+
+pub fn test_pathfind_spatialEncodeCellKey_29(): int:
+  let arg_cx = 1
+  let edge_cx = 0
+  let arg_cy = 1
+  let edge_cy = 0
+  let resNom = spatialEncodeCellKey(arg_cx, arg_cy)
+  let resEdge = spatialEncodeCellKey(edge_cx, edge_cy)
+  assertEqInt(resNom, 2147581953, "spatialEncodeCellKey nominal resNom == 2147581953")
+  assertEqInt(resEdge, 2147516416, "spatialEncodeCellKey boundary resEdge == 2147516416")
+  ret 0
+
+pub fn test_pathfind_spatialGridNew_30(): int:
+  let arg_cellSize = 1.0
+  let edge_cellSize = 0.5
+  let resNom = spatialGridNew(arg_cellSize)
+  let resEdge = spatialGridNew(edge_cellSize)
+  assertApproxEq(resNom.cellSize, 1.0, 0.001, "spatialGridNew nominal resNom.cellSize ~= 1.0")
+  assertApproxEq(resEdge.cellSize, 0.5, 0.001, "spatialGridNew boundary resEdge.cellSize ~= 0.5")
+  ret 0
+
+pub fn test_pathfind_spatialGridInsert_31(): int:
+  let arg_sg = SpatialGrid2D(cellSize = 1.0, keys = [], ids = [])
+  let edge_sg = SpatialGrid2D(cellSize = 0.5, keys = [], ids = [])
+  let arg_id = 1
+  let edge_id = 0
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_y = 1.0
+  let edge_y = 0.5
+  let arg_w = 2.0
+  let edge_w = 1.0
+  let arg_h = 2.0
+  let edge_h = 1.0
+  let resNom = spatialGridInsert(arg_sg, arg_id, arg_x, arg_y, arg_w, arg_h)
+  let resEdge = spatialGridInsert(edge_sg, edge_id, edge_x, edge_y, edge_w, edge_h)
+  assertApproxEq(resNom.cellSize, 1.0, 0.001, "spatialGridInsert nominal resNom.cellSize ~= 1.0")
+  assertApproxEq(resEdge.cellSize, 0.5, 0.001, "spatialGridInsert boundary resEdge.cellSize ~= 0.5")
+  ret 0
+
+pub fn test_pathfind_spatialGridQuery_32(): int:
+  let arg_sg = SpatialGrid2D(cellSize = 1.0, keys = [], ids = [])
+  let edge_sg = SpatialGrid2D(cellSize = 0.5, keys = [], ids = [])
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_y = 1.0
+  let edge_y = 0.5
+  let arg_w = 2.0
+  let edge_w = 1.0
+  let arg_h = 2.0
+  let edge_h = 1.0
+  let resNom = spatialGridQuery(arg_sg, arg_x, arg_y, arg_w, arg_h)
+  let resEdge = spatialGridQuery(edge_sg, edge_x, edge_y, edge_w, edge_h)
+  assertEqInt(resNom.len(), 0, "spatialGridQuery nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "spatialGridQuery boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_pathfind_spatialGridQueryRadius_33(): int:
+  let arg_sg = SpatialGrid2D(cellSize = 1.0, keys = [], ids = [])
+  let edge_sg = SpatialGrid2D(cellSize = 0.5, keys = [], ids = [])
+  let arg_cx = 1.0
+  let edge_cx = 0.5
+  let arg_cy = 1.0
+  let edge_cy = 0.5
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let resNom = spatialGridQueryRadius(arg_sg, arg_cx, arg_cy, arg_radius)
+  let resEdge = spatialGridQueryRadius(edge_sg, edge_cx, edge_cy, edge_radius)
+  assertEqInt(resNom.len(), 0, "spatialGridQueryRadius nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "spatialGridQueryRadius boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_pathfind_spatialGridClear_34(): int:
+  let arg_sg = SpatialGrid2D(cellSize = 1.0, keys = [], ids = [])
+  let edge_sg = SpatialGrid2D(cellSize = 0.5, keys = [], ids = [])
+  let resNom = spatialGridClear(arg_sg)
+  let resEdge = spatialGridClear(edge_sg)
+  assertApproxEq(resNom.cellSize, 1.0, 0.001, "spatialGridClear nominal resNom.cellSize ~= 1.0")
+  assertApproxEq(resEdge.cellSize, 0.5, 0.001, "spatialGridClear boundary resEdge.cellSize ~= 0.5")
+  ret 0
+
+pub fn test_pathfind_gridLineOfSight_35(): int:
+  let arg_grid = Grid2D(width = 4, height = 4, cells = [])
+  let edge_grid = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x0 = 1
+  let edge_x0 = 0
+  let arg_y0 = 1
+  let edge_y0 = 0
+  let arg_x1 = 1
+  let edge_x1 = 0
+  let arg_y1 = 1
+  let edge_y1 = 0
+  let arg_obstacleVal = 4
+  let edge_obstacleVal = 1
+  let resNom = gridLineOfSight(arg_grid, arg_x0, arg_y0, arg_x1, arg_y1, arg_obstacleVal)
+  let resEdge = gridLineOfSight(edge_grid, edge_x0, edge_y0, edge_x1, edge_y1, edge_obstacleVal)
+  assert(resNom == true, "gridLineOfSight nominal resNom == true")
+  assert(resEdge == true, "gridLineOfSight boundary resEdge == true")
+  ret 0
+
+pub fn test_pathfind_reconstructGridPath_36(): int:
+  let arg_cameFrom = [4]
+  let edge_cameFrom = []
+  let arg_width = 4
+  let edge_width = 1
+  let arg_startIdx = 1
+  let edge_startIdx = 0
+  let arg_goalIdx = 1
+  let edge_goalIdx = 0
+  let resNom = reconstructGridPath(arg_cameFrom, arg_width, arg_startIdx, arg_goalIdx)
+  let resEdge = reconstructGridPath(edge_cameFrom, edge_width, edge_startIdx, edge_goalIdx)
+  assertEqInt(resNom.len(), 1, "reconstructGridPath nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "reconstructGridPath boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_pathfind_gridHeuristicCost_37(): int:
+  let arg_x0 = 1
+  let edge_x0 = 0
+  let arg_y0 = 1
+  let edge_y0 = 0
+  let arg_x1 = 1
+  let edge_x1 = 0
+  let arg_y1 = 1
+  let edge_y1 = 0
+  let arg_allowDiagonal = true
+  let edge_allowDiagonal = false
+  let resNom = gridHeuristicCost(arg_x0, arg_y0, arg_x1, arg_y1, arg_allowDiagonal)
+  let resEdge = gridHeuristicCost(edge_x0, edge_y0, edge_x1, edge_y1, edge_allowDiagonal)
+  assertApproxEq(resNom, 0.0, 0.001, "gridHeuristicCost nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "gridHeuristicCost boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_pathfind_searchGridWeighted_38(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let arg_useHeuristic = true
+  let edge_useHeuristic = false
+  let arg_allowDiagonal = true
+  let edge_allowDiagonal = false
+  let resNom = searchGridWeighted(arg_g, arg_startX, arg_startY, arg_goalX, arg_goalY, arg_useHeuristic, arg_allowDiagonal)
+  let resEdge = searchGridWeighted(edge_g, edge_startX, edge_startY, edge_goalX, edge_goalY, edge_useHeuristic, edge_allowDiagonal)
+  assert(resNom.found == true, "searchGridWeighted nominal resNom.found == true")
+  assert(resEdge.found == true, "searchGridWeighted boundary resEdge.found == true")
+  ret 0
+
+pub fn test_pathfind_gridDijkstra_39(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let resNom = gridDijkstra(arg_g, arg_startX, arg_startY, arg_goalX, arg_goalY)
+  let resEdge = gridDijkstra(edge_g, edge_startX, edge_startY, edge_goalX, edge_goalY)
+  assert(resNom.found == true, "gridDijkstra nominal resNom.found == true")
+  assert(resEdge.found == true, "gridDijkstra boundary resEdge.found == true")
+  ret 0
+
+pub fn test_pathfind_dijkstraGrid_40(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let resNom = dijkstraGrid(arg_g, arg_startX, arg_startY, arg_goalX, arg_goalY)
+  let resEdge = dijkstraGrid(edge_g, edge_startX, edge_startY, edge_goalX, edge_goalY)
+  assert(resNom.found == true, "dijkstraGrid nominal resNom.found == true")
+  assert(resEdge.found == true, "dijkstraGrid boundary resEdge.found == true")
+  ret 0
+
+pub fn test_pathfind_gridAStar_41(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let arg_allowDiagonal = true
+  let edge_allowDiagonal = false
+  let resNom = gridAStar(arg_g, arg_startX, arg_startY, arg_goalX, arg_goalY, arg_allowDiagonal)
+  let resEdge = gridAStar(edge_g, edge_startX, edge_startY, edge_goalX, edge_goalY, edge_allowDiagonal)
+  assert(resNom.found == true, "gridAStar nominal resNom.found == true")
+  assert(resEdge.found == true, "gridAStar boundary resEdge.found == true")
+  ret 0
+
+pub fn test_pathfind_astarGrid_42(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let arg_allowDiagonal = true
+  let edge_allowDiagonal = false
+  let resNom = astarGrid(arg_g, arg_startX, arg_startY, arg_goalX, arg_goalY, arg_allowDiagonal)
+  let resEdge = astarGrid(edge_g, edge_startX, edge_startY, edge_goalX, edge_goalY, edge_allowDiagonal)
+  assert(resNom.found == true, "astarGrid nominal resNom.found == true")
+  assert(resEdge.found == true, "astarGrid boundary resEdge.found == true")
+  ret 0
+
+pub fn test_pathfind_bfsGrid_43(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let resNom = bfsGrid(arg_g, arg_startX, arg_startY, arg_goalX, arg_goalY)
+  let resEdge = bfsGrid(edge_g, edge_startX, edge_startY, edge_goalX, edge_goalY)
+  assert(resNom.found == true, "bfsGrid nominal resNom.found == true")
+  assert(resEdge.found == true, "bfsGrid boundary resEdge.found == true")
+  ret 0
+
+pub fn test_pathfind_floodFillGrid_44(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_newVal = 4
+  let edge_newVal = 1
+  let resNom = floodFillGrid(arg_g, arg_startX, arg_startY, arg_newVal)
+  let resEdge = floodFillGrid(edge_g, edge_startX, edge_startY, edge_newVal)
+  assertEqInt(resNom.width, 4, "floodFillGrid nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "floodFillGrid boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_pathfind_bfsFloodFill_45(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_newVal = 4
+  let edge_newVal = 1
+  let resNom = bfsFloodFill(arg_g, arg_startX, arg_startY, arg_newVal)
+  let resEdge = bfsFloodFill(edge_g, edge_startX, edge_startY, edge_newVal)
+  assertEqInt(resNom.width, 4, "bfsFloodFill nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "bfsFloodFill boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_pathfind_aStarGrid_46(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let arg_allowDiagonal = true
+  let edge_allowDiagonal = false
+  let resNom = aStarGrid(arg_g, arg_startX, arg_startY, arg_goalX, arg_goalY, arg_allowDiagonal)
+  let resEdge = aStarGrid(edge_g, edge_startX, edge_startY, edge_goalX, edge_goalY, edge_allowDiagonal)
+  assert(resNom.found == true, "aStarGrid nominal resNom.found == true")
+  assert(resEdge.found == true, "aStarGrid boundary resEdge.found == true")
+  ret 0
+
+pub fn test_pathfind_dotGraphNew_47(): int:
+  let arg_name = "test"
+  let edge_name = "a"
+  let resNom = dotGraphNew(arg_name)
+  let resEdge = dotGraphNew(edge_name)
+  assertEqStr(resNom.name, "test", "dotGraphNew nominal string matches")
+  assertEqStr(resEdge.name, "a", "dotGraphNew boundary string matches")
+  ret 0
+
+pub fn test_pathfind_dotAddNode_48(): int:
+  let arg_dg = DotGraph(name = "test", nodes = [], edges = [])
+  let edge_dg = DotGraph(name = "a", nodes = [], edges = [])
+  let arg_id = "test"
+  let edge_id = "a"
+  let arg_label = "test"
+  let edge_label = "a"
+  let resNom = dotAddNode(arg_dg, arg_id, arg_label)
+  let resEdge = dotAddNode(edge_dg, edge_id, edge_label)
+  assertEqStr(resNom.name, "test", "dotAddNode nominal string matches")
+  assertEqStr(resEdge.name, "a", "dotAddNode boundary string matches")
+  ret 0
+
+pub fn test_pathfind_dotAddEdge_49(): int:
+  let arg_dg = DotGraph(name = "test", nodes = [], edges = [])
+  let edge_dg = DotGraph(name = "a", nodes = [], edges = [])
+  let arg_fromId = "test"
+  let edge_fromId = "a"
+  let arg_toId = "test"
+  let edge_toId = "a"
+  let arg_label = "test"
+  let edge_label = "a"
+  let resNom = dotAddEdge(arg_dg, arg_fromId, arg_toId, arg_label)
+  let resEdge = dotAddEdge(edge_dg, edge_fromId, edge_toId, edge_label)
+  assertEqStr(resNom.name, "test", "dotAddEdge nominal string matches")
+  assertEqStr(resEdge.name, "a", "dotAddEdge boundary string matches")
+  ret 0
+
+pub fn test_pathfind_dotRender_50(): int:
+  let arg_dg = DotGraph(name = "test", nodes = [], edges = [])
+  let edge_dg = DotGraph(name = "a", nodes = [], edges = [])
+  let resNom = dotRender(arg_dg)
+  let resEdge = dotRender(edge_dg)
+  assertEqInt(resNom.len(), 16, "dotRender nominal string length == 16")
+  assertEqInt(resEdge.len(), 13, "dotRender boundary string length == 13")
+  ret 0
+
+pub fn test_pathfind_smoothGridPath_51(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_path = [Vec2(x = 1.0, y = 1.0)]
+  let edge_path = []
+  let arg_obstacleVal = 4
+  let edge_obstacleVal = 1
+  let resNom = smoothGridPath(arg_g, arg_path, arg_obstacleVal)
+  let resEdge = smoothGridPath(edge_g, edge_path, edge_obstacleVal)
+  assertEqInt(resNom.len(), 1, "smoothGridPath nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "smoothGridPath boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_pathfind_jpsWalkable_52(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = jpsWalkable(arg_g, arg_x, arg_y)
+  let resEdge = jpsWalkable(edge_g, edge_x, edge_y)
+  assert(resNom == true, "jpsWalkable nominal resNom == true")
+  assert(resEdge == true, "jpsWalkable boundary resEdge == true")
+  ret 0
+
+pub fn test_pathfind_jpsJump_53(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_dx = 1
+  let edge_dx = 0
+  let arg_dy = 1
+  let edge_dy = 0
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let resNom = jpsJump(arg_g, arg_startX, arg_startY, arg_dx, arg_dy, arg_goalX, arg_goalY)
+  let resEdge = jpsJump(edge_g, edge_startX, edge_startY, edge_dx, edge_dy, edge_goalX, edge_goalY)
+  assertEqInt(resNom, -1, "jpsJump nominal resNom == -1")
+  assertEqInt(resEdge, 0, "jpsJump boundary resEdge == 0")
+  ret 0
+
+pub fn test_pathfind_gridJumpPointSearch_54(): int:
+  let arg_g = Grid2D(width = 4, height = 4, cells = [])
+  let edge_g = Grid2D(width = 4, height = 4, cells = [])
+  let arg_startX = 1
+  let edge_startX = 0
+  let arg_startY = 1
+  let edge_startY = 0
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let resNom = gridJumpPointSearch(arg_g, arg_startX, arg_startY, arg_goalX, arg_goalY)
+  let resEdge = gridJumpPointSearch(edge_g, edge_startX, edge_startY, edge_goalX, edge_goalY)
+  assert(resNom.found == true, "gridJumpPointSearch nominal resNom.found == true")
+  assert(resEdge.found == true, "gridJumpPointSearch boundary resEdge.found == true")
+  ret 0
+
+pub fn test_pathfind_intGraphShortestPath_55(): int:
+  let arg_nodeCount = 4
+  let edge_nodeCount = 1
+  let arg_edgeFrom = [4]
+  let edge_edgeFrom = []
+  let arg_edgeTo = [2]
+  let edge_edgeTo = []
+  let arg_startNode = 4
+  let edge_startNode = 1
+  let arg_goalNode = 4
+  let edge_goalNode = 1
+  let resNom = intGraphShortestPath(arg_nodeCount, arg_edgeFrom, arg_edgeTo, arg_startNode, arg_goalNode)
+  let resEdge = intGraphShortestPath(edge_nodeCount, edge_edgeFrom, edge_edgeTo, edge_startNode, edge_goalNode)
+  assertEqInt(resNom.len(), 0, "intGraphShortestPath nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "intGraphShortestPath boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_pathfind_manhattanDist2D_56(): int:
+  let arg_x0 = 1
+  let edge_x0 = 0
+  let arg_y0 = 1
+  let edge_y0 = 0
+  let arg_x1 = 1
+  let edge_x1 = 0
+  let arg_y1 = 1
+  let edge_y1 = 0
+  let resNom = manhattanDist2D(arg_x0, arg_y0, arg_x1, arg_y1)
+  let resEdge = manhattanDist2D(edge_x0, edge_y0, edge_x1, edge_y1)
+  assertEqInt(resNom, 0, "manhattanDist2D nominal resNom == 0")
+  assertEqInt(resEdge, 0, "manhattanDist2D boundary resEdge == 0")
+  ret 0
+
+pub fn test_pathfind_octileDist2D_57(): int:
+  let arg_x0 = 1
+  let edge_x0 = 0
+  let arg_y0 = 1
+  let edge_y0 = 0
+  let arg_x1 = 1
+  let edge_x1 = 0
+  let arg_y1 = 1
+  let edge_y1 = 0
+  let resNom = octileDist2D(arg_x0, arg_y0, arg_x1, arg_y1)
+  let resEdge = octileDist2D(edge_x0, edge_y0, edge_x1, edge_y1)
+  assertApproxEq(resNom, 0.0, 0.001, "octileDist2D nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "octileDist2D boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_pathfind_hexDistanceAxial_58(): int:
+  let arg_q1 = 2
+  let edge_q1 = 0
+  let arg_r1 = 2
+  let edge_r1 = 0
+  let arg_q2 = 2
+  let edge_q2 = 0
+  let arg_r2 = 2
+  let edge_r2 = 0
+  let resNom = hexDistanceAxial(arg_q1, arg_r1, arg_q2, arg_r2)
+  let resEdge = hexDistanceAxial(edge_q1, edge_r1, edge_q2, edge_r2)
+  assertEqInt(resNom, 0, "hexDistanceAxial nominal resNom == 0")
+  assertEqInt(resEdge, 0, "hexDistanceAxial boundary resEdge == 0")
+  ret 0
+
+pub fn test_steering_clampVec2Mag_1(): int:
+  let arg_v = Vec2(x = 1.0, y = 1.0)
+  let edge_v = Vec2(x = 0.5, y = 0.5)
+  let arg_maxLen = 2.0
+  let edge_maxLen = 1.0
+  let resNom = clampVec2Mag(arg_v, arg_maxLen)
+  let resEdge = clampVec2Mag(edge_v, edge_maxLen)
+  assertApproxEq(resNom.x, 1.0, 0.001, "clampVec2Mag nominal resNom.x ~= 1.0")
+  assertApproxEq(resEdge.x, 0.5, 0.001, "clampVec2Mag boundary resEdge.x ~= 0.5")
+  ret 0
+
+pub fn test_steering_steerSeek2D_2(): int:
+  let arg_pos = Vec2(x = 1.0, y = 1.0)
+  let edge_pos = Vec2(x = 0.5, y = 0.5)
+  let arg_currentVel = Vec2(x = 1.0, y = 1.0)
+  let edge_currentVel = Vec2(x = 0.5, y = 0.5)
+  let arg_target = Vec2(x = 1.0, y = 1.0)
+  let edge_target = Vec2(x = 0.5, y = 0.5)
+  let arg_maxSpeed = 2.0
+  let edge_maxSpeed = 1.0
+  let arg_maxForce = 2.0
+  let edge_maxForce = 1.0
+  let resNom = steerSeek2D(arg_pos, arg_currentVel, arg_target, arg_maxSpeed, arg_maxForce)
+  let resEdge = steerSeek2D(edge_pos, edge_currentVel, edge_target, edge_maxSpeed, edge_maxForce)
+  assertApproxEq(resNom.angular, 0.0, 0.001, "steerSeek2D nominal resNom.angular ~= 0.0")
+  assertApproxEq(resEdge.angular, 0.0, 0.001, "steerSeek2D boundary resEdge.angular ~= 0.0")
+  ret 0
+
+pub fn test_steering_steerFlee2D_3(): int:
+  let arg_pos = Vec2(x = 1.0, y = 1.0)
+  let edge_pos = Vec2(x = 0.5, y = 0.5)
+  let arg_currentVel = Vec2(x = 1.0, y = 1.0)
+  let edge_currentVel = Vec2(x = 0.5, y = 0.5)
+  let arg_threat = Vec2(x = 1.0, y = 1.0)
+  let edge_threat = Vec2(x = 0.5, y = 0.5)
+  let arg_maxSpeed = 2.0
+  let edge_maxSpeed = 1.0
+  let arg_maxForce = 2.0
+  let edge_maxForce = 1.0
+  let resNom = steerFlee2D(arg_pos, arg_currentVel, arg_threat, arg_maxSpeed, arg_maxForce)
+  let resEdge = steerFlee2D(edge_pos, edge_currentVel, edge_threat, edge_maxSpeed, edge_maxForce)
+  assertApproxEq(resNom.angular, 0.0, 0.001, "steerFlee2D nominal resNom.angular ~= 0.0")
+  assertApproxEq(resEdge.angular, 0.0, 0.001, "steerFlee2D boundary resEdge.angular ~= 0.0")
+  ret 0
+
+pub fn test_steering_steerArrive2D_4(): int:
+  let arg_pos = Vec2(x = 1.0, y = 1.0)
+  let edge_pos = Vec2(x = 0.5, y = 0.5)
+  let arg_currentVel = Vec2(x = 1.0, y = 1.0)
+  let edge_currentVel = Vec2(x = 0.5, y = 0.5)
+  let arg_target = Vec2(x = 1.0, y = 1.0)
+  let edge_target = Vec2(x = 0.5, y = 0.5)
+  let arg_slowingRadius = 0.0
+  let edge_slowingRadius = 0.0
+  let arg_maxSpeed = 2.0
+  let edge_maxSpeed = 1.0
+  let arg_maxForce = 2.0
+  let edge_maxForce = 1.0
+  let resNom = steerArrive2D(arg_pos, arg_currentVel, arg_target, arg_slowingRadius, arg_maxSpeed, arg_maxForce)
+  let resEdge = steerArrive2D(edge_pos, edge_currentVel, edge_target, edge_slowingRadius, edge_maxSpeed, edge_maxForce)
+  assertApproxEq(resNom.angular, 0.0, 0.001, "steerArrive2D nominal resNom.angular ~= 0.0")
+  assertApproxEq(resEdge.angular, 0.0, 0.001, "steerArrive2D boundary resEdge.angular ~= 0.0")
+  ret 0
+
+pub fn test_steering_steerBoidsFlocking2D_5(): int:
+  let arg_agentIdx = 4
+  let edge_agentIdx = 1
+  let arg_positions = [Vec2(x = 1.0, y = 1.0)]
+  let edge_positions = []
+  let arg_velocities = [Vec2(x = 1.0, y = 1.0)]
+  let edge_velocities = []
+  let arg_settings = BoidSettings2D(separationDistance = 1.0, alignmentDistance = 1.0, cohesionDistance = 2.0, weightSeparation = 2.0, weightAlignment = 2.0, weightCohesion = 2.0, maxSpeed = 2.0, maxForce = 2.0)
+  let edge_settings = BoidSettings2D(separationDistance = 0.5, alignmentDistance = 0.5, cohesionDistance = 1.0, weightSeparation = 1.0, weightAlignment = 1.0, weightCohesion = 1.0, maxSpeed = 1.0, maxForce = 1.0)
+  let resNom = steerBoidsFlocking2D(arg_agentIdx, arg_positions, arg_velocities, arg_settings)
+  let resEdge = steerBoidsFlocking2D(edge_agentIdx, edge_positions, edge_velocities, edge_settings)
+  assertApproxEq(resNom.angular, 0.0, 0.001, "steerBoidsFlocking2D nominal resNom.angular ~= 0.0")
+  assertApproxEq(resEdge.angular, 0.0, 0.001, "steerBoidsFlocking2D boundary resEdge.angular ~= 0.0")
+  ret 0
+
+pub fn test_steering_computeRadialFormationSlot2D_6(): int:
+  let arg_center = Vec2(x = 1.0, y = 1.0)
+  let edge_center = Vec2(x = 0.5, y = 0.5)
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let arg_slotIndex = 4
+  let edge_slotIndex = 1
+  let arg_totalSlots = 1
+  let edge_totalSlots = 0
+  let resNom = computeRadialFormationSlot2D(arg_center, arg_radius, arg_slotIndex, arg_totalSlots)
+  let resEdge = computeRadialFormationSlot2D(edge_center, edge_radius, edge_slotIndex, edge_totalSlots)
+  assertApproxEq(resNom.x, 3.0, 0.001, "computeRadialFormationSlot2D nominal resNom.x ~= 3.0")
+  assertApproxEq(resEdge.x, 1.5, 0.001, "computeRadialFormationSlot2D boundary resEdge.x ~= 1.5")
+  ret 0
+
+pub fn test_steering_agent2DNew_7(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_y = 1.0
+  let edge_y = 0.5
+  let arg_maxSpeed = 2.0
+  let edge_maxSpeed = 1.0
+  let arg_maxForce = 2.0
+  let edge_maxForce = 1.0
+  let resNom = agent2DNew(arg_x, arg_y, arg_maxSpeed, arg_maxForce)
+  let resEdge = agent2DNew(edge_x, edge_y, edge_maxSpeed, edge_maxForce)
+  assertApproxEq(resNom.x, 1.0, 0.001, "agent2DNew nominal resNom.x ~= 1.0")
+  assertApproxEq(resEdge.x, 0.5, 0.001, "agent2DNew boundary resEdge.x ~= 0.5")
+  ret 0
+
+pub fn test_steering_steerSeek_8(): int:
+  let arg_aOrX = 1
+  let edge_aOrX = 0
+  let arg_targetXOrY = 1.0
+  let edge_targetXOrY = 0.5
+  let arg_targetYOrTx = 1.0
+  let edge_targetYOrTx = 0.5
+  let arg_ty = 1.0
+  let edge_ty = 0.5
+  let arg_maxSpeed = 2.0
+  let edge_maxSpeed = 1.0
+  let resNom = steerSeek(arg_aOrX, arg_targetXOrY, arg_targetYOrTx, arg_ty, arg_maxSpeed)
+  let resEdge = steerSeek(edge_aOrX, edge_targetXOrY, edge_targetYOrTx, edge_ty, edge_maxSpeed)
+  assertEqInt(resNom.len(), 2, "steerSeek nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "steerSeek boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_steering_steerFlee_9(): int:
+  let arg_aOrX = 1
+  let edge_aOrX = 0
+  let arg_threatXOrY = 2.0
+  let edge_threatXOrY = 1.0
+  let arg_threatYOrTx = 2.0
+  let edge_threatYOrTx = 1.0
+  let arg_ty = 1.0
+  let edge_ty = 0.5
+  let arg_maxSpeed = 2.0
+  let edge_maxSpeed = 1.0
+  let resNom = steerFlee(arg_aOrX, arg_threatXOrY, arg_threatYOrTx, arg_ty, arg_maxSpeed)
+  let resEdge = steerFlee(edge_aOrX, edge_threatXOrY, edge_threatYOrTx, edge_ty, edge_maxSpeed)
+  assertEqInt(resNom.len(), 2, "steerFlee nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "steerFlee boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_steering_steerArrive_10(): int:
+  let arg_aOrX = 1
+  let edge_aOrX = 0
+  let arg_targetXOrY = 1.0
+  let edge_targetXOrY = 0.5
+  let arg_targetYOrTx = 1.0
+  let edge_targetYOrTx = 0.5
+  let arg_slowRadiusOrTy = 0.0
+  let edge_slowRadiusOrTy = 0.0
+  let arg_maxSpeed = 2.0
+  let edge_maxSpeed = 1.0
+  let arg_slowRadius6 = 0.0
+  let edge_slowRadius6 = 0.0
+  let resNom = steerArrive(arg_aOrX, arg_targetXOrY, arg_targetYOrTx, arg_slowRadiusOrTy, arg_maxSpeed, arg_slowRadius6)
+  let resEdge = steerArrive(edge_aOrX, edge_targetXOrY, edge_targetYOrTx, edge_slowRadiusOrTy, edge_maxSpeed, edge_slowRadius6)
+  assertEqInt(resNom.len(), 2, "steerArrive nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "steerArrive boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_steering_steerPursue_11(): int:
+  let arg_a = Agent2D(x = 1.0, y = 1.0, vx = 1.0, vy = 1.0, maxSpeed = 2.0, maxForce = 2.0)
+  let edge_a = Agent2D(x = 0.5, y = 0.5, vx = 0.5, vy = 0.5, maxSpeed = 1.0, maxForce = 1.0)
+  let arg_targetX = 1.0
+  let edge_targetX = 0.5
+  let arg_targetY = 1.0
+  let edge_targetY = 0.5
+  let arg_targetVx = 1.0
+  let edge_targetVx = 0.5
+  let arg_targetVy = 1.0
+  let edge_targetVy = 0.5
+  let arg_lookahead = 0.0
+  let edge_lookahead = 0.0
+  let resNom = steerPursue(arg_a, arg_targetX, arg_targetY, arg_targetVx, arg_targetVy, arg_lookahead)
+  let resEdge = steerPursue(edge_a, edge_targetX, edge_targetY, edge_targetVx, edge_targetVy, edge_lookahead)
+  assertEqInt(resNom.len(), 2, "steerPursue nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "steerPursue boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_steering_agentStep_12(): int:
+  let arg_a = Agent2D(x = 1.0, y = 1.0, vx = 1.0, vy = 1.0, maxSpeed = 2.0, maxForce = 2.0)
+  let edge_a = Agent2D(x = 0.5, y = 0.5, vx = 0.5, vy = 0.5, maxSpeed = 1.0, maxForce = 1.0)
+  let arg_fx = 1.0
+  let edge_fx = 0.5
+  let arg_fy = 1.0
+  let edge_fy = 0.5
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = agentStep(arg_a, arg_fx, arg_fy, arg_dt)
+  let resEdge = agentStep(edge_a, edge_fx, edge_fy, edge_dt)
+  assertApproxEq(resNom.x, 3.82843, 0.001, "agentStep nominal resNom.x ~= 3.82843")
+  assertApproxEq(resEdge.x, 1.20711, 0.001, "agentStep boundary resEdge.x ~= 1.20711")
+  ret 0
+
+pub fn test_steering_navContextMapNew_13(): int:
+  let resNom = navContextMapNew()
+  let resEdge = navContextMapNew()
+  assertEqInt(resNom.interest.len(), 8, "navContextMapNew nominal resNom.interest.len() == 8")
+  assertEqInt(resEdge.interest.len(), 8, "navContextMapNew boundary resEdge.interest.len() == 8")
+  ret 0
+
+pub fn test_steering_contextBinDirX_14(): int:
+  let arg_bin = 4
+  let edge_bin = 1
+  let resNom = contextBinDirX(arg_bin)
+  let resEdge = contextBinDirX(edge_bin)
+  assertApproxEq(resNom, -1.0, 0.001, "contextBinDirX nominal resNom ~= -1.0")
+  assertApproxEq(resEdge, 0.707107, 0.001, "contextBinDirX boundary resEdge ~= 0.707107")
+  ret 0
+
+pub fn test_steering_contextBinDirY_15(): int:
+  let arg_bin = 4
+  let edge_bin = 1
+  let resNom = contextBinDirY(arg_bin)
+  let resEdge = contextBinDirY(edge_bin)
+  assertApproxEq(resNom, 0.0, 0.001, "contextBinDirY nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.707107, 0.001, "contextBinDirY boundary resEdge ~= 0.707107")
+  ret 0
+
+pub fn test_steering_navContextInjectInterest_16(): int:
+  let arg_cmap = ContextMap8(interest = [], danger = [])
+  let edge_cmap = ContextMap8(interest = [], danger = [])
+  let arg_dirX = 1.0
+  let edge_dirX = 0.5
+  let arg_dirY = 1.0
+  let edge_dirY = 0.5
+  let arg_weight = 2.0
+  let edge_weight = 1.0
+  let resNom = navContextInjectInterest(arg_cmap, arg_dirX, arg_dirY, arg_weight)
+  let resEdge = navContextInjectInterest(edge_cmap, edge_dirX, edge_dirY, edge_weight)
+  assertEqInt(resNom.interest.len(), 0, "navContextInjectInterest nominal resNom.interest.len() == 0")
+  assertEqInt(resEdge.interest.len(), 0, "navContextInjectInterest boundary resEdge.interest.len() == 0")
+  ret 0
+
+pub fn test_steering_navContextInjectDanger_17(): int:
+  let arg_cmap = ContextMap8(interest = [], danger = [])
+  let edge_cmap = ContextMap8(interest = [], danger = [])
+  let arg_dirX = 1.0
+  let edge_dirX = 0.5
+  let arg_dirY = 1.0
+  let edge_dirY = 0.5
+  let arg_weight = 2.0
+  let edge_weight = 1.0
+  let resNom = navContextInjectDanger(arg_cmap, arg_dirX, arg_dirY, arg_weight)
+  let resEdge = navContextInjectDanger(edge_cmap, edge_dirX, edge_dirY, edge_weight)
+  assertEqInt(resNom.interest.len(), 0, "navContextInjectDanger nominal resNom.interest.len() == 0")
+  assertEqInt(resEdge.interest.len(), 0, "navContextInjectDanger boundary resEdge.interest.len() == 0")
+  ret 0
+
+pub fn test_steering_navContextResolveDirection_18(): int:
+  let arg_cmap = ContextMap8(interest = [], danger = [])
+  let edge_cmap = ContextMap8(interest = [], danger = [])
+  let arg_dangerThreshold = 2.0
+  let edge_dangerThreshold = 1.0
+  let resNom = navContextResolveDirection(arg_cmap, arg_dangerThreshold)
+  let resEdge = navContextResolveDirection(edge_cmap, edge_dangerThreshold)
+  assertEqInt(resNom.len(), 2, "navContextResolveDirection nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "navContextResolveDirection boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_steering_navSolveOrcaVelocity2D_19(): int:
+  let arg_ax = 1.0
+  let edge_ax = 0.5
+  let arg_ay = 1.0
+  let edge_ay = 0.5
+  let arg_avx = 1.0
+  let edge_avx = 0.5
+  let arg_avy = 1.0
+  let edge_avy = 0.5
+  let arg_prefVx = 1.0
+  let edge_prefVx = 0.5
+  let arg_prefVy = 1.0
+  let edge_prefVy = 0.5
+  let arg_bx = 1.0
+  let edge_bx = 0.5
+  let arg_by = 1.0
+  let edge_by = 0.5
+  let arg_bvx = 1.0
+  let edge_bvx = 0.5
+  let arg_bvy = 1.0
+  let edge_bvy = 0.5
+  let arg_combinedRadius = 2.0
+  let edge_combinedRadius = 1.0
+  let arg_tau = 1.0
+  let edge_tau = 0.5
+  let resNom = navSolveOrcaVelocity2D(arg_ax, arg_ay, arg_avx, arg_avy, arg_prefVx, arg_prefVy, arg_bx, arg_by, arg_bvx, arg_bvy, arg_combinedRadius, arg_tau)
+  let resEdge = navSolveOrcaVelocity2D(edge_ax, edge_ay, edge_avx, edge_avy, edge_prefVx, edge_prefVy, edge_bx, edge_by, edge_bvx, edge_bvy, edge_combinedRadius, edge_tau)
+  assertEqInt(resNom.len(), 2, "navSolveOrcaVelocity2D nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "navSolveOrcaVelocity2D boundary resEdge.len() == 2")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_navmesh_navMeshNew_1(), 0, "test_navmesh_navMeshNew_1")
+  assertEqInt(test_navmesh_findClosestPolyIndex_2(), 0, "test_navmesh_findClosestPolyIndex_2")
+  assertEqInt(test_navmesh_navMeshFindPath_3(), 0, "test_navmesh_navMeshFindPath_3")
+  assertEqInt(test_navmesh_navPortalsCross2D_4(), 0, "test_navmesh_navPortalsCross2D_4")
+  assertEqInt(test_navmesh_navFunnelSmoothPortals_5(), 0, "test_navmesh_navFunnelSmoothPortals_5")
+  assertEqInt(test_navmesh_navHeuristicOctile_6(), 0, "test_navmesh_navHeuristicOctile_6")
+  assertEqInt(test_navmesh_navStepTowardTarget_7(), 0, "test_navmesh_navStepTowardTarget_7")
+  assertEqInt(test_navmesh_navBresenhamLineOfSight_8(), 0, "test_navmesh_navBresenhamLineOfSight_8")
+  assertEqInt(test_navmesh_navComputeBhopVelocity_9(), 0, "test_navmesh_navComputeBhopVelocity_9")
+  assertEqInt(test_navmesh_navIsWithinLeashRadius_10(), 0, "test_navmesh_navIsWithinLeashRadius_10")
+  assertEqInt(test_navmesh_gridComputeRadialVisibility_11(), 0, "test_navmesh_gridComputeRadialVisibility_11")
+  assertEqInt(test_navmesh_rtsUpdateFogOfWarGrid_12(), 0, "test_navmesh_rtsUpdateFogOfWarGrid_12")
+  assertEqInt(test_navmesh_navComputeNavMeshAreaCost_13(), 0, "test_navmesh_navComputeNavMeshAreaCost_13")
+  assertEqInt(test_navmesh_navComputePortalShortcutDist_14(), 0, "test_navmesh_navComputePortalShortcutDist_14")
+  assertEqInt(test_navmesh_navBuildFlowField2D_15(), 0, "test_navmesh_navBuildFlowField2D_15")
+  assertEqInt(test_navmesh_navSampleFlowField2D_16(), 0, "test_navmesh_navSampleFlowField2D_16")
+  assertEqInt(test_pathfind_isWalkable_1(), 0, "test_pathfind_isWalkable_1")
+  assertEqInt(test_pathfind_aStarPathfind_2(), 0, "test_pathfind_aStarPathfind_2")
+  assertEqInt(test_pathfind_jpsPathfind2D_3(), 0, "test_pathfind_jpsPathfind2D_3")
+  assertEqInt(test_pathfind_cellularGridLineOfSight_4(), 0, "test_pathfind_cellularGridLineOfSight_4")
+  assertEqInt(test_pathfind_thetaStarPathfind2D_5(), 0, "test_pathfind_thetaStarPathfind2D_5")
+  assertEqInt(test_pathfind_computeDijkstraMap2D_6(), 0, "test_pathfind_computeDijkstraMap2D_6")
+  assertEqInt(test_pathfind_computeFlowField2D_7(), 0, "test_pathfind_computeFlowField2D_7")
+  assertEqInt(test_pathfind_gridNew_8(), 0, "test_pathfind_gridNew_8")
+  assertEqInt(test_pathfind_gridInBounds_9(), 0, "test_pathfind_gridInBounds_9")
+  assertEqInt(test_pathfind_gridGet_10(), 0, "test_pathfind_gridGet_10")
+  assertEqInt(test_pathfind_gridSet_11(), 0, "test_pathfind_gridSet_11")
+  assertEqInt(test_pathfind_gridGetWrapped_12(), 0, "test_pathfind_gridGetWrapped_12")
+  assertEqInt(test_pathfind_gridNeighbors4_13(), 0, "test_pathfind_gridNeighbors4_13")
+  assertEqInt(test_pathfind_gridNeighbors8_14(), 0, "test_pathfind_gridNeighbors8_14")
+  assertEqInt(test_pathfind_gridFloodFill_15(), 0, "test_pathfind_gridFloodFill_15")
+  assertEqInt(test_pathfind_gridCountLineOfSight_16(), 0, "test_pathfind_gridCountLineOfSight_16")
+  assertEqInt(test_pathfind_grid2dNew_17(), 0, "test_pathfind_grid2dNew_17")
+  assertEqInt(test_pathfind_grid2dInBounds_18(), 0, "test_pathfind_grid2dInBounds_18")
+  assertEqInt(test_pathfind_grid2dGet_19(), 0, "test_pathfind_grid2dGet_19")
+  assertEqInt(test_pathfind_grid2dSet_20(), 0, "test_pathfind_grid2dSet_20")
+  assertEqInt(test_pathfind_grid2dRow_21(), 0, "test_pathfind_grid2dRow_21")
+  assertEqInt(test_pathfind_grid2dCol_22(), 0, "test_pathfind_grid2dCol_22")
+  assertEqInt(test_pathfind_grid2dCollapseRows_23(), 0, "test_pathfind_grid2dCollapseRows_23")
+  assertEqInt(test_pathfind_grid2dRayCount_24(), 0, "test_pathfind_grid2dRayCount_24")
+  assertEqInt(test_pathfind_grid2dRotate90CW_25(), 0, "test_pathfind_grid2dRotate90CW_25")
+  assertEqInt(test_pathfind_grid2dFlipHorizontal_26(), 0, "test_pathfind_grid2dFlipHorizontal_26")
+  assertEqInt(test_pathfind_grid2dNeighbors4_27(), 0, "test_pathfind_grid2dNeighbors4_27")
+  assertEqInt(test_pathfind_grid2dNeighbors8_28(), 0, "test_pathfind_grid2dNeighbors8_28")
+  assertEqInt(test_pathfind_spatialEncodeCellKey_29(), 0, "test_pathfind_spatialEncodeCellKey_29")
+  assertEqInt(test_pathfind_spatialGridNew_30(), 0, "test_pathfind_spatialGridNew_30")
+  assertEqInt(test_pathfind_spatialGridInsert_31(), 0, "test_pathfind_spatialGridInsert_31")
+  assertEqInt(test_pathfind_spatialGridQuery_32(), 0, "test_pathfind_spatialGridQuery_32")
+  assertEqInt(test_pathfind_spatialGridQueryRadius_33(), 0, "test_pathfind_spatialGridQueryRadius_33")
+  assertEqInt(test_pathfind_spatialGridClear_34(), 0, "test_pathfind_spatialGridClear_34")
+  assertEqInt(test_pathfind_gridLineOfSight_35(), 0, "test_pathfind_gridLineOfSight_35")
+  assertEqInt(test_pathfind_reconstructGridPath_36(), 0, "test_pathfind_reconstructGridPath_36")
+  assertEqInt(test_pathfind_gridHeuristicCost_37(), 0, "test_pathfind_gridHeuristicCost_37")
+  assertEqInt(test_pathfind_searchGridWeighted_38(), 0, "test_pathfind_searchGridWeighted_38")
+  assertEqInt(test_pathfind_gridDijkstra_39(), 0, "test_pathfind_gridDijkstra_39")
+  assertEqInt(test_pathfind_dijkstraGrid_40(), 0, "test_pathfind_dijkstraGrid_40")
+  assertEqInt(test_pathfind_gridAStar_41(), 0, "test_pathfind_gridAStar_41")
+  assertEqInt(test_pathfind_astarGrid_42(), 0, "test_pathfind_astarGrid_42")
+  assertEqInt(test_pathfind_bfsGrid_43(), 0, "test_pathfind_bfsGrid_43")
+  assertEqInt(test_pathfind_floodFillGrid_44(), 0, "test_pathfind_floodFillGrid_44")
+  assertEqInt(test_pathfind_bfsFloodFill_45(), 0, "test_pathfind_bfsFloodFill_45")
+  assertEqInt(test_pathfind_aStarGrid_46(), 0, "test_pathfind_aStarGrid_46")
+  assertEqInt(test_pathfind_dotGraphNew_47(), 0, "test_pathfind_dotGraphNew_47")
+  assertEqInt(test_pathfind_dotAddNode_48(), 0, "test_pathfind_dotAddNode_48")
+  assertEqInt(test_pathfind_dotAddEdge_49(), 0, "test_pathfind_dotAddEdge_49")
+  assertEqInt(test_pathfind_dotRender_50(), 0, "test_pathfind_dotRender_50")
+  assertEqInt(test_pathfind_smoothGridPath_51(), 0, "test_pathfind_smoothGridPath_51")
+  assertEqInt(test_pathfind_jpsWalkable_52(), 0, "test_pathfind_jpsWalkable_52")
+  assertEqInt(test_pathfind_jpsJump_53(), 0, "test_pathfind_jpsJump_53")
+  assertEqInt(test_pathfind_gridJumpPointSearch_54(), 0, "test_pathfind_gridJumpPointSearch_54")
+  assertEqInt(test_pathfind_intGraphShortestPath_55(), 0, "test_pathfind_intGraphShortestPath_55")
+  assertEqInt(test_pathfind_manhattanDist2D_56(), 0, "test_pathfind_manhattanDist2D_56")
+  assertEqInt(test_pathfind_octileDist2D_57(), 0, "test_pathfind_octileDist2D_57")
+  assertEqInt(test_pathfind_hexDistanceAxial_58(), 0, "test_pathfind_hexDistanceAxial_58")
+  assertEqInt(test_steering_clampVec2Mag_1(), 0, "test_steering_clampVec2Mag_1")
+  assertEqInt(test_steering_steerSeek2D_2(), 0, "test_steering_steerSeek2D_2")
+  assertEqInt(test_steering_steerFlee2D_3(), 0, "test_steering_steerFlee2D_3")
+  assertEqInt(test_steering_steerArrive2D_4(), 0, "test_steering_steerArrive2D_4")
+  assertEqInt(test_steering_steerBoidsFlocking2D_5(), 0, "test_steering_steerBoidsFlocking2D_5")
+  assertEqInt(test_steering_computeRadialFormationSlot2D_6(), 0, "test_steering_computeRadialFormationSlot2D_6")
+  assertEqInt(test_steering_agent2DNew_7(), 0, "test_steering_agent2DNew_7")
+  assertEqInt(test_steering_steerSeek_8(), 0, "test_steering_steerSeek_8")
+  assertEqInt(test_steering_steerFlee_9(), 0, "test_steering_steerFlee_9")
+  assertEqInt(test_steering_steerArrive_10(), 0, "test_steering_steerArrive_10")
+  assertEqInt(test_steering_steerPursue_11(), 0, "test_steering_steerPursue_11")
+  assertEqInt(test_steering_agentStep_12(), 0, "test_steering_agentStep_12")
+  assertEqInt(test_steering_navContextMapNew_13(), 0, "test_steering_navContextMapNew_13")
+  assertEqInt(test_steering_contextBinDirX_14(), 0, "test_steering_contextBinDirX_14")
+  assertEqInt(test_steering_contextBinDirY_15(), 0, "test_steering_contextBinDirY_15")
+  assertEqInt(test_steering_navContextInjectInterest_16(), 0, "test_steering_navContextInjectInterest_16")
+  assertEqInt(test_steering_navContextInjectDanger_17(), 0, "test_steering_navContextInjectDanger_17")
+  assertEqInt(test_steering_navContextResolveDirection_18(), 0, "test_steering_navContextResolveDirection_18")
+  assertEqInt(test_steering_navSolveOrcaVelocity2D_19(), 0, "test_steering_navSolveOrcaVelocity2D_19")
+  ret 0

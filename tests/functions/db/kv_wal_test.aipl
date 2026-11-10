@@ -1,0 +1,297 @@
+module tests.functions.db.kv_wal_test
+
+import * from "std/db/kv_wal"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_kv_wal_computeRecordChecksum_1(): int:
+  let arg_op = 2
+  let edge_op = 0
+  let arg_timestamp = 4
+  let edge_timestamp = 1
+  let arg_key = "test"
+  let edge_key = "a"
+  let arg_value = "test"
+  let edge_value = "a"
+  let resNom = computeRecordChecksum(arg_op, arg_timestamp, arg_key, arg_value)
+  let resEdge = computeRecordChecksum(edge_op, edge_timestamp, edge_key, edge_value)
+  assertEqInt(resNom, 2159647394, "computeRecordChecksum nominal resNom == 2159647394")
+  assertEqInt(resEdge, 74317735, "computeRecordChecksum boundary resEdge == 74317735")
+  ret 0
+
+pub fn test_kv_wal_makeWalRecord_2(): int:
+  let arg_op = 2
+  let edge_op = 0
+  let arg_key = "test"
+  let edge_key = "a"
+  let arg_value = "test"
+  let edge_value = "a"
+  let resNom = makeWalRecord(arg_op, arg_key, arg_value)
+  let resEdge = makeWalRecord(edge_op, edge_key, edge_value)
+  assertEqInt(resNom.op, 2, "makeWalRecord nominal resNom.op == 2")
+  assertEqInt(resEdge.op, 0, "makeWalRecord boundary resEdge.op == 0")
+  ret 0
+
+pub fn test_kv_wal_findMemKeyIdx_3(): int:
+  let arg_keys = ["test"]
+  let edge_keys = []
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = findMemKeyIdx(arg_keys, arg_key)
+  let resEdge = findMemKeyIdx(edge_keys, edge_key)
+  assertEqInt(resNom, 0, "findMemKeyIdx nominal resNom == 0")
+  assertEqInt(resEdge, -1, "findMemKeyIdx boundary resEdge == -1")
+  ret 0
+
+pub fn test_kv_wal_applyMemTablePut_4(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let arg_key = "test"
+  let edge_key = "a"
+  let arg_value = "test"
+  let edge_value = "a"
+  applyMemTablePut(arg_store, arg_key, arg_value)
+  applyMemTablePut(edge_store, edge_key, edge_value)
+  assertEqInt(arg_store.memTableKeys.len(), 1, "applyMemTablePut nominal arg_store.memTableKeys.len() == 1")
+  assertEqInt(edge_store.memTableKeys.len(), 1, "applyMemTablePut boundary edge_store.memTableKeys.len() == 1")
+  ret 0
+
+pub fn test_kv_wal_applyMemTableDelete_5(): int:
+  mut store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = ["k1"], memTableVals = ["v1"], walLog = [], isClosed = false)
+  applyMemTableDelete(store, "k1")
+  assertEqInt(store.memTableKeys.len(), 0, "applyMemTableDelete removed key")
+  assertEqInt(store.memTableVals.len(), 0, "applyMemTableDelete removed val")
+  ret 0
+
+pub fn test_kv_wal_walOpen_6(): int:
+  let arg_dirPath = "/tmp/aipl_test_path"
+  let edge_dirPath = "/tmp/aipl_test_path"
+  let arg_config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4)
+  let edge_config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1)
+  let resNom = walOpen(arg_dirPath, arg_config)
+  let resEdge = walOpen(edge_dirPath, edge_config)
+  assert(resNom.isOk() == true, "walOpen nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "walOpen boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_kv_wal_walClose_7(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let resNom = walClose(arg_store)
+  let resEdge = walClose(edge_store)
+  assert(resNom == false, "walClose nominal resNom == false")
+  assert(resEdge == true, "walClose boundary resEdge == true")
+  ret 0
+
+pub fn test_kv_wal_walPut_8(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let arg_key = "test"
+  let edge_key = "a"
+  let arg_value = "test"
+  let edge_value = "a"
+  let resNom = walPut(arg_store, arg_key, arg_value)
+  let resEdge = walPut(edge_store, edge_key, edge_value)
+  assert(resNom.isOk() == false, "walPut nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == true, "walPut boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_kv_wal_walGet_9(): int:
+  let cfg = WalConfig(maxSegmentSizeBytes = 1024, syncEveryWrite = false, autoCompactThreshold = 10)
+  let storeRes = walOpen("/tmp/aipl_test_wal_get", cfg)
+  assert(storeRes.isOk() == true, "walOpen isOk")
+  mut store = storeRes.unwrap()
+  walPut(store, "key1", "val1")
+  let resSome = walGet(store, "key1")
+  let resNone = walGet(store, "missing")
+  assert(resSome.isSome() == true, "walGet existing key isSome")
+  assertEqStr(resSome.unwrap(), "val1", "walGet existing key value matches")
+  assert(resNone.isSome() == false, "walGet missing key isNone")
+  ret 0
+
+pub fn test_kv_wal_walDelete_10(): int:
+  let cfg = WalConfig(maxSegmentSizeBytes = 1024, syncEveryWrite = false, autoCompactThreshold = 10)
+  let storeRes = walOpen("/tmp/aipl_test_wal_del", cfg)
+  assert(storeRes.isOk() == true, "walOpen isOk")
+  mut store = storeRes.unwrap()
+  walPut(store, "delKey", "delVal")
+  assert(walExists(store, "delKey") == true, "walExists before delete is true")
+  let delRes = walDelete(store, "delKey")
+  assert(delRes.isOk() == true, "walDelete isOk")
+  assert(walExists(store, "delKey") == false, "walExists after delete is false")
+  assert(walGet(store, "delKey").isSome() == false, "walGet after delete is None")
+  ret 0
+
+pub fn test_kv_wal_walExists_11(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = walExists(arg_store, arg_key)
+  let resEdge = walExists(edge_store, edge_key)
+  assert(resNom == false, "walExists nominal resNom == false")
+  assert(resEdge == false, "walExists boundary resEdge == false")
+  ret 0
+
+pub fn test_kv_wal_walNewBatch_12(): int:
+  let resNom = walNewBatch()
+  let resEdge = walNewBatch()
+  assertEqInt(resNom.ops.len(), 0, "walNewBatch nominal resNom.ops.len() == 0")
+  assertEqInt(resEdge.ops.len(), 0, "walNewBatch boundary resEdge.ops.len() == 0")
+  ret 0
+
+pub fn test_kv_wal_walBatchPut_13(): int:
+  let arg_batch = WalBatch(ops = [])
+  let edge_batch = WalBatch(ops = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let arg_value = "test"
+  let edge_value = "a"
+  let resNom = walBatchPut(arg_batch, arg_key, arg_value)
+  let resEdge = walBatchPut(edge_batch, edge_key, edge_value)
+  assertEqInt(resNom.ops.len(), 1, "walBatchPut nominal resNom.ops.len() == 1")
+  assertEqInt(resEdge.ops.len(), 1, "walBatchPut boundary resEdge.ops.len() == 1")
+  ret 0
+
+pub fn test_kv_wal_walBatchDelete_14(): int:
+  let arg_batch = WalBatch(ops = [])
+  let edge_batch = WalBatch(ops = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = walBatchDelete(arg_batch, arg_key)
+  let resEdge = walBatchDelete(edge_batch, edge_key)
+  assertEqInt(resNom.ops.len(), 1, "walBatchDelete nominal resNom.ops.len() == 1")
+  assertEqInt(resEdge.ops.len(), 1, "walBatchDelete boundary resEdge.ops.len() == 1")
+  ret 0
+
+pub fn test_kv_wal_walCommitBatch_15(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let arg_batch = WalBatch(ops = [])
+  let edge_batch = WalBatch(ops = [])
+  let resNom = walCommitBatch(arg_store, arg_batch)
+  let resEdge = walCommitBatch(edge_store, edge_batch)
+  assert(resNom.isOk() == false, "walCommitBatch nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == true, "walCommitBatch boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_kv_wal_walFlush_16(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let resNom = walFlush(arg_store)
+  let resEdge = walFlush(edge_store)
+  assert(resNom.isOk() == false, "walFlush nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == true, "walFlush boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_kv_wal_walCheckpoint_17(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let resNom = walCheckpoint(arg_store)
+  let resEdge = walCheckpoint(edge_store)
+  assert(resNom.isOk() == false, "walCheckpoint nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == true, "walCheckpoint boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_kv_wal_estimateRecordsBytes_18(): int:
+  let arg_records = [WalRecord(op = 2, timestamp = 4, key = "test", value = "test", checksum = 4)]
+  let edge_records = []
+  let resNom = estimateRecordsBytes(arg_records)
+  let resEdge = estimateRecordsBytes(edge_records)
+  assertEqInt(resNom, 40, "estimateRecordsBytes nominal resNom == 40")
+  assertEqInt(resEdge, 16, "estimateRecordsBytes boundary resEdge == 16")
+  ret 0
+
+pub fn test_kv_wal_walCompact_19(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let resNom = walCompact(arg_store)
+  let resEdge = walCompact(edge_store)
+  assert(resNom.isOk() == false, "walCompact nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == true, "walCompact boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_kv_wal_walReplayLog_20(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let arg_records = [WalRecord(op = 2, timestamp = 4, key = "test", value = "test", checksum = 4)]
+  let edge_records = []
+  let resNom = walReplayLog(arg_store, arg_records)
+  let resEdge = walReplayLog(edge_store, edge_records)
+  assertEqInt(resNom, 0, "walReplayLog nominal resNom == 0")
+  assertEqInt(resEdge, 0, "walReplayLog boundary resEdge == 0")
+  ret 0
+
+pub fn test_kv_wal_walScanPrefix_21(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let arg_prefix = "test"
+  let edge_prefix = "a"
+  let resNom = walScanPrefix(arg_store, arg_prefix)
+  let resEdge = walScanPrefix(edge_store, edge_prefix)
+  assertEqInt(resNom.len(), 0, "walScanPrefix nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "walScanPrefix boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_kv_wal_walIteratorNew_22(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let resNom = walIteratorNew(arg_store)
+  let resEdge = walIteratorNew(edge_store)
+  assertEqInt(resNom.values.len(), 0, "walIteratorNew nominal resNom.values.len() == 0")
+  assertEqInt(resEdge.values.len(), 0, "walIteratorNew boundary resEdge.values.len() == 0")
+  ret 0
+
+pub fn test_kv_wal_walIteratorValid_23(): int:
+  let arg_it = WalIterator(keys = [], values = [], idx = 0)
+  let edge_it = WalIterator(keys = [], values = [], idx = 0)
+  let resNom = walIteratorValid(arg_it)
+  let resEdge = walIteratorValid(edge_it)
+  assert(resNom == false, "walIteratorValid nominal resNom == false")
+  assert(resEdge == false, "walIteratorValid boundary resEdge == false")
+  ret 0
+
+pub fn test_kv_wal_walIteratorNext_24(): int:
+  let arg_it = WalIterator(keys = [], values = [], idx = 0)
+  let edge_it = WalIterator(keys = [], values = [], idx = 0)
+  let resNom = walIteratorNext(arg_it)
+  let resEdge = walIteratorNext(edge_it)
+  assert(resNom == false, "walIteratorNext nominal resNom == false")
+  assert(resEdge == false, "walIteratorNext boundary resEdge == false")
+  ret 0
+
+pub fn test_kv_wal_walIteratorKey_25(): int:
+  let arg_it = WalIterator(keys = [], values = [], idx = 0)
+  let edge_it = WalIterator(keys = [], values = [], idx = 0)
+  let resNom = walIteratorKey(arg_it)
+  let resEdge = walIteratorKey(edge_it)
+  assertEqStr(resNom, "", "walIteratorKey nominal string matches")
+  assertEqStr(resEdge, "", "walIteratorKey boundary string matches")
+  ret 0
+
+pub fn test_kv_wal_walIteratorValue_26(): int:
+  let arg_it = WalIterator(keys = [], values = [], idx = 0)
+  let edge_it = WalIterator(keys = [], values = [], idx = 0)
+  let resNom = walIteratorValue(arg_it)
+  let resEdge = walIteratorValue(edge_it)
+  assertEqStr(resNom, "", "walIteratorValue nominal string matches")
+  assertEqStr(resEdge, "", "walIteratorValue boundary string matches")
+  ret 0
+
+pub fn test_kv_wal_walGetStats_27(): int:
+  let arg_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 4, syncEveryWrite = true, autoCompactThreshold = 4), memTableKeys = [], memTableVals = [], walLog = [], isClosed = true)
+  let edge_store = WalKvStore(dirPath = "/tmp/aipl_test_path", config = WalConfig(maxSegmentSizeBytes = 1, syncEveryWrite = false, autoCompactThreshold = 1), memTableKeys = [], memTableVals = [], walLog = [], isClosed = false)
+  let resNom = walGetStats(arg_store)
+  let resEdge = walGetStats(edge_store)
+  assertEqInt(resNom.beforeBytes, 16, "walGetStats nominal resNom.beforeBytes == 16")
+  assertEqInt(resEdge.beforeBytes, 16, "walGetStats boundary resEdge.beforeBytes == 16")
+  ret 0
+
+pub fn test_kv_wal_walVerifyChecksums_28(): int:
+  let arg_records = [WalRecord(op = 2, timestamp = 4, key = "test", value = "test", checksum = 4)]
+  let edge_records = []
+  let resNom = walVerifyChecksums(arg_records)
+  let resEdge = walVerifyChecksums(edge_records)
+  assert(resNom == false, "walVerifyChecksums nominal resNom == false")
+  assert(resEdge == true, "walVerifyChecksums boundary resEdge == true")
+  ret 0

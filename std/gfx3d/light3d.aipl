@@ -1,0 +1,340 @@
+/// # Module: `std/gfx3d/light3d` (`Light3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Directional, point, and spot light sources, quadratic distance attenuation,
+/// angular Hermite spot cone attenuation, and practical Cascaded Shadow Map (CSM) splits.
+module Light3DMod
+
+import { PI, DEG2RAD, EPSILON, absFloat, minFloat, maxFloat, maxInt, clampInt, clampFloat } from "std/math/consts"
+import { cos, pow, sqrt, expFloat } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { Mat4 } from "std/math/mat"
+import { LinearColorF32 } from "std/gfx/color"
+
+pub let LIGHT_TYPE_DIRECTIONAL: int = 1
+pub let LIGHT_TYPE_POINT: int = 2
+pub let LIGHT_TYPE_SPOT: int = 3
+
+pub struct LightSource3D(lx: float, ly: float, lz: float, radius: float, intensity: float, r: int, g: int, b: int, spotDirX: float, spotDirY: float, spotCosCutoff: float)
+
+pub struct Light3D(lightType: int, position: Vec3, direction: Vec3, color: LinearColorF32, intensity: float, range: float, spotInnerRad: float, spotOuterRad: float, castsShadows: bool)
+
+pub struct ShadowCascade(splitNearZ: float, splitFarZ: float, lightViewProj: Mat4)
+
+pub fn createDirectionalLight(direction: Vec3, color: LinearColorF32, intensity: float = 1.0): Light3D:
+  let dirNorm = if direction.lenSq() > EPSILON: direction.norm() else: Vec3(x = 0.0, y = -1.0, z = 0.0)
+  ret Light3D(
+    lightType = LIGHT_TYPE_DIRECTIONAL,
+    position = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    direction = dirNorm,
+    color = color,
+    intensity = intensity,
+    range = 0.0,
+    spotInnerRad = 0.0,
+    spotOuterRad = 0.0,
+    castsShadows = true
+  )
+
+pub fn createPointLight(pos: Vec3, color: LinearColorF32, range: float, intensity: float = 1.0): Light3D:
+  ret Light3D(
+    lightType = LIGHT_TYPE_POINT,
+    position = pos,
+    direction = Vec3(x = 0.0, y = -1.0, z = 0.0),
+    color = color,
+    intensity = intensity,
+    range = maxFloat(range, 0.001),
+    spotInnerRad = 0.0,
+    spotOuterRad = 0.0,
+    castsShadows = false
+  )
+
+pub fn createSpotLight(pos: Vec3, dir: Vec3, color: LinearColorF32, range: float, innerAngleDeg: float, outerAngleDeg: float): Light3D:
+  let dirNorm = if dir.lenSq() > EPSILON: dir.norm() else: Vec3(x = 0.0, y = -1.0, z = 0.0)
+  ret Light3D(
+    lightType = LIGHT_TYPE_SPOT,
+    position = pos,
+    direction = dirNorm,
+    color = color,
+    intensity = 1.0,
+    range = maxFloat(range, 0.001),
+    spotInnerRad = innerAngleDeg * DEG2RAD,
+    spotOuterRad = outerAngleDeg * DEG2RAD,
+    castsShadows = true
+  )
+
+pub fn computePointLightAttenuation(dist: float, range: float): float:
+  if range <= EPSILON or dist >= range or dist < 0.0:
+    ret 0.0
+  let ratio = dist / range
+  let ratio2 = ratio * ratio
+  let ratio4 = ratio2 * ratio2
+  let window = maxFloat(0.0, 1.0 - ratio4)
+  ret (window * window) / (dist * dist + 1.0)
+
+pub fn computeSpotLightAttenuation(light: Light3D, lightToPt: Vec3): float:
+  let dist = lightToPt.len()
+  let distAtten = computePointLightAttenuation(dist, light.range)
+  if distAtten <= 0.0:
+    ret 0.0
+  let dirToPt = if dist > EPSILON: lightToPt.scale(1.0 / dist) else: light.direction
+  let cosTheta = dirToPt.dot(light.direction.norm())
+  let cosInner = cos(light.spotInnerRad)
+  let cosOuter = cos(light.spotOuterRad)
+  let denom = maxFloat(cosInner - cosOuter, 0.0001)
+  let t = clampFloat((cosTheta - cosOuter) / denom, 0.0, 1.0)
+  let smooth = t * t * (3.0 - 2.0 * t)
+  ret distAtten * smooth
+
+pub fn computeCascadedShadowSplits(nearZ: float, farZ: float, cascadeCount: int = 4, lambdaFactor: float = 0.75): [float]:
+  let count = if cascadeCount >= 1: cascadeCount else: 1
+  let lam = clampFloat(lambdaFactor, 0.0, 1.0)
+  let safeNear = maxFloat(nearZ, 0.0001)
+  let safeFar = maxFloat(farZ, safeNear + 0.001)
+  let ratio = safeFar / safeNear
+
+  mut splits: [float] = []
+  splits.push(nearZ)
+  mut i = 1
+  while i < count:
+    let p = float(i) / float(count)
+    let zLog = safeNear * pow(ratio, p)
+    let zUni = safeNear + (safeFar - safeNear) * p
+    let zSplit = lam * zLog + (1.0 - lam) * zUni
+    splits.push(zSplit)
+    i = i + 1
+  splits.push(farZ)
+  ret splits
+
+pub fn lightComputePointAttenuation(distSqVal: float, radius: float, intensity: float, falloffExp: float): int:
+  let safeRad = maxFloat(0.001, radius)
+  let rSq = safeRad * safeRad
+  if distSqVal >= rSq:
+    ret 0
+  let clampedDistSq = maxFloat(0.0, distSqVal)
+  let windowRatio = clampFloat(1.0 - (clampedDistSq / rSq), 0.0, 1.0)
+  let curve = if falloffExp >= 1.5: windowRatio * windowRatio else: windowRatio
+  let normInt = if intensity > 2.0: clampFloat(intensity, 0.0, 100.0) else: clampFloat(intensity, 0.0, 2.0) * 100.0
+  let pct = int(curve * normInt + 0.5)
+  ret clampInt(pct, 0, 100)
+
+pub fn lightComputeLambertDiffuseRGB(nx: float, ny: float, nz: float, lx: float, ly: float, lz: float, baseR: int, baseG: int, baseB: int, lightR: int, lightG: int, lightB: int, ambientPct: int): int:
+  let nLen = maxFloat(0.0001, sqrt(nx * nx + ny * ny + nz * nz))
+  let lLen = maxFloat(0.0001, sqrt(lx * lx + ly * ly + lz * lz))
+  let ndotl = maxFloat(0.0, (nx * lx + ny * ly + nz * lz) / (nLen * lLen))
+  let amb = clampFloat(float(ambientPct) / 100.0, 0.0, 1.0)
+  let bR = clampFloat(float(baseR), 0.0, 255.0)
+  let bG = clampFloat(float(baseG), 0.0, 255.0)
+  let bB = clampFloat(float(baseB), 0.0, 255.0)
+  let lR = clampFloat(float(lightR), 0.0, 255.0) / 255.0
+  let lG = clampFloat(float(lightG), 0.0, 255.0) / 255.0
+  let lB = clampFloat(float(lightB), 0.0, 255.0) / 255.0
+  let outR = clampInt(int(bR * minFloat(1.0, amb + (1.0 - amb) * ndotl * lR) + 0.5), 0, 255)
+  let outG = clampInt(int(bG * minFloat(1.0, amb + (1.0 - amb) * ndotl * lG) + 0.5), 0, 255)
+  let outB = clampInt(int(bB * minFloat(1.0, amb + (1.0 - amb) * ndotl * lB) + 0.5), 0, 255)
+  ret (outR << 16) | (outG << 8) | outB
+
+pub fn lightCast2DShadowVisibility(ox: float, oy: float, tx: float, ty: float, blockerMinX: float, blockerMinY: float, blockerMaxX: float, blockerMaxY: float): int:
+  let dx = tx - ox
+  let dy = ty - oy
+  mut tMin = 0.0
+  mut tMax = 1.0
+  if absFloat(dx) < 0.00001:
+    if ox < blockerMinX or ox > blockerMaxX:
+      ret 100
+  else:
+    let invX = 1.0 / dx
+    mut t1 = (blockerMinX - ox) * invX
+    mut t2 = (blockerMaxX - ox) * invX
+    if t1 > t2:
+      let tmp = t1
+      t1 = t2
+      t2 = tmp
+    tMin = maxFloat(tMin, t1)
+    tMax = minFloat(tMax, t2)
+    if tMin > tMax:
+      ret 100
+  if absFloat(dy) < 0.00001:
+    if oy < blockerMinY or oy > blockerMaxY:
+      ret 100
+  else:
+    let invY = 1.0 / dy
+    mut t3 = (blockerMinY - oy) * invY
+    mut t4 = (blockerMaxY - oy) * invY
+    if t3 > t4:
+      let tmp2 = t3
+      t3 = t4
+      t4 = tmp2
+    tMin = maxFloat(tMin, t3)
+    tMax = minFloat(tMax, t4)
+    if tMin > tMax:
+      ret 100
+  ret 0
+
+pub fn lightComputeSpotConeAttenuation(dirX: float, dirY: float, toPointX: float, toPointY: float, cosInner: float, cosOuter: float): float:
+  let dLen = maxFloat(0.0001, sqrt(dirX * dirX + dirY * dirY))
+  let pLen = maxFloat(0.0001, sqrt(toPointX * toPointX + toPointY * toPointY))
+  let ux = dirX / dLen
+  let uy = dirY / dLen
+  let px = toPointX / pLen
+  let py = toPointY / pLen
+  let cosTheta = ux * px + uy * py
+  let outerC = minFloat(cosInner, cosOuter)
+  let innerC = maxFloat(outerC + 0.0001, maxFloat(cosInner, cosOuter))
+  if cosTheta <= outerC:
+    ret 0.0
+  if cosTheta >= innerC:
+    ret 1.0
+  let t = clampFloat((cosTheta - outerC) / (innerC - outerC), 0.0, 1.0)
+  ret clampFloat(t * t * (3.0 - 2.0 * t), 0.0, 1.0)
+
+pub fn lightComputeLightningFlashAmbientBoost(baseAmbient: int, boltIntensity: int, decayTick: int): int:
+  let baseA = clampInt(baseAmbient, 0, 100)
+  let peak = clampInt(boltIntensity, 0, 100)
+  let t = maxInt(0, decayTick)
+  let boost = maxInt(0, peak - t * 12)
+  ret clampInt(baseA + boost, 0, 100)
+
+pub fn lightComputeNvgPhosphorGain(baseLuma: int, nvgActive: int, dlightBoost: int): int:
+  let baseVal = clampInt(baseLuma, 0, 255)
+  let dl = clampInt(dlightBoost, -255, 255)
+  if nvgActive <= 0:
+    ret clampInt(baseVal + dl, 0, 255)
+  let amp = baseVal * 2 + 65 + dl
+  ret clampInt(amp, 0, 255)
+
+pub fn lightComputeBlinnPhongRGB(nx: float, ny: float, nz: float, lx: float, ly: float, lz: float, vx: float, vy: float, vz: float, baseHex: int, specStrength: float, shininess: float): int:
+  let nLen = maxFloat(0.0001, sqrt(nx * nx + ny * ny + nz * nz))
+  let lLen = maxFloat(0.0001, sqrt(lx * lx + ly * ly + lz * lz))
+  let vLen = maxFloat(0.0001, sqrt(vx * vx + vy * vy + vz * vz))
+  let unx = nx / nLen
+  let uny = ny / nLen
+  let unz = nz / nLen
+  let ulx = lx / lLen
+  let uly = ly / lLen
+  let ulz = lz / lLen
+  let uvx = vx / vLen
+  let uvy = vy / vLen
+  let uvz = vz / vLen
+  let ndotl = maxFloat(0.0, unx * ulx + uny * uly + unz * ulz)
+  let hx = ulx + uvx
+  let hy = uly + uvy
+  let hz = ulz + uvz
+  let hLen = maxFloat(0.0001, sqrt(hx * hx + hy * hy + hz * hz))
+  let ndoth = maxFloat(0.0, (unx * hx + uny * hy + unz * hz) / hLen)
+  let specPow = if ndotl > 0.0: pow(ndoth, maxFloat(1.0, shininess)) * clampFloat(specStrength, 0.0, 2.0) else: 0.0
+  let r0 = float((baseHex >> 16) & 255)
+  let g0 = float((baseHex >> 8) & 255)
+  let b0 = float(baseHex & 255)
+  let diffFactor = 0.18 + 0.82 * ndotl
+  let outR = clampInt(int(r0 * diffFactor + 255.0 * specPow + 0.5), 0, 255)
+  let outG = clampInt(int(g0 * diffFactor + 255.0 * specPow + 0.5), 0, 255)
+  let outB = clampInt(int(b0 * diffFactor + 255.0 * specPow + 0.5), 0, 255)
+  ret (outR << 16) | (outG << 8) | outB
+
+pub fn lightComputePbrCookTorranceRGB(nx: float, ny: float, nz: float, lx: float, ly: float, lz: float, vx: float, vy: float, vz: float, albedoHex: int, metallic: float, roughness: float, ao: float): int:
+  let nLen = maxFloat(0.0001, sqrt(nx * nx + ny * ny + nz * nz))
+  let lLen = maxFloat(0.0001, sqrt(lx * lx + ly * ly + lz * lz))
+  let vLen = maxFloat(0.0001, sqrt(vx * vx + vy * vy + vz * vz))
+  let unx = nx / nLen
+  let uny = ny / nLen
+  let unz = nz / nLen
+  let ulx = lx / lLen
+  let uly = ly / lLen
+  let ulz = lz / lLen
+  let uvx = vx / vLen
+  let uvy = vy / vLen
+  let uvz = vz / vLen
+  let hx = ulx + uvx
+  let hy = uly + uvy
+  let hz = ulz + uvz
+  let hLen = maxFloat(0.0001, sqrt(hx * hx + hy * hy + hz * hz))
+  let uhx = hx / hLen
+  let uhy = hy / hLen
+  let uhz = hz / hLen
+  let ndotl = maxFloat(0.0, unx * ulx + uny * uly + unz * ulz)
+  let ndotv = maxFloat(0.001, unx * uvx + uny * uvy + unz * uvz)
+  let ndoth = maxFloat(0.0, unx * uhx + uny * uhy + unz * uhz)
+  let hdotv = maxFloat(0.0, uhx * uvx + uhy * uvy + uhz * uvz)
+  let albR = float((albedoHex >> 16) & 255) / 255.0
+  let albG = float((albedoHex >> 8) & 255) / 255.0
+  let albB = float(albedoHex & 255) / 255.0
+  let m = clampFloat(metallic, 0.0, 1.0)
+  let rough = clampFloat(roughness, 0.04, 1.0)
+  let aoVal = clampFloat(ao, 0.0, 1.0)
+  let f0R = 0.04 * (1.0 - m) + albR * m
+  let f0G = 0.04 * (1.0 - m) + albG * m
+  let f0B = 0.04 * (1.0 - m) + albB * m
+  let oneMinusHV = clampFloat(1.0 - hdotv, 0.0, 1.0)
+  let hv5 = oneMinusHV * oneMinusHV * oneMinusHV * oneMinusHV * oneMinusHV
+  let fR = f0R + (1.0 - f0R) * hv5
+  let fG = f0G + (1.0 - f0G) * hv5
+  let fB = f0B + (1.0 - f0B) * hv5
+  let alpha = rough * rough
+  let alphaSq = alpha * alpha
+  let denomTerm = ndoth * ndoth * (alphaSq - 1.0) + 1.0
+  let dGGX = alphaSq / maxFloat(0.0001, PI * denomTerm * denomTerm)
+  let rPlus1 = rough + 1.0
+  let k = (rPlus1 * rPlus1) / 8.0
+  let g1V = ndotv / maxFloat(0.0001, ndotv * (1.0 - k) + k)
+  let g1L = ndotl / maxFloat(0.0001, ndotl * (1.0 - k) + k)
+  let gSmith = g1V * g1L
+  let specDenom = maxFloat(0.0001, 4.0 * ndotv * maxFloat(0.0001, ndotl))
+  let specScale = (dGGX * gSmith) / specDenom
+  let specR = fR * specScale
+  let specG = fG * specScale
+  let specB = fB * specScale
+  let kdR = (1.0 - fR) * (1.0 - m)
+  let kdG = (1.0 - fG) * (1.0 - m)
+  let kdB = (1.0 - fB) * (1.0 - m)
+  let invPi = 1.0 / PI
+  let radScale = 2.6
+  let loR = (kdR * albR * invPi + specR) * ndotl * radScale + 0.16 * albR * aoVal
+  let loG = (kdG * albG * invPi + specG) * ndotl * radScale + 0.16 * albG * aoVal
+  let loB = (kdB * albB * invPi + specB) * ndotl * radScale + 0.16 * albB * aoVal
+  let tmR = (loR / (1.0 + loR * 0.35)) * aoVal
+  let tmG = (loG / (1.0 + loG * 0.35)) * aoVal
+  let tmB = (loB / (1.0 + loB * 0.35)) * aoVal
+  let outR = clampInt(int(clampFloat(tmR, 0.0, 1.0) * 255.0 + 0.5), 0, 255)
+  let outG = clampInt(int(clampFloat(tmG, 0.0, 1.0) * 255.0 + 0.5), 0, 255)
+  let outB = clampInt(int(clampFloat(tmB, 0.0, 1.0) * 255.0 + 0.5), 0, 255)
+  ret (outR << 16) | (outG << 8) | outB
+
+pub fn lightComputeSpotConeAttenuation3D(dirX: float, dirY: float, dirZ: float, toPointX: float, toPointY: float, toPointZ: float, cosInner: float, cosOuter: float): float:
+  let dLen = maxFloat(0.0001, sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ))
+  let pLen = maxFloat(0.0001, sqrt(toPointX * toPointX + toPointY * toPointY + toPointZ * toPointZ))
+  let cosTheta = (dirX * toPointX + dirY * toPointY + dirZ * toPointZ) / (dLen * pLen)
+  let outerC = minFloat(cosInner, cosOuter)
+  let innerC = maxFloat(outerC + 0.0001, maxFloat(cosInner, cosOuter))
+  if cosTheta <= outerC:
+    ret 0.0
+  if cosTheta >= innerC:
+    ret 1.0
+  let t = clampFloat((cosTheta - outerC) / (innerC - outerC), 0.0, 1.0)
+  ret clampFloat(t * t * (3.0 - 2.0 * t), 0.0, 1.0)
+
+pub fn lightApplyExponentialFogRGB(surfaceHex: int, fogHex: int, distance: float, density: float): int:
+  let d = maxFloat(0.0, distance)
+  let dens = maxFloat(0.0, density)
+  let factor = clampFloat(expFloat(-d * dens), 0.0, 1.0)
+  let sr = float((surfaceHex >> 16) & 255)
+  let sg = float((surfaceHex >> 8) & 255)
+  let sb = float(surfaceHex & 255)
+  let fr = float((fogHex >> 16) & 255)
+  let fg = float((fogHex >> 8) & 255)
+  let fb = float(fogHex & 255)
+  let outR = clampInt(int(sr * factor + fr * (1.0 - factor) + 0.5), 0, 255)
+  let outG = clampInt(int(sg * factor + fg * (1.0 - factor) + 0.5), 0, 255)
+  let outB = clampInt(int(sb * factor + fb * (1.0 - factor) + 0.5), 0, 255)
+  ret (outR << 16) | (outG << 8) | outB
+
+pub fn lightSampleProceduralSkyboxRGB(dirX: float, dirY: float, dirZ: float, zenithHex: int, horizonHex: int, nadirHex: int): int:
+  let len = maxFloat(0.0001, sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ))
+  let ny = clampFloat(dirY / len, -1.0, 1.0)
+  if ny >= 0.0:
+    ret lightApplyExponentialFogRGB(horizonHex, zenithHex, ny * 2.5, 1.0)
+  ret lightApplyExponentialFogRGB(horizonHex, nadirHex, (-ny) * 2.5, 1.0)
+
+pub fn lightCompareShadowDepth(fragDepth: float, closestShadowDepth: float, bias: float): float:
+  if fragDepth - bias > closestShadowDepth:
+    ret 0.25
+  ret 1.0

@@ -1,0 +1,406 @@
+/// # Module: `std/gfx3d/camera3d` (`Camera3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 3D camera projections, right-handed LookAt view matrices, Vulkan/WebGPU [0..1]
+/// perspective and orthographic projection matrices, 6-plane Gribb-Hartmann frustum
+/// extraction, and spherical orbital camera controllers.
+module Camera3DMod
+
+import { PI, DEG2RAD, EPSILON, clampFloat, absFloat } from "std/math/consts"
+import { sin, cos, tan, asin, acos, atan2, sqrt } from "std/math/trig"
+import { Vec3, Vec4, Vector3 } from "std/math/vec_math"
+import { Mat3, Mat4 } from "std/math/mat"
+import { Quat } from "std/math/quat"
+pub import { Plane3D, Frustum3D, vec3, vec3Add, vec3Sub, vec3Scale, vec3Dot, vec3Cross, vec3Length, vec3Normalize } from "std/math/geom3d"
+
+pub struct Camera3D(position: Vec3, target: Vec3, up: Vec3, fovYRad: float = 1.04719755, aspect: float = 1.3333333, nearZ: float = 0.1, farZ: float = 1000.0, isOrthographic: bool = false, orthoWidth: float = 10.0, orthoHeight: float = 10.0, fovy: float = 60.0, nearPlane: float = 0.1, farPlane: float = 1000.0, projection: int = 0, yaw: float = 0.0, pitch: float = 0.0, orbitDist: float = 5.0)
+
+pub struct FrustumPlane(normal: Vec3, distance: float)
+
+pub struct OrbitController3D(target: Vec3, yawRad: float, pitchRad: float, distance: float, minDistance: float, maxDistance: float, minPitchRad: float, maxPitchRad: float)
+
+pub fn createPerspectiveCamera3D(pos: Vec3, target: Vec3, fovDeg: float, aspect: float, nearZ: float = 0.1, farZ: float = 1000.0): Camera3D:
+  ret Camera3D(
+    position = pos,
+    target = target,
+    up = Vec3(x = 0.0, y = 1.0, z = 0.0),
+    fovYRad = fovDeg * DEG2RAD,
+    aspect = if aspect > 0.0001: aspect else: 1.0,
+    nearZ = if nearZ > 0.0001: nearZ else: 0.1,
+    farZ = if farZ > nearZ: farZ else: nearZ + 100.0,
+    isOrthographic = false,
+    orthoWidth = 0.0,
+    orthoHeight = 0.0
+  )
+
+pub fn createOrthographicCamera3D(pos: Vec3, target: Vec3, orthoW: float, orthoH: float, nearZ: float = 0.1, farZ: float = 1000.0): Camera3D:
+  let safeW = if orthoW > 0.0001: orthoW else: 1.0
+  let safeH = if orthoH > 0.0001: orthoH else: 1.0
+  ret Camera3D(
+    position = pos,
+    target = target,
+    up = Vec3(x = 0.0, y = 1.0, z = 0.0),
+    fovYRad = 60.0 * DEG2RAD,
+    aspect = safeW / safeH,
+    nearZ = nearZ,
+    farZ = if farZ > nearZ: farZ else: nearZ + 100.0,
+    isOrthographic = true,
+    orthoWidth = safeW,
+    orthoHeight = safeH
+  )
+
+pub fn computeViewMatrix(cam: Camera3D): Mat4:
+  // Forward vector from camera position toward target
+  let fwdRaw: Vec3 = vec3Sub(cam.target, cam.position)
+  let fwdLen = vec3Length(fwdRaw)
+  let fwd: Vec3 = if fwdLen > EPSILON: vec3Normalize(fwdRaw) else: Vec3(x = 0.0, y = 0.0, z = -1.0)
+  let rightRaw: Vec3 = vec3Cross(fwd, cam.up)
+  let rightLen = vec3Length(rightRaw)
+  let right: Vec3 = if rightLen > EPSILON: vec3Normalize(rightRaw) else: Vec3(x = 1.0, y = 0.0, z = 0.0)
+  let upVec: Vec3 = vec3Normalize(vec3Cross(right, fwd))
+
+  let tx = -vec3Dot(right, cam.position)
+  let ty = -vec3Dot(upVec, cam.position)
+  let tz = -vec3Dot(fwd, cam.position)
+
+  // Row-vector compatible view matrix (v_view = v_world * View)
+  ret Mat4(
+    m00 = right.x, m01 = upVec.x, m02 = fwd.x, m03 = 0.0,
+    m10 = right.y, m11 = upVec.y, m12 = fwd.y, m13 = 0.0,
+    m20 = right.z, m21 = upVec.z, m22 = fwd.z, m23 = 0.0,
+    m30 = tx,      m31 = ty,      m32 = tz,    m33 = 1.0
+  )
+
+pub fn computeProjectionMatrix(cam: Camera3D): Mat4:
+  let nearZ = cam.nearZ
+  let farZ = if cam.farZ > nearZ + 0.0001: cam.farZ else: nearZ + 1.0
+  if cam.isOrthographic:
+    let w = if cam.orthoWidth > 0.0001: cam.orthoWidth else: 1.0
+    let h = if cam.orthoHeight > 0.0001: cam.orthoHeight else: 1.0
+    let dz = farZ - nearZ
+    ret Mat4(
+      m00 = 2.0 / w, m01 = 0.0,     m02 = 0.0,            m03 = 0.0,
+      m10 = 0.0,     m11 = 2.0 / h, m12 = 0.0,            m13 = 0.0,
+      m20 = 0.0,     m21 = 0.0,     m22 = 1.0 / dz,       m23 = 0.0,
+      m30 = 0.0,     m31 = 0.0,     m32 = -nearZ / dz,    m33 = 1.0
+    )
+  let halfFov = if cam.fovYRad > 0.001: cam.fovYRad * 0.5 else: 0.5
+  let f = 1.0 / tan(halfFov)
+  let aspect = if cam.aspect > 0.0001: cam.aspect else: 1.0
+  let q = farZ / (farZ - nearZ)
+  ret Mat4(
+    m00 = f / aspect, m01 = 0.0, m02 = 0.0,          m03 = 0.0,
+    m10 = 0.0,        m11 = f,   m12 = 0.0,          m13 = 0.0,
+    m20 = 0.0,        m21 = 0.0, m22 = q,            m23 = 1.0,
+    m30 = 0.0,        m31 = 0.0, m32 = -nearZ * q,   m33 = 0.0
+  )
+
+fn makeNormalizedPlane(nx: float, ny: float, nz: float, d: float): Plane3D:
+  let len = sqrt(nx * nx + ny * ny + nz * nz)
+  if len > EPSILON:
+    let inv = 1.0 / len
+    ret Plane3D(
+      normal = Vec3(x = nx * inv, y = ny * inv, z = nz * inv),
+      distance = d * inv,
+      d = d * inv
+    )
+  ret Plane3D(normal = Vec3(x = 0.0, y = 1.0, z = 0.0), distance = 0.0, d = 0.0)
+
+pub fn extractFrustumPlanes(viewProj: Mat4): Frustum3D:
+  // Gribb-Hartmann extraction for v_clip = v_world * viewProj, depth [0..1]
+  // Left:   w + x >= 0  (col3 + col0)
+  let pLeft = makeNormalizedPlane(
+    viewProj.m03 + viewProj.m00,
+    viewProj.m13 + viewProj.m10,
+    viewProj.m23 + viewProj.m20,
+    viewProj.m33 + viewProj.m30
+  )
+  // Right:  w - x >= 0  (col3 - col0)
+  let pRight = makeNormalizedPlane(
+    viewProj.m03 - viewProj.m00,
+    viewProj.m13 - viewProj.m10,
+    viewProj.m23 - viewProj.m20,
+    viewProj.m33 - viewProj.m30
+  )
+  // Bottom: w + y >= 0  (col3 + col1)
+  let pBottom = makeNormalizedPlane(
+    viewProj.m03 + viewProj.m01,
+    viewProj.m13 + viewProj.m11,
+    viewProj.m23 + viewProj.m21,
+    viewProj.m33 + viewProj.m31
+  )
+  // Top:    w - y >= 0  (col3 - col1)
+  let pTop = makeNormalizedPlane(
+    viewProj.m03 - viewProj.m01,
+    viewProj.m13 - viewProj.m11,
+    viewProj.m23 - viewProj.m21,
+    viewProj.m33 - viewProj.m31
+  )
+  // Near:   z >= 0      (col2)
+  let pNear = makeNormalizedPlane(
+    viewProj.m02,
+    viewProj.m12,
+    viewProj.m22,
+    viewProj.m32
+  )
+  // Far:    w - z >= 0  (col3 - col2)
+  let pFar = makeNormalizedPlane(
+    viewProj.m03 - viewProj.m02,
+    viewProj.m13 - viewProj.m12,
+    viewProj.m23 - viewProj.m22,
+    viewProj.m33 - viewProj.m32
+  )
+  ret Frustum3D(planes = [pLeft, pRight, pBottom, pTop, pNear, pFar])
+
+pub fn updateOrbitController(ctrl: OrbitController3D, deltaYaw: float, deltaPitch: float, deltaZoom: float): OrbitController3D:
+  let nextYaw = ctrl.yawRad + deltaYaw
+  let nextPitch = clampFloat(ctrl.pitchRad + deltaPitch, ctrl.minPitchRad, ctrl.maxPitchRad)
+  let nextDist = clampFloat(ctrl.distance + deltaZoom, ctrl.minDistance, ctrl.maxDistance)
+  ret OrbitController3D(
+    target = ctrl.target,
+    yawRad = nextYaw,
+    pitchRad = nextPitch,
+    distance = nextDist,
+    minDistance = ctrl.minDistance,
+    maxDistance = ctrl.maxDistance,
+    minPitchRad = ctrl.minPitchRad,
+    maxPitchRad = ctrl.maxPitchRad
+  )
+
+pub fn quatIdentity(): Quat:
+  ret Quat.identity()
+
+pub fn quatNormalize(q: Quat): Quat:
+  ret q.norm()
+
+pub fn quatConjugate(q: Quat): Quat:
+  ret q.conjugate()
+
+pub fn quatMul(a: Quat, b: Quat): Quat:
+  ret a.mul(b)
+
+pub fn quatFromAxisAngle(axis: Vec3, angleRad: float): Quat:
+  ret Quat.fromAxisAngle(axis, angleRad)
+
+pub fn quatFromEuler(pitchX: float, yawY: float, rollZ: float): Quat:
+  ret Quat.fromEuler(pitchX, yawY, rollZ)
+
+pub fn quatRotateVec3(q: Quat, v: Vec3): Vec3:
+  ret q.rotateVec3(v)
+
+pub fn quatSlerp(a: Quat, b: Quat, t: float): Quat:
+  ret a.slerp(b, t)
+
+pub fn mat4Identity(): Mat4:
+  ret Mat4.identity()
+
+pub fn mat4Mul(a: Mat4, b: Mat4): Mat4:
+  ret Mat4(
+    m00 = a.m00 * b.m00 + a.m01 * b.m10 + a.m02 * b.m20 + a.m03 * b.m30,
+    m01 = a.m00 * b.m01 + a.m01 * b.m11 + a.m02 * b.m21 + a.m03 * b.m31,
+    m02 = a.m00 * b.m02 + a.m01 * b.m12 + a.m02 * b.m22 + a.m03 * b.m32,
+    m03 = a.m00 * b.m03 + a.m01 * b.m13 + a.m02 * b.m23 + a.m03 * b.m33,
+    m10 = a.m10 * b.m00 + a.m11 * b.m10 + a.m12 * b.m20 + a.m13 * b.m30,
+    m11 = a.m10 * b.m01 + a.m11 * b.m11 + a.m12 * b.m21 + a.m13 * b.m31,
+    m12 = a.m10 * b.m02 + a.m11 * b.m12 + a.m12 * b.m22 + a.m13 * b.m32,
+    m13 = a.m10 * b.m03 + a.m11 * b.m13 + a.m12 * b.m23 + a.m13 * b.m33,
+    m20 = a.m20 * b.m00 + a.m21 * b.m10 + a.m22 * b.m20 + a.m23 * b.m30,
+    m21 = a.m20 * b.m01 + a.m21 * b.m11 + a.m22 * b.m21 + a.m23 * b.m31,
+    m22 = a.m20 * b.m02 + a.m21 * b.m12 + a.m22 * b.m22 + a.m23 * b.m32,
+    m23 = a.m20 * b.m03 + a.m21 * b.m13 + a.m22 * b.m23 + a.m23 * b.m33,
+    m30 = a.m30 * b.m00 + a.m31 * b.m10 + a.m32 * b.m20 + a.m33 * b.m30,
+    m31 = a.m30 * b.m01 + a.m31 * b.m11 + a.m32 * b.m21 + a.m33 * b.m31,
+    m32 = a.m30 * b.m02 + a.m31 * b.m12 + a.m32 * b.m22 + a.m33 * b.m32,
+    m33 = a.m30 * b.m03 + a.m31 * b.m13 + a.m32 * b.m23 + a.m33 * b.m33
+  )
+
+pub fn mat4FromTRS(translation: Vec3, rotation: Quat, scaleVec: Vec3): Mat4:
+  let rMat = rotation.norm().toMat4()
+  let sMat = Mat4.scaling(scaleVec.x, scaleVec.y, scaleVec.z)
+  let tMat = Mat4.translation(translation.x, translation.y, translation.z)
+  ret tMat.mul(rMat.mul(sMat))
+
+pub fn mat3NormalFromMat4(m: Mat4): Mat3:
+  ret Mat3(
+    m00 = m.m00, m01 = m.m01, m02 = m.m02,
+    m10 = m.m10, m11 = m.m11, m12 = m.m12,
+    m20 = m.m20, m21 = m.m21, m22 = m.m22
+  )
+
+pub fn mat4TransformVec3(m: Mat4, v: Vec3): Vec3:
+  let r = m.transformVec4(Vec4(x = v.x, y = v.y, z = v.z, w = 1.0))
+  let w = if absFloat(r.w) > 0.00001: r.w else: 1.0
+  ret Vec3(x = r.x / w, y = r.y / w, z = r.z / w)
+
+pub fn mat4LookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4:
+  ret Mat4.lookAt(eye, target, up)
+
+pub fn mat4Perspective(fovyDeg: float, aspect: float, nearPlane: float, farPlane: float): Mat4:
+  ret Mat4.perspective(fovyDeg * DEG2RAD, aspect, nearPlane, farPlane)
+
+pub fn mat4Orthographic(orthoHeight: float, aspect: float, nearPlane: float, farPlane: float): Mat4:
+  let h = if orthoHeight > 0.01: orthoHeight else: 10.0
+  let w = h * (if aspect > 0.01: aspect else: 1.333333)
+  ret Mat4.orthographic(-w * 0.5, w * 0.5, -h * 0.5, h * 0.5, nearPlane, farPlane)
+
+pub fn camera3DPerspective(pos: Vec3, target: Vec3, up: Vec3, fovyDeg: float, aspect: float, nearPlane: float, farPlane: float): Camera3D:
+  let delta = pos.sub(target)
+  let dist = delta.len()
+  let fwd = target.sub(pos).norm()
+  let initYaw = atan2(fwd.x, -fwd.z)
+  let initPitch = asin(clampFloat(fwd.y, -1.0, 1.0))
+  ret Camera3D(
+    position = pos,
+    target = target,
+    up = up,
+    fovYRad = fovyDeg * DEG2RAD,
+    aspect = aspect,
+    nearZ = nearPlane,
+    farZ = farPlane,
+    isOrthographic = false,
+    orthoWidth = 0.0,
+    orthoHeight = 0.0,
+    fovy = fovyDeg,
+    nearPlane = nearPlane,
+    farPlane = farPlane,
+    projection = 0,
+    yaw = initYaw,
+    pitch = initPitch,
+    orbitDist = if dist > 0.01: dist else: 5.0
+  )
+
+pub fn camera3DOrthographic(pos: Vec3, target: Vec3, up: Vec3, orthoHeight: float, aspect: float, nearPlane: float, farPlane: float): Camera3D:
+  let delta = pos.sub(target)
+  let dist = delta.len()
+  let fwd = target.sub(pos).norm()
+  let initYaw = atan2(fwd.x, -fwd.z)
+  let initPitch = asin(clampFloat(fwd.y, -1.0, 1.0))
+  let safeH = if orthoHeight > 0.01: orthoHeight else: 10.0
+  let safeA = if aspect > 0.01: aspect else: 1.0
+  ret Camera3D(
+    position = pos,
+    target = target,
+    up = up,
+    fovYRad = 60.0 * DEG2RAD,
+    aspect = safeA,
+    nearZ = nearPlane,
+    farZ = farPlane,
+    isOrthographic = true,
+    orthoWidth = safeH * safeA,
+    orthoHeight = safeH,
+    fovy = safeH,
+    nearPlane = nearPlane,
+    farPlane = farPlane,
+    projection = 1,
+    yaw = initYaw,
+    pitch = initPitch,
+    orbitDist = if dist > 0.01: dist else: 5.0
+  )
+
+pub fn camera3DUpdateOrbit(cam: Camera3D, deltaYawRad: float, deltaPitchRad: float, deltaDist: float): Camera3D:
+  let nextYaw = cam.yaw + deltaYawRad
+  let nextPitch = clampFloat(cam.pitch + deltaPitchRad, -1.48, 1.48)
+  let nextDist = clampFloat(cam.orbitDist + deltaDist, 0.25, 10000.0)
+  let cp = cos(nextPitch)
+  let offset = Vec3(
+    x = nextDist * cp * sin(nextYaw),
+    y = nextDist * sin(nextPitch),
+    z = nextDist * cp * cos(nextYaw)
+  )
+  ret Camera3D(
+    position = cam.target.add(offset),
+    target = cam.target,
+    up = cam.up,
+    fovYRad = cam.fovYRad,
+    aspect = cam.aspect,
+    nearZ = cam.nearZ,
+    farZ = cam.farZ,
+    isOrthographic = cam.isOrthographic,
+    orthoWidth = cam.orthoWidth,
+    orthoHeight = cam.orthoHeight,
+    fovy = cam.fovy,
+    nearPlane = cam.nearPlane,
+    farPlane = cam.farPlane,
+    projection = cam.projection,
+    yaw = nextYaw,
+    pitch = nextPitch,
+    orbitDist = nextDist
+  )
+
+pub fn camera3DUpdateFirstPerson(cam: Camera3D, forwardStep: float, strafeStep: float, deltaYawRad: float, deltaPitchRad: float): Camera3D:
+  let nextYaw = cam.yaw + deltaYawRad
+  let nextPitch = clampFloat(cam.pitch + deltaPitchRad, -1.50, 1.50)
+  let cp = cos(nextPitch)
+  let forward = Vec3(x = cp * sin(nextYaw), y = sin(nextPitch), z = -cp * cos(nextYaw)).norm()
+  let flatForward = Vec3(x = sin(nextYaw), y = 0.0, z = -cos(nextYaw)).norm()
+  let right = flatForward.cross(cam.up).norm()
+  let nextPos = cam.position.add(flatForward.scale(forwardStep).add(right.scale(strafeStep)))
+  ret Camera3D(
+    position = nextPos,
+    target = nextPos.add(forward),
+    up = cam.up,
+    fovYRad = cam.fovYRad,
+    aspect = cam.aspect,
+    nearZ = cam.nearZ,
+    farZ = cam.farZ,
+    isOrthographic = cam.isOrthographic,
+    orthoWidth = cam.orthoWidth,
+    orthoHeight = cam.orthoHeight,
+    fovy = cam.fovy,
+    nearPlane = cam.nearPlane,
+    farPlane = cam.farPlane,
+    projection = cam.projection,
+    yaw = nextYaw,
+    pitch = nextPitch,
+    orbitDist = cam.orbitDist
+  )
+
+pub fn camera3DUpdateFreeFly(cam: Camera3D, forwardStep: float, strafeStep: float, verticalStep: float, deltaYawRad: float, deltaPitchRad: float): Camera3D:
+  let nextYaw = cam.yaw + deltaYawRad
+  let nextPitch = clampFloat(cam.pitch + deltaPitchRad, -1.52, 1.52)
+  let cp = cos(nextPitch)
+  let forward = Vec3(x = cp * sin(nextYaw), y = sin(nextPitch), z = -cp * cos(nextYaw)).norm()
+  let right = forward.cross(cam.up).norm()
+  let moveVec = forward.scale(forwardStep).add(right.scale(strafeStep)).add(cam.up.scale(verticalStep))
+  let nextPos = cam.position.add(moveVec)
+  ret Camera3D(
+    position = nextPos,
+    target = nextPos.add(forward),
+    up = cam.up,
+    fovYRad = cam.fovYRad,
+    aspect = cam.aspect,
+    nearZ = cam.nearZ,
+    farZ = cam.farZ,
+    isOrthographic = cam.isOrthographic,
+    orthoWidth = cam.orthoWidth,
+    orthoHeight = cam.orthoHeight,
+    fovy = cam.fovy,
+    nearPlane = cam.nearPlane,
+    farPlane = cam.farPlane,
+    projection = cam.projection,
+    yaw = nextYaw,
+    pitch = nextPitch,
+    orbitDist = cam.orbitDist
+  )
+
+pub fn camera3DViewMatrix(cam: Camera3D): Mat4:
+  ret computeViewMatrix(cam)
+
+pub fn camera3DProjMatrix(cam: Camera3D): Mat4:
+  ret computeProjectionMatrix(cam)
+
+pub fn camera3DViewProjMatrix(cam: Camera3D): Mat4:
+  ret computeViewMatrix(cam).mul(computeProjectionMatrix(cam))
+
+pub fn extractFrustum3D(cam: Camera3D): Frustum3D:
+  ret extractFrustumPlanes(camera3DViewProjMatrix(cam))
+
+pub fn frustumContainsSphere(frustum: Frustum3D, center: Vec3, radius: float): bool:
+  mut i = 0
+  while i < frustum.planes.len:
+    let pl = frustum.planes[i]
+    let d = pl.normal.dot(center) + pl.distance
+    if d < -radius:
+      ret false
+    i += 1
+  ret true

@@ -1,0 +1,95 @@
+/// # Module: `std/test/assert` (`TestAssert`)
+///
+/// ## Purpose & Domain Scope
+/// Rich assertion diagnostics (`AssertionError`), approximate float equality,
+/// substring/prefix/suffix assertions, and line-by-line diff formatting (`DiffLine`).
+module TestAssert
+
+pub struct AssertionError:
+  message: str
+  file: str
+  line: int
+  actual: str
+  expected: str
+
+pub struct DiffLine:
+  kind: int
+  text: str
+
+pub fn testAssert(cond: bool, msg: str = "Assertion failed"): bool:
+  assert(cond, msg)
+  ret cond
+
+pub fn assertEq(actual: int, expected: int, label: str = ""): bool:
+  let msg = if label.len() > 0: label else: "assertEq failed: " + str(actual) + " != " + str(expected)
+  assert(actual == expected, msg)
+  ret actual == expected
+
+pub fn assertNe(actual: int, expected: int, label: str = ""): bool:
+  let msg = if label.len() > 0: label else: "assertNe failed: values both equal " + str(actual)
+  assert(actual != expected, msg)
+  ret actual != expected
+
+pub fn testAssertApproxEq(actual: float, expected: float, eps: float = 0.000001, label: str = ""): bool:
+  let diff = if actual >= expected: actual - expected else: expected - actual
+  let ok = diff <= eps
+  let msg = if label.len() > 0: label else: "testAssertApproxEq failed"
+  assert(ok, msg)
+  ret ok
+
+pub fn assertContains(haystack: str, needle: str, label: str = ""): bool:
+  let ok = haystack.contains(needle)
+  let msg = if label.len() > 0: label else: "assertContains failed: missing " + needle
+  assert(ok, msg)
+  ret ok
+
+pub fn assertStartsWith(s: str, prefix: str, label: str = ""): bool:
+  let ok = s.startsWith(prefix)
+  let msg = if label.len() > 0: label else: "assertStartsWith failed"
+  assert(ok, msg)
+  ret ok
+
+pub fn assertEndsWith(s: str, suffix: str, label: str = ""): bool:
+  let ok = s.endsWith(suffix)
+  let msg = if label.len() > 0: label else: "assertEndsWith failed"
+  assert(ok, msg)
+  ret ok
+
+pub fn assertPanics(simulatedErrorMsg: str, expectedErrorSubstring: str = ""): bool:
+  if expectedErrorSubstring.len() == 0:
+    ret simulatedErrorMsg.len() > 0
+  ret simulatedErrorMsg.contains(expectedErrorSubstring)
+
+pub fn formatDiffLines(actual: str, expected: str): [DiffLine]:
+  let aLines = actual.split("\n")
+  let eLines = expected.split("\n")
+  mut out: [DiffLine] = []
+  mut maxLen = aLines.len()
+  if eLines.len() > maxLen:
+    maxLen = eLines.len()
+  mut i = 0
+  while i < maxLen:
+    let hasA = i < aLines.len()
+    let hasE = i < eLines.len()
+    if hasA and hasE:
+      if aLines[i] == eLines[i]:
+        out.push(DiffLine(kind: 0, text: aLines[i]))
+      else:
+        out.push(DiffLine(kind: -1, text: eLines[i]))
+        out.push(DiffLine(kind: 1, text: aLines[i]))
+    elif hasE:
+      out.push(DiffLine(kind: -1, text: eLines[i]))
+    elif hasA:
+      out.push(DiffLine(kind: 1, text: aLines[i]))
+    i = i + 1
+  ret out
+
+pub fn renderDiffText(diffs: [DiffLine]): str:
+  mut lines: [str] = []
+  mut i = 0
+  while i < diffs.len():
+    let d = diffs[i]
+    let pfx = if d.kind == 1: "+ " elif d.kind == -1: "- " else: "  "
+    lines.push(pfx + d.text)
+    i = i + 1
+  ret lines.join("\n")

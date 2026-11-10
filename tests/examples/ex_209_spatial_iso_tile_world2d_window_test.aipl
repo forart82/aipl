@@ -1,0 +1,37 @@
+module Ex209SpatialIsoTileWorld2dWindowTest
+
+import {
+  buildSpatialIsoTileAudit, stepIsoTileElevation
+} from "../../examples/ex_209_spatial_iso_tile_world2d_window"
+import { Vec2, IVec2 } from "../../std/math/vec_math"
+import {
+  isoTileWorldNew, isoWorldGridToScreen, isoScreenToGrid,
+  isoPickCellWithHeight, isoDepthSortKey
+} from "../../std/spatial/iso_tile_world2d"
+
+pub fn test_spatial_iso_tile_world2d(): void:
+  let iso = isoTileWorldNew(8, 8, 64.0, 32.0, 16.0)
+  let sPos: Vec2 = isoWorldGridToScreen(iso, 2, 2, 0.0)
+  assert(sPos.x == 0.0 and sPos.y == 64.0, "isoWorldGridToScreen projects (2,2,0) to (0.0, 64.0)")
+
+  let gPos: Vec2 = isoScreenToGrid(iso, 0.0, 64.0)
+  assert(gPos.x == 2.0 and gPos.y == 2.0, "isoScreenToGrid unprojects (0.0, 64.0) back to (2,2)")
+
+  let picked = isoPickCellWithHeight(iso, 0.0, 64.0)
+  let pk: IVec2 = picked.unwrap()
+  assert(pk.x == 2 and pk.y == 2, "isoPickCellWithHeight selects tile (2,2)")
+
+  assert(isoDepthSortKey(2, 2, 0.0) > isoDepthSortKey(1, 2, 0.0), "isoDepthSortKey orders painter depth back-to-front")
+  assert(buildSpatialIsoTileAudit() == 70, "buildSpatialIsoTileAudit returns 64 + 2 + 2 + 2 == 70")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let e0 = stepIsoTileElevation(3, 3, 0)
+  let e1 = stepIsoTileElevation(3, 3, 1)
+  let e20 = stepIsoTileElevation(3, 3, 20)
+  let e100 = stepIsoTileElevation(3, 3, 100)
+  assert(e0 != e1 and e1 != e20 and e20 != e100, "isometric tile elevation wave evolves across t=0,1,20,100")
+
+pub fn main(): int:
+  test_spatial_iso_tile_world2d()
+  println("PASS: ex_209_spatial_iso_tile_world2d_window_test")
+  ret 0

@@ -1,0 +1,79 @@
+module Ex243AiSteeringBoidsFlockingArenaWindowTest
+
+import { BoidSettings2D, steerSeek2D, steerFlee2D, steerArrive2D, steerBoidsFlocking2D, computeRadialFormationSlot2D } from "../../std/ai/steering"
+import { Vec2 } from "../../std/math/vec_math"
+import { BoidsScene, initScene, stepScene, auditAiSteeringBoidsFlocking } from "../../examples/ex_243_ai_steering_boids_flocking_arena_window"
+
+fn test_ai_steering_boids_flocking_arena(): void:
+  let pos = Vec2(x = 0.0, y = 0.0)
+  let vel = Vec2(x = 0.0, y = 0.0)
+  let target = Vec2(x = 100.0, y = 0.0)
+  let seek = steerSeek2D(pos, vel, target, 10.0, 5.0)
+  assert(seek.linear.x > 0.0, "seek steers towards target")
+  let flee = steerFlee2D(pos, vel, target, 10.0, 5.0)
+  assert(flee.linear.x < 0.0, "flee steers away from threat")
+  let arrive = steerArrive2D(Vec2(x = 95.0, y = 0.0), vel, target, 20.0, 10.0, 5.0)
+  assert(arrive.linear.x > 0.0, "arrive steers inside slowing radius")
+  let boidSettings = BoidSettings2D(
+    separationDistance = 5.0,
+    alignmentDistance = 20.0,
+    cohesionDistance = 20.0,
+    weightSeparation = 1.5,
+    weightAlignment = 1.0,
+    weightCohesion = 1.0,
+    maxSpeed = 10.0,
+    maxForce = 5.0
+  )
+  let flock = steerBoidsFlocking2D(
+    0,
+    [Vec2(x = 0.0, y = 0.0), Vec2(x = 2.0, y = 0.0), Vec2(x = 10.0, y = 0.0)],
+    [Vec2(x = 1.0, y = 0.0), Vec2(x = 2.0, y = 0.0), Vec2(x = 2.0, y = 0.0)],
+    boidSettings
+  )
+  assert(flock.angular == 0.0, "boids flocking returns steering output")
+  let slot0 = computeRadialFormationSlot2D(Vec2(x = 0.0, y = 0.0), 10.0, 0, 4)
+  assert(slot0.x == 10.0 and slot0.y == 0.0, "radial formation slot 0")
+
+  mut scene = initScene()
+  let b0: Vec2 = scene.positions[0]
+  let bx0 = b0.x
+  let by0 = b0.y
+  let e0: Vec2 = scene.escortPositions[0]
+  let ex0 = e0.x
+  scene = stepScene(scene, 0, 0.1)
+  let b1: Vec2 = scene.positions[0]
+  let bx1 = b1.x
+  let by1 = b1.y
+  let e1: Vec2 = scene.escortPositions[0]
+  let ex1 = e1.x
+  assert((bx1 != bx0) or (by1 != by0), "t=0 -> t=1 boid integrates velocity and position")
+  assert(ex1 != ex0, "t=0 -> t=1 radial escort agent steers toward formation slot")
+
+  mut f = 1
+  while f < 20:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  let b20: Vec2 = scene.positions[0]
+  let bx20 = b20.x
+  let by20 = b20.y
+  let e20: Vec2 = scene.escortPositions[0]
+  let ex20 = e20.x
+  assert((bx20 != bx1) or (by20 != by1), "t=1 -> t=20 boid flock continues moving")
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  while f < 100:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  let b100: Vec2 = scene.positions[0]
+  let e100: Vec2 = scene.escortPositions[0]
+  assert((b100.x != bx20) or (b100.y != by20), "t=20 -> t=100 boid flock continues steering")
+  assert(e100.x != ex20, "t=20 -> t=100 radial escort formation continues tracking dynamic leader")
+  assert(scene.stepCount == 100, "scene tracks 100 steps")
+
+  let audit = auditAiSteeringBoidsFlocking()
+  assert(audit == 65, "Boids flocking and radial formation audit")
+
+pub fn main(): int:
+  test_ai_steering_boids_flocking_arena()
+  println("PASS: ex_243_ai_steering_boids_flocking_arena_window_test")
+  ret 0

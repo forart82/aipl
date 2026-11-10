@@ -1,0 +1,157 @@
+module Ex201UiA11yFocusRingAndContrastWindow
+
+import { Rect } from "../std/math/geom2d"
+import {
+  A11Y_ROLE_BUTTON, A11Y_ROLE_CHECKBOX, A11Y_ROLE_SLIDER, A11Y_ROLE_TEXT_INPUT,
+  A11yNode, createA11yNode,
+  findNextFocusableNode, wcagContrastRatioLuma, cycleFocusIndex
+} from "../std/ui/ui_a11y"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepFocusSteps(root: A11yNode, startId: int, frame: int): int:
+  let steps = frame / 20
+  mut curr = startId
+  mut s = 0
+  while s < steps:
+    curr = findNextFocusableNode(root, curr)
+    s = s + 1
+  ret curr
+
+pub fn stepDynamicForegroundLuma(frame: int): float:
+  ret 0.52 + sin(float(frame) * 0.05) * 0.43
+
+fn roleName(role: int): str:
+  if role == A11Y_ROLE_BUTTON:
+    ret "BUTTON"
+  if role == A11Y_ROLE_CHECKBOX:
+    ret "CHECKBOX"
+  if role == A11Y_ROLE_SLIDER:
+    ret "SLIDER"
+  ret "TEXT_INPUT"
+
+pub fn buildUiA11yAudit(): int:
+  let n1 = createA11yNode(10, A11Y_ROLE_BUTTON, "Start", Rect(x = 0.0, y = 0.0, w = 100.0, h = 40.0))
+  let n2 = createA11yNode(20, A11Y_ROLE_BUTTON, "Settings", Rect(x = 0.0, y = 50.0, w = 100.0, h = 40.0))
+  let n3 = createA11yNode(30, A11Y_ROLE_BUTTON, "Quit", Rect(x = 0.0, y = 100.0, w = 100.0, h = 40.0))
+  let root = A11yNode(
+    nodeId = 1,
+    role = A11Y_ROLE_BUTTON,
+    label = "DialogRoot",
+    valueText = "",
+    bounds = Rect(x = 0.0, y = 0.0, w = 200.0, h = 200.0),
+    isFocusable = false,
+    isFocused = false,
+    children = [n1, n2, n3]
+  )
+  let next1 = findNextFocusableNode(root, 10)
+  let next2 = findNextFocusableNode(root, 30)
+  let cr = int(wcagContrastRatioLuma(1.0, 0.0))
+  let rev = cycleFocusIndex(0, 3, true)
+  ret next1 + next2 + cr + rev
+
+pub fn main(): int:
+  let auditScore = buildUiA11yAudit()
+  let n1 = createA11yNode(10, A11Y_ROLE_BUTTON, "Launch Simulation [Enter]", Rect(x = 120.0, y = 190.0, w = 440.0, h = 76.0))
+  let n2 = createA11yNode(20, A11Y_ROLE_CHECKBOX, "Audio & Captions [Space]", Rect(x = 120.0, y = 286.0, w = 440.0, h = 76.0))
+  let n3 = createA11yNode(30, A11Y_ROLE_SLIDER, "High-Contrast Gain [Arrows]", Rect(x = 120.0, y = 382.0, w = 440.0, h = 76.0))
+  let n4 = createA11yNode(40, A11Y_ROLE_TEXT_INPUT, "Filter A11y Tree [Type]", Rect(x = 120.0, y = 478.0, w = 440.0, h = 76.0))
+  let root = A11yNode(
+    nodeId = 1,
+    role = A11Y_ROLE_BUTTON,
+    label = "MainMenuA11yRoot",
+    valueText = "",
+    bounds = Rect(x = 80.0, y = 140.0, w = 520.0, h = 500.0),
+    isFocusable = false,
+    isFocused = false,
+    children = [n1, n2, n3, n4]
+  )
+
+  initWindow(1280, 720, "AIPL ex_201: UI Accessibility Tree, Focus Ring Traversal & WCAG Luma")
+  mut frame = 0
+  while not windowShouldClose():
+    let activeId = stepFocusSteps(root, 10, frame)
+    let focusIdx = (frame / 20) % root.children.len()
+    let crHigh = wcagContrastRatioLuma(0.95, 0.02)
+    let crMed = wcagContrastRatioLuma(0.65, 0.05)
+    let dynLuma = stepDynamicForegroundLuma(frame)
+    let crDyn = wcagContrastRatioLuma(dynLuma, 0.03)
+    let ringPad = 4.0 + sin(float(frame) * 0.15) * 2.0
+
+    beginDrawing()
+    clearScreen(rgb(9, 13, 22))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_201: UI ACCESSIBILITY TREE, FOCUS RING TRAVERSAL & WCAG CONTRAST", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("focusedNodeId=" + str(activeId) + " (idx=" + str(focusIdx) + ") | liveCR=" + str(int(crDyn)) + ":1 | highCR=" + str(int(crHigh)) + ":1 | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Left A11y Focus Tree Panel
+    drawRect(80.0, 140.0, 520.0, 500.0, rgb(17, 24, 39))
+    drawRectOutline(80.0, 140.0, 520.0, 500.0, 2.0, rgb(71, 85, 105))
+    drawText("Pre-Order Keyboard Focus Traversal (Tab):", 120.0, 156.0, 17.0, rgb(203, 213, 225))
+
+    mut focusedLabel = ""
+    mut focusedRole = ""
+    mut idx = 0
+    while idx < root.children.len():
+      let ch = root.children[idx]
+      let focused = ch.nodeId == activeId
+      let rStr = roleName(ch.role)
+      if focused:
+        focusedLabel = ch.label
+        focusedRole = rStr
+      drawRect(ch.bounds.x, ch.bounds.y, ch.bounds.w, ch.bounds.h, if focused: rgb(30, 58, 138) else: rgb(24, 34, 52))
+      if focused:
+        drawRectOutline(ch.bounds.x - ringPad, ch.bounds.y - ringPad, ch.bounds.w + ringPad * 2.0, ch.bounds.h + ringPad * 2.0, 3.5, rgb(250, 204, 21))
+      else:
+        drawRectOutline(ch.bounds.x, ch.bounds.y, ch.bounds.w, ch.bounds.h, 1.5, rgb(71, 85, 105))
+      drawText("Node #" + str(ch.nodeId) + " [" + rStr + "]", ch.bounds.x + 18.0, ch.bounds.y + 16.0, 14.0, if focused: rgb(250, 204, 21) else: rgb(148, 163, 184))
+      drawText(ch.label, ch.bounds.x + 18.0, ch.bounds.y + 40.0, 17.0, rgb(248, 250, 252))
+      idx = idx + 1
+
+    // Live Screen Reader Announcement Banner inside left panel
+    drawRect(120.0, 574.0, 440.0, 48.0, rgb(12, 19, 34))
+    drawRectOutline(120.0, 574.0, 440.0, 48.0, 1.5, rgb(250, 204, 21))
+    drawText("ARIA-LIVE: [" + focusedRole + "] " + focusedLabel, 134.0, 590.0, 14.0, rgb(254, 240, 138))
+
+    // Right WCAG Luminance Contrast Auditor
+    drawRect(650.0, 140.0, 550.0, 500.0, rgb(17, 24, 39))
+    drawRectOutline(650.0, 140.0, 550.0, 500.0, 2.0, rgb(52, 211, 153))
+    drawText("WCAG 2.1 Relative Luminance Contrast Auditor:", 680.0, 164.0, 18.0, rgb(110, 231, 183))
+
+    drawRect(680.0, 204.0, 490.0, 100.0, rgb(5, 8, 15))
+    drawRectOutline(680.0, 204.0, 490.0, 100.0, 2.0, rgb(52, 211, 153))
+    drawText("AAA PASS - Luma 0.95 on 0.02 (" + str(int(crHigh)) + ":1 >= 7.0:1)", 704.0, 244.0, 18.0, rgb(248, 250, 252))
+
+    drawRect(680.0, 324.0, 490.0, 100.0, rgb(15, 23, 42))
+    drawRectOutline(680.0, 324.0, 490.0, 100.0, 2.0, rgb(56, 189, 248))
+    drawText("AA PASS - Luma 0.65 on 0.05 (" + str(int(crMed)) + ":1 >= 4.5:1)", 704.0, 364.0, 18.0, rgb(186, 230, 253))
+
+    // Live Luminance Contrast Probe
+    let fgByte = int(dynLuma * 255.0)
+    let passLevel = if crDyn >= 7.0: "AAA PASS (>=7:1)" else: (if crDyn >= 4.5: "AA PASS (>=4.5:1)" else: "FAIL (<4.5:1)")
+    let statusCol = if crDyn >= 7.0: rgb(52, 211, 153) else: (if crDyn >= 4.5: rgb(56, 189, 248) else: rgb(239, 68, 68))
+    drawRect(680.0, 444.0, 490.0, 168.0, rgb(8, 11, 18))
+    drawRectOutline(680.0, 444.0, 490.0, 168.0, 2.5, statusCol)
+    drawText("LIVE LUMA SWEEP: L1=" + str(int(dynLuma * 100.0)) + "% on L2=3% -> " + str(int(crDyn)) + ":1", 704.0, 466.0, 16.0, rgb(fgByte, fgByte, fgByte))
+    drawText("Compliance Verdict: " + passLevel, 704.0, 496.0, 17.0, statusCol)
+    // Contrast bar & AA/AAA threshold markers
+    let barW = if crDyn > 15.0: 440.0 else: (crDyn / 15.0) * 440.0
+    drawRect(704.0, 536.0, 440.0, 18.0, rgb(30, 41, 59))
+    drawRect(704.0, 536.0, barW, 18.0, statusCol)
+    let aaX = 704.0 + (4.5 / 15.0) * 440.0
+    let aaaX = 704.0 + (7.0 / 15.0) * 440.0
+    drawLine(aaX, 530.0, aaX, 562.0, rgb(250, 204, 21), 2.0)
+    drawLine(aaaX, 530.0, aaaX, 562.0, rgb(52, 211, 153), 2.0)
+    drawText("AA(4.5)", aaX - 24.0, 568.0, 13.0, rgb(250, 204, 21))
+    drawText("AAA(7.0)", aaaX - 24.0, 568.0, 13.0, rgb(52, 211, 153))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

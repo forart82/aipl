@@ -1,0 +1,124 @@
+// ============================================================================
+// Step 3.16: Exhaustive Per-Function Unit Tests for std/rt/rt_string.aipl (15)
+// Target: tests/functions/rt/rt_string_test.aipl
+// ============================================================================
+module RtStringTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  RtString,
+  RtStringHeader,
+  RtStringTable,
+  rtStringHash,
+  rtStringCompare,
+  rtStringConcat,
+  rtStringSlice,
+  rtStringTableNew,
+  rtStringTableIntern,
+  rtStrNew,
+  rtStrFromRaw,
+  rtStrLen,
+  rtStrEq,
+  rtStrSlice,
+  rtStrConcat,
+  rtStrIndexOf,
+  rtIntToStr,
+  rtStrFree
+} from "../../../std/rt/rt_string.aipl"
+
+import {
+  ptrAlloc,
+  ptrFree,
+  ptrWriteU8,
+  ptrReadU8
+} from "../../../std/rt/rt_ptr.aipl"
+
+pub fn test_raw_string_helpers(): int:
+  let p1 = ptrAlloc(8)
+  ptrWriteU8(p1, 0, 97) // 'a'
+  ptrWriteU8(p1, 1, 98) // 'b'
+
+  let p2 = ptrAlloc(8)
+  ptrWriteU8(p2, 0, 97)
+  ptrWriteU8(p2, 1, 99) // 'c'
+
+  let h = rtStringHash(p1, 2)
+  assert(h > 0, "string hash > 0")
+
+  assert(rtStringCompare(p1, 2, p2, 2) < 0, "ab < ac")
+  assertEqInt(rtStringCompare(p1, 2, p1, 2), 0, "ab == ab")
+
+  let cat = rtStringConcat(p1, 2, p2, 2)
+  assert(cat > 0, "concat buffer > 0")
+  assertEqInt(ptrReadU8(cat, 0), 97, "concat byte 0 is 'a'")
+  assertEqInt(ptrReadU8(cat, 2), 97, "concat byte 2 is 'a'")
+  assertEqInt(ptrReadU8(cat, 3), 99, "concat byte 3 is 'c'")
+
+  let sl = rtStringSlice(cat, 4, 1, 3)
+  assert(sl > 0, "slice buffer > 0")
+  assertEqInt(ptrReadU8(sl, 0), 98, "slice byte 0 is 'b'")
+
+  mut tbl = rtStringTableNew(16)
+  let interned = rtStringTableIntern(tbl, p1, 2)
+  assert(interned > 0, "interned address > 0")
+  let interned2 = rtStringTableIntern(tbl, p1, 2)
+  assertEqInt(interned, interned2, "same string interns to identical pointer")
+
+  ptrFree(p1)
+  ptrFree(p2)
+  ptrFree(cat)
+  ptrFree(sl)
+  ret 0
+
+pub fn test_rt_str_struct_lifecycle(): int:
+  mut s1 = rtStrNew(16)
+  assert(s1.data > 0, "rtStrNew data > 0")
+  assertEqInt(rtStrLen(s1), 0, "initial len 0")
+
+  let raw = ptrAlloc(4)
+  ptrWriteU8(raw, 0, 72) // 'H'
+  ptrWriteU8(raw, 1, 105) // 'i'
+  mut s2 = rtStrFromRaw(raw, 2)
+  assertEqInt(rtStrLen(s2), 2, "rtStrFromRaw len is 2")
+
+  mut s3 = rtStrFromRaw(raw, 2)
+  assert(rtStrEq(s2, s3) == true, "rtStrEq true")
+
+  mut cat = rtStrConcat(s2, s3)
+  assertEqInt(rtStrLen(cat), 4, "concat len is 4")
+
+  let idx = rtStrIndexOf(cat, s2, 0)
+  assertEqInt(idx, 0, "indexOf prefix is 0")
+
+  mut sl = rtStrSlice(cat, 1, 3)
+  assertEqInt(rtStrLen(sl), 2, "slice len is 2")
+
+  mut numStr = rtIntToStr(12345)
+  assertEqInt(rtStrLen(numStr), 5, "intToStr len is 5")
+
+  mut zeroStr = rtIntToStr(0)
+  assertEqInt(rtStrLen(zeroStr), 1, "zeroStr len is 1")
+
+  mut negStr = rtIntToStr(-42)
+  assertEqInt(rtStrLen(negStr), 3, "negStr len is 3")
+
+  rtStrFree(s1)
+  rtStrFree(s2)
+  rtStrFree(s3)
+  rtStrFree(cat)
+  rtStrFree(sl)
+  rtStrFree(numStr)
+  rtStrFree(zeroStr)
+  rtStrFree(negStr)
+  ptrFree(raw)
+  ret 0
+
+pub fn main(): int:
+  test_raw_string_helpers()
+  test_rt_str_struct_lifecycle()
+  println("PASS: rt_string_test")
+  ret 0

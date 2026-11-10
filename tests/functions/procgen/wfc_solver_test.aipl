@@ -1,0 +1,71 @@
+module tests.functions.procgen.wfc_solver_test
+
+import * from "std/procgen/wfc_solver"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_wfc_solver_wfcSolver2dNew_1(): int:
+  let arg_width = 4
+  let edge_width = 1
+  let arg_height = 4
+  let edge_height = 1
+  let arg_numPatterns = 4
+  let edge_numPatterns = 1
+  let resNom = wfcSolver2dNew(arg_width, arg_height, arg_numPatterns)
+  let resEdge = wfcSolver2dNew(edge_width, edge_height, edge_numPatterns)
+  assertEqInt(resNom.width, 4, "wfcSolver2dNew nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "wfcSolver2dNew boundary resEdge.width == 1")
+  ret 0
+
+pub fn test_wfc_solver_wfcAddPattern_2(): int:
+  let arg_solver = WfcSolver2D(width = 4, height = 4, numPatterns = 4, patterns = [], waveMasks = [], collapsedGrid = [], isSolved = true)
+  let edge_solver = WfcSolver2D(width = 4, height = 4, numPatterns = 1, patterns = [], waveMasks = [], collapsedGrid = [], isSolved = false)
+  let arg_pattern = WfcPattern(id = 1, weight = 2.0, compatibleNeighbors = [])
+  let edge_pattern = WfcPattern(id = 0, weight = 1.0, compatibleNeighbors = [])
+  wfcAddPattern(arg_solver, arg_pattern)
+  wfcAddPattern(edge_solver, edge_pattern)
+  assertEqInt(arg_solver.patterns.len(), 1, "wfcAddPattern nominal arg_solver.patterns.len() == 1")
+  assertEqInt(edge_solver.patterns.len(), 1, "wfcAddPattern boundary edge_solver.patterns.len() == 1")
+  ret 0
+
+pub fn test_wfc_solver_countSetBits_3(): int:
+  let arg_mask = 4
+  let edge_mask = 1
+  let arg_maxBits = 4
+  let edge_maxBits = 1
+  let resNom = countSetBits(arg_mask, arg_maxBits)
+  let resEdge = countSetBits(edge_mask, edge_maxBits)
+  assertEqInt(resNom, 1, "countSetBits nominal resNom == 1")
+  assertEqInt(resEdge, 1, "countSetBits boundary resEdge == 1")
+  ret 0
+
+pub fn test_wfc_solver_wfcStep_4(): int:
+  mut solver = wfcSolver2dNew(2, 2, 2)
+  let pat0 = WfcPattern(id = 0, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  let pat1 = WfcPattern(id = 1, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  wfcAddPattern(solver, pat0)
+  wfcAddPattern(solver, pat1)
+  let ok = wfcStep(solver, 42)
+  assert(ok == true, "wfcStep succeeds on valid 2x2 grid")
+  assertEqInt(solver.collapsedGrid.len, 4, "solver has 4 collapsed cells")
+  ret 0
+
+pub fn test_wfc_solver_wfcSolve_5(): int:
+  mut solver = wfcSolver2dNew(3, 3, 2)
+  let pat0 = WfcPattern(id = 0, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  let pat1 = WfcPattern(id = 1, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  wfcAddPattern(solver, pat0)
+  wfcAddPattern(solver, pat1)
+  let solved = wfcSolve(solver, 5, 123)
+  assert(solved == true, "wfcSolve finds valid solution on 3x3 grid")
+  assert(solver.isSolved == true, "solver marked as solved")
+  assert(solver.collapsedGrid[0] >= 0, "first cell collapsed to valid pattern index")
+  assert(solver.collapsedGrid[8] >= 0, "last cell collapsed to valid pattern index")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_wfc_solver_wfcSolver2dNew_1(), 0, "test_wfc_solver_wfcSolver2dNew_1")
+  assertEqInt(test_wfc_solver_wfcAddPattern_2(), 0, "test_wfc_solver_wfcAddPattern_2")
+  assertEqInt(test_wfc_solver_countSetBits_3(), 0, "test_wfc_solver_countSetBits_3")
+  assertEqInt(test_wfc_solver_wfcStep_4(), 0, "test_wfc_solver_wfcStep_4")
+  assertEqInt(test_wfc_solver_wfcSolve_5(), 0, "test_wfc_solver_wfcSolve_5")
+  ret 0

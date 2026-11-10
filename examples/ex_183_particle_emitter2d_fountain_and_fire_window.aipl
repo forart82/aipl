@@ -1,0 +1,175 @@
+module Ex183ParticleEmitter2dFountainAndFireWindow
+
+import { Vec2, Vec3 } from "../std/math/vec_math"
+import { ColorRgba8 } from "../std/gfx/color"
+import {
+  EmissionShape2D, Particle2D, createParticlePool2D,
+  sampleEmissionPosition2D, spawnParticle2D, stepParticlePool2D,
+  emitParticleBurst2D, countActiveParticles2D, particleNormalizedAge2D
+} from "../std/particle/emitter2d"
+import { createGravityAffector } from "../std/particle/affector"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepFountainJetParticle(frame: int): Particle2D:
+  let cyan = ColorRgba8(r = 56, g = 189, b = 248, a = 255)
+  let blue = ColorRgba8(r = 30, g = 64, b = 175, a = 60)
+  let vx = sin(float(frame) * 0.43) * 95.0
+  let vy = -155.0 - absFloat(cos(float(frame) * 0.29)) * 45.0
+  ret Particle2D(
+    pos = Vec2(x = 335.0, y = 415.0),
+    vel = Vec2(x = vx, y = vy),
+    startColor = cyan,
+    endColor = blue,
+    size = 7.0,
+    rotationRad = 0.0,
+    rotSpeedRad = 1.5,
+    ageSec = 0.0,
+    lifetimeSec = 1.65,
+    isAlive = true
+  )
+
+pub fn buildParticleEmitter2dFountainAudit(): int:
+  let gold = ColorRgba8(r = 250, g = 204, b = 21, a = 255)
+  let crimson = ColorRgba8(r = 244, g = 63, b = 94, a = 0)
+  mut pool = createParticlePool2D(64, 30.0)
+  let p0 = Particle2D(
+    pos = Vec2(x = 0.0, y = 0.0),
+    vel = Vec2(x = 20.0, y = 40.0),
+    startColor = gold,
+    endColor = crimson,
+    size = 8.0,
+    rotationRad = 0.0,
+    rotSpeedRad = 1.0,
+    ageSec = 0.0,
+    lifetimeSec = 2.0,
+    isAlive = true
+  )
+  pool = spawnParticle2D(pool, p0)
+  let grav = createGravityAffector(Vec3(x = 0.0, y = -20.0, z = 0.0))
+  pool = stepParticlePool2D(pool, 0.5, [grav])
+  let advX = int(pool.particles[0].pos.x)
+  pool = emitParticleBurst2D(pool, Vec2(x = 0.0, y = 0.0), 8, 30.0, 1.5, gold, crimson)
+  ret pool.maxParticles + advX + countActiveParticles2D(pool)
+
+pub fn main(): int:
+  let cyan = ColorRgba8(r = 56, g = 189, b = 248, a = 255)
+  let blue = ColorRgba8(r = 30, g = 64, b = 175, a = 60)
+  let gold = ColorRgba8(r = 250, g = 204, b = 21, a = 255)
+  let crimson = ColorRgba8(r = 244, g = 63, b = 94, a = 60)
+
+  mut fountainPool = createParticlePool2D(64, 30.0)
+  fountainPool = emitParticleBurst2D(fountainPool, Vec2(x = 335.0, y = 320.0), 14, 75.0, 1.35, cyan, blue)
+
+  mut firePool = createParticlePool2D(64, 30.0)
+  firePool = emitParticleBurst2D(firePool, Vec2(x = 945.0, y = 415.0), 14, 52.0, 1.35, gold, crimson)
+
+  let downGrav = createGravityAffector(Vec3(x = 0.0, y = 140.0, z = 0.0))
+  let upDraft = createGravityAffector(Vec3(x = 0.0, y = -115.0, z = 0.0))
+  let discShape = EmissionShape2D(shapeType = 1, radius = 28.0, innerRadius = 0.0, boxExtents = Vec2(x = 0.0, y = 0.0))
+  let audit = buildParticleEmitter2dFountainAudit()
+
+  initWindow(1280, 720, "AIPL ex_183: 2D Particle Emitters — Gravity Fountain & Thermal Fire Plume")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let u1 = float((frame * 17) % 29) / 29.0
+    let u2 = float((frame * 13) % 23) / 23.0
+    let emitOff = sampleEmissionPosition2D(discShape, u1, u2)
+    fountainPool = stepParticlePool2D(fountainPool, 0.022, [downGrav])
+    firePool = stepParticlePool2D(firePool, 0.022, [upDraft])
+
+    // Continuous stream of parabolic fountain jets & buoyant fire embers
+    fountainPool = spawnParticle2D(fountainPool, stepFountainJetParticle(frame))
+    let fireEmber = Particle2D(
+      pos = Vec2(x = 945.0 + emitOff.x * 1.4, y = 430.0 + emitOff.y * 0.4),
+      vel = Vec2(x = sin(float(frame) * 0.37) * 34.0 - emitOff.x * 0.6, y = -65.0 - u2 * 45.0),
+      startColor = gold,
+      endColor = crimson,
+      size = 9.0,
+      rotationRad = 0.0,
+      rotSpeedRad = 1.0,
+      ageSec = 0.0,
+      lifetimeSec = 1.45,
+      isAlive = true
+    )
+    firePool = spawnParticle2D(firePool, fireEmber)
+
+    if frame % 29 == 0 and frame > 0:
+      fountainPool = emitParticleBurst2D(fountainPool, Vec2(x = 335.0, y = 290.0), 10, 68.0, 1.25, cyan, blue)
+      firePool = emitParticleBurst2D(firePool, Vec2(x = 945.0 + emitOff.x, y = 415.0 + emitOff.y * 0.4), 10, 48.0, 1.25, gold, crimson)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawText("EX_183: 2D PARTICLE EMITTERS — PARABOLIC FOUNTAIN & THERMAL FIRE PLUME", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/particle/emitter2d: createParticlePool2D | stepParticlePool2D | emitParticleBurst2D | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Parabolic Gravity Water Fountain
+    drawRect(40.0, 96.0, 590.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 590.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("PARABOLIC WATER FOUNTAIN (+Y Gravity = +140 px/s^2)", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    // Fountain basin and nozzle pedestal
+    drawRect(155.0, 448.0, 360.0, 22.0, rgb(30, 58, 138))
+    drawRectOutline(155.0, 448.0, 360.0, 22.0, 2.0, rgb(56, 189, 248))
+    drawRect(315.0, 415.0, 40.0, 33.0, rgb(71, 85, 105))
+
+    mut i: int = 0
+    while i < fountainPool.particles.len():
+      let p = fountainPool.particles[i]
+      if p.isAlive:
+        let normAge = particleNormalizedAge2D(p)
+        let r = 7.5 - normAge * 3.5
+        let py = if p.pos.y > 444.0: 444.0 else: (if p.pos.y < 145.0: 145.0 else: p.pos.y)
+        let px = if p.pos.x < 65.0: 65.0 else: (if p.pos.x > 605.0: 605.0 else: p.pos.x)
+        let tx = px - p.vel.x * 0.045
+        let ty = if py - p.vel.y * 0.045 > 444.0: 444.0 else: py - p.vel.y * 0.045
+        let cR = int(56.0 * (1.0 - normAge) + 30.0 * normAge)
+        let cG = int(189.0 * (1.0 - normAge) + 90.0 * normAge)
+        let cB = 248
+        drawLine(px, py, tx, ty, rgb(125, 211, 252), 2.0)
+        drawCircle(px, py, r, rgb(cR, cG, cB))
+      i = i + 1
+
+    drawText("Point Nozzle + Ring Burst -> Parabolic Arcs into Water Basin", 60.0, 480.0, 13.0, rgb(148, 163, 184))
+
+    // Right Panel: Buoyant Thermal Fire Plume
+    drawRect(650.0, 96.0, 590.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 96.0, 590.0, 410.0, 2.0, rgb(244, 63, 94))
+    drawText("THERMAL UPDRAFT FIRE PLUME (-Y Buoyancy = -115 px/s^2)", 670.0, 118.0, 16.0, rgb(253, 164, 175))
+
+    // Brazier disc emitter ring
+    drawRect(885.0, 444.0, 120.0, 18.0, rgb(87, 30, 42))
+    drawCircleOutline(945.0, 430.0, discShape.radius, 2.0, rgb(250, 204, 21))
+    drawCircle(945.0 + emitOff.x, 430.0 + emitOff.y * 0.4, 4.0, rgb(255, 251, 235))
+
+    mut j: int = 0
+    while j < firePool.particles.len():
+      let fp = firePool.particles[j]
+      if fp.isAlive:
+        let nAge = particleNormalizedAge2D(fp)
+        let fpy = if fp.pos.y < 145.0: 145.0 else: (if fp.pos.y > 445.0: 445.0 else: fp.pos.y)
+        let fpx = if fp.pos.x < 675.0: 675.0 else: (if fp.pos.x > 1215.0: 1215.0 else: fp.pos.x)
+        let col = if nAge < 0.30: rgb(254, 240, 138) else: (if nAge < 0.65: rgb(251, 146, 60) else: rgb(225, 29, 72))
+        let rad = 10.5 - nAge * 5.5
+        drawLine(fpx, fpy, fpx - fp.vel.x * 0.04, fpy - fp.vel.y * 0.04, col, 2.0)
+        drawCircle(fpx, fpy, rad, col)
+      j = j + 1
+
+    drawText("Disc Emission Shape (r=28 px) -> Core Yellow -> Orange -> Crimson Plume", 670.0, 480.0, 13.0, rgb(148, 163, 184))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("2D PARTICLE POOL TELEMETRY (Frame " + str(frame) + ")", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Fountain Active Particles: " + str(countActiveParticles2D(fountainPool)) + "/" + str(fountainPool.maxParticles) + " | Fire Active Particles: " + str(countActiveParticles2D(firePool)) + "/" + str(firePool.maxParticles), 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Emission Shape: Disc (Radius=28 px) | Sample Offset=(" + str(int(emitOff.x)) + ", " + str(int(emitOff.y)) + ") | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

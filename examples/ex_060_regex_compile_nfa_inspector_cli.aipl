@@ -1,0 +1,50 @@
+// ============================================================================
+// Example 060: Regex AST Parser, NFA Bytecode & Flags Inspector (CLI)
+// Demonstrates: defaultRegexFlags, emptyCharClass, parseRegexAst,
+//               compileAstToBytecode, RegexFlags, regexCompileEx, and
+//               escapeRegexSpecial from std/regex.
+// ============================================================================
+module Ex060RegexCompileNfaInspectorCli
+
+import {
+  RegexFlags,
+  defaultRegexFlags,
+  emptyCharClass,
+  parseRegexAst,
+  compileAstToBytecode,
+  regexCompileEx,
+  escapeRegexSpecial
+} from "../std/regex"
+
+pub fn inspectNfaBytecodeAndEscaping(pattern: str): int:
+  let defFlags = defaultRegexFlags()
+  let ecc = emptyCharClass()
+  let ast = parseRegexAst(pattern).unwrap()
+  let bc = compileAstToBytecode(ast, defFlags)
+  let esc = escapeRegexSpecial("a+b*c?")
+  if not defFlags.ignoreCase and not ecc.negated and esc == "a\\+b\\*c\\?":
+    ret bc.instructions.len
+  ret -1
+
+pub fn verifyRegexFlagsIgnoreCaseAndMultiline(): int:
+  let fCase = RegexFlags(ignoreCase = true, multiline = false, dotAll = false, ungreedy = false)
+  let reCase = regexCompileEx("aipl [a-z]+", fCase).unwrap()
+  let fMulti = RegexFlags(ignoreCase = false, multiline = true, dotAll = false, ungreedy = false)
+  let reMulti = regexCompileEx("^second", fMulti).unwrap()
+  let fDot = RegexFlags(ignoreCase = false, multiline = false, dotAll = true, ungreedy = false)
+  let reDot = regexCompileEx("start.*end", fDot).unwrap()
+  if reCase.isMatch("AIPL COMPILER") and reMulti.isMatch("first\nsecond\nthird") and reDot.isMatch("start\nmid\nend"):
+    ret 1
+  ret 0
+
+pub fn describeNfaBytecodeEngine(modeId: int): str:
+  if modeId == 0:
+    ret "REGEX:THOMPSON_NFA_PIKE_VM"
+  ret "REGEX:DFA_AHO_CORASICK"
+
+pub fn main(): int:
+  let instrLen = inspectNfaBytecodeAndEscaping("a+b")
+  let flagsOk = verifyRegexFlagsIgnoreCaseAndMultiline()
+  println("Compiled NFA Bytecode Instruction Count ('a+b'): " + str(instrLen))
+  println("Regex Flags (i/m/s) Verified: " + str(flagsOk) + " (" + describeNfaBytecodeEngine(0) + ")")
+  ret 0

@@ -1,0 +1,138 @@
+/// # Module: `std/test/bench` (`TestBench`)
+///
+/// ## Purpose & Domain Scope
+/// High-precision micro-benchmarking timers (`BenchmarkTimer`), statistical aggregation
+/// (`BenchmarkStats`), and Tukey IQR fence outlier rejection (`rejectOutliersIqr`).
+module TestBench
+
+pub struct BenchmarkTimer:
+  startNs: int
+  elapsedNs: int
+  iterCount: int
+  allocCount: int
+
+pub struct BenchmarkConfig:
+  warmupIters: int
+  measureIters: int
+  maxDurationMs: int
+  rejectOutliers: bool
+
+pub struct BenchmarkStats:
+  meanNs: float
+  medianNs: float
+  stdDevNs: float
+  minNs: int
+  maxNs: int
+  iqrNs: float
+  allocsPerOp: float
+
+pub struct BenchmarkResult:
+  name: str
+  runs: [int]
+  stats: BenchmarkStats
+
+pub fn createBenchmarkTimer(): BenchmarkTimer:
+  ret BenchmarkTimer(startNs: 0, elapsedNs: 0, iterCount: 0, allocCount: 0)
+
+pub fn startBenchmarkTimer(mut timer: BenchmarkTimer): BenchmarkTimer:
+  timer.startNs = nowMonoNs()
+  ret timer
+
+pub fn stopBenchmarkTimer(mut timer: BenchmarkTimer): BenchmarkTimer:
+  let endNs = nowMonoNs()
+  mut diff = endNs - timer.startNs
+  if diff < 0:
+    diff = 0
+  timer.elapsedNs = timer.elapsedNs + diff
+  timer.iterCount = timer.iterCount + 1
+  ret timer
+
+fn sortSamples(samples: [int]): [int]:
+  mut arr: [int] = []
+  mut i = 0
+  while i < samples.len():
+    arr.push(samples[i])
+    i = i + 1
+  mut a = 0
+  while a < arr.len():
+    mut b = a + 1
+    while b < arr.len():
+      if arr[b] < arr[a]:
+        let tmp = arr[a]
+        arr[a] = arr[b]
+        arr[b] = tmp
+      b = b + 1
+    a = a + 1
+  ret arr
+
+pub fn rejectOutliersIqr(samples: [int]): [int]:
+  if samples.len() < 4:
+    ret samples
+  let sorted = sortSamples(samples)
+  let n = sorted.len()
+  let q1 = float(sorted[n / 4])
+  let q3 = float(sorted[(n * 3) / 4])
+  mut iqr = q3 - q1
+  if iqr < 1.0:
+    iqr = 1.0
+  let lowFence = q1 - 1.5 * iqr
+  let highFence = q3 + 1.5 * iqr
+  mut out: [int] = []
+  mut i = 0
+  while i < samples.len():
+    let v = float(samples[i])
+    if v >= lowFence and v <= highFence:
+      out.push(samples[i])
+    i = i + 1
+  ret out
+
+pub fn calculateStats(samples: [int], allocs: int): BenchmarkStats:
+  let n = samples.len()
+  if n == 0:
+    ret BenchmarkStats(meanNs: 0.0, medianNs: 0.0, stdDevNs: 0.0, minNs: 0, maxNs: 0, iqrNs: 0.0, allocsPerOp: 0.0)
+  let sorted = sortSamples(samples)
+  let minVal = sorted[0]
+  let maxVal = sorted[n - 1]
+  mut sum = 0
+  mut i = 0
+  while i < n:
+    sum = sum + sorted[i]
+    i = i + 1
+  let mean = float(sum) / float(n)
+  let median = if (n & 1) == 1:
+    float(sorted[n / 2])
+  else:
+    float(sorted[(n / 2) - 1] + sorted[n / 2]) * 0.5
+  let q1 = float(sorted[n / 4])
+  let q3 = float(sorted[(n * 3) / 4])
+  let iqr = q3 - q1
+
+  mut sqDiffSum = 0.0
+  i = 0
+  while i < n:
+    let d = float(sorted[i]) - mean
+    sqDiffSum = sqDiffSum + d * d
+    i = i + 1
+  let variance = if n > 1: sqDiffSum / float(n - 1) else: 0.0
+  mut stdDev = 0.0
+  if variance > 0.0:
+    mut g = variance
+    mut k = 0
+    while k < 12:
+      g = 0.5 * (g + variance / g)
+      k = k + 1
+    stdDev = g
+
+  let allocsPer = float(allocs) / float(n)
+  ret BenchmarkStats(
+    meanNs: mean,
+    medianNs: median,
+    stdDevNs: stdDev,
+    minNs: minVal,
+    maxNs: maxVal,
+    iqrNs: iqr,
+    allocsPerOp: allocsPer
+  )
+
+pub fn formatBenchmarkReport(result: BenchmarkResult): str:
+  ret result.name + ": " + str(result.runs.len()) + " ops, " + str(result.stats.meanNs) + " ns/op, " + str(result.stats.allocsPerOp) + " allocs/op"

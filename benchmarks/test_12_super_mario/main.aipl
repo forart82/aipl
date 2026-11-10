@@ -1,0 +1,52 @@
+struct EnemyGoomba(x, y, vx, alive)
+struct MarioWorld(playerX, playerY, playerVx, playerVy, onGround, powerUpState, coins, score, lives, cameraX, goalX, status, coinPositions, mushroomX, mushroomTaken, enemies)
+
+fn createMarioLevel() = MarioWorld(0.0, 0.0, 0.0, 0.0, true, 0, 0, 0, 3, 0.0, 120.0, "PLAYING", [30.0, 60.0, 90.0], 40.0, false, [EnemyGoomba(50.0, 0.0, -1.0, true)])
+
+fn stepMarioFrame(w, moveDir, jumpPressed, dt):
+  if w.status != "PLAYING":
+    ret
+  w.playerVx = moveDir * 20.0
+  if jumpPressed and w.onGround:
+    w.playerVy = 18.0
+    w.onGround = false
+  w.playerVy -= 30.0 * dt
+  w.playerX += w.playerVx * dt
+  w.playerY += w.playerVy * dt
+  if w.playerY <= 0.0:
+    w.playerY = 0.0
+    w.playerVy = 0.0
+    w.onGround = true
+  if not w.mushroomTaken and abs(w.playerX - w.mushroomX) <= 2.0:
+    w.mushroomTaken = true
+    w.powerUpState = 1
+    w.score += 1000
+  let hit = w.coinPositions.count(|cx| abs(w.playerX - cx) <= 2.0)
+  w.coins += hit
+  w.score += hit * 200
+  w.coinPositions.retain(|cx| abs(w.playerX - cx) > 2.0)
+  for e in w.enemies:
+    if e.alive:
+      e.x += e.vx * dt
+      if abs(w.playerX - e.x) <= 2.5:
+        if w.playerY > 0.5 and w.playerVy < 0.0:
+          e.alive = false
+          w.playerVy = 10.0
+          w.score += 500
+        else if w.playerY <= 0.5:
+          if w.powerUpState > 0:
+            w.powerUpState = 0
+          else:
+            w.lives -= 1
+            if w.lives <= 0:
+              w.status = "GAME_OVER"
+  w.cameraX = max(0.0, w.playerX - 20.0)
+  if w.playerX >= w.goalX:
+    w.status = "LEVEL_CLEAR"
+    w.score += 2000
+
+let world = createMarioLevel()
+for frame in 0..40:
+  stepMarioFrame(world, 1.0, frame == 8, 0.2)
+assert(world.status == "LEVEL_CLEAR" and world.score == 4100 and world.coins == 3 and not world.enemies[0].alive and world.cameraX > 80.0)
+println("Mario Status={world.status} Score={world.score} Coins={world.coins}\nBENCH_12_OK")

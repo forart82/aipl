@@ -1,0 +1,50 @@
+module Ex200UiAnimSpringTransitionsWindowTest
+
+import {
+  buildUiAnimSpringAudit, stepSpringTargetX
+} from "../../examples/ex_200_ui_anim_spring_transitions_window"
+import { UiSpring, updateUiSpring } from "../../std/ui/ui_anim"
+
+pub fn test_ui_anim_spring_transitions(): void:
+  let sp0 = UiSpring(position = 0.0, target = 100.0, velocity = 0.0, stiffness = 50.0, damping = 5.0)
+  let sp1 = updateUiSpring(sp0, 0.1)
+  assert(sp1.position == 50.0 and sp1.velocity == 500.0, "Semi-implicit Euler spring step advances position to 50.0 and velocity to 500.0")
+
+  let sp2 = updateUiSpring(sp1, 0.1)
+  assert(sp2.position > 50.0, "Second step continues advancing toward target")
+  assert(buildUiAnimSpringAudit() == 550, "buildUiAnimSpringAudit returns 50 + 500 == 550")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let t0 = stepSpringTargetX(0)
+  let t1 = stepSpringTargetX(1)
+  let t20 = stepSpringTargetX(20)
+  let t100 = stepSpringTargetX(100)
+  assert(t0 != t1 and t1 != t20 and t20 != t100, "spring target evolves across t=0,1,20,100 without freezing")
+
+  mut sp = UiSpring(position = 220.0, target = t0, velocity = 0.0, stiffness = 45.0, damping = 4.0)
+  mut f = 0
+  mut p1 = 0.0
+  mut p20 = 0.0
+  mut p100 = 0.0
+  while f <= 100:
+    sp = UiSpring(
+      position = sp.position,
+      target = stepSpringTargetX(f),
+      velocity = sp.velocity,
+      stiffness = sp.stiffness,
+      damping = sp.damping
+    )
+    sp = updateUiSpring(sp, 0.016)
+    if f == 1:
+      p1 = sp.position
+    if f == 20:
+      p20 = sp.position
+    if f == 100:
+      p100 = sp.position
+    f = f + 1
+  assert(p1 != p20 and p20 != p100, "spring position progresses continuously across frames 1, 20, and 100")
+
+pub fn main(): int:
+  test_ui_anim_spring_transitions()
+  println("PASS: ex_200_ui_anim_spring_transitions_window_test")
+  ret 0

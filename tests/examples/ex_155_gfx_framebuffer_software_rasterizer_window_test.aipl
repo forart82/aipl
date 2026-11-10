@@ -1,0 +1,32 @@
+module Ex155GfxFramebufferSoftwareRasterizerWindowTest
+
+import {
+  buildFramebufferRasterAudit,
+  stepFramebufferResize
+} from "../../examples/ex_155_gfx_framebuffer_software_rasterizer_window"
+import { createGpuDevice } from "../../std/gfx/gpu_device"
+import { createFramebuffer, resizeFramebuffer } from "../../std/gfx/framebuffer"
+
+pub fn test_gfx_framebuffer_software_rasterizer(): void:
+  let dev = createGpuDevice(4)
+  mut fb = createFramebuffer(dev, 800, 600, true, 4)
+  assert(fb.width == 800 and fb.height == 600, "initial framebuffer 800x600")
+  assert(fb.sampleCount == 4, "4x MSAA sampleCount")
+  assert(fb.depthAttachment.width == 800, "depth attachment matches width")
+
+  fb = resizeFramebuffer(dev, fb, 1280, 720)
+  assert(fb.width == 1280 and fb.height == 720, "resized framebuffer 1280x720")
+  assert(fb.colorAttachment.width == 1280, "color attachment resized to 1280")
+  let fb0 = stepFramebufferResize(dev, fb, 0)
+  let fb1 = stepFramebufferResize(dev, fb, 1)
+  let fb20 = stepFramebufferResize(dev, fb, 20)
+  let fb100 = stepFramebufferResize(dev, fb, 100)
+  assert(fb0.width != fb1.width and fb0.height != fb1.height, "framebuffer resize advances between frame 0 and frame 1")
+  assert(fb1.width != fb20.width and fb1.height != fb20.height, "framebuffer resize advances between frame 1 and frame 20")
+  assert(fb20.width != fb100.width and fb20.height != fb100.height, "framebuffer resize advances between frame 20 and frame 100")
+  assert(buildFramebufferRasterAudit() == 2004, "buildFramebufferRasterAudit returns 1280+720+4 == 2004")
+
+pub fn main(): int:
+  test_gfx_framebuffer_software_rasterizer()
+  println("PASS: ex_155_gfx_framebuffer_software_rasterizer_window_test")
+  ret 0

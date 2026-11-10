@@ -1,0 +1,169 @@
+/// # Module: `std/compress/gzip` (`Gzip`)
+///
+/// ## Purpose & Domain Scope
+/// RFC 1952 Gzip file container and RFC 1950 Zlib stream framing with IEEE 802.3
+/// CRC-32 and Adler-32 integrity checksum verification.
+module Gzip
+
+import { DeflateOptions, deflateCompress, deflateDecompress } from "./deflate.aipl"
+
+pub struct GzipHeader:
+  magic: (int, int)
+  compressionMethod: int
+  flags: int
+  mtime: int
+  extraFlags: int
+  os: int
+  fileName: str
+  comment: str
+
+pub struct ZlibHeader:
+  compressionMethod: int
+  info: int
+  fcheck: int
+  fdict: bool
+  flevel: int
+
+pub fn computeAdler32(data: bytes): int:
+  let n = data.len()
+  mut a = 1
+  mut b = 0
+  mut i = 0
+  while i < n:
+    a = (a + (data[i] & 255)) % 65521
+    b = (b + a) % 65521
+    i = i + 1
+  ret ((b << 16) | a) & 4294967295
+
+pub fn computeCrc32(data: bytes): int:
+  let n = data.len()
+  mut crc = 4294967295
+  mut i = 0
+  while i < n:
+    crc = crc ^ (data[i] & 255)
+    mut bit = 0
+    while bit < 8:
+      if (crc & 1) != 0:
+        crc = ((crc >> 1) & 2147483647) ^ 3988292384
+      else:
+        crc = (crc >> 1) & 2147483647
+      bit = bit + 1
+    i = i + 1
+  ret (crc ^ 4294967295) & 4294967295
+
+pub fn gzipCompress(data: bytes, filename: str = "", mtime: int = 0): bytes:
+  let hasName = filename.len > 0
+  let flg = if hasName: 8 else: 0
+  mut out: [int] = [
+    31, 139,
+    8,
+    flg,
+    mtime & 255,
+    (mtime >> 8) & 255,
+    (mtime >> 16) & 255,
+    (mtime >> 24) & 255,
+    0,
+    255
+  ]
+  if hasName:
+    let nb = filename.toBytes()
+    mut i = 0
+    while i < nb.len():
+      out.push(nb[i] & 255)
+      i = i + 1
+    out.push(0)
+  let defBytes = deflateCompress(data, DeflateOptions(level = 6, windowBits = 15, memLevel = 8))
+  mut di = 0
+  while di < defBytes.len():
+    out.push(defBytes[di] & 255)
+    di = di + 1
+  let crc = computeCrc32(data)
+  let isize = data.len() & 4294967295
+  out.push(crc & 255)
+  out.push((crc >> 8) & 255)
+  out.push((crc >> 16) & 255)
+  out.push((crc >> 24) & 255)
+  out.push(isize & 255)
+  out.push((isize >> 8) & 255)
+  out.push((isize >> 16) & 255)
+  out.push((isize >> 24) & 255)
+  ret bytesFromArray(out)
+
+pub fn gzipDecompress(data: bytes): Result[bytes, str]:
+  let n = data.len()
+  if n < 18:
+    ret Err("gzipDecompress: buffer shorter than 18-byte minimum Gzip frame")
+  if (data[0] & 255) != 31 or (data[1] & 255) != 139:
+    ret Err("gzipDecompress: invalid Gzip magic bytes (expected 0x1F 0x8B)")
+  if (data[2] & 255) != 8:
+    ret Err("gzipDecompress: unsupported compression method")
+  let flg = data[3] & 255
+  mut pos = 10
+  // FEXTRA (0x04)
+  if (flg & 4) != 0:
+    if pos + 2 > n - 8:
+      ret Err("gzipDecompress: truncated FEXTRA field")
+    let xlen = (data[pos] & 255) | ((data[pos + 1] & 255) << 8)
+    pos = pos + 2 + xlen
+  // FNAME (0x08)
+  if (flg & 8) != 0:
+    while pos < n - 8 and (data[pos] & 255) != 0:
+      pos = pos + 1
+    pos = pos + 1
+  // FCOMMENT (0x10)
+  if (flg & 16) != 0:
+    while pos < n - 8 and (data[pos] & 255) != 0:
+      pos = pos + 1
+    pos = pos + 1
+  // FHCRC (0x02)
+  if (flg & 2) != 0:
+    pos = pos + 2
+  if pos > n - 8:
+    ret Err("gzipDecompress: header exceeds frame size")
+  let defSlice = data.slice(pos, n - 8)
+  let rawRes = deflateDecompress(defSlice)
+  if rawRes.isErr():
+    ret rawRes
+  let raw = rawRes.unwrap()
+  let expectedCrc = (data[n - 8] & 255) | ((data[n - 7] & 255) << 8) | ((data[n - 6] & 255) << 16) | ((data[n - 5] & 255) << 24)
+  let expectedSize = (data[n - 4] & 255) | ((data[n - 3] & 255) << 8) | ((data[n - 2] & 255) << 16) | ((data[n - 1] & 255) << 24)
+  let actualCrc = computeCrc32(raw)
+  if actualCrc != expectedCrc:
+    ret Err("gzipDecompress: CRC-32 mismatch")
+  if (raw.len() & 4294967295) != expectedSize:
+    ret Err("gzipDecompress: ISIZE mismatch")
+  ret Ok(raw)
+
+pub fn zlibCompress(data: bytes, level: int = 6): bytes:
+  // CMF = 0x78 (DEFLATE, 32K window), FLG = 0x9C (default level, (0x78*256+0x9C)%31 == 0)
+  let defBytes = deflateCompress(data, DeflateOptions(level = level, windowBits = 15, memLevel = 8))
+  mut out: [int] = [120, 156]
+  mut i = 0
+  while i < defBytes.len():
+    out.push(defBytes[i] & 255)
+    i = i + 1
+  let adler = computeAdler32(data)
+  out.push((adler >> 24) & 255)
+  out.push((adler >> 16) & 255)
+  out.push((adler >> 8) & 255)
+  out.push(adler & 255)
+  ret bytesFromArray(out)
+
+pub fn zlibDecompress(data: bytes): Result[bytes, str]:
+  let n = data.len()
+  if n < 6:
+    ret Err("zlibDecompress: buffer shorter than 6-byte minimum Zlib stream")
+  let cmf = data[0] & 255
+  let flg = data[1] & 255
+  if (cmf & 15) != 8 or ((cmf * 256 + flg) % 31) != 0:
+    ret Err("zlibDecompress: invalid Zlib CMF/FLG header")
+  let defSlice = data.slice(2, n - 4)
+  let rawRes = deflateDecompress(defSlice)
+  if rawRes.isErr():
+    ret rawRes
+  let raw = rawRes.unwrap()
+  let expectedAdler = ((data[n - 4] & 255) << 24) | ((data[n - 3] & 255) << 16) | ((data[n - 2] & 255) << 8) | (data[n - 1] & 255)
+  let actualAdler = computeAdler32(raw)
+  if actualAdler != expectedAdler:
+    ret Err("zlibDecompress: Adler-32 checksum mismatch")
+  ret Ok(raw)

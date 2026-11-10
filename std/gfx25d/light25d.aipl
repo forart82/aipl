@@ -1,0 +1,116 @@
+/// # Module: `std/gfx25d/light25d` (`Gfx25dLight25d`)
+///
+/// ## Purpose & Domain Scope
+/// True 2.5D Dark-Fantasy Lighting Pipeline providing multiplicative ambient darkness overlays
+/// (`drawAmbientDarknessPass25D`) and flickering additive radial point-light cookies
+/// (`PointLight25D`, `createPointLight25D`, `drawLightCookie25D`, `renderLightingPass25D`).
+///
+/// ## Architectural Boundary
+/// - `std/gfx2d/light2d`: 2D 1D-polar shadow map raycasting.
+/// - `std/gfx25d/light25d`: 2.5D isometric ambient multiply darkness pass + additive radial light cookies.
+///
+/// ## Runnable Example
+/// ```aipl
+/// import { rgba, createProceduralTexture } from "std/gfx2d/shape2d"
+/// import { createCamera25D } from "std/gfx25d/camera25d"
+/// import { createPointLight25D, renderLightingPass25D } from "std/gfx25d/light25d"
+///
+/// let cam = createCamera25D(800.0, 600.0, 1.0)
+/// let cookieTex = createProceduralTexture("light_cookie", 64, 64, 7)
+/// let fireLight = createPointLight25D(0.0, 0.0, 12.0, 180.0, rgba(255, 165, 70, 0.9), 1.15, 0.14, 8.0)
+/// let drawn = renderLightingPass25D(cam, 800.0, 600.0, rgba(72, 86, 118, 0.65), cookieTex, [fireLight], 0.5)
+/// ```
+module Gfx25dLight25d
+
+import { clampFloat, maxFloat } from "../prelude"
+import { Color, drawRect, drawQuad3DTextured, setBlendMode, blendModeAlpha, blendModeAdditive, blendModeMultiplied } from "../gfx2d/shape2d"
+import { Camera25D, project3DToIso } from "./camera25d"
+
+/// Dynamic 2.5D point light with world coordinates `(wx, wy, wz)`, screen-space base `radius`, `color`, `intensity`, and flicker parameters.
+pub struct PointLight25D(wx: float, wy: float, wz: float, radius: float, color: Color, intensity: float, flickerAmp: float, flickerSpeed: float)
+
+/// Constructs a `PointLight25D` at `(wx, wy, wz)` with deterministic torch/campfire flicker settings.
+pub fn createPointLight25D(wx: float, wy: float, wz: float, radius: float, color: Color, intensity: float = 1.0, flickerAmp: float = 0.12, flickerSpeed: float = 7.0): PointLight25D:
+  ret PointLight25D(
+    wx = wx,
+    wy = wy,
+    wz = wz,
+    radius = maxFloat(radius, 4.0),
+    color = color,
+    intensity = clampFloat(intensity, 0.0, 4.0),
+    flickerAmp = clampFloat(flickerAmp, 0.0, 0.85),
+    flickerSpeed = maxFloat(flickerSpeed, 0.0)
+  )
+
+/// Renders the full-screen multiplicative ambient darkness pass (`blendModeMultiplied()`) and restores `blendModeAlpha()`.
+pub fn drawAmbientDarknessPass25D(viewportW: float, viewportH: float, ambientColor: Color): int:
+  if viewportW <= 0.0 or viewportH <= 0.0:
+    ret 0
+  setBlendMode(blendModeMultiplied())
+  drawRect(0.0, 0.0, viewportW, viewportH, ambientColor)
+  setBlendMode(blendModeAlpha())
+  ret 1
+
+/// Projects `light` through `cam`, applies deterministic flicker modulation at `timeSec`, and renders an additive radial light cookie quad (`blendModeAdditive()`).
+pub fn drawLightCookie25D(cam: Camera25D, lightCookieTexId: int, light: PointLight25D, timeSec: float): int:
+  if lightCookieTexId <= 0 or light.intensity <= 0.001 or light.radius <= 1.0:
+    ret 0
+  let proj = project3DToIso(cam, light.wx, light.wy, light.wz)
+  let phase = timeSec * light.flickerSpeed + light.wx * 0.037 + light.wy * 0.053
+  let wave = 0.65 * sin(phase) + 0.35 * cos(phase * 2.17 + 0.9)
+  let flicker = clampFloat(1.0 + light.flickerAmp * wave, 0.35, 1.85)
+  let rScale = clampFloat(1.0 + light.flickerAmp * 0.35 * wave, 0.75, 1.35)
+
+  let rx = maxFloat(light.radius * cam.zoom * rScale, 4.0)
+  let ry = maxFloat(rx * 0.72, 3.0)
+  let x0 = proj.x - rx
+  let x1 = proj.x + rx
+  let y0 = proj.y - ry
+  let y1 = proj.y + ry
+  let zOverlay = -0.985
+
+  let effAlpha = clampFloat(light.color.a * light.intensity * flicker, 0.0, 1.0)
+  let outerCol = Color(
+    r = clampFloat(light.color.r * flicker, 0.0, 1.0),
+    g = clampFloat(light.color.g * flicker, 0.0, 1.0),
+    b = clampFloat(light.color.b * flicker, 0.0, 1.0),
+    a = effAlpha
+  )
+
+  setBlendMode(blendModeAdditive())
+  drawQuad3DTextured(
+    lightCookieTexId,
+    x0, y0, zOverlay, 0.0, 0.0,
+    x1, y0, zOverlay, 1.0, 0.0,
+    x1, y1, zOverlay, 1.0, 1.0,
+    x0, y1, zOverlay, 0.0, 1.0,
+    outerCol, outerCol, outerCol, outerCol
+  )
+
+  let crx = rx * 0.42
+  let cry = ry * 0.42
+  let coreCol = Color(
+    r = clampFloat(light.color.r * 1.15, 0.0, 1.0),
+    g = clampFloat(light.color.g * 1.10, 0.0, 1.0),
+    b = clampFloat(light.color.b * 0.95 + 0.15, 0.0, 1.0),
+    a = clampFloat(effAlpha * 0.65, 0.0, 1.0)
+  )
+  drawQuad3DTextured(
+    lightCookieTexId,
+    proj.x - crx, proj.y - cry, zOverlay - 0.001, 0.0, 0.0,
+    proj.x + crx, proj.y - cry, zOverlay - 0.001, 1.0, 0.0,
+    proj.x + crx, proj.y + cry, zOverlay - 0.001, 1.0, 1.0,
+    proj.x - crx, proj.y + cry, zOverlay - 0.001, 0.0, 1.0,
+    coreCol, coreCol, coreCol, coreCol
+  )
+  setBlendMode(blendModeAlpha())
+  ret 2
+
+/// Executes the full dark-fantasy 2.5D lighting pipeline: multiplicative ambient darkness pass followed by all additive point-light cookies.
+pub fn renderLightingPass25D(cam: Camera25D, viewportW: float, viewportH: float, ambientColor: Color, lightCookieTexId: int, lights: [PointLight25D], timeSec: float): int:
+  mut passes = drawAmbientDarknessPass25D(viewportW, viewportH, ambientColor)
+  mut i = 0
+  while i < lights.len:
+    passes += drawLightCookie25D(cam, lightCookieTexId, lights[i], timeSec)
+    i += 1
+  ret passes

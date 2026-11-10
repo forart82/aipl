@@ -1,0 +1,260 @@
+module tests.functions.encoding.qrcode_semver_test
+
+import * from "std/encoding/qrcode_semver"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_qrcode_semver_parseNonNegInt_1(): int:
+  let arg_s = "42"
+  let edge_s = "0"
+  let resNom = parseNonNegInt(arg_s)
+  let resEdge = parseNonNegInt(edge_s)
+  assertEqInt(resNom, 42, "parseNonNegInt nominal resNom == 42")
+  assertEqInt(resEdge, 0, "parseNonNegInt boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_parseSemVer_2(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseSemVer(arg_text)
+  let resEdge = parseSemVer(edge_text)
+  assert(resNom.isOk() == false, "parseSemVer nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "parseSemVer boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_qrcode_semver_formatSemVer_3(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = formatSemVer(arg_v)
+  let resEdge = formatSemVer(edge_v)
+  assertEqStr(resNom, "4.4.2-test+test", "formatSemVer nominal string matches")
+  assertEqStr(resEdge, "1.1.0-a+a", "formatSemVer boundary string matches")
+  ret 0
+
+pub fn test_qrcode_semver_comparePrerelease_4(): int:
+  let arg_preA = "test"
+  let edge_preA = "a"
+  let arg_preB = "test"
+  let edge_preB = "a"
+  let resNom = comparePrerelease(arg_preA, arg_preB)
+  let resEdge = comparePrerelease(edge_preA, edge_preB)
+  assertEqInt(resNom, 0, "comparePrerelease nominal resNom == 0")
+  assertEqInt(resEdge, 0, "comparePrerelease boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_compareSemVer_5(): int:
+  let arg_a = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_a = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_b = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_b = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = compareSemVer(arg_a, arg_b)
+  let resEdge = compareSemVer(edge_a, edge_b)
+  assertEqInt(resNom, 0, "compareSemVer nominal resNom == 0")
+  assertEqInt(resEdge, 0, "compareSemVer boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_satisfiesSingleSemVer_6(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_single = "test"
+  let edge_single = "a"
+  let resNom = satisfiesSingleSemVer(arg_v, arg_single)
+  let resEdge = satisfiesSingleSemVer(edge_v, edge_single)
+  assert(resNom == false, "satisfiesSingleSemVer nominal resNom == false")
+  assert(resEdge == false, "satisfiesSingleSemVer boundary resEdge == false")
+  ret 0
+
+pub fn test_qrcode_semver_satisfiesSemVer_7(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_constraint = "test"
+  let edge_constraint = "a"
+  let resNom = satisfiesSemVer(arg_v, arg_constraint)
+  let resEdge = satisfiesSemVer(edge_v, edge_constraint)
+  assert(resNom == false, "satisfiesSemVer nominal resNom == false")
+  assert(resEdge == false, "satisfiesSemVer boundary resEdge == false")
+  ret 0
+
+pub fn test_qrcode_semver_generateQrMatrix_8(): int:
+  let arg_payload = "test"
+  let edge_payload = "a"
+  let arg_ecLevel = 2
+  let edge_ecLevel = 0
+  let resNom = generateQrMatrix(arg_payload, arg_ecLevel)
+  let resEdge = generateQrMatrix(edge_payload, edge_ecLevel)
+  assertEqInt(resNom.version, 1, "generateQrMatrix nominal resNom.version == 1")
+  assertEqInt(resEdge.version, 1, "generateQrMatrix boundary resEdge.version == 1")
+  ret 0
+
+pub fn test_qrcode_semver_qrGetModule_9(): int:
+  let arg_qr = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_qr = QrMatrix(version = 1, size = 0, modules = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = qrGetModule(arg_qr, arg_x, arg_y)
+  let resEdge = qrGetModule(edge_qr, edge_x, edge_y)
+  assert(resNom == false, "qrGetModule nominal resNom == false")
+  assert(resEdge == false, "qrGetModule boundary resEdge == false")
+  ret 0
+
+pub fn test_qrcode_semver_renderQrAscii_10(): int:
+  let arg_qr = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_qr = QrMatrix(version = 1, size = 0, modules = [])
+  let resNom = renderQrAscii(arg_qr)
+  let resEdge = renderQrAscii(edge_qr)
+  assertEqStr(resNom, "", "renderQrAscii nominal string matches")
+  assertEqStr(resEdge, "", "renderQrAscii boundary string matches")
+  ret 0
+
+pub fn test_qrcode_semver_renderQrSvg_11(): int:
+  let arg_qr = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_qr = QrMatrix(version = 1, size = 0, modules = [])
+  let arg_moduleSizePx = 4
+  let edge_moduleSizePx = 1
+  let resNom = renderQrSvg(arg_qr, arg_moduleSizePx)
+  let resEdge = renderQrSvg(edge_qr, edge_moduleSizePx)
+  assertEqInt(resNom.len(), 134, "renderQrSvg nominal string length == 134")
+  assertEqInt(resEdge.len(), 134, "renderQrSvg boundary string length == 134")
+  ret 0
+
+pub fn test_qrcode_semver_qrGf256Mul_12(): int:
+  let arg_a = 2
+  let edge_a = 0
+  let arg_b = 4
+  let edge_b = 1
+  let resNom = qrGf256Mul(arg_a, arg_b)
+  let resEdge = qrGf256Mul(edge_a, edge_b)
+  assertEqInt(resNom, 8, "qrGf256Mul nominal resNom == 8")
+  assertEqInt(resEdge, 0, "qrGf256Mul boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_qrReedSolomonEncode_13(): int:
+  let arg_data = [2]
+  let edge_data = []
+  let arg_ecCount = 4
+  let edge_ecCount = 1
+  let resNom = qrReedSolomonEncode(arg_data, arg_ecCount)
+  let resEdge = qrReedSolomonEncode(edge_data, edge_ecCount)
+  assertEqInt(resNom.len(), 4, "qrReedSolomonEncode nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "qrReedSolomonEncode boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_qrcode_semver_qrComputeBchFormatBits_14(): int:
+  let arg_ecLevel = 2
+  let edge_ecLevel = 0
+  let arg_maskPattern = 4
+  let edge_maskPattern = 1
+  let resNom = qrComputeBchFormatBits(arg_ecLevel, arg_maskPattern)
+  let resEdge = qrComputeBchFormatBits(edge_ecLevel, edge_maskPattern)
+  assertEqInt(resNom, 1890, "qrComputeBchFormatBits nominal resNom == 1890")
+  assertEqInt(resEdge, 20773, "qrComputeBchFormatBits boundary resEdge == 20773")
+  ret 0
+
+pub fn test_qrcode_semver_encodeQrCode_15(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = encodeQrCode(arg_text)
+  let resEdge = encodeQrCode(edge_text)
+  assertEqInt(resNom.version, 1, "encodeQrCode nominal resNom.version == 1")
+  assertEqInt(resEdge.version, 1, "encodeQrCode boundary resEdge.version == 1")
+  ret 0
+
+pub fn test_qrcode_semver_qrToAscii_16(): int:
+  let arg_matrix = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_matrix = QrMatrix(version = 1, size = 0, modules = [])
+  let resNom = qrToAscii(arg_matrix)
+  let resEdge = qrToAscii(edge_matrix)
+  assertEqStr(resNom, "", "qrToAscii nominal string matches")
+  assertEqStr(resEdge, "", "qrToAscii boundary string matches")
+  ret 0
+
+pub fn test_qrcode_semver_qrToSvg_17(): int:
+  let arg_matrix = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_matrix = QrMatrix(version = 1, size = 0, modules = [])
+  let arg_scale = 2
+  let edge_scale = 0
+  let resNom = qrToSvg(arg_matrix, arg_scale)
+  let resEdge = qrToSvg(edge_matrix, edge_scale)
+  assertEqInt(resNom.len(), 134, "qrToSvg nominal string length == 134")
+  assertEqInt(resEdge.len(), 134, "qrToSvg boundary string length == 134")
+  ret 0
+
+pub fn test_qrcode_semver_parseSemver_18(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseSemver(arg_text)
+  let resEdge = parseSemver(edge_text)
+  assert(resNom.isOk() == false, "parseSemver nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "parseSemver boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_qrcode_semver_formatSemver_19(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = formatSemver(arg_v)
+  let resEdge = formatSemver(edge_v)
+  assertEqStr(resNom, "4.4.2-test+test", "formatSemver nominal string matches")
+  assertEqStr(resEdge, "1.1.0-a+a", "formatSemver boundary string matches")
+  ret 0
+
+pub fn test_qrcode_semver_compareSemver_20(): int:
+  let arg_a = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_a = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_b = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_b = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = compareSemver(arg_a, arg_b)
+  let resEdge = compareSemver(edge_a, edge_b)
+  assertEqInt(resNom, 0, "compareSemver nominal resNom == 0")
+  assertEqInt(resEdge, 0, "compareSemver boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_bumpMajor_21(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = bumpMajor(arg_v)
+  let resEdge = bumpMajor(edge_v)
+  assertEqInt(resNom.major, 5, "bumpMajor nominal resNom.major == 5")
+  assertEqInt(resEdge.major, 2, "bumpMajor boundary resEdge.major == 2")
+  ret 0
+
+pub fn test_qrcode_semver_bumpMinor_22(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = bumpMinor(arg_v)
+  let resEdge = bumpMinor(edge_v)
+  assertEqInt(resNom.major, 4, "bumpMinor nominal resNom.major == 4")
+  assertEqInt(resEdge.major, 1, "bumpMinor boundary resEdge.major == 1")
+  ret 0
+
+pub fn test_qrcode_semver_bumpPatch_23(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = bumpPatch(arg_v)
+  let resEdge = bumpPatch(edge_v)
+  assertEqInt(resNom.major, 4, "bumpPatch nominal resNom.major == 4")
+  assertEqInt(resEdge.major, 1, "bumpPatch boundary resEdge.major == 1")
+  ret 0
+
+pub fn test_qrcode_semver_bumpSemver_24(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_part = "test"
+  let edge_part = "a"
+  let resNom = bumpSemver(arg_v, arg_part)
+  let resEdge = bumpSemver(edge_v, edge_part)
+  assertEqInt(resNom.major, 4, "bumpSemver nominal resNom.major == 4")
+  assertEqInt(resEdge.major, 1, "bumpSemver boundary resEdge.major == 1")
+  ret 0
+
+pub fn test_qrcode_semver_satisfiesRange_25(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_rangeStr = "test"
+  let edge_rangeStr = "a"
+  let resNom = satisfiesRange(arg_v, arg_rangeStr)
+  let resEdge = satisfiesRange(edge_v, edge_rangeStr)
+  assert(resNom == false, "satisfiesRange nominal resNom == false")
+  assert(resEdge == false, "satisfiesRange boundary resEdge == false")
+  ret 0

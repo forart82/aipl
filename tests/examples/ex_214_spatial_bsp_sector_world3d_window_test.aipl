@@ -1,0 +1,62 @@
+module Ex214SpatialBspSectorWorld3dWindowTest
+
+import {
+  buildSpatialBspSectorAudit, stepCamWorldX, stepPortalDoorOpen
+} from "../../examples/ex_214_spatial_bsp_sector_world3d_window"
+import { Vec3 } from "../../std/math/vec_math"
+import { AABB3D, Plane3D, Frustum3D } from "../../std/math/geom3d"
+import {
+  BspPortal, BspSector, bspSectorWorldNew,
+  bspAddSector, bspAddPortal, bspFindSectorContainingPoint,
+  bspQueryVisibleSectors
+} from "../../std/spatial/bsp_sector_world3d"
+
+pub fn test_spatial_bsp_sector_world3d(): void:
+  mut bsp = bspSectorWorldNew()
+  let sec0 = BspSector(
+    sectorId = 0,
+    boundingBox = AABB3D(min = Vec3(x = 0.0, y = 0.0, z = 0.0), max = Vec3(x = 10.0, y = 10.0, z = 10.0)),
+    floorHeight = 0.0,
+    ceilingHeight = 10.0,
+    portals = [],
+    pvsMask = 1
+  )
+  let sec1 = BspSector(
+    sectorId = 1,
+    boundingBox = AABB3D(min = Vec3(x = 10.0, y = 0.0, z = 0.0), max = Vec3(x = 20.0, y = 10.0, z = 10.0)),
+    floorHeight = 0.0,
+    ceilingHeight = 10.0,
+    portals = [],
+    pvsMask = 2
+  )
+  bspAddSector(bsp, sec0)
+  bspAddSector(bsp, sec1)
+
+  let portal = BspPortal(
+    targetSectorId = 1,
+    polygonVertices = [Vec3(x = 10.0, y = 5.0, z = 5.0)],
+    plane = Plane3D(normal = Vec3(x = 1.0, y = 0.0, z = 0.0), distance = -10.0, d = -10.0),
+    isOpen = true
+  )
+  assert(bspAddPortal(bsp, 0, 1, portal), "bspAddPortal links Sector 0 -> Sector 1")
+
+  let foundSec = bspFindSectorContainingPoint(bsp, Vec3(x = 5.0, y = 5.0, z = 5.0))
+  assert(foundSec.isSome() and foundSec.unwrap() == 0, "bspFindSectorContainingPoint locates point in Sector 0")
+
+  let frust = Frustum3D(planes = [Plane3D(normal = Vec3(x = 1.0, y = 0.0, z = 0.0), distance = 0.0, d = 0.0)])
+  let vis = bspQueryVisibleSectors(bsp, 0, frust)
+  assert(vis.len() == 2, "bspQueryVisibleSectors traverses open portal into Sector 1")
+  assert(buildSpatialBspSectorAudit() == 4, "buildSpatialBspSectorAudit returns 2 + 1 + 1 == 4")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let cx0 = stepCamWorldX(0)
+  let cx1 = stepCamWorldX(1)
+  let cx20 = stepCamWorldX(20)
+  let cx100 = stepCamWorldX(100)
+  assert(cx0 != cx1 and cx1 != cx20 and cx20 != cx100, "camera world X progresses across t=0,1,20,100")
+  assert(stepPortalDoorOpen(0) != stepPortalDoorOpen(20), "portal door toggles open/closed state")
+
+pub fn main(): int:
+  test_spatial_bsp_sector_world3d()
+  println("PASS: ex_214_spatial_bsp_sector_world3d_window_test")
+  ret 0

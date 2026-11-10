@@ -1,0 +1,40 @@
+module Ex207EcsWorldAndSystemScheduleWindowTest
+
+import {
+  buildEcsScheduleAudit, stepSystemExecProgress
+} from "../../examples/ex_207_ecs_world_and_system_schedule_window"
+import {
+  createEcsWorld, setWorldResource, getWorldResource
+} from "../../std/ecs/ecs_world"
+import {
+  STAGE_UPDATE, SystemDescriptor, systemsConflict,
+  sortSystemsByPriority, buildParallelBatches
+} from "../../std/ecs/ecs_schedule"
+
+pub fn test_ecs_world_and_system_schedule(): void:
+  mut world = createEcsWorld()
+  world = setWorldResource(world, 0, 60.0)
+  assert(getWorldResource(world, 0).unwrap() == 60.0, "World resource 0 stores 60.0 Hz tick rate")
+
+  let sA = SystemDescriptor(systemId = 1, stage = STAGE_UPDATE, readComponentMask = 1, writeComponentMask = 2, priority = 10)
+  let sB = SystemDescriptor(systemId = 2, stage = STAGE_UPDATE, readComponentMask = 1, writeComponentMask = 4, priority = 20)
+  let sC = SystemDescriptor(systemId = 3, stage = STAGE_UPDATE, readComponentMask = 2, writeComponentMask = 8, priority = 30)
+  assert(not systemsConflict(sA, sB), "sA and sB share read bit 1 with disjoint writes -> no conflict")
+  assert(systemsConflict(sA, sC), "sA writes bit 2 which sC reads -> data hazard conflict")
+
+  let sorted = sortSystemsByPriority([sC, sA, sB], STAGE_UPDATE)
+  let batches = buildParallelBatches(sorted)
+  assert(batches.len() == 2 and batches[0].len() == 2 and batches[1].len() == 1, "buildParallelBatches groups sA+sB into Batch 0 and sC into Batch 1")
+  assert(buildEcsScheduleAudit() == 66, "buildEcsScheduleAudit returns 60 + 2 + 2 + 1 + 1 == 66")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let p0 = stepSystemExecProgress(0)
+  let p1 = stepSystemExecProgress(1)
+  let p20 = stepSystemExecProgress(20)
+  let p100 = stepSystemExecProgress(100)
+  assert(p0 != p1 and p1 != p20 and p20 != p100, "system execution progress advances across t=0,1,20,100")
+
+pub fn main(): int:
+  test_ecs_world_and_system_schedule()
+  println("PASS: ex_207_ecs_world_and_system_schedule_window_test")
+  ret 0

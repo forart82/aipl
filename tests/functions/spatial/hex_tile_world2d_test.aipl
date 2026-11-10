@@ -1,0 +1,134 @@
+module tests.functions.spatial.hex_tile_world2d_test
+
+import * from "std/spatial/hex_tile_world2d"
+import { SQRT3, absInt, absFloat } from "std/math/consts"
+import { round } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_hex_tile_world2d_hexCubeNew_1(): int:
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = -1
+  let edge_y = 0
+  let arg_z = 0
+  let edge_z = 0
+  let resNom = hexCubeNew(arg_x, arg_y, arg_z)
+  let resEdge = hexCubeNew(edge_x, edge_y, edge_z)
+  assertEqInt(resNom.x, 1, "hexCubeNew nominal resNom.x == 1")
+  assertEqInt(resEdge.x, 0, "hexCubeNew boundary resEdge.x == 0")
+  ret 0
+
+pub fn test_hex_tile_world2d_hexAxialToCube_2(): int:
+  let arg_axial = HexAxialCoord(q = 2, r = 2)
+  let edge_axial = HexAxialCoord(q = 0, r = 0)
+  let resNom = hexAxialToCube(arg_axial)
+  let resEdge = hexAxialToCube(edge_axial)
+  assertEqInt(resNom.x, 2, "hexAxialToCube nominal resNom.x == 2")
+  assertEqInt(resEdge.x, 0, "hexAxialToCube boundary resEdge.x == 0")
+  ret 0
+
+pub fn test_hex_tile_world2d_hexCubeToAxial_3(): int:
+  let arg_cube = HexCubeCoord(x = 1, y = 1, z = 1)
+  let edge_cube = HexCubeCoord(x = 0, y = 0, z = 0)
+  let resNom = hexCubeToAxial(arg_cube)
+  let resEdge = hexCubeToAxial(edge_cube)
+  assertEqInt(resNom.q, 1, "hexCubeToAxial nominal resNom.q == 1")
+  assertEqInt(resEdge.q, 0, "hexCubeToAxial boundary resEdge.q == 0")
+  ret 0
+
+pub fn test_hex_tile_world2d_hexDistance_4(): int:
+  let arg_a = HexCubeCoord(x = 1, y = 1, z = 1)
+  let edge_a = HexCubeCoord(x = 0, y = 0, z = 0)
+  let arg_b = HexCubeCoord(x = 1, y = 1, z = 1)
+  let edge_b = HexCubeCoord(x = 0, y = 0, z = 0)
+  let resNom = hexDistance(arg_a, arg_b)
+  let resEdge = hexDistance(edge_a, edge_b)
+  assertEqInt(resNom, 0, "hexDistance nominal resNom == 0")
+  assertEqInt(resEdge, 0, "hexDistance boundary resEdge == 0")
+  ret 0
+
+pub fn test_hex_tile_world2d_hexRing_5(): int:
+  let arg_center = HexCubeCoord(x = 1, y = 1, z = 1)
+  let edge_center = HexCubeCoord(x = 0, y = 0, z = 0)
+  let arg_radius = 2
+  let edge_radius = 0
+  let resNom = hexRing(arg_center, arg_radius)
+  let resEdge = hexRing(edge_center, edge_radius)
+  assertEqInt(resNom.len(), 12, "hexRing nominal resNom.len() == 12")
+  assertEqInt(resEdge.len(), 1, "hexRing boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_hex_tile_world2d_hexSpiral_6(): int:
+  let arg_center = HexCubeCoord(x = 1, y = 1, z = 1)
+  let edge_center = HexCubeCoord(x = 0, y = 0, z = 0)
+  let arg_maxRadius = 4
+  let edge_maxRadius = 1
+  let resNom = hexSpiral(arg_center, arg_maxRadius)
+  let resEdge = hexSpiral(edge_center, edge_maxRadius)
+  assertEqInt(resNom.len(), 61, "hexSpiral nominal resNom.len() == 61")
+  assertEqInt(resEdge.len(), 7, "hexSpiral boundary resEdge.len() == 7")
+  ret 0
+
+pub fn test_hex_tile_world2d_cubeRound_7(): int:
+  let arg_fx = 1.0
+  let edge_fx = 0.5
+  let arg_fy = 1.0
+  let edge_fy = 0.5
+  let arg_fz = 1.0
+  let edge_fz = 0.5
+  let resNom = cubeRound(arg_fx, arg_fy, arg_fz)
+  let resEdge = cubeRound(edge_fx, edge_fy, edge_fz)
+  assertEqInt(resNom.x, 1, "cubeRound nominal resNom.x == 1")
+  assertEqInt(resEdge.x, 1, "cubeRound boundary resEdge.x == 1")
+  ret 0
+
+pub fn test_hex_tile_world2d_hexToPixel_8(): int:
+  let arg_coord = HexAxialCoord(q = 2, r = 2)
+  let edge_coord = HexAxialCoord(q = 0, r = 0)
+  let arg_orientation = HexOrientation.PointyTop
+  let edge_orientation = HexOrientation.PointyTop
+  let arg_size = 1.0
+  let edge_size = 0.5
+  let resNom = hexToPixel(arg_coord, arg_orientation, arg_size)
+  let resEdge = hexToPixel(edge_coord, edge_orientation, edge_size)
+  assertApproxEq(resNom.x, 5.19615, 0.001, "hexToPixel nominal resNom.x ~= 5.19615")
+  assertApproxEq(resEdge.x, 0.0, 0.001, "hexToPixel boundary resEdge.x ~= 0.0")
+  ret 0
+
+pub fn test_hex_tile_world2d_hexPixelToAxial_9(): int:
+  let arg_pixel = Vec2(x = 1.0, y = 1.0)
+  let edge_pixel = Vec2(x = 0.5, y = 0.5)
+  let arg_orientation = HexOrientation.PointyTop
+  let edge_orientation = HexOrientation.PointyTop
+  let arg_size = 1.0
+  let edge_size = 0.5
+  let resNom = hexPixelToAxial(arg_pixel, arg_orientation, arg_size)
+  let resEdge = hexPixelToAxial(edge_pixel, edge_orientation, edge_size)
+  assertEqInt(resNom.q, 0, "hexPixelToAxial nominal resNom.q == 0")
+  assertEqInt(resEdge.q, 0, "hexPixelToAxial boundary resEdge.q == 0")
+  ret 0
+
+pub fn test_hex_tile_world2d_hexLine_10(): int:
+  let arg_a = HexCubeCoord(x = 1, y = 1, z = 1)
+  let edge_a = HexCubeCoord(x = 0, y = 0, z = 0)
+  let arg_b = HexCubeCoord(x = 1, y = 1, z = 1)
+  let edge_b = HexCubeCoord(x = 0, y = 0, z = 0)
+  let resNom = hexLine(arg_a, arg_b)
+  let resEdge = hexLine(edge_a, edge_b)
+  assertEqInt(resNom.len(), 1, "hexLine nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "hexLine boundary resEdge.len() == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_hex_tile_world2d_hexCubeNew_1(), 0, "test_hex_tile_world2d_hexCubeNew_1")
+  assertEqInt(test_hex_tile_world2d_hexAxialToCube_2(), 0, "test_hex_tile_world2d_hexAxialToCube_2")
+  assertEqInt(test_hex_tile_world2d_hexCubeToAxial_3(), 0, "test_hex_tile_world2d_hexCubeToAxial_3")
+  assertEqInt(test_hex_tile_world2d_hexDistance_4(), 0, "test_hex_tile_world2d_hexDistance_4")
+  assertEqInt(test_hex_tile_world2d_hexRing_5(), 0, "test_hex_tile_world2d_hexRing_5")
+  assertEqInt(test_hex_tile_world2d_hexSpiral_6(), 0, "test_hex_tile_world2d_hexSpiral_6")
+  assertEqInt(test_hex_tile_world2d_cubeRound_7(), 0, "test_hex_tile_world2d_cubeRound_7")
+  assertEqInt(test_hex_tile_world2d_hexToPixel_8(), 0, "test_hex_tile_world2d_hexToPixel_8")
+  assertEqInt(test_hex_tile_world2d_hexPixelToAxial_9(), 0, "test_hex_tile_world2d_hexPixelToAxial_9")
+  assertEqInt(test_hex_tile_world2d_hexLine_10(), 0, "test_hex_tile_world2d_hexLine_10")
+  ret 0

@@ -1,0 +1,357 @@
+// ============================================================================
+// Module: std/regex/text_diff
+// Layer 1: Regular Expression Engine & Text Diffing
+// Myers O(ND) difference engine, unified diff formatting, patch application,
+// and 3-way merge.
+// ============================================================================
+module RegexTextDiff
+
+import { splitLines, parseInt } from "../fmt/fmt_mod.aipl"
+
+pub struct DiffEdit:
+  op: str
+  text: str
+  oldLineNo: int
+  newLineNo: int
+
+pub struct DiffHunk:
+  oldStart: int
+  oldCount: int
+  newStart: int
+  newCount: int
+  lines: [str]
+
+pub struct UnifiedPatch:
+  headerOld: str
+  headerNew: str
+  hunks: [DiffHunk]
+  addedCount: int
+  deletedCount: int
+
+pub fn myersDiffLines(oldLines: [str], newLines: [str]): [DiffEdit]:
+  let m = oldLines.len
+  let n = newLines.len
+  // Build DP LCS table to extract deterministic minimal edit script
+  let cols = n + 1
+  mut dp: [int] = []
+  mut idx = 0
+  let total = (m + 1) * (n + 1)
+  while idx < total:
+    dp.push(0)
+    idx += 1
+
+  mut i = m - 1
+  while i >= 0:
+    mut j = n - 1
+    while j >= 0:
+      if oldLines[i] == newLines[j]:
+        dp[(i * cols) + j] = 1 + dp[((i + 1) * cols) + (j + 1)]
+      else:
+        let down = dp[((i + 1) * cols) + j]
+        let right = dp[(i * cols) + (j + 1)]
+        dp[(i * cols) + j] = if down >= right: down else: right
+      j -= 1
+    i -= 1
+
+  mut edits: [DiffEdit] = []
+  i = 0
+  mut j = 0
+  while i < m and j < n:
+    if oldLines[i] == newLines[j]:
+      edits.push(DiffEdit(op = "equal", text = oldLines[i], oldLineNo = i + 1, newLineNo = j + 1))
+      i += 1
+      j += 1
+    elif dp[((i + 1) * cols) + j] >= dp[(i * cols) + (j + 1)]:
+      edits.push(DiffEdit(op = "delete", text = oldLines[i], oldLineNo = i + 1, newLineNo = 0))
+      i += 1
+    else:
+      edits.push(DiffEdit(op = "insert", text = newLines[j], oldLineNo = 0, newLineNo = j + 1))
+      j += 1
+  while i < m:
+    edits.push(DiffEdit(op = "delete", text = oldLines[i], oldLineNo = i + 1, newLineNo = 0))
+    i += 1
+  while j < n:
+    edits.push(DiffEdit(op = "insert", text = newLines[j], oldLineNo = 0, newLineNo = j + 1))
+    j += 1
+  ret edits
+
+pub fn buildUnifiedHunks(edits: [DiffEdit], contextRadius: int = 3): [DiffHunk]:
+  mut hunks: [DiffHunk] = []
+  let numEdits = edits.len
+  if numEdits == 0:
+    ret hunks
+  mut hasChanges = false
+  mut k = 0
+  while k < numEdits:
+    if edits[k].op != "equal":
+      hasChanges = true
+      break
+    k += 1
+  if not hasChanges:
+    ret hunks
+
+  let ctx = if contextRadius >= 0: contextRadius else: 0
+  mut idx = 0
+  while idx < numEdits:
+    if edits[idx].op == "equal":
+      idx += 1
+      continue
+    let hunkStart = if idx - ctx > 0: idx - ctx else: 0
+    mut hunkEnd = idx
+    while hunkEnd < numEdits:
+      if edits[hunkEnd].op != "equal":
+        hunkEnd += 1
+        continue
+      mut nextChange = hunkEnd
+      while nextChange < numEdits and edits[nextChange].op == "equal":
+        nextChange += 1
+      if nextChange < numEdits and (nextChange - hunkEnd) <= (ctx * 2):
+        hunkEnd = nextChange + 1
+      else:
+        let stopAt = if hunkEnd + ctx < numEdits: hunkEnd + ctx else: numEdits
+        hunkEnd = stopAt
+        break
+
+    mut hLines: [str] = []
+    mut oldStart = 1
+    mut newStart = 1
+    mut foundStart = false
+    mut oldCount = 0
+    mut newCount = 0
+    mut eIdx = hunkStart
+    while eIdx < hunkEnd:
+      let ed = edits[eIdx]
+      if not foundStart:
+        if ed.oldLineNo > 0:
+          oldStart = ed.oldLineNo
+        if ed.newLineNo > 0:
+          newStart = ed.newLineNo
+        foundStart = true
+      if ed.op == "equal":
+        hLines.push(" " + ed.text)
+        oldCount += 1
+        newCount += 1
+      elif ed.op == "delete":
+        hLines.push("-" + ed.text)
+        oldCount += 1
+      elif ed.op == "insert":
+        hLines.push("+" + ed.text)
+        newCount += 1
+      eIdx += 1
+
+    hunks.push(DiffHunk(
+      oldStart = oldStart,
+      oldCount = oldCount,
+      newStart = newStart,
+      newCount = newCount,
+      lines = hLines
+    ))
+    idx = hunkEnd
+  ret hunks
+
+pub fn formatUnifiedDiff(oldFile: str, newFile: str, oldText: str, newText: str, context: int = 3): str:
+  let oldLines = splitLines(oldText)
+  let newLines = splitLines(newText)
+  let edits = myersDiffLines(oldLines, newLines)
+  let hunks = buildUnifiedHunks(edits, context)
+  mut out: [str] = []
+  out.push("--- " + oldFile)
+  out.push("+++ " + newFile)
+  mut h = 0
+  while h < hunks.len:
+    let hk = hunks[h]
+    out.push("@@ -" + str(hk.oldStart) + "," + str(hk.oldCount) + " +" + str(hk.newStart) + "," + str(hk.newCount) + " @@")
+    mut l = 0
+    while l < hk.lines.len:
+      out.push(hk.lines[l])
+      l += 1
+    h += 1
+  ret out.join("\n") + "\n"
+
+fn parseRangeSpec(spec: str): (int, int):
+  let clean = if spec.startsWith("-") or spec.startsWith("+"): spec.slice(1, spec.len) else: spec
+  let commaIdx = clean.indexOf(",")
+  if commaIdx < 0:
+    let sRes = parseInt(clean, 10)
+    let st = if sRes.isOk(): sRes.unwrap() else: 1
+    ret (st, 1)
+  let sRes = parseInt(clean.slice(0, commaIdx), 10)
+  let cRes = parseInt(clean.slice(commaIdx + 1, clean.len), 10)
+  let st = if sRes.isOk(): sRes.unwrap() else: 1
+  let ct = if cRes.isOk(): cRes.unwrap() else: 0
+  ret (st, ct)
+
+pub fn parseUnifiedPatch(patchText: str): Result[UnifiedPatch, str]:
+  let rawLines = splitLines(patchText)
+  mut headerOld = ""
+  mut headerNew = ""
+  mut hunks: [DiffHunk] = []
+  mut addedCount = 0
+  mut deletedCount = 0
+  mut i = 0
+  let n = rawLines.len
+  while i < n:
+    let line = rawLines[i]
+    if line.startsWith("--- "):
+      headerOld = line.slice(4, line.len)
+      i += 1
+      continue
+    if line.startsWith("+++ "):
+      headerNew = line.slice(4, line.len)
+      i += 1
+      continue
+    if line.startsWith("@@ "):
+      let endMarker = line.indexOfFrom(" @@", 3)
+      if endMarker < 0:
+        ret Err("malformed hunk header: " + line)
+      let rangePart = line.slice(3, endMarker)
+      let spIdx = rangePart.indexOf(" ")
+      if spIdx < 0:
+        ret Err("malformed hunk range: " + rangePart)
+      let oldPair = parseRangeSpec(rangePart.slice(0, spIdx))
+      let newPair = parseRangeSpec(rangePart.slice(spIdx + 1, rangePart.len))
+      i += 1
+      mut hLines: [str] = []
+      while i < n and not rawLines[i].startsWith("@@ "):
+        let hl = rawLines[i]
+        if hl.startsWith(" ") or hl.startsWith("+") or hl.startsWith("-"):
+          if hl.startsWith("+"):
+            addedCount += 1
+          elif hl.startsWith("-"):
+            deletedCount += 1
+          hLines.push(hl)
+        i += 1
+      hunks.push(DiffHunk(
+        oldStart = oldPair[0],
+        oldCount = oldPair[1],
+        newStart = newPair[0],
+        newCount = newPair[1],
+        lines = hLines
+      ))
+      continue
+    i += 1
+  if hunks.len == 0 and headerOld.len == 0:
+    ret Err("no valid unified diff hunks found")
+  ret Ok(UnifiedPatch(
+    headerOld = headerOld,
+    headerNew = headerNew,
+    hunks = hunks,
+    addedCount = addedCount,
+    deletedCount = deletedCount
+  ))
+
+pub fn applyUnifiedPatch(originalText: str, patch: UnifiedPatch): Result[str, str]:
+  let origLines = splitLines(originalText)
+  let hadTrailingNewline = originalText.endsWith("\n")
+  mut outLines: [str] = []
+  mut origIdx = 0
+  mut h = 0
+  while h < patch.hunks.len:
+    let hk = patch.hunks[h]
+    let targetIdx = if hk.oldStart > 0: hk.oldStart - 1 else: 0
+    while origIdx < targetIdx and origIdx < origLines.len:
+      outLines.push(origLines[origIdx])
+      origIdx += 1
+    mut l = 0
+    while l < hk.lines.len:
+      let hl = hk.lines[l]
+      let prefix = hl.charAt(0)
+      let content = hl.slice(1, hl.len)
+      if prefix == " ":
+        if origIdx < origLines.len and origLines[origIdx] != content:
+          ret Err("patch context mismatch at line " + str(origIdx + 1))
+        outLines.push(content)
+        origIdx += 1
+      elif prefix == "-":
+        if origIdx >= origLines.len or origLines[origIdx] != content:
+          ret Err("patch delete mismatch at line " + str(origIdx + 1))
+        origIdx += 1
+      elif prefix == "+":
+        outLines.push(content)
+      l += 1
+    h += 1
+  while origIdx < origLines.len:
+    outLines.push(origLines[origIdx])
+    origIdx += 1
+  let joined = outLines.join("\n")
+  if hadTrailingNewline and outLines.len > 0:
+    ret Ok(joined + "\n")
+  ret Ok(joined)
+
+pub fn threeWayMerge(baseText: str, ourText: str, theirText: str): Result[str, str]:
+  let baseLines = splitLines(baseText)
+  let ourLines = splitLines(ourText)
+  let theirLines = splitLines(theirText)
+  let hadTrailingNewline = baseText.endsWith("\n") or ourText.endsWith("\n") or theirText.endsWith("\n")
+  mut merged: [str] = []
+  mut hasConflict = false
+  let maxLen = if baseLines.len > ourLines.len:
+    (if baseLines.len > theirLines.len: baseLines.len else: theirLines.len)
+  else:
+    (if ourLines.len > theirLines.len: ourLines.len else: theirLines.len)
+
+  mut i = 0
+  while i < maxLen:
+    let bLine = if i < baseLines.len: baseLines[i] else: ""
+    let oLine = if i < ourLines.len: ourLines[i] else: ""
+    let tLine = if i < theirLines.len: theirLines[i] else: ""
+    if oLine == tLine:
+      merged.push(oLine)
+    elif oLine == bLine:
+      merged.push(tLine)
+    elif tLine == bLine:
+      merged.push(oLine)
+    else:
+      hasConflict = true
+      merged.push("<<<<<<< OURS")
+      merged.push(oLine)
+      merged.push("=======")
+      merged.push(tLine)
+      merged.push(">>>>>>> THEIRS")
+    i += 1
+
+  let out = if hadTrailingNewline and merged.len > 0: merged.join("\n") + "\n" else: merged.join("\n")
+  if hasConflict:
+    ret Err(out)
+  ret Ok(out)
+
+pub fn editDistance(a: str, b: str): int:
+  let m = a.len
+  let n = b.len
+  if m == 0:
+    ret n
+  if n == 0:
+    ret m
+  mut prev: [int] = []
+  mut j = 0
+  while j <= n:
+    prev.push(j)
+    j += 1
+  mut i = 1
+  while i <= m:
+    mut curr: [int] = [i]
+    let ca = a.charCodeAt(i - 1)
+    mut k = 1
+    while k <= n:
+      let cb = b.charCodeAt(k - 1)
+      let cost = if ca == cb: 0 else: 1
+      let delCost = prev[k] + 1
+      let insCost = curr[k - 1] + 1
+      let subCost = prev[k - 1] + cost
+      mut best = delCost
+      if insCost < best:
+        best = insCost
+      if subCost < best:
+        best = subCost
+      curr.push(best)
+      k += 1
+    prev = curr
+    i += 1
+  ret prev[n]
+
+pub fn similarityRatio(a: str, b: str): float:
+  let maxLen = if a.len > b.len: a.len else: b.len
+  if maxLen == 0:
+    ret 1.0
+  let dist = editDistance(a, b)
+  ret 1.0 - (float(dist) / float(maxLen))

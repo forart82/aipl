@@ -1,0 +1,146 @@
+module Gfx2dBatchMod
+
+// ============================================================================
+// std/gfx2d/batch2d.aipl — Instanced Quad & Polygon Batching
+// ============================================================================
+
+pub struct BatchVertex2D(x: float, y: float, u: float, v: float, colorRgba: int)
+
+pub struct BatchDrawCall(textureId: int, blendMode: int, startIndex: int, indexCount: int)
+
+pub struct SpriteBatch2D(maxQuads: int, vertices: [BatchVertex2D], indices: [int], drawCalls: [BatchDrawCall], currentTexture: int, currentBlend: int)
+
+pub fn createSpriteBatch2D(maxQuads: int = 2048): SpriteBatch2D:
+  mut v: [BatchVertex2D] = []
+  mut idx: [int] = []
+  mut dc: [BatchDrawCall] = []
+  ret SpriteBatch2D(
+    maxQuads = if maxQuads > 0: maxQuads else: 2048,
+    vertices = v,
+    indices = idx,
+    drawCalls = dc,
+    currentTexture = -1,
+    currentBlend = 0
+  )
+
+pub fn beginSpriteBatch(batch: SpriteBatch2D): SpriteBatch2D:
+  mut v: [BatchVertex2D] = []
+  mut idx: [int] = []
+  mut dc: [BatchDrawCall] = []
+  ret SpriteBatch2D(
+    maxQuads = batch.maxQuads,
+    vertices = v,
+    indices = idx,
+    drawCalls = dc,
+    currentTexture = -1,
+    currentBlend = 0
+  )
+
+pub fn pushBatchQuad(batch: SpriteBatch2D, textureId: int, blendMode: int, v0: BatchVertex2D, v1: BatchVertex2D, v2: BatchVertex2D, v3: BatchVertex2D): SpriteBatch2D:
+  mut verts = batch.vertices
+  mut inds = batch.indices
+  mut calls = batch.drawCalls
+
+  let baseVert = verts.len
+  let startIdx = inds.len
+
+  verts.push(v0)
+  verts.push(v1)
+  verts.push(v2)
+  verts.push(v3)
+
+  inds.push(baseVert)
+  inds.push(baseVert + 1)
+  inds.push(baseVert + 2)
+  inds.push(baseVert + 2)
+  inds.push(baseVert + 3)
+  inds.push(baseVert)
+
+  if calls.len > 0 and batch.currentTexture == textureId and batch.currentBlend == blendMode:
+    let lastIdx = calls.len - 1
+    let last = calls[lastIdx]
+    calls[lastIdx] = BatchDrawCall(
+      textureId = last.textureId,
+      blendMode = last.blendMode,
+      startIndex = last.startIndex,
+      indexCount = last.indexCount + 6
+    )
+  else:
+    calls.push(BatchDrawCall(
+      textureId = textureId,
+      blendMode = blendMode,
+      startIndex = startIdx,
+      indexCount = 6
+    ))
+
+  ret SpriteBatch2D(
+    maxQuads = batch.maxQuads,
+    vertices = verts,
+    indices = inds,
+    drawCalls = calls,
+    currentTexture = textureId,
+    currentBlend = blendMode
+  )
+
+pub fn flushSpriteBatch(batch: SpriteBatch2D): SpriteBatch2D:
+  ret beginSpriteBatch(batch)
+
+pub struct SpriteFrame(u0: float, v0: float, u1: float, v1: float, w: int, h: int)
+
+pub struct SpriteAnimation(frames: [SpriteFrame], fps: float, looping: bool, pingPong: bool, elapsed: float)
+
+pub struct SpriteTransform2D(x: float, y: float, w: float, h: float, rotRad: float, pivotX: float, pivotY: float, tintHex: int, flipX: bool, flipY: bool)
+
+pub fn spriteAtlasFrame(col: int, row: int, cellW: int, cellH: int, sheetW: int, sheetH: int): SpriteFrame:
+  let sw = if sheetW > 0: float(sheetW) else: 1.0
+  let sh = if sheetH > 0: float(sheetH) else: 1.0
+  let x0 = float(col * cellW)
+  let y0 = float(row * cellH)
+  ret SpriteFrame(u0 = x0 / sw, v0 = y0 / sh, u1 = (x0 + float(cellW)) / sw, v1 = (y0 + float(cellH)) / sh, w = cellW, h = cellH)
+
+pub fn spriteAnimStep(mut anim: SpriteAnimation, dt: float): SpriteAnimation:
+  anim.elapsed = anim.elapsed + (if dt > 0.0: dt else: 0.0)
+  ret anim
+
+pub fn spriteAnimSampleFrame(anim: SpriteAnimation): SpriteFrame:
+  let n = anim.frames.len
+  if n == 0:
+    ret SpriteFrame(u0 = 0.0, v0 = 0.0, u1 = 1.0, v1 = 1.0, w = 0, h = 0)
+  if n == 1 or anim.fps <= 0.0:
+    ret anim.frames[0]
+  let rawFrame = int(anim.elapsed * anim.fps)
+  if not anim.looping:
+    let clamped = if rawFrame < 0: 0 elif rawFrame >= n: n - 1 else: rawFrame
+    ret anim.frames[clamped]
+  if anim.pingPong and n > 1:
+    let period = (n - 1) * 2
+    let m = rawFrame % period
+    let idx = if m < n: m else: period - m
+    ret anim.frames[idx]
+  ret anim.frames[rawFrame % n]
+
+pub fn drawSpriteTransformed(imgId: int, tr: SpriteTransform2D): void:
+  let ox = tr.w * tr.pivotX
+  let oy = tr.h * tr.pivotY
+  drawImageEx(imgId, tr.x, tr.y, tr.w, tr.h, tr.rotRad, ox, oy, tr.tintHex, tr.flipX, tr.flipY)
+  ret
+
+/// Renders a 9-slice scalable UI panel from a source sprite region `(sx, sy, sw, sh)` with border insets `(left, top, right, bottom)`.
+pub fn drawSpriteNineSlice(imgId: int, sx: float, sy: float, sw: float, sh: float, dx: float, dy: float, dw: float, dh: float, left: float, top: float, right: float, bottom: float): void:
+  let cwSrc = maxFloat(1.0, sw - left - right)
+  let chSrc = maxFloat(1.0, sh - top - bottom)
+  let cwDst = maxFloat(1.0, dw - left - right)
+  let chDst = maxFloat(1.0, dh - top - bottom)
+  // Top row
+  drawSubImage(imgId, sx, sy, left, top, dx, dy, left, top)
+  drawSubImage(imgId, sx + left, sy, cwSrc, top, dx + left, dy, cwDst, top)
+  drawSubImage(imgId, sx + sw - right, sy, right, top, dx + dw - right, dy, right, top)
+  // Middle row
+  drawSubImage(imgId, sx, sy + top, left, chSrc, dx, dy + top, left, chDst)
+  drawSubImage(imgId, sx + left, sy + top, cwSrc, chSrc, dx + left, dy + top, cwDst, chDst)
+  drawSubImage(imgId, sx + sw - right, sy + top, right, chSrc, dx + dw - right, dy + top, right, chDst)
+  // Bottom row
+  drawSubImage(imgId, sx, sy + sh - bottom, left, bottom, dx, dy + dh - bottom, left, bottom)
+  drawSubImage(imgId, sx + left, sy + sh - bottom, cwSrc, bottom, dx + left, dy + dh - bottom, cwDst, bottom)
+  drawSubImage(imgId, sx + sw - right, sy + sh - bottom, right, bottom, dx + dw - right, dy + dh - bottom, right, bottom)
+  ret

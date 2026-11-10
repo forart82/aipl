@@ -1,0 +1,43 @@
+// ============================================================================
+// Twin Test Suite 033: 3D Ray-AABB, Ray-Triangle & Frustum Culling Window
+// Verifies examples/ex_033_math_geom3d_ray_plane_aabb_window.aipl
+// ============================================================================
+module Ex033MathGeom3dRayPlaneAabbWindowTest
+
+import {
+  Geom3DSceneState,
+  evaluateRay3DSlabAndTriangleHit,
+  verifyFrustumAndVolumeOverlaps,
+  describeRay3DHitResult,
+  buildGeom3DSceneState,
+  renderFrameStep
+} from "../../examples/ex_033_math_geom3d_ray_plane_aabb_window"
+
+pub fn test_ray3d_slab_and_moller_trumbore_triangle(): int:
+  // Ray from z = -5 hits AABB(0..10) at t=5 and Triangle(z=5) at t=5 -> 5 + 5 = 10
+  assert(evaluateRay3DSlabAndTriangleHit() == 10, "rayIntersectsAABB(5) + rayIntersectsTriangle(5) == 10")
+  assert(verifyFrustumAndVolumeOverlaps() == 1, "AABB, Sphere, and Frustum volume tests succeed")
+  ret 0
+
+pub fn test_geom3d_window_state_and_step(): int:
+  let st0 = buildGeom3DSceneState(0)
+  let st1 = buildGeom3DSceneState(1)
+  let st20 = buildGeom3DSceneState(20)
+  let st100 = buildGeom3DSceneState(100)
+  assert(st0.raySumDist == 10 and st100.raySumDist == 10, "raySumDist == 10")
+  assert(st0.frustumVisible == 1 and st100.frustumVisible == 1, "frustumVisible == 1")
+  assert(st0.projCornerX > 200.0 and st0.projCornerX < 650.0, "3D projected corner is centered in viewport")
+  assert(int(st0.projCornerX) != int(st20.projCornerX) and int(st20.projCornerX) != int(st100.projCornerX), "3D projected corner rotates across frames 0 -> 20 -> 100")
+  assert(describeRay3DHitResult(true) == "RAY3D:SLAB_AND_TRIANGLE_HIT", "hit")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m1 > m0 and m20 > m1 and m100 > m20, "renderFrameStep advances across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_ray3d_slab_and_moller_trumbore_triangle()
+  test_geom3d_window_state_and_step()
+  println("PASS: ex_033_math_geom3d_ray_plane_aabb_window_test")
+  ret 0

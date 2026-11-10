@@ -1,0 +1,102 @@
+module Ex207EcsWorldAndSystemScheduleWindow
+
+import {
+  createEcsWorld, setWorldResource, getWorldResource
+} from "../std/ecs/ecs_world"
+import {
+  STAGE_UPDATE, SystemDescriptor, systemsConflict,
+  sortSystemsByPriority, buildParallelBatches
+} from "../std/ecs/ecs_schedule"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepSystemExecProgress(frame: int): float:
+  ret float((frame * 7) % 97) / 97.0
+
+fn lookupSystemDesc(sorted: [SystemDescriptor], sysId: int): SystemDescriptor:
+  mut i = 0
+  while i < sorted.len():
+    let s: SystemDescriptor = sorted[i]
+    if s.systemId == sysId:
+      ret s
+    i = i + 1
+  ret sorted[0]
+
+pub fn buildEcsScheduleAudit(): int:
+  mut world = createEcsWorld()
+  world = setWorldResource(world, 0, 60.0)
+  let hz = int(getWorldResource(world, 0).unwrap())
+  let sA = SystemDescriptor(systemId = 1, stage = STAGE_UPDATE, readComponentMask = 1, writeComponentMask = 2, priority = 10)
+  let sB = SystemDescriptor(systemId = 2, stage = STAGE_UPDATE, readComponentMask = 1, writeComponentMask = 4, priority = 20)
+  let sC = SystemDescriptor(systemId = 3, stage = STAGE_UPDATE, readComponentMask = 2, writeComponentMask = 8, priority = 30)
+  let sorted = sortSystemsByPriority([sC, sA, sB], STAGE_UPDATE)
+  let batches = buildParallelBatches(sorted)
+  ret hz + batches.len() + batches[0].len() + batches[1].len() + (if systemsConflict(sA, sC): 1 else: 0)
+
+pub fn main(): int:
+  let auditScore = buildEcsScheduleAudit()
+  let s1 = SystemDescriptor(systemId = 101, stage = STAGE_UPDATE, readComponentMask = 1, writeComponentMask = 2, priority = 10)
+  let s2 = SystemDescriptor(systemId = 102, stage = STAGE_UPDATE, readComponentMask = 1, writeComponentMask = 4, priority = 15)
+  let s3 = SystemDescriptor(systemId = 103, stage = STAGE_UPDATE, readComponentMask = 1, writeComponentMask = 8, priority = 20)
+  let s4 = SystemDescriptor(systemId = 201, stage = STAGE_UPDATE, readComponentMask = 2, writeComponentMask = 16, priority = 30)
+  let s5 = SystemDescriptor(systemId = 202, stage = STAGE_UPDATE, readComponentMask = 4, writeComponentMask = 32, priority = 35)
+  let s6 = SystemDescriptor(systemId = 301, stage = STAGE_UPDATE, readComponentMask = 18, writeComponentMask = 64, priority = 50)
+  let s7 = SystemDescriptor(systemId = 302, stage = STAGE_UPDATE, readComponentMask = 36, writeComponentMask = 128, priority = 55)
+  mut world = createEcsWorld()
+
+  initWindow(1280, 720, "AIPL ex_207: ECS World Resources & Conflict-Free Parallel System Batches")
+  mut frame = 0
+  while not windowShouldClose():
+    world = setWorldResource(world, 0, float(frame) * 0.016)
+    let simTime = getWorldResource(world, 0).unwrap()
+    let sorted = sortSystemsByPriority([s7, s6, s4, s2, s1, s5, s3], STAGE_UPDATE)
+    let batches = buildParallelBatches(sorted)
+    let hasHazard14 = systemsConflict(s1, s4)
+    let activeBatch = (frame / 36) % batches.len()
+    let execT = stepSystemExecProgress(frame)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_207: ECS WORLD RESOURCES & CONFLICT-FREE PARALLEL SYSTEM SCHEDULER", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("simTime=" + str(simTime) + "s | systems=" + str(sorted.len()) + " | batches=" + str(batches.len()) + " | activeBatch=#" + str(activeBatch + 1) + " | hazard(101,201)=" + str(hasHazard14) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    mut bIdx = 0
+    while bIdx < batches.len():
+      let bx = 80.0 + float(bIdx) * 390.0
+      let bIds = batches[bIdx]
+      let isActive = bIdx == activeBatch
+      drawRect(bx, 136.0, 340.0, 520.0, rgb(17, 24, 39))
+      drawRectOutline(bx, 136.0, 340.0, 520.0, if isActive: 3.5 else: 2.0, if isActive: rgb(250, 204, 21) else: rgb(56, 189, 248))
+      drawText("Parallel Wave Batch #" + str(bIdx + 1) + (if isActive: " [ACTIVE]" else: ""), bx + 20.0, 158.0, 19.0, if isActive: rgb(250, 204, 21) else: rgb(56, 189, 248))
+      drawText("Disjoint Read/Write Bitmasks:", bx + 20.0, 186.0, 14.0, rgb(148, 163, 184))
+
+      mut k = 0
+      while k < bIds.len():
+        let sysId = bIds[k]
+        let desc = lookupSystemDesc(sorted, sysId)
+        let sy = 224.0 + float(k) * 124.0
+        drawRect(bx + 20.0, sy, 300.0, 104.0, if isActive: rgb(26, 48, 56) else: rgb(20, 34, 44))
+        drawRectOutline(bx + 20.0, sy, 300.0, 104.0, 2.0, if isActive: rgb(52, 211, 153) else: rgb(71, 85, 105))
+        drawText("System #" + str(sysId) + " (prio=" + str(desc.priority) + ")", bx + 36.0, sy + 16.0, 18.0, rgb(240, 253, 244))
+        drawText("R=" + str(desc.readComponentMask) + " | W=" + str(desc.writeComponentMask) + " | Worker Lane " + str(k + 1), bx + 36.0, sy + 44.0, 15.0, rgb(110, 231, 183))
+        let lanePct = if isActive: execT else: (if bIdx < activeBatch: 1.0 else: 0.15)
+        drawRect(bx + 36.0, sy + 74.0, 268.0, 12.0, rgb(15, 23, 42))
+        drawRect(bx + 36.0, sy + 74.0, 268.0 * lanePct, 12.0, if isActive: rgb(250, 204, 21) else: rgb(52, 211, 153))
+        k = k + 1
+
+      if bIdx + 1 < batches.len():
+        drawLine(bx + 345.0, 380.0, bx + 385.0, 380.0, rgb(250, 204, 21), 3.0)
+        drawText("RAW", bx + 350.0, 356.0, 13.0, rgb(252, 165, 165))
+      bIdx = bIdx + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

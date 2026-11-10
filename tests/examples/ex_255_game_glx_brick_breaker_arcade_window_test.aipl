@@ -1,0 +1,60 @@
+// ============================================================================
+// Twin Test Suite 255: Game GLX Brick Breaker Arcade Classic (WINDOW - GLX)
+// Verifies examples/ex_255_game_glx_brick_breaker_arcade_window.aipl
+// ============================================================================
+module Ex255GameGlxBrickBreakerArcadeWindowTest
+
+import {
+  createBrickBreakerGame,
+  stepBrickBreakerBall,
+  renderBrickBreakerArena,
+  renderFrameStep
+} from "../../examples/ex_255_game_glx_brick_breaker_arcade_window.aipl"
+import { getWindowMode } from "../../std/gfx2d/shape2d.aipl"
+
+pub fn test_game_glx_brick_breaker_arcade_window(): int:
+  mut g = createBrickBreakerGame()
+  assert(g.bricksLeft == 60 and g.lives == 3 and g.score == 0, "initial brick breaker state 60 bricks 3 lives")
+
+  // Position ball hitting bottom of row 5 col 0 brick (x=128..202, y=268..290) moving upward -> reflects ballVy
+  g.ballX = 150.0
+  g.ballY = 295.0
+  g.ballVx = 1.0
+  g.ballVy = -8.0
+  g = stepBrickBreakerBall(g)
+  assert(g.bricksLeft == 59 and g.score == 10 and g.ballVy > 0.0, "vertical brick hit destroys brick, adds score, and reflects ballVy")
+
+  // Position ball hitting left side of row 5 col 1 brick (x=208..282, y=268..290) moving right -> reflects ballVx
+  g.ballX = 196.0
+  g.ballY = 278.0
+  g.ballVx = 6.0
+  g.ballVy = 1.0
+  g = stepBrickBreakerBall(g)
+  assert(g.bricksLeft == 58 and g.ballVx < 0.0, "horizontal side brick hit destroys brick and reflects ballVx")
+
+  // Position ball hitting right side of paddle -> angled deflection with positive ballVx and upward ballVy
+  g.paddleX = 400.0
+  g.ballX = 490.0
+  g.ballY = 598.0
+  g.ballVx = -1.0
+  g.ballVy = 5.0
+  g = stepBrickBreakerBall(g)
+  assert(g.ballVy < 0.0 and g.ballVx > 1.0, "angled paddle deflection steers ball upward-right")
+
+  // Position ball below bottom -> decrements lives from 3 to 2
+  g.ballY = 660.0
+  g.ballVy = 5.0
+  g = stepBrickBreakerBall(g)
+  assert(g.lives == 2 and not g.launched, "losing ball below bottom decrements lives to 2")
+
+  let m0 = renderBrickBreakerArena(g, 0)
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  assert(getWindowMode() == "glx", "window mode is glx")
+  assert(m0 > 500 and f0 > 500 and f0 != f1, "brick breaker arena renders and advances across frames")
+  ret 0
+
+pub fn main(): int:
+  test_game_glx_brick_breaker_arcade_window()
+  println("PASS: ex_255_game_glx_brick_breaker_arcade_window_test")
+  ret 0

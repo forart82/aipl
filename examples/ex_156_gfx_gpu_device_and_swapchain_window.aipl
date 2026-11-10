@@ -1,0 +1,110 @@
+module Ex156GfxGpuDeviceAndSwapchainWindow
+
+import {
+  GpuDevice, createGpuDevice, getStandardGpuLimits,
+  isDeviceLost, destroyGpuDevice
+} from "../std/gfx/gpu_device"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepDeviceWatchdog(dev: GpuDevice, frame: int): GpuDevice:
+  let phase = frame % 53
+  if phase >= 20 and phase < 45:
+    ret destroyGpuDevice(dev)
+  if isDeviceLost(dev):
+    ret createGpuDevice(1)
+  ret dev
+
+pub fn renderFrameStep(frame: int): int:
+  let baseDev = createGpuDevice(1)
+  let dev = stepDeviceWatchdog(baseDev, frame)
+  let activeSlot = ((frame / 7) + (frame / 29)) % 3
+  let vsyncPct = (frame * 17) % 100
+  let aliveVal = if isDeviceLost(dev): 0 else: 1000
+  ret aliveVal + activeSlot * 100 + vsyncPct
+
+pub fn buildGpuDeviceSwapchainAudit(): int:
+  let hwDev = createGpuDevice(1)
+  let limits = getStandardGpuLimits()
+  let deadDev = destroyGpuDevice(hwDev)
+  let lostFlag = if isDeviceLost(deadDev): 1 else: 0
+  ret limits.maxTextureDimension2D + limits.maxVertexBuffers + lostFlag
+
+pub fn main(): int:
+  mut hwDev = createGpuDevice(1)
+  let swDev = createGpuDevice(4)
+  let limits = getStandardGpuLimits()
+  let audit = buildGpuDeviceSwapchainAudit()
+
+  initWindow(1280, 720, "AIPL ex_156: GPU Device Limits & Triple-Buffered Swapchain")
+  mut frame: int = 0
+  while not windowShouldClose():
+    hwDev = stepDeviceWatchdog(hwDev, frame)
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawText("EX_156: GPU HARDWARE DEVICE LIMITS & TRIPLE-BUFFERED SWAPCHAIN", 40.0, 28.0, 22.0, rgb(248, 250, 252))
+    drawText("std/gfx/gpu_device: createGpuDevice | getStandardGpuLimits | isDeviceLost | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Card: Hardware Adapter & Limits Matrix
+    drawRect(40.0, 96.0, 570.0, 380.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 570.0, 380.0, 2.0, if hwDev.isAlive: rgb(34, 197, 94) else: rgb(244, 63, 94))
+    drawText("PRIMARY ADAPTER: " + hwDev.adapter.name, 60.0, 118.0, 18.0, if hwDev.isAlive: rgb(134, 239, 172) else: rgb(251, 113, 133))
+    drawText("VendorID=" + str(hwDev.adapter.vendorId) + " | Backend=" + str(hwDev.adapter.backendType) + " | Alive=" + str(hwDev.isAlive), 60.0, 148.0, 15.0, rgb(203, 213, 225))
+
+    drawRect(60.0, 182.0, 530.0, 40.0, rgb(30, 41, 59))
+    drawText("Max Texture 2D Dimension: " + str(limits.maxTextureDimension2D) + " px", 74.0, 194.0, 15.0, rgb(56, 189, 248))
+
+    drawRect(60.0, 232.0, 530.0, 40.0, rgb(30, 41, 59))
+    drawText("Max Texture 3D Dimension: " + str(limits.maxTextureDimension3D) + " vox", 74.0, 244.0, 15.0, rgb(168, 85, 247))
+
+    drawRect(60.0, 282.0, 530.0, 40.0, rgb(30, 41, 59))
+    drawText("Max Uniform Buffer Binding: " + str(limits.maxUniformBufferBindingSize) + " B (64 KiB)", 74.0, 294.0, 15.0, rgb(250, 204, 21))
+
+    drawRect(60.0, 332.0, 530.0, 40.0, rgb(30, 41, 59))
+    drawText("Max Storage Buffer Binding: " + str(limits.maxStorageBufferBindingSize / 1048576) + " MiB", 74.0, 344.0, 15.0, rgb(244, 63, 94))
+
+    drawRect(60.0, 382.0, 530.0, 40.0, rgb(30, 41, 59))
+    drawText("Max Vertex Buffers: " + str(limits.maxVertexBuffers) + " | Compute Shared: " + str(limits.maxComputeWorkgroupStorageSize) + " B", 74.0, 394.0, 15.0, rgb(34, 197, 94))
+
+    // Right Card: Triple-Buffered Swapchain Ring Diagram
+    drawRect(640.0, 96.0, 600.0, 380.0, rgb(15, 23, 42))
+    drawRectOutline(640.0, 96.0, 600.0, 380.0, 2.0, rgb(56, 189, 248))
+    drawText("TRIPLE-BUFFERED SWAPCHAIN ACQUIRE / RENDER / PRESENT RING", 660.0, 118.0, 17.0, rgb(125, 211, 252))
+
+    let activeSlot = ((frame / 7) + (frame / 29)) % 3
+    let vsyncPct = (frame * 17) % 100
+    mut slot: int = 0
+    while slot < 3:
+      let bx = 670.0 + float(slot) * 185.0
+      let isCurrent = slot == activeSlot
+      let boxBg = if isCurrent: rgb(14, 116, 144) else: rgb(30, 41, 59)
+      let boxBorder = if isCurrent: rgb(56, 189, 248) else: rgb(71, 85, 105)
+      drawRect(bx, 170.0, 165.0, 190.0, boxBg)
+      drawRectOutline(bx, 170.0, 165.0, 190.0, 2.5, boxBorder)
+      drawText("IMAGE #" + str(slot), bx + 38.0, 194.0, 17.0, rgb(248, 250, 252))
+      let roleStr = if slot == activeSlot: "PRESENTING" else: if slot == (activeSlot + 1) % 3: "RENDERING" else: "QUEUED"
+      drawText(roleStr, bx + 28.0, 234.0, 15.0, rgb(253, 224, 71))
+      drawCircle(bx + 82.0, 298.0, 26.0, if isCurrent: rgb(34, 197, 94) else: rgb(100, 116, 139))
+      slot = slot + 1
+
+    drawRect(670.0, 386.0, 535.0, 18.0, rgb(30, 41, 59))
+    drawRect(670.0, 386.0, float((vsyncPct * 535) / 100), 18.0, rgb(56, 189, 248))
+    drawText("VSync FIFO Queue -> Active Present Slot: #" + str(activeSlot) + " (Scanout " + str(vsyncPct) + "%)", 670.0, 418.0, 15.0, rgb(226, 232, 240))
+
+    // Bottom Card: Fallback Adapter & Device Lost Watchdog
+    drawRect(40.0, 500.0, 1200.0, 175.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 500.0, 1200.0, 175.0, 2.0, rgb(51, 65, 85))
+    drawText("FALLBACK ADAPTER & DEVICE-LOST RECOVERY WATCHDOG", 60.0, 524.0, 18.0, rgb(250, 204, 21))
+    drawText("Fallback Adapter: " + swDev.adapter.name + " (isSoftware=" + str(swDev.adapter.isSoftware) + ")", 60.0, 562.0, 16.0, rgb(226, 232, 240))
+    drawText("isDeviceLost(hwDev) = " + str(isDeviceLost(hwDev)) + " | destroyGpuDevice(hwDev) triggers automatic swapchain recreate", 60.0, 594.0, 16.0, rgb(134, 239, 172))
+    drawText("Audit Checksum: " + str(audit), 60.0, 626.0, 16.0, rgb(125, 211, 252))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

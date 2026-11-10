@@ -1,0 +1,41 @@
+module Ex178Gfx3dLight3dCascadedShadowsWindowTest
+
+import {
+  buildLight3dCsmAudit, stepCsmLambda
+} from "../../examples/ex_178_gfx3d_light3d_cascaded_shadows_window"
+import { Vec3 } from "../../std/math/vec_math"
+import { LinearColorF32 } from "../../std/gfx/color"
+import {
+  createDirectionalLight, createPointLight, createSpotLight,
+  computePointLightAttenuation, computeSpotLightAttenuation, computeCascadedShadowSplits
+} from "../../std/gfx3d/light3d"
+
+pub fn test_gfx3d_light3d_cascaded_shadows(): void:
+  let white = LinearColorF32(r = 1.0, g = 1.0, b = 1.0, a = 1.0)
+  let dirL = createDirectionalLight(Vec3(x = 0.0, y = -1.0, z = 0.0), white, 2.5)
+  assert(dirL.intensity == 2.5, "Directional light intensity == 2.5")
+
+  let ptL = createPointLight(Vec3(x = 0.0, y = 3.0, z = 0.0), white, 15.0, 2.0)
+  assert(ptL.range == 15.0, "Point light range == 15.0")
+  assert(computePointLightAttenuation(2.0, 15.0) > 0.1, "Point light attenuates inside range")
+  assert(computePointLightAttenuation(18.0, 15.0) == 0.0, "Point light is 0 outside range")
+
+  let spotL = createSpotLight(Vec3(x = 0.0, y = 5.0, z = 0.0), Vec3(x = 0.0, y = -1.0, z = 0.0), white, 20.0, 15.0, 30.0)
+  assert(computeSpotLightAttenuation(spotL, Vec3(x = 0.0, y = -4.0, z = 0.0)) > 0.0, "Spot light cone hit")
+
+  let splits = computeCascadedShadowSplits(0.1, 100.0, 4, 0.75)
+  assert(splits.len() == 5, "4 cascades yield 5 split planes")
+  assert(splits[0] == 0.1 and splits[4] == 100.0, "First and last CSM splits match near/far")
+  assert(splits[1] < splits[2] and splits[2] < splits[3], "Monotonically increasing CSM split planes")
+  assert(buildLight3dCsmAudit() == 120, "buildLight3dCsmAudit returns 5 + 15 + 100 == 120")
+
+  let l0 = stepCsmLambda(0)
+  let l1 = stepCsmLambda(1)
+  let l20 = stepCsmLambda(20)
+  let l100 = stepCsmLambda(100)
+  assert(l0 != l1 and l1 != l20 and l20 != l100, "CSM split lambda evolves without aliasing across frames 0, 1, 20, 100")
+
+pub fn main(): int:
+  test_gfx3d_light3d_cascaded_shadows()
+  println("PASS: ex_178_gfx3d_light3d_cascaded_shadows_window_test")
+  ret 0

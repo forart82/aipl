@@ -1,0 +1,56 @@
+// ============================================================================
+// Example 059: UTF-8 Codepoint Codec, East-Asian Width & Graphemes (CLI)
+// Demonstrates: utf8EncodeRune, utf8DecodeRune, utf8Validate, codepoints,
+//               codepointCount, isControlRune, isWhitespaceRune, isAlphaRune,
+//               isDigitRune, runeDisplayWidth, stringDisplayWidth, and
+//               graphemeClusters from std/fmt/unicode_utf8.
+// ============================================================================
+module Ex059FmtUnicodeUtf8InspectorCli
+
+import {
+  utf8EncodeRune,
+  utf8DecodeRune,
+  utf8Validate,
+  codepoints,
+  codepointCount,
+  isControlRune,
+  isWhitespaceRune,
+  isAlphaRune,
+  isDigitRune,
+  runeDisplayWidth,
+  stringDisplayWidth,
+  graphemeClusters
+} from "../std/fmt/unicode_utf8"
+
+pub fn verifyUtf8RuneRoundtripAndByteLen(runeCode: int): int:
+  let enc = utf8EncodeRune(runeCode)
+  let dec = utf8DecodeRune(enc, 0)
+  let classesOk = isControlRune(10) and isWhitespaceRune(32) and isAlphaRune(65) and isDigitRune(48)
+  if utf8Validate(enc) and classesOk:
+    ret dec[0] + dec[1]
+  ret -1
+
+pub fn evaluateEastAsianDisplayWidthAndClusters(): int:
+  let sample = "A世"
+  let cps = codepoints(sample)
+  let cpCount = codepointCount(sample)
+  let wRune = runeDisplayWidth(19990)
+  let wStr = stringDisplayWidth(sample)
+  let gc = graphemeClusters(sample)
+  if cps.len == 2 and wRune == 2:
+    ret cpCount + wStr + gc.len
+  ret -1
+
+pub fn describeUtf8EncodingPlane(byteCount: int): str:
+  if byteCount == 1:
+    ret "UTF8:ASCII_1BYTE"
+  if byteCount == 3:
+    ret "UTF8:BMP_3BYTE_CJK_PLANE"
+  ret "UTF8:SUPPLEMENTARY_4BYTE"
+
+pub fn main(): int:
+  let runeMetric = verifyUtf8RuneRoundtripAndByteLen(19990)
+  let widthMetric = evaluateEastAsianDisplayWidthAndClusters()
+  println("UTF-8 Rune Roundtrip + ByteLen (19990): " + str(runeMetric) + " (" + describeUtf8EncodingPlane(3) + ")")
+  println("Codepoints + East-Asian Display Width + Graphemes ('A世'): " + str(widthMetric))
+  ret 0

@@ -1,0 +1,46 @@
+// ============================================================================
+// Step 4.1: Exhaustive Per-Function Unit Tests for std/alloc/alloc_mod.aipl
+// Target: tests/functions/alloc/alloc_mod_test.aipl
+// ============================================================================
+module AllocModTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  arenaMark,
+  arenaReset,
+  gpaInit,
+  gpaAlloc,
+  gpaFree,
+  systemPageSize,
+  poolNew,
+  ringAllocNew,
+  ringDestroy
+} from "../../../std/alloc/alloc_mod.aipl"
+
+pub fn test_alloc_mod_barrel(): int:
+  let m = arenaMark()
+  assertEqInt(arenaReset(m), m, "barrel arenaReset")
+
+  gpaInit()
+  let p = gpaAlloc(64, 1)
+  assert(p > 0, "barrel gpaAlloc")
+  assert(gpaFree(p) == true, "barrel gpaFree")
+
+  assertEqInt(systemPageSize(), 4096, "barrel systemPageSize")
+
+  let pool: FixedObjectPool[int] = poolNew(4)
+  assertEqInt(pool.count(), 0, "barrel poolNew count is 0")
+
+  mut ring = ringAllocNew(256)
+  assert(ring.capacity >= 256, "barrel ringAllocNew")
+  ringDestroy(ring)
+  ret 0
+
+pub fn main(): int:
+  test_alloc_mod_barrel()
+  println("PASS: alloc_mod_test")
+  ret 0

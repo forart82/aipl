@@ -1,0 +1,64 @@
+// ============================================================================
+// Example 002: Primitives, Bitwise Registers & Population Count CLI
+// Demonstrates: Integer bitwise operators (&, |, ^, <<, >>), std/math/consts
+//               bit manipulation (bitSet, bitToggle, popcount64, ctz,
+//               rotateLeft32, isPowerOfTwo, nextPowerOfTwo).
+// ============================================================================
+module Ex002PrimitivesAndBitwiseCli
+
+import { clampInt } from "../std/prelude"
+import {
+  bitSet,
+  bitToggle,
+  bitTest,
+  rotateLeft32,
+  popcount64,
+  ctz,
+  isPowerOfTwo,
+  nextPowerOfTwo
+} from "../std/math/consts"
+
+pub struct BitRegisterReport:
+  rawWord: int
+  popCount: int
+  trailingZeros: int
+  rotatedLeft: int
+  nextPow2: int
+
+pub fn packRgbaBits(r: int, g: int, b: int, a: int): int:
+  let r8 = clampInt(r, 0, 255) & 255
+  let g8 = clampInt(g, 0, 255) & 255
+  let b8 = clampInt(b, 0, 255) & 255
+  let a8 = clampInt(a, 0, 255) & 255
+  ret (r8 << 24) | (g8 << 16) | (b8 << 8) | a8
+
+pub fn manipulateFlagRegister(initialFlags: int): int:
+  mut reg = bitSet(initialFlags, 3)
+  if bitTest(reg, 0):
+    reg = bitToggle(reg, 0)
+  reg = bitSet(reg, 1)
+  ret reg
+
+pub fn describeAlignmentPowerOfTwo(sizeBytes: int): str:
+  if isPowerOfTwo(sizeBytes):
+    ret "BITS:POW2_ALIGNED"
+  let nextP2 = nextPowerOfTwo(sizeBytes)
+  ret "BITS:ROUNDED_TO_" + str(nextP2)
+
+pub fn buildBitRegisterReport(word: int, shiftBits: int): BitRegisterReport:
+  ret BitRegisterReport(
+    rawWord = word,
+    popCount = popcount64(word),
+    trailingZeros = ctz(word),
+    rotatedLeft = rotateLeft32(word, shiftBits),
+    nextPow2 = nextPowerOfTwo(word)
+  )
+
+pub fn main(): int:
+  let rep = buildBitRegisterReport(0b10110000, 4)
+  let packed = packRgbaBits(255, 128, 64, 255)
+  let flags = manipulateFlagRegister(0b0001)
+  let alignTag = describeAlignmentPowerOfTwo(100)
+  println("[ex_002_primitives_and_bitwise_cli] BitRegisterReport(word=" + str(rep.rawWord) + ", popCount=" + str(rep.popCount) + ", ctz=" + str(rep.trailingZeros) + ", rol=" + str(rep.rotatedLeft) + ", nextPow2=" + str(rep.nextPow2) + ")")
+  println("[ex_002_primitives_and_bitwise_cli] packedRgba=" + str(packed) + " | flags=" + str(flags) + " | " + alignTag)
+  ret 0

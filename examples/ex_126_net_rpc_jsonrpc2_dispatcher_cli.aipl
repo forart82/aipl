@@ -1,0 +1,58 @@
+// ============================================================================
+// Canonical Example 126: JSON-RPC 2.0 Method Dispatcher & Error Envelopes (CLI)
+// Target Profile: CLI | Standard Library Module: std/net
+// ============================================================================
+module Ex126NetRpcJsonrpc2DispatcherCli
+
+import {
+  createRpcDispatcher,
+  rpcRegisterMethod,
+  rpcParseRequest,
+  rpcDispatch,
+  rpcFormatSuccess,
+  rpcFormatError
+} from "../std/net/net_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyJsonRpc2DispatcherAndEnvelopes(): int:
+  mut disp = createRpcDispatcher()
+  disp = rpcRegisterMethod(disp, "math.add", 2)
+  let q = chr(34)
+  let parsedRpc = rpcParseRequest("{" + q + "method" + q + ":" + q + "math.add" + q + "}").unwrap()
+  let rpcRes = rpcDispatch(disp, parsedRpc)
+  if rpcRes.errorJson != "":
+    ret 0
+  if not rpcFormatSuccess(42, "35").contains("35"):
+    ret 0
+  if not rpcFormatError(42, -32601, "Method not found").contains("-32601"):
+    ret 0
+  ret 1
+
+pub fn computeExpectedRpcResponses(batchSize: int, notifications: int): int:
+  let b = maxInt(0, batchSize)
+  let n = clampInt(notifications, 0, b)
+  ret b - n
+
+pub fn encodeJsonRpcErrorMetric(errorCode: int, retryable: int): int:
+  let c = maxInt(0, errorCode)
+  let r = clampInt(retryable, 0, 1)
+  ret c * 10 + r
+
+pub fn describeJsonRpcErrorCode(errorCode: int): str:
+  let c = maxInt(0, errorCode)
+  if c == 32601:
+    ret "RPC:METHOD_NOT_FOUND_32601"
+  if c == 32700:
+    ret "RPC:PARSE_ERROR_32700"
+  ret "RPC:ERROR_" + str(c)
+
+pub fn main(): int:
+  let ok = verifyJsonRpc2DispatcherAndEnvelopes()
+  let expected = computeExpectedRpcResponses(12, 3)
+  let errMetric = encodeJsonRpcErrorMetric(32601, 0)
+  let tag = describeJsonRpcErrorCode(32601)
+  assert(ok == 1, "JSON-RPC 2.0 dispatcher verified")
+  assert(expected == 9, "9 expected responses")
+  assert(errMetric == 326010, "error metric 326010")
+  println(tag + " | expected=" + str(expected) + " | metric=" + str(errMetric))
+  ret 0

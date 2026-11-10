@@ -1,0 +1,40 @@
+module Ex161GfxPostfxBloomTonemapCrtWindowTest
+
+import {
+  buildPostFxChainAudit,
+  stepPostFxExposure
+} from "../../examples/ex_161_gfx_postfx_bloom_tonemap_crt_window"
+import { linearRgb } from "../../std/gfx/color"
+import {
+  createDefaultPostFxChain, evaluateAcesTonemap,
+  computeBloomThreshold, evaluateVignette
+} from "../../std/gfx/postfx_pass"
+
+pub fn test_gfx_postfx_bloom_tonemap_crt(): void:
+  let chain = createDefaultPostFxChain()
+  assert(chain.enabled and chain.tonemap.operator == 1, "Default PostFxChain enabled with ACES operator 1")
+
+  let hdr = linearRgb(2.5, 1.5, 0.5, 1.0)
+  let ldr = evaluateAcesTonemap(hdr, 1.0)
+  let ldrHigh = evaluateAcesTonemap(hdr, 1.8)
+  assert(ldr.r > 0.85 and ldr.r < 1.0, "ACES compresses HDR 2.5 to LDR (0.85..1.0)")
+  assert(ldrHigh.r > ldr.r, "Higher exposure increases ACES tonemapped output")
+
+  let bloom = computeBloomThreshold(hdr, chain.bloom.threshold, chain.bloom.knee)
+  assert(bloom.r > 1.0 and bloom.g > 0.5, "Soft-knee bloom threshold extracts HDR highlights")
+
+  let vCenter = evaluateVignette(0.5, 0.5, chain.vignette.radius, chain.vignette.softness)
+  let vCorner = evaluateVignette(0.0, 0.0, chain.vignette.radius, chain.vignette.softness)
+  assert(vCenter > 0.99 and vCorner < vCenter, "Vignette center is 1.0 and corner is darkened")
+
+  let e0 = stepPostFxExposure(0)
+  let e1 = stepPostFxExposure(1)
+  let e20 = stepPostFxExposure(20)
+  let e100 = stepPostFxExposure(100)
+  assert(e0 != e1 and e1 != e20 and e20 != e100, "stepPostFxExposure progresses across t=0, t=1, t=20, t=100")
+  assert(buildPostFxChainAudit() > 240, "buildPostFxChainAudit returns valid ACES + Bloom + Vignette score")
+
+pub fn main(): int:
+  test_gfx_postfx_bloom_tonemap_crt()
+  println("PASS: ex_161_gfx_postfx_bloom_tonemap_crt_window_test")
+  ret 0

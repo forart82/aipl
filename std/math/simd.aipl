@@ -1,0 +1,356 @@
+/// # Module: `std/math/simd` (`MathSimd`)
+///
+/// ## Purpose & Domain Scope
+/// Explicit 128-bit vector lanes (`F32x4`, `I32x4`), unrolled SIMD dot-product/AXPY
+/// kernels, and dense floating-point tensor algebra.
+module MathSimd
+
+import { minFloat, maxFloat } from "std/math/consts"
+import { sqrt, expFloat } from "std/math/trig"
+
+pub struct F32x4:
+  x: float
+  y: float
+  z: float
+  w: float
+
+pub struct I32x4:
+  x: int
+  y: int
+  z: int
+  w: int
+
+pub struct Float32Tensor:
+  rows: int
+  cols: int
+  data: [float]
+
+pub struct Float64Tensor:
+  rows: int
+  cols: int
+  data: [float]
+
+pub struct SimdLoopVectorPlan:
+  strideElem: int
+  tripCount: int
+  vectorWidthLanes: int
+  vectorIterations: int
+  scalarTailCount: int
+  isaTarget: str
+  isVectorizable: bool
+
+pub fn f32x4Add(a: F32x4, b: F32x4): F32x4:
+  ret F32x4(x = a.x + b.x, y = a.y + b.y, z = a.z + b.z, w = a.w + b.w)
+
+pub fn f32x4Sub(a: F32x4, b: F32x4): F32x4:
+  ret F32x4(x = a.x - b.x, y = a.y - b.y, z = a.z - b.z, w = a.w - b.w)
+
+pub fn f32x4Mul(a: F32x4, b: F32x4): F32x4:
+  ret F32x4(x = a.x * b.x, y = a.y * b.y, z = a.z * b.z, w = a.w * b.w)
+
+pub fn f32x4Dot(a: F32x4, b: F32x4): float:
+  ret a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w
+
+pub fn f32x4Min(a: F32x4, b: F32x4): F32x4:
+  ret F32x4(
+    x = minFloat(a.x, b.x),
+    y = minFloat(a.y, b.y),
+    z = minFloat(a.z, b.z),
+    w = minFloat(a.w, b.w)
+  )
+
+pub fn f32x4Max(a: F32x4, b: F32x4): F32x4:
+  ret F32x4(
+    x = maxFloat(a.x, b.x),
+    y = maxFloat(a.y, b.y),
+    z = maxFloat(a.z, b.z),
+    w = maxFloat(a.w, b.w)
+  )
+
+pub fn tensorDot(a: [float], b: [float]): float:
+  let n = if a.len < b.len: a.len else: b.len
+  mut total = 0.0
+  mut i = 0
+  while i < n:
+    total += a[i] * b[i]
+    i += 1
+  ret total
+
+pub fn tensorMatmul(a: [float], b: [float], m: int, n: int, k: int): [float]:
+  mut out: [float] = []
+  mut i = 0
+  while i < m:
+    mut j = 0
+    while j < n:
+      mut sum = 0.0
+      mut p = 0
+      while p < k:
+        sum += a[i * k + p] * b[p * n + j]
+        p += 1
+      out.push(sum)
+      j += 1
+    i += 1
+  ret out
+
+pub fn tensorSoftmax(a: [float]): [float]:
+  let n = a.len
+  if n == 0:
+    ret []
+  mut maxVal = a[0]
+  mut i = 1
+  while i < n:
+    if a[i] > maxVal:
+      maxVal = a[i]
+    i += 1
+  mut expVals: [float] = []
+  mut sumExp = 0.0
+  i = 0
+  while i < n:
+    let ev = expFloat(a[i] - maxVal)
+    expVals.push(ev)
+    sumExp += ev
+    i += 1
+  mut out: [float] = []
+  i = 0
+  let invSum = if sumExp > 1e-12: 1.0 / sumExp else: 0.0
+  while i < n:
+    out.push(expVals[i] * invSum)
+    i += 1
+  ret out
+
+pub fn tensorCosineSimilarity(a: [float], b: [float]): float:
+  let dot = tensorDot(a, b)
+  let normA = sqrt(tensorDot(a, a))
+  let normB = sqrt(tensorDot(b, b))
+  let denom = normA * normB
+  if denom < 1e-12:
+    ret 0.0
+  ret dot / denom
+
+pub fn tensorLayerNorm(a: [float], eps: float = 0.00001): [float]:
+  let n = a.len
+  if n == 0:
+    ret []
+  mut mean = 0.0
+  mut i = 0
+  while i < n:
+    mean += a[i]
+    i += 1
+  mean = mean / float(n)
+  mut variance = 0.0
+  i = 0
+  while i < n:
+    let d = a[i] - mean
+    variance += d * d
+    i += 1
+  variance = variance / float(n)
+  let invStd = 1.0 / sqrt(variance + eps)
+  mut out: [float] = []
+  i = 0
+  while i < n:
+    out.push((a[i] - mean) * invStd)
+    i += 1
+  ret out
+
+pub fn analyzeSimdLoopAutoVectorization(strideElem: int, tripCount: int, hasLoopCarriedDep: bool, targetBits: int): SimdLoopVectorPlan:
+  mut isa = "ARM_NEON"
+  mut lanes = 4
+  if targetBits >= 512:
+    isa = "AVX-512"
+    lanes = 16
+  elif targetBits >= 256:
+    isa = "AVX2"
+    lanes = 8
+  let isVec = (strideElem == 1) and (not hasLoopCarriedDep) and (tripCount >= lanes)
+  let iters = if isVec: tripCount / lanes else: 0
+  let tail = if isVec: tripCount % lanes else: (if tripCount > 0: tripCount else: 0)
+  ret SimdLoopVectorPlan(
+    strideElem = strideElem,
+    tripCount = tripCount,
+    vectorWidthLanes = lanes,
+    vectorIterations = iters,
+    scalarTailCount = tail,
+    isaTarget = isa,
+    isVectorizable = isVec
+  )
+
+pub fn simdDotProduct8Wide(a: [float], b: [float]): float:
+  let n = if a.len < b.len: a.len else: b.len
+  mut acc0 = 0.0
+  mut acc1 = 0.0
+  mut acc2 = 0.0
+  mut acc3 = 0.0
+  mut i = 0
+  while i + 8 <= n:
+    acc0 += a[i] * b[i] + a[i + 4] * b[i + 4]
+    acc1 += a[i + 1] * b[i + 1] + a[i + 5] * b[i + 5]
+    acc2 += a[i + 2] * b[i + 2] + a[i + 6] * b[i + 6]
+    acc3 += a[i + 3] * b[i + 3] + a[i + 7] * b[i + 7]
+    i += 8
+  mut tail = 0.0
+  while i < n:
+    tail += a[i] * b[i]
+    i += 1
+  ret (acc0 + acc1) + (acc2 + acc3) + tail
+
+pub fn simdAxpy8Wide(alpha: float, x: [float], y: [float]): [float]:
+  let n = if x.len < y.len: x.len else: y.len
+  mut out: [float] = []
+  mut i = 0
+  while i < n:
+    out.push(alpha * x[i] + y[i])
+    i += 1
+  ret out
+
+pub fn intBufferNew(size: int): [int]:
+  mut buf: [int] = []
+  mut i = 0
+  while i < size:
+    buf.push(0)
+    i += 1
+  ret buf
+
+pub fn intBufferGet(buf: [int], idx: int): int:
+  if idx < 0 or idx >= buf.len:
+    ret 0
+  ret buf[idx]
+
+pub fn intBufferSet(buf: [int], idx: int, val: int): [int]:
+  mut b = buf
+  if idx >= 0 and idx < b.len:
+    b[idx] = val
+  ret b
+
+pub fn intBufferLen(buf: [int]): int:
+  ret buf.len
+
+pub fn floatBufferNew(size: int): [float]:
+  mut buf: [float] = []
+  mut i = 0
+  while i < size:
+    buf.push(0.0)
+    i += 1
+  ret buf
+
+pub fn floatBufferGet(buf: [float], idx: int): float:
+  if idx < 0 or idx >= buf.len:
+    ret 0.0
+  ret buf[idx]
+
+pub fn floatBufferSet(buf: [float], idx: int, val: float): [float]:
+  mut b = buf
+  if idx >= 0 and idx < b.len:
+    b[idx] = val
+  ret b
+
+pub fn floatBufferLen(buf: [float]): int:
+  ret buf.len
+
+pub fn sumIntsFast(arr: [int]): int:
+  mut total = 0
+  mut i = 0
+  let n = arr.len
+  while i < n:
+    total += arr[i]
+    i += 1
+  ret total
+
+pub fn sumFloatsFast(arr: [float]): float:
+  mut total = 0.0
+  mut i = 0
+  let n = arr.len
+  while i < n:
+    total += arr[i]
+    i += 1
+  ret total
+
+pub fn dotProductFloats(a: [float], b: [float]): float:
+  ret tensorDot(a, b)
+
+pub fn axpyFloats(alpha: float, x: [float], y: [float]): [float]:
+  ret simdAxpy8Wide(alpha, x, y)
+
+pub fn simdFma4Wide(a: [float], b: [float], c: [float]): [float]:
+  let nab = if a.len < b.len: a.len else: b.len
+  let n = if nab < c.len: nab else: c.len
+  mut out: [float] = []
+  mut i = 0
+  while i + 4 <= n:
+    out.push(a[i] * b[i] + c[i])
+    out.push(a[i + 1] * b[i + 1] + c[i + 1])
+    out.push(a[i + 2] * b[i + 2] + c[i + 2])
+    out.push(a[i + 3] * b[i + 3] + c[i + 3])
+    i += 4
+  while i < n:
+    out.push(a[i] * b[i] + c[i])
+    i += 1
+  ret out
+
+pub fn simdMatmul4x4Tiled(a: [float], b: [float], n: int): [float]:
+  let total = n * n
+  if n <= 0 or a.len < total or b.len < total:
+    ret []
+  mut out: [float] = []
+  mut idx = 0
+  while idx < total:
+    out.push(0.0)
+    idx += 1
+  mut i0 = 0
+  while i0 < n:
+    mut j0 = 0
+    while j0 < n:
+      let rEnd = if i0 + 4 < n: i0 + 4 else: n
+      let cEnd = if j0 + 4 < n: j0 + 4 else: n
+      mut r = i0
+      while r < rEnd:
+        mut c = j0
+        while c < cEnd:
+          mut sum = 0.0
+          mut k = 0
+          while k < n:
+            sum += a[r * n + k] * b[k * n + c]
+            k += 1
+          out[r * n + c] = sum
+          c += 1
+        r += 1
+      j0 += 4
+    i0 += 4
+  ret out
+
+pub fn tensorAdd(a: [float], b: [float]): [float]:
+  let n = if a.len < b.len: a.len else: b.len
+  mut out: [float] = []
+  mut i = 0
+  while i < n:
+    out.push(a[i] + b[i])
+    i += 1
+  ret out
+
+pub fn tensorScale(a: [float], s: float): [float]:
+  mut out: [float] = []
+  mut i = 0
+  while i < a.len:
+    out.push(a[i] * s)
+    i += 1
+  ret out
+
+pub fn tensorRelu(a: [float]): [float]:
+  mut out: [float] = []
+  mut i = 0
+  while i < a.len:
+    out.push(if a[i] > 0.0: a[i] else: 0.0)
+    i += 1
+  ret out
+
+pub fn tensorTranspose(a: [float], rows: int, cols: int): [float]:
+  if rows <= 0 or cols <= 0 or a.len < rows * cols:
+    ret []
+  mut out: [float] = []
+  mut c = 0
+  while c < cols:
+    mut r = 0
+    while r < rows:
+      out.push(a[r * cols + c])
+      r += 1
+    c += 1
+  ret out

@@ -1,0 +1,147 @@
+// ============================================================================
+// Step 3.15: Exhaustive Per-Function Unit Tests for std/rt/rt_ptr.aipl (34)
+// Target: tests/functions/rt/rt_ptr_test.aipl
+// ============================================================================
+module RtPtrTest
+
+import {
+  assert,
+  assertEqInt,
+  assertApproxEq
+} from "../../../std/prelude.aipl"
+
+import {
+  PtrSlice,
+  RtByteCursor,
+  ptrSliceNew,
+  ptrSliceIsValid,
+  ptrSliceSub,
+  ptrAlloc,
+  ptrFree,
+  ptrReadU8,
+  ptrWriteU8,
+  ptrReadI64,
+  ptrWriteI64,
+  bitcastF64ToI64,
+  bitcastI64ToF64,
+  ptrReadF64,
+  ptrWriteF64,
+  ptrReadU16LE,
+  ptrWriteU16LE,
+  ptrReadU32LE,
+  ptrWriteU32LE,
+  ptrReadU16BE,
+  ptrWriteU16BE,
+  ptrReadU32BE,
+  ptrWriteU32BE,
+  sizeofType,
+  ptrMemcpy,
+  ptrMemmove,
+  ptrMemset,
+  ptrMemcmp,
+  ptrCopy,
+  ptrFill,
+  ptrSliceReadU8,
+  ptrSliceWriteU8,
+  rtByteCursorNew,
+  rtByteCursorRemaining,
+  rtByteCursorReadU8,
+  rtByteCursorWriteU8
+} from "../../../std/rt/rt_ptr.aipl"
+
+pub fn test_ptr_alloc_read_write_endian(): int:
+  let p = ptrAlloc(64)
+  assert(p > 0, "ptrAlloc returns address > 0")
+
+  // U8
+  ptrWriteU8(p, 0, 123)
+  assertEqInt(ptrReadU8(p, 0), 123, "readU8 offset 0")
+
+  // I64
+  ptrWriteI64(p, 8, 9876543210)
+  assertEqInt(ptrReadI64(p, 8), 9876543210, "readI64 offset 8")
+
+  // F64
+  ptrWriteF64(p, 16, 2.71828)
+  assertApproxEq(ptrReadF64(p, 16), 2.71828, 0.00001, "readF64 offset 16")
+
+  // Bitcast
+  let bits = bitcastF64ToI64(1.0)
+  assertApproxEq(bitcastI64ToF64(bits), 1.0, 0.00001, "bitcast roundtrip")
+
+  // U16 LE / BE
+  ptrWriteU16LE(p, 24, 0x1234)
+  assertEqInt(ptrReadU16LE(p, 24), 0x1234, "readU16LE")
+
+  ptrWriteU16BE(p, 26, 0x1234)
+  assertEqInt(ptrReadU16BE(p, 26), 0x1234, "readU16BE")
+
+  // U32 LE / BE
+  ptrWriteU32LE(p, 28, 0x12345678)
+  assertEqInt(ptrReadU32LE(p, 28), 0x12345678, "readU32LE")
+
+  ptrWriteU32BE(p, 32, 0x12345678)
+  assertEqInt(ptrReadU32BE(p, 32), 0x12345678, "readU32BE")
+
+  // sizeofType
+  assertEqInt(sizeofType("u8"), 1, "sizeofType u8")
+  assertEqInt(sizeofType("u16"), 2, "sizeofType u16")
+  assertEqInt(sizeofType("u32"), 4, "sizeofType u32")
+  assertEqInt(sizeofType("int"), 8, "sizeofType int")
+
+  ptrFree(p)
+  ret 0
+
+pub fn test_ptr_memory_moves_and_slices(): int:
+  let p1 = ptrAlloc(32)
+  let p2 = ptrAlloc(32)
+
+  ptrFill(p1, 55, 16)
+  assertEqInt(ptrReadU8(p1, 0), 55, "fill byte 0")
+  assertEqInt(ptrReadU8(p1, 15), 55, "fill byte 15")
+
+  ptrMemset(p2, 0, 55, 16)
+  assertEqInt(ptrMemcmp(p1, p2, 16), 0, "memcmp 0 on identical buffers")
+
+  ptrWriteU8(p2, 0, 56)
+  assert(ptrMemcmp(p1, p2, 16) < 0, "memcmp p1 < p2")
+
+  ptrCopy(p2, p1, 16)
+  ptrMemcpy(p2, 0, p1, 0, 16)
+  assertEqInt(ptrMemcmp(p1, p2, 16), 0, "after ptrCopy memcmp 0")
+
+  // Memmove overlapping inside p1
+  ptrWriteU8(p1, 0, 1)
+  ptrWriteU8(p1, 1, 2)
+  ptrWriteU8(p1, 2, 3)
+  ptrMemmove(p1, 1, p1, 0, 2)
+  assertEqInt(ptrReadU8(p1, 1), 1, "memmove overlapped byte 1")
+  assertEqInt(ptrReadU8(p1, 2), 2, "memmove overlapped byte 2")
+
+  // PtrSlice
+  let slice = ptrSliceNew(p1, 16, 32)
+  assert(ptrSliceIsValid(slice) == true, "ptrSliceIsValid")
+  assert(ptrSliceWriteU8(slice, 0, 99) == true, "sliceWriteU8")
+  assertEqInt(ptrSliceReadU8(slice, 0), 99, "sliceReadU8")
+
+  let sub = ptrSliceSub(slice, 0, 8)
+  assertEqInt(sub.len, 8, "sub slice len is 8")
+
+  // ByteCursor
+  mut cur = rtByteCursorNew(p1, 16)
+  assertEqInt(rtByteCursorRemaining(cur), 16, "remaining 16")
+  assert(rtByteCursorWriteU8(cur, 77) == true, "cursor write")
+  assertEqInt(rtByteCursorRemaining(cur), 15, "remaining 15")
+
+  mut readCur = rtByteCursorNew(p1, 16)
+  assertEqInt(rtByteCursorReadU8(readCur), 77, "cursor read")
+
+  ptrFree(p1)
+  ptrFree(p2)
+  ret 0
+
+pub fn main(): int:
+  test_ptr_alloc_read_write_endian()
+  test_ptr_memory_moves_and_slices()
+  println("PASS: rt_ptr_test")
+  ret 0

@@ -1,0 +1,51 @@
+module tests.functions.phys2d.verlet2d_test
+
+import * from "std/phys2d/verlet2d"
+import { sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_verlet2d_verletParticleNew_1(): int:
+  let arg_pos = Vec2(x = 1.0, y = 1.0)
+  let edge_pos = Vec2(x = 0.5, y = 0.5)
+  let arg_isPinned = true
+  let edge_isPinned = false
+  let resNom = verletParticleNew(arg_pos, arg_isPinned)
+  let resEdge = verletParticleNew(edge_pos, edge_isPinned)
+  assert(resNom.isPinned == true, "verletParticleNew nominal resNom.isPinned == true")
+  assert(resEdge.isPinned == false, "verletParticleNew boundary resEdge.isPinned == false")
+  ret 0
+
+pub fn test_verlet2d_verletClothGridNew_2(): int:
+  let arg_cols = 4
+  let edge_cols = 1
+  let arg_rows = 4
+  let edge_rows = 1
+  let arg_spacing = 1.0
+  let edge_spacing = 0.5
+  let resNom = verletClothGridNew(arg_cols, arg_rows, arg_spacing)
+  let resEdge = verletClothGridNew(edge_cols, edge_rows, edge_spacing)
+  assertEqInt(resNom.particles.len(), 16, "verletClothGridNew nominal resNom.particles.len() == 16")
+  assertEqInt(resEdge.particles.len(), 1, "verletClothGridNew boundary resEdge.particles.len() == 1")
+  ret 0
+
+pub fn test_verlet2d_verletStepSimulation_3(): int:
+  let arg_cloth = VerletClothGrid2D(particles = [], sticks = [], cols = 4, rows = 4)
+  let edge_cloth = VerletClothGrid2D(particles = [], sticks = [], cols = 4, rows = 4)
+  let arg_gravity = Vec2(x = 1.0, y = 1.0)
+  let edge_gravity = Vec2(x = 0.5, y = 0.5)
+  let arg_iterations = 4
+  let edge_iterations = 1
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  verletStepSimulation(arg_cloth, arg_gravity, arg_iterations, arg_dt)
+  verletStepSimulation(edge_cloth, edge_gravity, edge_iterations, edge_dt)
+  assertEqInt(arg_cloth.particles.len(), 0, "verletStepSimulation nominal arg_cloth.particles.len() == 0")
+  assertEqInt(edge_cloth.particles.len(), 0, "verletStepSimulation boundary edge_cloth.particles.len() == 0")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_verlet2d_verletParticleNew_1(), 0, "test_verlet2d_verletParticleNew_1")
+  assertEqInt(test_verlet2d_verletClothGridNew_2(), 0, "test_verlet2d_verletClothGridNew_2")
+  assertEqInt(test_verlet2d_verletStepSimulation_3(), 0, "test_verlet2d_verletStepSimulation_3")
+  ret 0

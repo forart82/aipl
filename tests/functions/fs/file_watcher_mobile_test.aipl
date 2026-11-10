@@ -1,0 +1,73 @@
+// Test suite for std/fs/file_watcher_mobile.aipl (step_22.2)
+module tests.functions.fs.file_watcher_mobile_test
+
+import * from "std/fs/file_watcher_mobile"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_file_watcher_mobile_createMobileAiplWatcher(): int:
+  let wDef = createMobileAiplWatcher(50)
+  assertEqInt(wDef.debounceMs, 50, "default debounceMs == 50")
+  assertEqInt(wDef.reloadCount, 0, "initial reloadCount == 0")
+  assertEqInt(wDef.watchedDigests.keys().len, 0, "empty watchedDigests map")
+  let wClamp = createMobileAiplWatcher(0)
+  assertEqInt(wClamp.debounceMs, 50, "0ms debounce clamped to 50ms")
+  let wNegative = createMobileAiplWatcher(-500)
+  assertEqInt(wNegative.debounceMs, 50, "negative debounce clamped to 50ms")
+  let wCustom = createMobileAiplWatcher(100)
+  assertEqInt(wCustom.debounceMs, 100, "custom 100ms debounce preserved")
+  let wMinValid = createMobileAiplWatcher(10)
+  assertEqInt(wMinValid.debounceMs, 10, "minimum 10ms debounce preserved")
+  ret 0
+
+pub fn test_file_watcher_mobile_pollMobileFileSha256Change(): int:
+  let (c1, d1) = pollMobileFileSha256Change("", "pub fn main(): int: ret 1")
+  assert(c1 == true, "initial load detected as change")
+  assertEqStr(d1, "2685010167727b082a3bd20225da63f720df027ab4b85f83edf33a3fdd24d38b", "exact SHA-256 for v1 source")
+  let (cSame, dSame) = pollMobileFileSha256Change(d1, "pub fn main(): int: ret 1")
+  assert(cSame == false, "identical content does not trigger reload")
+  assertEqStr(dSame, d1, "digest unchanged")
+  let (c2, d2) = pollMobileFileSha256Change(d1, "pub fn main(): int: ret 2")
+  assert(c2 == true, "modified return value triggers reload")
+  assertEqStr(d2, "9c14d637df4356548088b1b22cea7d5647b786684691cde975a6f550d4568116", "exact SHA-256 for v2 source")
+  let (cEmpty, dEmpty) = pollMobileFileSha256Change(d2, "")
+  assert(cEmpty == false, "transient empty truncation during editor save ignored")
+  assertEqStr(dEmpty, d2, "digest retained across empty source")
+  let (cEmptyInit, dEmptyInit) = pollMobileFileSha256Change("", "")
+  assert(cEmptyInit == false, "both empty inputs yield false change")
+  assertEqInt(dEmptyInit.len(), 64, "empty inputs still satisfy 64-char hex postcondition")
+  ret 0
+
+pub fn test_file_watcher_mobile_handleAndroidSafOrFileObserverEvent(): int:
+  assert(handleAndroidSafOrFileObserverEvent("/sdcard/Aipl/main.aipl", 8, 1000, 900, 50) == true, "CLOSE_WRITE after 100ms >= 50ms triggers")
+  assert(handleAndroidSafOrFileObserverEvent("content://com.android.externalstorage.documents/document/primary%3Amain.aipl", 128, 1060, 1000, 50) == true, "SAF content:// URI MOVED_TO after 60ms triggers")
+  assert(handleAndroidSafOrFileObserverEvent("/sdcard/Aipl/main.aipl", 8, 1020, 1000, 50) == false, "20ms < 50ms debounce suppressed")
+  assert(handleAndroidSafOrFileObserverEvent("/sdcard/Aipl/notes.txt", 8, 2000, 1000, 50) == false, "non-.aipl file ignored")
+  assert(handleAndroidSafOrFileObserverEvent("/sdcard/Aipl/main.aipl", 4, 2000, 1000, 50) == false, "metadata ATTRIB (4) event ignored")
+  assert(handleAndroidSafOrFileObserverEvent("/sdcard/Aipl/main.aipl", 0, 2000, 1000, 50) == false, "zero mask ignored")
+  ret 0
+
+pub fn test_file_watcher_mobile_commitWatchedFileUpdate(): int:
+  mut digests: Map[str, str] = Map.new()
+  let (d1, t1, r1, fired1) = commitWatchedFileUpdate(digests, "main.aipl", "pub fn main(): int: ret 1", 100, 0, 50, 0)
+  assert(fired1 == true, "initial commit fires reload")
+  assertEqInt(r1, 1, "reloadCount == 1")
+  assertEqInt(t1, 100, "lastTriggerMs == 100")
+  let (d2, t2, r2, fired2) = commitWatchedFileUpdate(d1, "main.aipl", "pub fn main(): int: ret 2", 120, t1, 50, r1)
+  assert(fired2 == false, "debounced at 120ms (20ms < 50ms)")
+  assertEqInt(r2, 1, "reloadCount still 1")
+  let (d3, t3, r3, fired3) = commitWatchedFileUpdate(d2, "main.aipl", "pub fn main(): int: ret 2", 160, t2, 50, r2)
+  assert(fired3 == true, "fires at 160ms with modified source")
+  assertEqInt(r3, 2, "reloadCount incremented to 2")
+  assertEqInt(t3, 160, "lastTriggerMs updated to 160")
+  // Same content at a later time should not fire
+  let (d4, t4, r4, fired4) = commitWatchedFileUpdate(d3, "main.aipl", "pub fn main(): int: ret 2", 300, t3, 50, r3)
+  assert(fired4 == false, "unchanged content does not fire")
+  assertEqInt(r4, 2, "reloadCount unchanged")
+  // Empty URI or empty source should not fire
+  let (d5, _, r5, fired5) = commitWatchedFileUpdate(d4, "", "some code", 400, t4, 50, r4)
+  assert(fired5 == false, "empty uri does not fire")
+  assertEqInt(r5, 2, "reloadCount unchanged")
+  let (d6, _, r6, fired6) = commitWatchedFileUpdate(d5, "main.aipl", "", 400, t4, 50, r5)
+  assert(fired6 == false, "empty newSource does not fire")
+  assertEqInt(r6, 2, "reloadCount unchanged")
+  ret 0

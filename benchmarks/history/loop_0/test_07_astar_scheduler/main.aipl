@@ -1,0 +1,47 @@
+module Bench07AStarScheduler
+
+import std.grid
+import std.pathfinding
+
+struct ScheduledJob(id: int, priority: int, durationMs: int, pathCost: float)
+
+fn scheduleJobsByPriority(jobs: [ScheduledJob]): [int]:
+  mut indices: [int] = []
+  mut i = 0
+  while i < jobs.len:
+    indices.push(i)
+    i += 1
+  mut a = 0
+  while a < indices.len:
+    mut b = a + 1
+    while b < indices.len:
+      let ja = jobs[indices[a]]
+      let jb = jobs[indices[b]]
+      let swapNeeded = if jb.priority > ja.priority: true else: (jb.priority == ja.priority and jb.pathCost < ja.pathCost)
+      if swapNeeded:
+        let tmp = indices[a]
+        indices[a] = indices[b]
+        indices[b] = tmp
+      b += 1
+    a += 1
+  ret indices.map(|idx| jobs[idx].id)
+
+fn main(): void:
+  mut g = grid2dNew(6, 6, 0)
+  g = grid2dSet(g, 2, 0, 1)
+  g = grid2dSet(g, 2, 1, 1)
+  g = grid2dSet(g, 2, 2, 1)
+  let r1 = gridAStar(g, 0, 0, 5, 0, true)
+  let r2 = gridAStar(g, 0, 5, 5, 5, true)
+  assert(r1.found and r2.found)
+  assert(r1.cost > r2.cost)
+
+  let jobs = [
+    ScheduledJob(101, 5, 50, r1.cost),
+    ScheduledJob(102, 10, 30, r1.cost),
+    ScheduledJob(103, 5, 40, r2.cost)
+  ]
+  let order = scheduleJobsByPriority(jobs)
+  assert(order.len == 3 and order[0] == 102 and order[1] == 103 and order[2] == 101)
+  println("Order=" + str(order[0]) + "," + str(order[1]) + "," + str(order[2]))
+  println("BENCH_07_OK")

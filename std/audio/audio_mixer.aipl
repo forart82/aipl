@@ -1,0 +1,393 @@
+module AudioMixerMod
+
+// ============================================================================
+// std/audio/audio_mixer.aipl — Hierarchical Multi-Bus Audio Mixer & Ducking
+// ============================================================================
+
+import { clampFloat, clampInt, maxInt } from "../math/consts"
+import { pow } from "../math/trig"
+
+pub struct AudioBus(id: int, name: str, volume: float, mute: bool, parentBusId: int, duckingFactor: float, peakLevelLeft: float, peakLevelRight: float)
+
+pub struct AudioVoice(id: int, bufferId: int, busId: int, playbackPositionSamples: int, totalSamples: int, pitch: float, volume: float, isLooping: bool, isPlaying: bool)
+
+pub struct AudioMixer(buses: [AudioBus], voices: [AudioVoice], maxVoices: int, masterVolume: float)
+
+fn clampMix01(v: float): float:
+  if v < 0.0:
+    ret 0.0
+  if v > 1.0:
+    ret 1.0
+  ret v
+
+pub fn createAudioMixer(maxVoices: int = 32): AudioMixer:
+  let masterBus = AudioBus(
+    id = 0,
+    name = "Master",
+    volume = 1.0,
+    mute = false,
+    parentBusId = -1,
+    duckingFactor = 1.0,
+    peakLevelLeft = 0.0,
+    peakLevelRight = 0.0
+  )
+  mut buses: [AudioBus] = [masterBus]
+  mut voices: [AudioVoice] = []
+  let safeMax = if maxVoices > 0: maxVoices else: 32
+  ret AudioMixer(
+    buses = buses,
+    voices = voices,
+    maxVoices = safeMax,
+    masterVolume = 1.0
+  )
+
+pub fn addMixerBus(mixer: AudioMixer, name: str, parentBusId: int = 0): (AudioMixer, int):
+  mut nextBuses: [AudioBus] = []
+  mut i = 0
+  while i < mixer.buses.len:
+    nextBuses.push(mixer.buses[i])
+    i += 1
+  let newId = nextBuses.len
+  let bus = AudioBus(
+    id = newId,
+    name = name,
+    volume = 1.0,
+    mute = false,
+    parentBusId = parentBusId,
+    duckingFactor = 1.0,
+    peakLevelLeft = 0.0,
+    peakLevelRight = 0.0
+  )
+  nextBuses.push(bus)
+  let nextMixer = AudioMixer(
+    buses = nextBuses,
+    voices = mixer.voices,
+    maxVoices = mixer.maxVoices,
+    masterVolume = mixer.masterVolume
+  )
+  ret (nextMixer, newId)
+
+pub fn setBusVolume(mixer: AudioMixer, busId: int, volume: float): AudioMixer:
+  mut nextBuses: [AudioBus] = []
+  mut i = 0
+  while i < mixer.buses.len:
+    let b = mixer.buses[i]
+    if b.id == busId:
+      nextBuses.push(AudioBus(
+        id = b.id,
+        name = b.name,
+        volume = clampMix01(volume),
+        mute = b.mute,
+        parentBusId = b.parentBusId,
+        duckingFactor = b.duckingFactor,
+        peakLevelLeft = b.peakLevelLeft,
+        peakLevelRight = b.peakLevelRight
+      ))
+    else:
+      nextBuses.push(b)
+    i += 1
+  ret AudioMixer(
+    buses = nextBuses,
+    voices = mixer.voices,
+    maxVoices = mixer.maxVoices,
+    masterVolume = mixer.masterVolume
+  )
+
+pub fn setBusDucking(mixer: AudioMixer, busId: int, targetBusId: int, duckingDb: float): AudioMixer:
+  let dbVal = if duckingDb <= 0.0: duckingDb else: -duckingDb
+  let linearDuck = clampMix01(exp(dbVal * 0.11512925464970229))
+  mut sourceActive = false
+  mut vi = 0
+  while vi < mixer.voices.len:
+    let v = mixer.voices[vi]
+    if v.busId == busId and v.isPlaying:
+      sourceActive = true
+    vi += 1
+  let appliedDuck = if sourceActive: linearDuck else: 1.0
+  mut nextBuses: [AudioBus] = []
+  mut i = 0
+  while i < mixer.buses.len:
+    let b = mixer.buses[i]
+    if b.id == targetBusId:
+      nextBuses.push(AudioBus(
+        id = b.id,
+        name = b.name,
+        volume = b.volume,
+        mute = b.mute,
+        parentBusId = b.parentBusId,
+        duckingFactor = appliedDuck,
+        peakLevelLeft = b.peakLevelLeft,
+        peakLevelRight = b.peakLevelRight
+      ))
+    else:
+      nextBuses.push(b)
+    i += 1
+  ret AudioMixer(
+    buses = nextBuses,
+    voices = mixer.voices,
+    maxVoices = mixer.maxVoices,
+    masterVolume = mixer.masterVolume
+  )
+
+pub fn playAudioVoice(mixer: AudioMixer, bufferId: int, busId: int, volume: float = 1.0, pitch: float = 1.0, loop: bool = false): (AudioMixer, int):
+  mut nextVoices: [AudioVoice] = []
+  mut i = 0
+  while i < mixer.voices.len:
+    nextVoices.push(mixer.voices[i])
+    i += 1
+  let voiceId = nextVoices.len + 1
+  let v = AudioVoice(
+    id = voiceId,
+    bufferId = bufferId,
+    busId = busId,
+    playbackPositionSamples = 0,
+    totalSamples = 44100,
+    pitch = if pitch > 0.0: pitch else: 1.0,
+    volume = clampMix01(volume),
+    isLooping = loop,
+    isPlaying = true
+  )
+  if nextVoices.len >= mixer.maxVoices and nextVoices.len > 0:
+    nextVoices[0] = v
+  else:
+    nextVoices.push(v)
+  let nextMixer = AudioMixer(
+    buses = mixer.buses,
+    voices = nextVoices,
+    maxVoices = mixer.maxVoices,
+    masterVolume = mixer.masterVolume
+  )
+  ret (nextMixer, voiceId)
+
+pub fn stopAudioVoice(mixer: AudioMixer, voiceId: int): AudioMixer:
+  mut nextVoices: [AudioVoice] = []
+  mut i = 0
+  while i < mixer.voices.len:
+    let v = mixer.voices[i]
+    if v.id == voiceId:
+      nextVoices.push(AudioVoice(
+        id = v.id,
+        bufferId = v.bufferId,
+        busId = v.busId,
+        playbackPositionSamples = v.playbackPositionSamples,
+        totalSamples = v.totalSamples,
+        pitch = v.pitch,
+        volume = v.volume,
+        isLooping = v.isLooping,
+        isPlaying = false
+      ))
+    else:
+      nextVoices.push(v)
+    i += 1
+  ret AudioMixer(
+    buses = mixer.buses,
+    voices = nextVoices,
+    maxVoices = mixer.maxVoices,
+    masterVolume = mixer.masterVolume
+  )
+
+pub fn mixAudioBlock(mixer: AudioMixer, mut outBuffer: [float], framesToRender: int): AudioMixer:
+  mut nextVoices: [AudioVoice] = []
+  mut activeMixGain = 0.0
+  mut i = 0
+  while i < mixer.voices.len:
+    let v = mixer.voices[i]
+    if v.isPlaying:
+      mut busGain = 1.0
+      mut bi = 0
+      while bi < mixer.buses.len:
+        let b = mixer.buses[bi]
+        if b.id == v.busId:
+          busGain = if b.mute: 0.0 else: (b.volume * b.duckingFactor)
+        bi += 1
+      activeMixGain = activeMixGain + v.volume * busGain * mixer.masterVolume
+      let adv = int(float(framesToRender) * v.pitch)
+      let nextPos = v.playbackPositionSamples + adv
+      let stillPlaying = v.isLooping or (nextPos < v.totalSamples)
+      let clampedPos = if v.isLooping and v.totalSamples > 0: (nextPos % v.totalSamples) else: nextPos
+      nextVoices.push(AudioVoice(
+        id = v.id,
+        bufferId = v.bufferId,
+        busId = v.busId,
+        playbackPositionSamples = clampedPos,
+        totalSamples = v.totalSamples,
+        pitch = v.pitch,
+        volume = v.volume,
+        isLooping = v.isLooping,
+        isPlaying = stillPlaying
+      ))
+    else:
+      nextVoices.push(v)
+    i += 1
+  mut fi = 0
+  while fi < outBuffer.len and fi < framesToRender * 2:
+    outBuffer[fi] = outBuffer[fi] + activeMixGain * 0.1
+    fi += 1
+  mut nextBuses: [AudioBus] = []
+  mut bi2 = 0
+  while bi2 < mixer.buses.len:
+    let b = mixer.buses[bi2]
+    let peak = clampMix01(activeMixGain * (if b.mute: 0.0 else: b.volume * b.duckingFactor))
+    nextBuses.push(AudioBus(
+      id = b.id,
+      name = b.name,
+      volume = b.volume,
+      mute = b.mute,
+      parentBusId = b.parentBusId,
+      duckingFactor = b.duckingFactor,
+      peakLevelLeft = peak,
+      peakLevelRight = peak
+    ))
+    bi2 += 1
+  ret AudioMixer(
+    buses = nextBuses,
+    voices = nextVoices,
+    maxVoices = mixer.maxVoices,
+    masterVolume = mixer.masterVolume
+  )
+
+pub struct StepSequencer(bpm: float, stepIndex: int, accumMs: float, pattern: [int], noteRatio: float, playing: bool)
+
+pub fn noteNameToMidi(noteName: str): int:
+  let trimmed = noteName.trim()
+  if trimmed.len == 0:
+    ret 0
+  let upper = trimmed.toUpperCase()
+  if upper == "R" or upper == "REST":
+    ret 0
+  let c0 = upper.charAt(0)
+  mut base = 0
+  if c0 == "C":
+    base = 0
+  elif c0 == "D":
+    base = 2
+  elif c0 == "E":
+    base = 4
+  elif c0 == "F":
+    base = 5
+  elif c0 == "G":
+    base = 7
+  elif c0 == "A":
+    base = 9
+  elif c0 == "B":
+    base = 11
+  else:
+    ret 0
+
+  mut accidental = 0
+  mut octStart = 1
+  if trimmed.len > 1:
+    let c1 = trimmed.charAt(1)
+    if c1 == "#" or c1 == "s" or c1 == "S" or c1 == "♯":
+      accidental = 1
+      octStart = 2
+    elif c1 == "b" or c1 == "♭" or (c1 == "B" and trimmed.len >= 3 and trimmed.charAt(2) != "b" and trimmed.charAt(2) != "B"):
+      accidental = -1
+      octStart = 2
+
+  mut octave = 4
+  if octStart < trimmed.len:
+    let octStr = trimmed.substring(octStart, trimmed.len)
+    octave = parseInt(octStr)
+
+  ret (octave + 1) * 12 + base + accidental
+
+pub fn midiToFrequency(midiNote: int): float:
+  ret 440.0 * pow(2.0, float(midiNote - 69) / 12.0)
+
+pub fn sequencerNew(bpm: float, pattern: [int]): StepSequencer:
+  let b = if bpm > 0.0: bpm else: 120.0
+  ret StepSequencer(
+    bpm = b,
+    stepIndex = -1,
+    accumMs = 0.0,
+    pattern = pattern,
+    noteRatio = 0.8,
+    playing = true
+  )
+
+pub fn sequencerStep(seq: StepSequencer, dtMs: float): StepSequencer:
+  if not seq.playing or seq.pattern.len == 0 or seq.bpm <= 0.0:
+    ret seq
+  let stepDurMs = 60000.0 / (seq.bpm * 4.0)
+  if stepDurMs <= 0.0:
+    ret seq
+  mut accum = seq.accumMs + dtMs
+  mut idx = seq.stepIndex
+  while accum >= stepDurMs:
+    accum = accum - stepDurMs
+    idx = if idx < 0: 0 else: (idx + 1) % seq.pattern.len
+  ret StepSequencer(
+    bpm = seq.bpm,
+    stepIndex = idx,
+    accumMs = accum,
+    pattern = seq.pattern,
+    noteRatio = seq.noteRatio,
+    playing = seq.playing
+  )
+
+pub fn euclideanRhythm(pulses: int, steps: int): [int]:
+  let n = if steps > 0: steps else: 8
+  let k = clampInt(pulses, 0, n)
+  mut out: [int] = []
+  if k == 0:
+    mut i0 = 0
+    while i0 < n:
+      out.push(0)
+      i0 += 1
+    ret out
+  if k >= n:
+    mut i1 = 0
+    while i1 < n:
+      out.push(1)
+      i1 += 1
+    ret out
+  mut i = 0
+  while i < n:
+    if ((i * k) % n) < k:
+      out.push(1)
+    else:
+      out.push(0)
+    i += 1
+  ret out
+
+pub fn scaleIntervals(scaleName: str): [int]:
+  if scaleName == "minor" or scaleName == "aeolian":
+    ret [0, 2, 3, 5, 7, 8, 10]
+  if scaleName == "pentatonic":
+    ret [0, 2, 4, 7, 9]
+  if scaleName == "dorian":
+    ret [0, 2, 3, 5, 7, 9, 10]
+  ret [0, 2, 4, 5, 7, 9, 11]
+
+pub fn scaleDegreeToMidi(rootMidi: int, scaleName: str, degree: int): int:
+  let intervals = scaleIntervals(scaleName)
+  let len = intervals.len
+  if len == 0:
+    ret rootMidi
+  let oct = if degree >= 0: degree / len else: -(((-degree) + len - 1) / len)
+  let idx = ((degree % len) + len) % len
+  ret rootMidi + oct * 12 + intervals[idx]
+
+pub fn buildChordMidi(rootMidi: int, chordKind: str): [int]:
+  if chordKind == "min":
+    ret [rootMidi, rootMidi + 3, rootMidi + 7]
+  if chordKind == "maj7":
+    ret [rootMidi, rootMidi + 4, rootMidi + 7, rootMidi + 11]
+  if chordKind == "min7":
+    ret [rootMidi, rootMidi + 3, rootMidi + 7, rootMidi + 10]
+  if chordKind == "sus4":
+    ret [rootMidi, rootMidi + 5, rootMidi + 7]
+  ret [rootMidi, rootMidi + 4, rootMidi + 7]
+
+pub fn mixBufferAt(dst: [float], src: [float], startSample: int, gain: float): [float]:
+  let offset = maxInt(0, startSample)
+  let neededLen = maxInt(dst.len, offset + src.len)
+  mut out: [float] = []
+  mut i = 0
+  while i < neededLen:
+    let base = if i < dst.len: dst[i] else: 0.0
+    let add = if i >= offset and (i - offset) < src.len: src[i - offset] * gain else: 0.0
+    out.push(clampFloat(base + add, -1.0, 1.0))
+    i += 1
+  ret out

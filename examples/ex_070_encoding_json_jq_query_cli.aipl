@@ -1,0 +1,61 @@
+// ============================================================================
+// Example 070: JSON AST Construction, Serialization & JQ Path Query (CLI)
+// Demonstrates: jsonObject, jsonNumber, jsonString, jsonBool, jsonArray,
+//               jsonStringify, jsonStringifyPretty, jsonParse, jsonQueryPath,
+//               and fastJsonGetInt from std/encoding.
+// ============================================================================
+module Ex070EncodingJsonJqQueryCli
+
+import {
+  jsonObject,
+  jsonNumber,
+  jsonString,
+  jsonBool,
+  jsonArray,
+  jsonStringify,
+  jsonStringifyPretty,
+  jsonParse,
+  jsonQueryPath,
+  fastJsonGetInt
+} from "../std/encoding"
+
+// Computes the memory footprint of a JSON AST given object map nodes and scalar leaf nodes.
+pub fn computeJsonAstFootprint(objectNodes: int, scalarLeaves: int): int:
+  ret objectNodes * 32 + scalarLeaves * 16
+
+// Computes the indentation column width for pretty-printed JSON at a given nesting depth.
+pub fn computePrettyIndentSpaces(depthLevel: int, spacesPerIndent: int): int:
+  ret depthLevel * spacesPerIndent
+
+// Returns a canonical label for a JSON AST node tag.
+pub fn describeJsonValueKind(typeTag: int): str:
+  if typeTag == 1:
+    ret "JSON:OBJECT_MAP"
+  if typeTag == 2:
+    ret "JSON:ARRAY_LIST"
+  ret "JSON:SCALAR_LEAF"
+
+// Builds a JSON document, serializes it, parses it back into an AST, and runs a JQ path query.
+pub fn evaluateJsonJqQueryPipeline(): str:
+  let docObj = jsonObject([
+    ("service", jsonString("aipl-gateway")),
+    ("active", jsonBool(true)),
+    ("count", jsonNumber(42.0)),
+    ("tags", jsonArray([jsonString("fast"), jsonString("safe")]))
+  ])
+  let rawJson = jsonStringify(docObj)
+  let prettyJson = jsonStringifyPretty(docObj, 2)
+  assert(prettyJson.contains("\"service\": \"aipl-gateway\""), "pretty JSON contains service key")
+
+  let fastCount = fastJsonGetInt(rawJson, "count", 0)
+  let parsed = jsonParse(rawJson).unwrap()
+  let secondTag = jsonQueryPath(parsed, "tags[1]").unwrap().asStr().unwrap()
+  ret secondTag + ":" + str(fastCount)
+
+pub fn main(): int:
+  let footprint = computeJsonAstFootprint(10, 25)
+  let indent = computePrettyIndentSpaces(4, 2)
+  let kind = describeJsonValueKind(1)
+  let jqResult = evaluateJsonJqQueryPipeline()
+  println("ex_070_encoding_json_jq_query_cli: footprint=" + str(footprint) + " indent=" + str(indent) + " kind=" + kind + " jq=" + jqResult)
+  ret 0

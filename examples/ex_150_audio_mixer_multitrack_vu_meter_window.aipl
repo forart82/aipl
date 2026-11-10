@@ -1,0 +1,165 @@
+// ============================================================================
+// Canonical Example 150: Audio Mixer Multitrack Console & VU Meters (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/audio/audio_mixer
+// ============================================================================
+module Ex150AudioMixerMultitrackVuMeterWindow
+
+import {
+  AudioMixer,
+  createAudioMixer,
+  addMixerBus,
+  setBusVolume,
+  setBusDucking,
+  playAudioVoice,
+  stopAudioVoice,
+  mixAudioBlock
+} from "../std/audio/audio_mixer.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt } from "../std/std_root.aipl"
+import { playToneEx } from "../std/audio/audio_device.aipl"
+
+pub fn verifyAudioMixerBusDuckingAndVoices(): int:
+  mut mixer = createAudioMixer(16)
+  let (m1, musicBusId) = addMixerBus(mixer, "Music", 0)
+  let (m2, voiceBusId) = addMixerBus(m1, "Voice", 0)
+  mixer = setBusVolume(m2, musicBusId, 0.8)
+  mixer = setBusDucking(mixer, voiceBusId, musicBusId, -12.0)
+  if mixer.buses[musicBusId].duckingFactor != 1.0:
+    ret 0
+  let (m3, vId) = playAudioVoice(mixer, 1, voiceBusId, 1.0, 1.0, false)
+  let mDucked = setBusDucking(m3, voiceBusId, musicBusId, -12.0)
+  if mDucked.buses[musicBusId].duckingFactor >= 0.3:
+    ret 0
+  mixer = mixAudioBlock(mDucked, [0.5, -0.5], 256)
+  mixer = stopAudioVoice(mixer, vId)
+  if mixer.voices[0].isPlaying:
+    ret 0
+  ret 1
+
+pub fn computeDuckedBusGainPermille(faderPermille: int, duckFactorPermille: int): int:
+  let f = clampInt(faderPermille, 0, 1000)
+  let d = clampInt(duckFactorPermille, 0, 1000)
+  ret (f * d) / 1000
+
+pub fn describeMixerDuckingRoute(attenDb: int): str:
+  let a = clampInt(attenDb, 0, 60)
+  ret "MIXER:SIDECHAIN_DUCK_MINUS_" + str(a) + "DB"
+
+pub fn stepMixerConsoleFrame(frameIndex: int): AudioMixer:
+  mut mixer = createAudioMixer(16)
+  let (m1, musicId) = addMixerBus(mixer, "MUSIC", 0)
+  let (m2, voiceId) = addMixerBus(m1, "VOICE", 0)
+  let (m3, sfxId) = addMixerBus(m2, "SFX", 0)
+  let (m4, ambId) = addMixerBus(m3, "AMBIENT", 0)
+  let (m5, uiId) = addMixerBus(m4, "UI_HUD", 0)
+  let (m6, synId) = addMixerBus(m5, "SYNTH", 0)
+  let (m7, revId) = addMixerBus(m6, "REVERB", 0)
+  mixer = m7
+
+  let modSwing = float((frameIndex * 3) % 23) / 100.0
+  mixer = setBusVolume(mixer, 0, 0.92)
+  mixer = setBusVolume(mixer, musicId, 0.78 + modSwing * 0.25)
+  mixer = setBusVolume(mixer, voiceId, 0.88)
+  mixer = setBusVolume(mixer, sfxId, 0.72 + modSwing)
+  mixer = setBusVolume(mixer, ambId, 0.58 + modSwing * 0.5)
+  mixer = setBusVolume(mixer, uiId, 0.65 + modSwing * 0.4)
+  mixer = setBusVolume(mixer, synId, 0.76 - modSwing * 0.5)
+  mixer = setBusVolume(mixer, revId, 0.52 + modSwing)
+
+  let (mv1, _) = playAudioVoice(mixer, 10, musicId, 0.9, 1.0, true)
+  mixer = mv1
+  let voiceActive = ((frameIndex / 15) + (frameIndex / 43)) % 2 == 1
+  if voiceActive:
+    let (mv2, _) = playAudioVoice(mixer, 20, voiceId, 1.0, 1.0, false)
+    mixer = mv2
+  mixer = setBusDucking(mixer, voiceId, musicId, -12.0)
+  mixer = mixAudioBlock(mixer, [0.75, -0.75], 256)
+  ret mixer
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let mixer = stepMixerConsoleFrame(frameIndex)
+  let musicBus = mixer.buses[1]
+  let faderPm = int(musicBus.volume * 1000.0 + 0.5)
+  let duckPm = int(musicBus.duckingFactor * 1000.0 + 0.5)
+  ret computeDuckedBusGainPermille(faderPm, duckPm) + int(dt * 0.0)
+
+pub fn renderMultitrackMixerVuScene(frameIndex: int): void:
+  let mixer = stepMixerConsoleFrame(frameIndex)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_150 // 8-BUS MULTITRACK MIXING CONSOLE, LED VU METERS & SIDECHAIN DUCKING", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  mut ch = 0
+  while ch < mixer.buses.len:
+    let bus = mixer.buses[ch]
+    let sx = 48.0 + float(ch * 148)
+    let sy = 96.0
+    let sw = 136.0
+    let sh = 500.0
+    let isDucked = bus.duckingFactor < 0.99
+    let borderCol = if isDucked: rgb(244, 63, 94) else: rgb(51, 65, 85)
+    drawRect(sx, sy, sw, sh, rgb(15, 22, 38))
+    drawRectOutline(sx, sy, sw, sh, 2.0, borderCol)
+    drawText(bus.name, sx + 22.0, sy + 20.0, 16.0, rgb(226, 232, 240))
+
+    // Fader Track & Cap driven by bus.volume * bus.duckingFactor
+    let faderX = sx + 34.0
+    drawLine(faderX, sy + 70.0, faderX, sy + 430.0, rgb(71, 85, 105), 3.0)
+    let effectiveGain = bus.volume * bus.duckingFactor
+    let capY = sy + 430.0 - effectiveGain * 340.0
+    drawRect(faderX - 18.0, capY - 10.0, 36.0, 20.0, rgb(148, 163, 184))
+    drawRectOutline(faderX - 18.0, capY - 10.0, 36.0, 20.0, 1.5, rgb(248, 250, 252))
+
+    // Segmented 16-LED Peak VU Meter driven by effectiveGain
+    let vuX = sx + 82.0
+    let activeLeds = int(effectiveGain * 16.0 + 0.5)
+    mut led = 0
+    while led < 16:
+      let ly = sy + 416.0 - float(led * 22)
+      let lit = led < activeLeds
+      let ledCol = if not lit: rgb(24, 33, 52) else: (if led >= 13: rgb(244, 63, 94) else: (if led >= 10: rgb(250, 204, 21) else: rgb(34, 197, 94)))
+      drawRect(vuX, ly, 28.0, 16.0, ledCol)
+      led = led + 1
+
+    let gainPm = computeDuckedBusGainPermille(int(bus.volume * 1000.0 + 0.5), int(bus.duckingFactor * 1000.0 + 0.5))
+    let dbTag = if isDucked: "DUCK " + str(gainPm) + "pm" else: str(gainPm) + " pm"
+    drawText(dbTag, sx + 18.0, sy + 458.0, 13.0, if isDucked: rgb(251, 113, 133) else: rgb(134, 239, 172))
+    ch = ch + 1
+
+  let musicBus = mixer.buses[1]
+  let musicDucked = musicBus.duckingFactor < 0.99
+  // Bottom Status Strip
+  drawRect(48.0, 616.0, 1172.0, 60.0, rgb(16, 24, 42))
+  drawRectOutline(48.0, 616.0, 1172.0, 60.0, 1.5, rgb(71, 85, 105))
+  let duckLabel = if musicDucked: "VOICE BUS ACTIVE -> MUSIC BUS DUCKED TO " + str(int(musicBus.volume * musicBus.duckingFactor * 1000.0)) + " PERMILLE (-12dB)" else: "VOICE BUS IDLE -> MUSIC BUS AT " + str(int(musicBus.volume * 1000.0)) + " PERMILLE"
+  drawText(describeMixerDuckingRoute(12) + " | " + duckLabel, 72.0, 639.0, 15.0, rgb(56, 189, 248))
+
+pub fn main(): int:
+  let ok = verifyAudioMixerBusDuckingAndVoices()
+  assert(ok == 1, "audio mixer ducking verified")
+  initWindow(1280, 720, "AIPL ex_150 - Audio Mixer Multitrack Console & VU Meters")
+  mut frame: int = 0
+  while not windowShouldClose():
+    if frame % 16 == 0:
+      let chord = [220.0, 277.18, 329.63, 440.0]
+      let _ = playToneEx(chord[(frame / 16) % 4], 200.0, 0.30, "synth_lead")
+    beginDrawing()
+    renderMultitrackMixerVuScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

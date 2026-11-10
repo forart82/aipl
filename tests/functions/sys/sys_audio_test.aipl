@@ -1,0 +1,58 @@
+// ============================================================================
+// Step 3.1: Exhaustive Per-Function Unit Tests for std/sys/sys_audio.aipl (6)
+// Target: tests/functions/sys/sys_audio_test.aipl
+// ============================================================================
+module SysAudioTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  SysAudioStreamDesc,
+  sysAudioOpenStream,
+  sysAudioCloseStream,
+  sysAudioWriteFrames,
+  sysAudioGetLatencyFrames,
+  sysAudioPauseStream,
+  sysAudioResumeStream
+} from "../../../std/sys/sys_audio.aipl"
+
+pub fn test_sys_audio_open_close(): int:
+  let h = sysAudioOpenStream(2, 48000, 512)
+  assert(h > 0, "open valid stream handle > 0")
+  assertEqInt(sysAudioOpenStream(-1, 48000, 512), -1, "invalid channels rejected")
+  assertEqInt(sysAudioOpenStream(2, 0, 512), -1, "invalid sampleRate rejected")
+  assertEqInt(sysAudioOpenStream(2, 48000, 0), -1, "invalid bufferFrames rejected")
+
+  let closeRes = sysAudioCloseStream(h)
+  assertEqInt(closeRes, 0, "close stream returns 0")
+  assertEqInt(sysAudioCloseStream(-1), -1, "close invalid handle rejected")
+  ret 0
+
+pub fn test_sys_audio_playback_and_latency(): int:
+  let h = sysAudioOpenStream(2, 44100, 256)
+  let written = sysAudioWriteFrames(h, 1000, 256)
+  assertEqInt(written, 256, "write 256 frames")
+  assertEqInt(sysAudioWriteFrames(h, 0, 256), -1, "write null ptr rejected")
+  assertEqInt(sysAudioWriteFrames(h, 1000, -5), -1, "write negative frames rejected")
+
+  let lat = sysAudioGetLatencyFrames(h)
+  assert(lat >= 0, "latency frames >= 0")
+  assertEqInt(sysAudioGetLatencyFrames(-1), -1, "latency invalid handle rejected")
+
+  assertEqInt(sysAudioPauseStream(h), 0, "pause stream returns 0")
+  assertEqInt(sysAudioPauseStream(-1), -1, "pause invalid handle rejected")
+
+  assertEqInt(sysAudioResumeStream(h), 0, "resume stream returns 0")
+  assertEqInt(sysAudioResumeStream(-1), -1, "resume invalid handle rejected")
+
+  let _ = sysAudioCloseStream(h)
+  ret 0
+
+pub fn main(): int:
+  test_sys_audio_open_close()
+  test_sys_audio_playback_and_latency()
+  println("PASS: sys_audio_test")
+  ret 0

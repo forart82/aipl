@@ -1,0 +1,141 @@
+module Ex235ProcgenLsystemFractalTreesWindow
+
+import {
+  LSystemRule, LSystemGrammar, TurtleSegment3D,
+  lsystemGrammarNew, lsystemAddRule, lsystemEvaluate, lsystemInterpretTurtle3D
+} from "../std/procgen/lsystem"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct LSystemScene(grammar: LSystemGrammar, sentence: str, segments: [TurtleSegment3D], angleDegrees: float, angleVel: float)
+
+pub fn createLSystemScene(): LSystemScene:
+  mut treeGrammar = lsystemGrammarNew("F", 28.0, 45.0)
+  lsystemAddRule(treeGrammar, "F", "F[+F]F[-F]F", 1.0)
+  let treeStr = lsystemEvaluate(treeGrammar, 2, 0)
+  let treeSegs = lsystemInterpretTurtle3D(treeStr, 28.0, 42.0)
+  ret LSystemScene(
+    grammar = treeGrammar,
+    sentence = treeStr,
+    segments = treeSegs,
+    angleDegrees = 28.0,
+    angleVel = 5.0
+  )
+
+pub fn stepScene(mut scene: LSystemScene, frame: int, dt: float): void:
+  mut nextAng = scene.angleDegrees + scene.angleVel * dt
+  mut nextVel = scene.angleVel
+  if nextAng > 36.0:
+    nextAng = 36.0
+    nextVel = -5.0
+  if nextAng < 20.0:
+    nextAng = 20.0
+    nextVel = 5.0
+  scene.angleDegrees = nextAng
+  scene.angleVel = nextVel
+  let s = lsystemEvaluate(scene.grammar, 2, frame)
+  scene.sentence = s
+  scene.segments = lsystemInterpretTurtle3D(s, nextAng, 42.0)
+
+pub fn auditProcgenLsystemFractalTrees(): int:
+  mut grammar = lsystemGrammarNew("A", 90.0, 10.0)
+  lsystemAddRule(grammar, "A", "AB", 1.0)
+  lsystemAddRule(grammar, "B", "A", 1.0)
+  let expanded = lsystemEvaluate(grammar, 3, 0)
+  let segs = lsystemInterpretTurtle3D("F+F-F", 90.0, 5.0)
+  ret segs.len() * 10 + expanded.len()
+
+pub fn main(): int:
+  let audit = auditProcgenLsystemFractalTrees()
+  println("EX_235_PROCGEN_LSYSTEM_AUDIT=" + str(audit))
+
+  mut scene = createLSystemScene()
+
+  initWindow(1280, 720, "AIPL ex_235: L-System Botanical Grammar & 3D Turtle Canopy")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.1)
+    let fineStr = lsystemEvaluate(scene.grammar, 3, frame)
+    let fineSegs = lsystemInterpretTurtle3D(fineStr, scene.angleDegrees, 12.5)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(16, 185, 129))
+    drawText("EX_235: LINDENMAYER SYSTEM (L-SYSTEM) FRACTAL BOTANICAL TREE SYNTHESIZER", 52.0, 36.0, 21.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Branch Angle=" + str(int(scene.angleDegrees * 10.0)) + " d-deg | Gen-2 Segs=" + str(scene.segments.len()) + " | Gen-3 Segs=" + str(fineSegs.len()), 52.0, 62.0, 16.0, rgb(110, 231, 183))
+
+    // Left Panel: Gen-2 & Gen-3 Vertical Fractal Botanical Trees
+    drawRect(32.0, 108.0, 810.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(32.0, 108.0, 810.0, 576.0, 2.0, rgb(16, 185, 129))
+    drawText("UPRIGHT 3D TURTLE STACK BRANCHING: GEN-2 SKELETON (LEFT) vs GEN-3 CANOPY (RIGHT)", 56.0, 132.0, 15.0, rgb(110, 231, 183))
+
+    // Soil Ground Line
+    drawRect(56.0, 616.0, 762.0, 24.0, rgb(30, 41, 59))
+    drawLine(56.0, 616.0, 818.0, 616.0, rgb(16, 185, 129), 3.0)
+
+    // Left Tree: Generation 2 (25 segments)
+    mut idx = 0
+    while idx < scene.segments.len():
+      let seg: TurtleSegment3D = scene.segments[idx]
+      let x1 = 235.0 + seg.startPoint.y * 1.02
+      let y1 = 616.0 - seg.startPoint.x * 1.02
+      let x2 = 235.0 + seg.endPoint.y * 1.02
+      let y2 = 616.0 - seg.endPoint.x * 1.02
+      let isTrunk = seg.startPoint.x < 120.0
+      let col = if isTrunk: rgb(180, 83, 9) else: rgb(16, 185, 129)
+      let thk = if isTrunk: 6.0 else: 3.5
+      drawLine(x1, y1, x2, y2, col, thk)
+      drawCircle(x2, y2, 4.5, rgb(167, 243, 208))
+      idx = idx + 1
+    drawText("Gen-2 (25 segments)", 164.0, 648.0, 14.0, rgb(148, 163, 184))
+
+    // Right Tree: Generation 3 (125 segments)
+    mut fIdx = 0
+    while fIdx < fineSegs.len():
+      let seg: TurtleSegment3D = fineSegs[fIdx]
+      let x1 = 595.0 + seg.startPoint.y * 1.10
+      let y1 = 616.0 - seg.startPoint.x * 1.10
+      let x2 = 595.0 + seg.endPoint.y * 1.10
+      let y2 = 616.0 - seg.endPoint.x * 1.10
+      let isTrunk = seg.startPoint.x < 100.0
+      let col = if isTrunk: rgb(180, 83, 9) else: if seg.startPoint.x < 200.0: rgb(16, 185, 129) else: rgb(52, 211, 153)
+      let thk = if isTrunk: 5.0 else: 2.0
+      drawLine(x1, y1, x2, y2, col, thk)
+      if seg.endPoint.x > 210.0:
+        drawCircle(x2, y2, 3.0, rgb(250, 204, 21))
+      fIdx = fIdx + 1
+    drawText("Gen-3 (125 segments + blossoms)", 488.0, 648.0, 14.0, rgb(148, 163, 184))
+
+    // Right Panel: L-System Grammar & Turtle Telemetry
+    drawRect(862.0, 108.0, 386.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(862.0, 108.0, 386.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("L-SYSTEM GRAMMAR & TURTLE OPS", 890.0, 132.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(888.0, 168.0, 334.0, 116.0, rgb(15, 23, 42))
+    drawRectOutline(888.0, 168.0, 334.0, 116.0, 1.0, rgb(51, 65, 85))
+    drawText("Axiom (w0):  F", 906.0, 186.0, 15.0, rgb(250, 204, 21))
+    drawText("Rule (p1):   F -> F[+F]F[-F]F", 906.0, 214.0, 15.0, rgb(52, 211, 153))
+    drawText("Weight:      1.0 (Deterministic)", 906.0, 242.0, 14.0, rgb(148, 163, 184))
+
+    drawText("Turtle Alphabet Semantics:", 888.0, 310.0, 16.0, rgb(241, 245, 249))
+    drawText("F : Step forward & emit segment", 888.0, 340.0, 14.0, rgb(125, 211, 252))
+    drawText("+ : Rotate left by +theta deg", 888.0, 366.0, 14.0, rgb(110, 231, 183))
+    drawText("- : Rotate right by -theta deg", 888.0, 392.0, 14.0, rgb(110, 231, 183))
+    drawText("[ : Push (pos, angle) onto stack", 888.0, 418.0, 14.0, rgb(216, 180, 254))
+    drawText("] : Pop (pos, angle) from stack", 888.0, 444.0, 14.0, rgb(216, 180, 254))
+
+    drawText("Live Wind Sway Angle:", 888.0, 494.0, 15.0, rgb(241, 245, 249))
+    let swayW = (scene.angleDegrees - 18.0) * 16.0
+    drawRect(888.0, 520.0, 320.0, 24.0, rgb(30, 41, 59))
+    drawRect(888.0, 520.0, swayW, 24.0, rgb(16, 185, 129))
+    drawText(str(int(scene.angleDegrees * 10.0)) + " d-deg (range 20..36 deg)", 888.0, 554.0, 14.0, rgb(250, 204, 21))
+    drawText("Gen-2 String Len: " + str(scene.sentence.len()) + " chars", 888.0, 590.0, 14.0, rgb(148, 163, 184))
+    drawText("Gen-3 String Len: " + str(fineStr.len()) + " chars", 888.0, 616.0, 14.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

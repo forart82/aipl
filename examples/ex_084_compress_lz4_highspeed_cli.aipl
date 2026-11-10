@@ -1,0 +1,53 @@
+// ============================================================================
+// Example 084: LZ4 High-Speed Block & Frame Codec (CLI)
+// Demonstrates: lz4CompressBlock, lz4DecompressBlock, lz4CompressFrame,
+//               lz4DecompressFrame, compressLz4, and decompressLz4
+//               from std/compress.
+// ============================================================================
+module Ex084CompressLz4HighspeedCli
+
+import {
+  lz4CompressBlock,
+  lz4DecompressBlock,
+  lz4CompressFrame,
+  lz4DecompressFrame,
+  compressLz4,
+  decompressLz4
+} from "../std/compress"
+
+// Compresses a repetitive telemetry block with LZ4 and returns the number of saved bytes.
+pub fn evaluateLz4BlockSavedBytes(): int:
+  let text = "ABCDEF_123456_ABCDEF_123456_ABCDEF_123456_ABCDEF_123456"
+  let raw = text.toBytes()
+  let compressed = lz4CompressBlock(raw)
+  assert(compressed.len() < raw.len(), "LZ4 block smaller than raw")
+  ret raw.len() - compressed.len()
+
+// Verifies lossless decompression across LZ4 raw blocks, framed streams, and convenience helpers.
+pub fn verifyLz4BlockAndFrameRoundTrip(): int:
+  let text = "ABCDEF_123456_ABCDEF_123456_ABCDEF_123456_ABCDEF_123456"
+  let raw = text.toBytes()
+  let blkComp = lz4CompressBlock(raw)
+  let blkDec = lz4DecompressBlock(blkComp, raw.len()).unwrap().toStringLossy()
+
+  let frmComp = lz4CompressFrame(raw)
+  let frmDec = lz4DecompressFrame(frmComp).unwrap().toStringLossy()
+
+  let qComp = compressLz4(raw)
+  let qDec = decompressLz4(qComp).unwrap().toStringLossy()
+  if blkDec == text and frmDec == text and qDec == text:
+    ret 1
+  ret 0
+
+// Summarizes the LZ4 compression outcome.
+pub fn describeLz4CompressionTier(savedPositive: bool): str:
+  if savedPositive:
+    ret "LZ4:REALTIME_64KB_DICT_SAVINGS"
+  ret "LZ4:INCOMPRESSIBLE_LITERAL_PASS"
+
+pub fn main(): int:
+  let saved = evaluateLz4BlockSavedBytes()
+  let ok = verifyLz4BlockAndFrameRoundTrip()
+  let tier = describeLz4CompressionTier(saved > 0)
+  println("ex_084_compress_lz4_highspeed_cli: saved=" + str(saved) + " ok=" + str(ok) + " tier=" + tier)
+  ret 0

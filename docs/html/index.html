@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIPL Documentation Portal (v0.9.0)</title>
+  <style>
+    :root {
+      --bg: #0f141c;
+      --bg-surface: #171f2c;
+      --bg-elevated: #1f2a3c;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --primary: #58a6ff;
+      --primary-hover: #79b8ff;
+      --border: #30363d;
+      --code-bg: #161b22;
+      --accent: #2ea043;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+    [data-theme="light"] {
+      --bg: #ffffff;
+      --bg-surface: #f6f8fa;
+      --bg-elevated: #eaeef2;
+      --text: #1f2328;
+      --text-muted: #656d76;
+      --primary: #0969da;
+      --primary-hover: #218bff;
+      --border: #d0d7de;
+      --code-bg: #f6f8fa;
+      --accent: #1a7f37;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      line-height: 1.6;
+    }
+    #sidebar {
+      width: 320px;
+      min-width: 260px;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .sidebar-header {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand { font-size: 1.15rem; font-weight: 700; color: var(--primary); text-decoration: none; display: flex; align-items: center; gap: 8px; }
+    .badge { font-size: 0.75rem; background: var(--bg-elevated); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-muted); }
+    .search-bar { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .search-input {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.85rem;
+      outline: none;
+    }
+    .search-input:focus { border-color: var(--primary); }
+    .nav-section { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .nav-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+    }
+    .nav-title:hover { color: var(--primary); }
+    .nav-list { list-style: none; transition: max-height 0.2s ease; }
+    .nav-list.collapsed { display: none; }
+    .nav-item a {
+      display: block;
+      padding: 6px 8px;
+      font-size: 0.85rem;
+      color: var(--text);
+      text-decoration: none;
+      border-radius: 4px;
+      transition: background 0.15s;
+    }
+    .nav-item a:hover { background: var(--bg-elevated); color: var(--primary); }
+    #main-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 40px 60px;
+      max-width: 1000px;
+    }
+    header.doc-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 30px;
+    }
+    h1 { font-size: 2rem; margin-bottom: 12px; color: var(--text); }
+    h2 { font-size: 1.4rem; margin-top: 36px; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    h3 { font-size: 1.15rem; margin-top: 24px; margin-bottom: 12px; color: var(--primary); }
+    p { margin-bottom: 16px; }
+    ul, ol { margin-bottom: 16px; padding-left: 24px; }
+    li { margin-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 0.9rem; }
+    th, td { padding: 10px 12px; border: 1px solid var(--border); text-align: left; }
+    th { background: var(--bg-surface); }
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    code { font-family: var(--font-mono); font-size: 0.88em; background: var(--code-bg); padding: 2px 4px; border-radius: 3px; }
+    pre code { background: none; padding: 0; }
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    pre:hover .copy-btn { opacity: 1; }
+    .theme-toggle {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .callout {
+      background: var(--bg-surface);
+      border-left: 4px solid var(--primary);
+      padding: 16px;
+      border-radius: 0 6px 6px 0;
+      margin-bottom: 20px;
+    }
+    .counts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 30px;
+    }
+    .count-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+    }
+    .count-number { font-size: 1.8rem; font-weight: 700; color: var(--primary); }
+    .count-label { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
+    #search-modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      align-items: flex-start;
+      justify-content: center;
+      padding-top: 100px;
+    }
+    .modal-box {
+      width: 600px;
+      max-width: 90vw;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+    }
+    .modal-search { width: 100%; padding: 16px; background: var(--bg); border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 1rem; outline: none; }
+    .modal-results { max-height: 400px; overflow-y: auto; list-style: none; padding: 8px 0; }
+    .modal-item a { display: block; padding: 10px 16px; color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+    .modal-item a:hover { background: var(--bg-elevated); color: var(--primary); }
+  </style>
+</head>
+<body>
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <a href="#" class="brand">
+        <span>AIPL</span>
+      </a>
+      <span class="badge">v0.9.0</span>
+    </div>
+    <div class="search-bar">
+      <input type="text" class="search-input" id="quick-filter" placeholder="Search (Press Ctrl+K)...">
+    </div>
+    <nav>
+      <div class="nav-section">
+        <div class="nav-title" data-target="core-manuals">Core Manuals <span>▼</span></div>
+        <ul class="nav-list" id="core-manuals">
+          <li class="nav-item"><a href="#manifesto">README & Manifesto</a></li>
+          <li class="nav-item"><a href="#spec">Language Specification</a></li>
+          <li class="nav-item"><a href="#grammar">Grammar & Syntax</a></li>
+          <li class="nav-item"><a href="#architecture">Compiler Architecture</a></li>
+          <li class="nav-item"><a href="#build-targets">Build & Targets</a></li>
+          <li class="nav-item"><a href="#memory-model">Memory Model</a></li>
+          <li class="nav-item"><a href="#diagnostics">Diagnostics Schema</a></li>
+        </ul>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title" data-target="stdlib-domains">Standard Library (36 Domains) <span>▼</span></div>
+        <ul class="nav-list" id="stdlib-domains">
+          <li class="nav-item"><a href="#stdlib-core">00 Core & Prelude</a></li>
+          <li class="nav-item"><a href="#stdlib-sys">01 System & Runtime</a></li>
+          <li class="nav-item"><a href="#stdlib-alloc">02 Memory & Allocators</a></li>
+          <li class="nav-item"><a href="#stdlib-math">03 Math & PRNG</a></li>
+          <li class="nav-item"><a href="#stdlib-collections">04 Collections & Vec</a></li>
+          <li class="nav-item"><a href="#stdlib-media">05 Window, Audio & Graphics</a></li>
+          <li class="nav-item"><a href="#stdlib-ui">06 Aura UI Framework</a></li>
+          <li class="nav-item"><a href="#stdlib-sim">07 ECS & Physics</a></li>
+        </ul>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title" data-target="adr-list">Architecture Decision Records <span>▼</span></div>
+        <ul class="nav-list" id="adr-list">
+          <li class="nav-item"><a href="#adrs">33 ADRs Catalog</a></li>
+          <li class="nav-item"><a href="#adr-0001">ADR-0001 Early Bifurcation</a></li>
+          <li class="nav-item"><a href="#adr-0002">ADR-0002 Tokenomics Invariant</a></li>
+          <li class="nav-item"><a href="#adr-0004">ADR-0004 Anti-GC Flat Stride</a></li>
+          <li class="nav-item"><a href="#adr-0011">ADR-0011 Embedded SMT</a></li>
+          <li class="nav-item"><a href="#adr-0029">ADR-0029 Self-Hosting Fixed Point</a></li>
+          <li class="nav-item"><a href="#adr-0034">ADR-0034 Android NDK Native</a></li>
+          <li class="nav-item"><a href="#adr-0035">ADR-0035 Mobile VFS & Live Reload</a></li>
+          <li class="nav-item"><a href="#adr-0036">ADR-0036 Pure-AIPL Signed APK</a></li>
+        </ul>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title" data-target="examples-list">Examples Showcase <span>▼</span></div>
+        <ul class="nav-list" id="examples-list">
+          <li class="nav-item"><a href="#examples-cli">CLI Examples (ex_001..118)</a></li>
+          <li class="nav-item"><a href="#examples-window">Window Applications (ex_131..250)</a></li>
+        </ul>
+      </div>
+    </nav>
+  </aside>
+
+  <main id="main-content">
+    <header class="doc-header">
+      <div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">AIPL Autonomous Documentation Portal</p>
+        <h1 style="margin: 0;">AIPL Language & Architecture Portal</h1>
+      </div>
+      <button class="theme-toggle" id="theme-btn">Switch Theme</button>
+    </header>
+
+    <div class="callout">
+      <strong>Zero-Dependency Static HTML Documentation Portal</strong> — This portal provides complete offline navigation across AIPL language specifications, compiler architecture, memory models, 36 standard library domain references, 250 verified examples, and 36 Architecture Decision Records.
+    </div>
+
+    <div class="counts-grid">
+      <div class="count-card">
+        <div class="count-number">36</div>
+        <div class="count-label">Stdlib Domains</div>
+      </div>
+      <div class="count-card">
+        <div class="count-number">290</div>
+        <div class="count-label">Stdlib Modules</div>
+      </div>
+      <div class="count-card">
+        <div class="count-number">4,324</div>
+        <div class="count-label">Callable Functions</div>
+      </div>
+      <div class="count-card">
+        <div class="count-number">250</div>
+        <div class="count-label">Curated Examples</div>
+      </div>
+      <div class="count-card">
+        <div class="count-number">36</div>
+        <div class="count-label">Architecture ADRs</div>
+      </div>
+    </div>
+
+    <section id="manifesto">
+      <h2>Project Manifesto & Core Mission</h2>
+      <p>AIPL (AI-Programming Language) is the first systems and application programming language co-designed from the tokenomics level up for artificial intelligence coding agents and dual-backend execution (TypeScript/React 19 for web/edge and parallel C99 shards / Native ELF64 / WebAssembly for bare metal).</p>
+      
+      <h3>Core Architectural Tenets</h3>
+      <ul>
+        <li><strong>Empirical Tokenomics Optimization</strong>: Subword-aligned syntax calibrated against SentencePiece 256k vocabularies, achieving 60%+ token reduction.</li>
+        <li><strong>Dual-Backend Early Bifurcation</strong>: Single canonical HIR lowering seamlessly to native C99/Wasm or idiomatic TypeScript 5.x.</li>
+        <li><strong>Anti-GC Flat-Stride Memory</strong>: Structure of Arrays (SoA) memory layouts and regional bump arenas with zero garbage collector pauses.</li>
+        <li><strong>Machine-Tractable Agent Tooling</strong>: Structured JSON error diagnostics (diagnostic-v1.json), AST diff auto-repairs, and surgical symbol splicing.</li>
+      </ul>
+    </section>
+
+    <section id="spec">
+      <h2>Language Specification Overview</h2>
+      <p>AIPL combines sound bidirectional type checking, strict boolean invariants, explicit error handling via Option[T] and Result[T, E], and Design-by-Contract verification.</p>
+      
+      <pre><code>module examples.hello
+import * from "std/prelude"
+
+pub fn safeDivide(numerator: int, denominator: int): int:
+  req: denominator != 0
+  ens: retVal * denominator &lt;= numerator
+  ret numerator / denominator
+
+pub fn main(): int:
+  let quotient = safeDivide(100, 5)
+  println("Result: " + str(quotient))
+  ret 0</code><button class="copy-btn">Copy</button></pre>
+    </section>
+
+    <section id="grammar">
+      <h2>Grammar & Syntax Guide</h2>
+      <p>AIPL enforces strict, machine-tractable syntax invariants designed for single-token evaluation under subword tokenizers:</p>
+      <ul>
+        <li><strong>2-Space Indentation Offside Rule</strong>: Blocks begin with <code>:</code> followed by an indented body indented by exactly 2 spaces. Tabs and curly braces are prohibited.</li>
+        <li><strong>Mandatory Identifier Casing</strong>: Variables, functions, and members use <code>camelCase</code>. Structs, enums, and types use <code>PascalCase</code>. Underscores are banned.</li>
+        <li><strong>No Semicolons</strong>: Statements are strictly newline-delimited.</li>
+        <li><strong>Operator Precedence</strong>: 11 distinct levels from lowest (logical <code>or</code>, <code>and</code>) to highest (primary member access and postfix operators).</li>
+      </ul>
+      <p>Consult <a href="../GRAMMAR_AND_SYNTAX.md"><code>docs/GRAMMAR_AND_SYNTAX.md</code></a> for the exhaustive formal EBNF grammar specification.</p>
+    </section>
+
+    <section id="architecture">
+      <h2>Compiler Architecture & Subsystems</h2>
+      <p>The self-hosted compiler is organized into 11 modular subsystems in <code>compiler/*.aipl</code>:</p>
+      <ul>
+        <li><strong>Lexer & Tokens</strong> (<code>lexer.aipl</code>) — Parallel offside lexer with 2-space virtual indent tracking.</li>
+        <li><strong>Pratt Parser</strong> (<code>parser.aipl</code>) — AstArena-allocated AST construction with error-resilient recovery.</li>
+        <li><strong>Symbol Resolver</strong> (<code>resolve.aipl</code>) — Module imports, lexical scope resolution, and shadowing checks.</li>
+        <li><strong>Bidirectional Typechecker</strong> (<code>types.aipl</code>) — Bidirectional Hindley-Milner type checking without implicit coercion.</li>
+        <li><strong>Embedded SMT Solver</strong> (<code>smt.aipl</code>) — Proves <code>req:</code> and <code>ens:</code> contract invariants via Octagon DBM closure.</li>
+        <li><strong>Canonical HIR</strong> (<code>hir.aipl</code>) — Mid-level intermediate representation with early bifurcation.</li>
+        <li><strong>Code Generators</strong> — <code>codegen_c_or_ir.aipl</code> (parallel C99), <code>codegen_ts.aipl</code> (TypeScript/React 19), <code>codegen_wasm.aipl</code> (Wasm).</li>
+      </ul>
+      <p>Consult <a href="../ARCHITECTURE.md"><code>docs/ARCHITECTURE.md</code></a> for the complete compiler pipeline manual.</p>
+    </section>
+
+    <section id="build-targets">
+      <h2>Build Targets & Toolchain</h2>
+      <table>
+        <thead>
+          <tr><th>Target</th><th>Flag</th><th>Output</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Native Executable</td><td><code>--target native</code></td><td>ELF64 / Mach-O / PE</td><td>Parallel C99 shards linked with libaipl_rt.a</td></tr>
+          <tr><td>ISO C99 Source</td><td><code>--target c</code></td><td>.c source files</td><td>Modular or amalgamated C99 source</td></tr>
+          <tr><td>TypeScript / React</td><td><code>--target ts</code></td><td>.ts / .tsx</td><td>Clean TypeScript 5.x code</td></tr>
+          <tr><td>Single-File HTML5</td><td><code>--target html</code></td><td>.html</td><td>Zero-dependency web bundle with canvas runtime</td></tr>
+          <tr><td>WebAssembly</td><td><code>--target wasm</code></td><td>.wasm + WIT</td><td>WASI 0.2 Component Model binary</td></tr>
+        </tbody>
+      </table>
+      <p>Consult <a href="../BUILD_AND_TARGETS.md"><code>docs/BUILD_AND_TARGETS.md</code></a> for cross-platform toolchain flags and caching.</p>
+    </section>
+
+    <section id="memory-model">
+      <h2>Anti-GC Flat-Stride Memory Model</h2>
+      <p>AIPL eliminates tracing garbage collection pauses through a deterministic 3-tier memory model:</p>
+      <ul>
+        <li><strong>Tier 1: Regional Bump Arenas (<code>with arena:</code>)</strong> — Scoped stack bump allocations reclaimed in bulk at scope exit with zero fragmentation.</li>
+        <li><strong>Tier 2: Generational Object Pools</strong> — Fast slot reuse with ABA-safe 64-bit generation tags for long-lived game entities.</li>
+        <li><strong>Tier 3: Slabs & Ring Buffers</strong> — Fixed-size block allocators and circular buffers for high-throughput streaming.</li>
+      </ul>
+      <p>Consult <a href="../MEMORY_MODEL.md"><code>docs/MEMORY_MODEL.md</code></a> for memory layouts, cache benchmarks, and leak detection.</p>
+    </section>
+
+    <section id="diagnostics">
+      <h2>Diagnostics Schema & Autonomous Self-Repair</h2>
+      <p>AIPL emits single-root machine-readable JSON diagnostics following <code>diagnostic-v1.json</code>:</p>
+      <ul>
+        <li><code>E1xx</code> — Lexical & Syntactic Errors (indentation, forbidden keywords, syntax violations).</li>
+        <li><code>E2xx</code> — Type & Resolution Errors (type mismatches, undeclared variables, mutability errors).</li>
+        <li><code>E3xx</code> — Contract & SMT Verification Errors (precondition violations, postcondition refutations).</li>
+      </ul>
+      <p>Each diagnostic includes exact byte spans, SHA-256 source hashes, and pre-calculated unified diff candidate repairs for autonomous self-healing via <code>aipl fix</code>. Consult <a href="../DIAGNOSTICS_SCHEMA.md"><code>docs/DIAGNOSTICS_SCHEMA.md</code></a>.</p>
+    </section>
+
+    <section id="stdlib-core">
+      <h2>Standard Library: Core & Prelude (Layer 0–1)</h2>
+      <p>Foundational modules providing language built-ins, standard arithmetic, assertions, and memory primitives:</p>
+      <ul>
+        <li><code>std/std_root.aipl</code> — Standard library metadata, versioning, layer queries, and domain routing.</li>
+        <li><code>std/prelude.aipl</code> — Standard prelude with <code>Option[T]</code>, <code>Result[T, E]</code>, assertions, and operators.</li>
+      </ul>
+    </section>
+
+    <section id="stdlib-sys">
+      <h2>Standard Library: System & Runtime (Layer 0–3)</h2>
+      <p>Low-level operating system bindings, runtime support, and POSIX capabilities:</p>
+      <ul>
+        <li><code>std/sys/</code> — Low-level syscall wrappers, platform detection, and memory-mapped files.</li>
+        <li><code>std/rt/</code> — Pure-AIPL runtime baseline (allocators, string operations, canvas stubs).</li>
+        <li><code>std/os/</code> — CLI argument parser, environment variables, child processes, signals.</li>
+        <li><code>std/fs/</code> — Directory iteration, path manipulation, atomic file operations, file watcher.</li>
+        <li><code>std/io/</code> — Buffered readers, binary streams, pipes.</li>
+        <li><code>std/sync/</code> &amp; <code>std/thread/</code> — Mutexes, atomics, threadpools, fiber coroutines.</li>
+        <li><code>std/net/</code> — TCP/UDP sockets, DNS resolver, HTTP client, WebSockets, RPC.</li>
+      </ul>
+    </section>
+
+    <section id="stdlib-alloc">
+      <h2>Standard Library: Memory & Allocators (Layer 0)</h2>
+      <p>High-performance deterministic allocators:</p>
+      <ul>
+        <li><code>std/alloc/arena.aipl</code> — Scoped regional bump allocators and high-water marks.</li>
+        <li><code>std/alloc/pool_alloc.aipl</code> — Generational object pools with slot recycling.</li>
+        <li><code>std/alloc/gpa.aipl</code> — General-purpose tracking allocator with leak detection.</li>
+      </ul>
+    </section>
+
+    <section id="stdlib-math">
+      <h2>Standard Library: Math & PRNG (Layer 1)</h2>
+      <p>Mathematical operations, vectors, matrices, and deterministic pseudo-random generators:</p>
+      <ul>
+        <li><code>std/math/vec2.aipl</code> .. <code>vec4.aipl</code> — SIMD-aligned vector arithmetic.</li>
+        <li><code>std/math/mat2.aipl</code> .. <code>mat4.aipl</code> — Matrix transformations and projections.</li>
+        <li><code>std/math/quat.aipl</code> — Quaternion spherical linear interpolation (SLERP).</li>
+        <li><code>std/math/bigint.aipl</code> — Arbitrary-precision integer arithmetic.</li>
+        <li><code>std/math/prng.aipl</code> — Bit-identical SplitMix64, PCG32, and Xoshiro256 PRNG.</li>
+      </ul>
+    </section>
+
+    <section id="stdlib-collections">
+      <h2>Standard Library: Collections & Vec (Layer 1)</h2>
+      <p>High-efficiency contiguous data structures:</p>
+      <ul>
+        <li><code>std/collections/hash_map.aipl</code> — Robin Hood open-addressing hash table.</li>
+        <li><code>std/collections/priority_queue.aipl</code> — Binary heap priority queue.</li>
+        <li><code>std/collections/bitset.aipl</code> — Dynamic BitSet with SIMD popcount.</li>
+        <li><code>std/collections/ring_buffer.aipl</code> — Circular ring buffer with overflow policies.</li>
+      </ul>
+    </section>
+
+    <section id="stdlib-media">
+      <h2>Standard Library: Window, Audio & Graphics (Layer 4)</h2>
+      <p>Native hardware-accelerated desktop media and rendering engine:</p>
+      <ul>
+        <li><code>std/window/app_loop.aipl</code> — Fixed-timestep accumulator (60/144 FPS) and event loop.</li>
+        <li><code>std/input/action_map.aipl</code> — Multi-device input mapping (keyboard, mouse, gamepad).</li>
+        <li><code>std/audio/dsp_synth.aipl</code> — 16-voice polyphonic DSP synthesizer with ADSR envelopes and Doppler audio.</li>
+        <li><code>std/gfx2d/batch2d.aipl</code> — Instanced 2D sprite batching and affine matrix transformations.</li>
+        <li><code>std/gfx3d/mesh3d.aipl</code> &amp; <code>camera3d.aipl</code> — 3D mesh rendering, orbit camera, and PBR shading.</li>
+      </ul>
+    </section>
+
+    <section id="stdlib-ui">
+      <h2>Standard Library: Aura UI Framework (Layer 4)</h2>
+      <p>Immediate-mode UI system featuring two-pass Flexbox/Grid layouts, Material Design 3 tokens, accessible focus navigation, and telemetry widgets:</p>
+      <ul>
+        <li><code>std/ui/ui_imui.aipl</code> — Immediate-mode UI context, buttons, cards, sliders, and text fields.</li>
+        <li><code>std/ui/ui_layout.aipl</code> — Flexbox and Grid layout solver with automatic word wrapping.</li>
+        <li><code>std/ui/ui_style.aipl</code> &amp; <code>ui_a11y.aipl</code> — Oklab/Oklch color palettes and WCAG 2.1 AA audits.</li>
+      </ul>
+    </section>
+
+    <section id="stdlib-sim">
+      <h2>Standard Library: ECS, Simulation & Physics (Layer 5)</h2>
+      <p>Game engine architectures, physics simulations, and procedural generation:</p>
+      <ul>
+        <li><code>std/ecs/world.aipl</code> — Sparse-set archetype ECS with generational entity IDs.</li>
+        <li><code>std/spatial/spatial_grid.aipl</code> — Spatial partitioning across 8 world topologies.</li>
+        <li><code>std/phys2d/rigid_body2d.aipl</code> — 2D symplectic Euler rigid-body physics.</li>
+        <li><code>std/phys3d/rigid_body3d.aipl</code> — 3D rigid bodies, inertia tensors, and suspension.</li>
+        <li><code>std/procgen/noise.aipl</code> — Perlin, Simplex, and Worley noise generation.</li>
+        <li><code>std/ai/behavior_tree.aipl</code> — Composable Behavior Trees, Utility AI, and HEBAR referee guard.</li>
+        <li><code>std/mechanics/save_migration.aipl</code> — Atomic v1-to-vN save schema evolution.</li>
+      </ul>
+    </section>
+
+    <section id="adrs">
+      <h2>Architecture Decision Records (33 ADRs)</h2>
+      <p>All architectural decisions are documented as living records under <code>docs/ADR/</code> and indexed in <a href="../ADR/INDEX.md"><code>docs/ADR/INDEX.md</code></a>.</p>
+      
+      <div id="adr-0001">
+        <h3>ADR-0001: Dual-Backend Early Bifurcation at Canonical HIR</h3>
+        <p>Bifurcates Canonical HIR into TypeScript/React 19 for web/edge and C99/Native/Wasm for bare metal, preserving language ergonomics on both targets.</p>
+      </div>
+
+      <div id="adr-0002">
+        <h3>ADR-0002: Gemini 256k SentencePiece Tokenomics & camelCase Invariant</h3>
+        <p>Eliminates token fragmentation via camelCase identifiers, 2-space indentation, and subword-aligned keywords, achieving 60%+ token savings.</p>
+      </div>
+
+      <div id="adr-0004">
+        <h3>ADR-0004: Anti-GC Flat Stride Memory & Task-Local Regional Arenas</h3>
+        <p>Guarantees 100% 64-byte L1d cache utilization via Structure of Arrays (SoA) layout and scoped regional bump allocators with zero GC spikes.</p>
+      </div>
+
+      <div id="adr-0011">
+        <h3>ADR-0011: Lightweight Embedded SMT Refinement Solving (QF-LIA & EUF)</h3>
+        <p>Proves <code>req:</code>/<code>ens:</code> contracts, eliminates bounds checks, and refutes arithmetic errors at compile time.</p>
+      </div>
+
+      <div id="adr-0029">
+        <h3>ADR-0029: 100% Pure AIPL Self-Hosting, C99 Backend & 3-Stage Bootstrap</h3>
+        <p>Establishes language sovereignty through a 100% self-hosted compiler and deterministic 3-stage bootstrap fixed-point guarantee (<code>sha256(stage2.c) == sha256(stage3.c)</code>).</p>
+      </div>
+
+      <div id="adr-0034">
+        <h3>ADR-0034: Android NDK NativeActivity & Pure-C99 Runtime Integration</h3>
+        <p>Architects native Android arm64 support using NativeActivity, linking with the Android NDK runtime without Java or Gradle dependencies.</p>
+      </div>
+
+      <div id="adr-0035">
+        <h3>ADR-0035: Mobile In-Memory VFS, File Watcher & TCP Live-Reload Sync</h3>
+        <p>Specifies the virtual filesystem, mobile change polling, TCP packet protocol, and on-device HUD for interactive live reload.</p>
+      </div>
+
+      <div id="adr-0036">
+        <h3>ADR-0036: Pure-AIPL Standalone Signed APK Container & Zero-Toolchain Distribution</h3>
+        <p>Defines end-to-end binary AXML generation, APK Zip packaging, and APK Signature Scheme v2 signing natively in pure AIPL.</p>
+      </div>
+    </section>
+
+    <section id="examples-cli">
+      <h2>Curated CLI Examples (ex_001..118)</h2>
+      <p>118 self-contained command-line programs and systems utilities demonstrating core language features, serialization, networking, and algorithms:</p>
+      <ul>
+        <li><code>ex_001_hello_world_and_io_cli</code> — Hello world, basic I/O, banner checksums.</li>
+        <li><code>ex_022_alloc_arena_bump_profiler_cli</code> — Linear bump arena allocator and bulk reset profiler.</li>
+        <li><code>ex_045_collections_hash_map_word_freq_cli</code> — High-throughput hash map word frequency analyzer.</li>
+        <li><code>ex_070_encoding_json_jq_query_cli</code> — RFC 8259 JSON DOM parser and pointer path query engine.</li>
+        <li><code>ex_090_crypto_aead_chacha20_poly1305_cli</code> — Authenticated cryptographic encryption.</li>
+        <li><code>ex_104_os_cli_args_subcommands_cli</code> — Multi-command CLI application with flags and subcommands.</li>
+        <li><code>ex_118_test_runner_tap_junit_report_cli</code> — Automated unit test runner emitting TAP and JUnit reports.</li>
+      </ul>
+      <p>Execute any CLI example with: <code>./bin/aipl run examples/ex_001_hello_world_and_io_cli.aipl</code></p>
+    </section>
+
+    <section id="examples-window">
+      <h2>Curated Window Applications (ex_131..250)</h2>
+      <p>132 interactive desktop and web graphical applications demonstrating 2D/3D graphics, physics, UI, and game mechanics:</p>
+      <ul>
+        <li><code>ex_131_window_app_loop_fixed_timestep_window</code> — Fixed-timestep game loop with accumulator.</li>
+        <li><code>ex_176_gfx3d_cull3d_frustum_and_occlusion_window</code> — 3D Gribb-Hartmann frustum culling.</li>
+        <li><code>ex_190_ui_layout_flexbox_and_grid_solver_window</code> — Responsive AuraDesign Flexbox & Grid solver.</li>
+        <li><code>ex_202_ecs_entity_generational_arena_window</code> — Generational ECS arena across 8 world topologies.</li>
+        <li><code>ex_216_phys2d_rigid_body_gravity_stacks_window</code> — 2D rigid-body symplectic physics.</li>
+        <li><code>ex_245_ai_hebar_referee_flow_corridor_window</code> — Autonomous HEBAR referee and Wilson 85% flow corridor.</li>
+        <li><code>ex_250_mechanics_full_capstone_application_window</code> — Full-stack capstone application.</li>
+      </ul>
+      <p>Run interactively with: <code>./bin/aipl run examples/ex_131_window_app_loop_fixed_timestep_window.aipl --window</code> (or offscreen via <code>AIPL_HEADLESS=1</code> in CI).</p>
+    </section>
+  </main>
+
+  <div id="search-modal">
+    <div class="modal-box">
+      <input type="text" class="modal-search" id="modal-query" placeholder="Type to search docs, functions, modules, ADRs...">
+      <ul class="modal-results" id="modal-results"></ul>
+    </div>
+  </div>
+
+  <script>
+    // Theme Toggle
+    const themeBtn = document.getElementById("theme-btn");
+    themeBtn.addEventListener("click", () => {
+      const current = document.documentElement.getAttribute("data-theme") || "dark";
+      const next = current === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("aipl-docs-theme", next);
+    });
+    const savedTheme = localStorage.getItem("aipl-docs-theme");
+    if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+
+    // Collapsible Sidebar Sections
+    document.querySelectorAll(".nav-title").forEach(title => {
+      title.addEventListener("click", () => {
+        const targetId = title.getAttribute("data-target");
+        const list = document.getElementById(targetId);
+        if (list) {
+          list.classList.toggle("collapsed");
+          const icon = title.querySelector("span");
+          if (icon) icon.innerText = list.classList.contains("collapsed") ? "▶" : "▼";
+        }
+      });
+    });
+
+    // Copy to clipboard
+    document.querySelectorAll(".copy-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const code = btn.parentElement.querySelector("code").innerText;
+        navigator.clipboard.writeText(code).then(() => {
+          btn.innerText = "Copied!";
+          setTimeout(() => btn.innerText = "Copy", 2000);
+        });
+      });
+    });
+
+    // Ctrl+K Search Modal
+    const searchModal = document.getElementById("search-modal");
+    const modalQuery = document.getElementById("modal-query");
+    const modalResults = document.getElementById("modal-results");
+    const quickFilter = document.getElementById("quick-filter");
+
+    const searchIndex = [
+      { title: "README & Project Manifesto", url: "#manifesto", group: "Manuals" },
+      { title: "Language Specification (SPEC.md)", url: "#spec", group: "Manuals" },
+      { title: "Formal Grammar & Syntax", url: "#grammar", group: "Manuals" },
+      { title: "Compiler Architecture & Pipeline", url: "#architecture", group: "Manuals" },
+      { title: "Build & Targets Guide", url: "#build-targets", group: "Manuals" },
+      { title: "Anti-GC Memory Model", url: "#memory-model", group: "Manuals" },
+      { title: "Machine-Readable Diagnostics Schema", url: "#diagnostics", group: "Manuals" },
+      { title: "00 Core & Prelude (std_root, prelude)", url: "#stdlib-core", group: "Stdlib" },
+      { title: "01 System & Runtime (sys, rt, os, fs, io, net)", url: "#stdlib-sys", group: "Stdlib" },
+      { title: "02 Memory & Allocators (arena, pool, gpa)", url: "#stdlib-alloc", group: "Stdlib" },
+      { title: "03 Math & PRNG (vec, mat, quat, bigint)", url: "#stdlib-math", group: "Stdlib" },
+      { title: "04 Collections (hashmap, queue, bitset)", url: "#stdlib-collections", group: "Stdlib" },
+      { title: "05 Window, Audio & Graphics (canvas, batch2d, pbr)", url: "#stdlib-media", group: "Stdlib" },
+      { title: "06 Aura UI Framework (flexbox, imui, a11y)", url: "#stdlib-ui", group: "Stdlib" },
+      { title: "07 ECS, Physics & Simulation (ecs, phys2d, ai)", url: "#stdlib-sim", group: "Stdlib" },
+      { title: "ADR-0001: Dual-Backend Early Bifurcation", url: "#adr-0001", group: "ADRs" },
+      { title: "ADR-0002: Tokenomics & camelCase Invariant", url: "#adr-0002", group: "ADRs" },
+      { title: "ADR-0004: Anti-GC Flat Stride Memory", url: "#adr-0004", group: "ADRs" },
+      { title: "ADR-0011: Lightweight Embedded SMT Solver", url: "#adr-0011", group: "ADRs" },
+      { title: "ADR-0029: Pure AIPL Self-Hosting Fixed Point", url: "#adr-0029", group: "ADRs" },
+      { title: "ADR-0034: Android NDK NativeActivity", url: "#adr-0034", group: "ADRs" },
+      { title: "ADR-0035: Mobile VFS & Live Reload Sync", url: "#adr-0035", group: "ADRs" },
+      { title: "ADR-0036: Pure-AIPL Standalone Signed APK", url: "#adr-0036", group: "ADRs" },
+      { title: "Curated CLI Examples (ex_001..118)", url: "#examples-cli", group: "Examples" },
+      { title: "Curated Window Applications (ex_131..250)", url: "#examples-window", group: "Examples" },
+      { title: "ex_001_hello_world_and_io_cli", url: "#examples-cli", group: "Examples" },
+      { title: "ex_131_window_app_loop_fixed_timestep_window", url: "#examples-window", group: "Examples" },
+      { title: "ex_250_mechanics_full_capstone_application_window", url: "#examples-window", group: "Examples" }
+    ];
+
+    function openSearch() {
+      searchModal.style.display = "flex";
+      modalQuery.focus();
+      renderResults(modalQuery.value);
+    }
+    function closeSearch() {
+      searchModal.style.display = "none";
+    }
+
+    quickFilter.addEventListener("focus", openSearch);
+    window.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        openSearch();
+      }
+      if (e.key === "Escape" && searchModal.style.display === "flex") {
+        closeSearch();
+      }
+    });
+    searchModal.addEventListener("click", (e) => {
+      if (e.target === searchModal) closeSearch();
+    });
+
+    modalQuery.addEventListener("input", (e) => renderResults(e.target.value));
+
+    function renderResults(q) {
+      const term = q.toLowerCase().trim();
+      modalResults.innerHTML = "";
+      const matches = searchIndex.filter(item => item.title.toLowerCase().includes(term) || item.group.toLowerCase().includes(term));
+      matches.slice(0, 10).forEach(item => {
+        const li = document.createElement("li");
+        li.className = "modal-item";
+        li.innerHTML = `<a href="${item.url}"><strong>[${item.group}]</strong> ${item.title}</a>`;
+        li.querySelector("a").addEventListener("click", closeSearch);
+        modalResults.appendChild(li);
+      });
+    }
+  </script>
+</body>
+</html>

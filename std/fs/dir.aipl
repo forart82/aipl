@@ -1,0 +1,136 @@
+/// # Module: `std/fs/dir` (`FsDir`)
+///
+/// ## Purpose & Domain Scope
+/// Directory entries (`DirEntry`), recursive traversal filtering (`WalkOptions`),
+/// wildcard glob matching (`*`, `?`, `[abc]`), and RAII temporary directory handles.
+module FsDir
+
+import "path.aipl"
+import "metadata.aipl"
+
+pub struct DirEntry:
+  path: str
+  name: str
+  nodeType: FsNodeType
+  depth: int = 0
+  sizeBytes: int = 0
+
+pub struct WalkOptions:
+  maxDepth: int = 64
+  followSymlinks: bool = false
+  includeHidden: bool = false
+
+pub struct TempDirHandle:
+  path: str
+  prefix: str
+  mut cleanedUp: bool = false
+
+pub fn fsDirEntryNew(path: str, nodeType: FsNodeType, depth: int, sizeBytes: int): DirEntry:
+  let norm = pathNormalize(path)
+  let name = pathFileName(norm)
+  ret DirEntry(path: norm, name: name, nodeType: nodeType, depth: depth, sizeBytes: sizeBytes)
+
+pub fn fsDirFilterEntries(entries: [DirEntry], opts: WalkOptions): [DirEntry]:
+  mut out: [DirEntry] = []
+  mut i = 0
+  while i < entries.len():
+    let e = entries[i]
+    mut keep = true
+    if e.depth > opts.maxDepth:
+      keep = false
+    if not opts.includeHidden and e.name.startsWith("."):
+      keep = false
+    if not opts.followSymlinks:
+      match e.nodeType:
+        FsNodeType::Symlink => keep = false
+        _ => keep = keep
+    if keep:
+      out.push(e)
+    i = i + 1
+  ret out
+
+pub fn fsDirSortByName(entries: [DirEntry]): [DirEntry]:
+  mut arr: [DirEntry] = []
+  mut i = 0
+  while i < entries.len():
+    arr.push(entries[i])
+    i = i + 1
+  mut a = 0
+  while a < arr.len():
+    mut b = a + 1
+    while b < arr.len():
+      if arr[b].name < arr[a].name:
+        let tmp = arr[a]
+        arr[a] = arr[b]
+        arr[b] = tmp
+      b = b + 1
+    a = a + 1
+  ret arr
+
+fn globMatchAt(pat: str, pi: int, txt: str, ti: int): bool:
+  mut p = pi
+  mut t = ti
+  while p < pat.len():
+    let pc = pat.slice(p, p + 1)
+    if pc == "*":
+      while p + 1 < pat.len() and pat.slice(p + 1, p + 2) == "*":
+        p = p + 1
+      if p + 1 == pat.len():
+        ret true
+      mut k = t
+      while k <= txt.len():
+        if globMatchAt(pat, p + 1, txt, k):
+          ret true
+        k = k + 1
+      ret false
+    elif pc == "?":
+      if t >= txt.len():
+        ret false
+      p = p + 1
+      t = t + 1
+    elif pc == "[":
+      if t >= txt.len():
+        ret false
+      mut closeIdx = p + 1
+      while closeIdx < pat.len() and pat.slice(closeIdx, closeIdx + 1) != "]":
+        closeIdx = closeIdx + 1
+      if closeIdx >= pat.len():
+        if txt.slice(t, t + 1) != "[":
+          ret false
+        p = p + 1
+        t = t + 1
+      else:
+        let tc = txt.slice(t, t + 1)
+        let group = pat.slice(p + 1, closeIdx)
+        if not group.contains(tc):
+          ret false
+        p = closeIdx + 1
+        t = t + 1
+    else:
+      if t >= txt.len() or txt.slice(t, t + 1) != pc:
+        ret false
+      p = p + 1
+      t = t + 1
+  ret t == txt.len()
+
+pub fn fsGlobMatch(pattern: str, text: str): bool:
+  ret globMatchAt(pattern, 0, text, 0)
+
+pub fn fsDirGlobFilter(entries: [DirEntry], pattern: str): [DirEntry]:
+  mut out: [DirEntry] = []
+  mut i = 0
+  while i < entries.len():
+    let e = entries[i]
+    if fsGlobMatch(pattern, e.name) or fsGlobMatch(pattern, e.path):
+      out.push(e)
+    i = i + 1
+  ret out
+
+pub fn fsTempDirCreate(baseTmp: str, prefix: str, nonce: int): TempDirHandle:
+  let dirName = prefix + str(nonce)
+  let fullPath = pathJoin(baseTmp, dirName)
+  ret TempDirHandle(path: fullPath, prefix: prefix, cleanedUp: false)
+
+pub fn fsTempDirCleanup(mut handle: TempDirHandle): TempDirHandle:
+  handle.cleanedUp = true
+  ret handle

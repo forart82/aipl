@@ -1,0 +1,142 @@
+// ============================================================================
+// Example 052: 2D Quadtree Subdivision & Range Query Visualizer Window
+// Demonstrates: quadtreeNew, QuadtreeItem, .insert(), .containsPoint(),
+//               .intersectsRange(), .queryRange(), .count(), and .divided
+//               from std/collections/quadtree, rendered in a 1280x720 window.
+// ============================================================================
+module Ex052CollectionsQuadtree2dVisualizerWindow
+
+import { clampInt } from "../std/prelude"
+import { QuadtreeNode, QuadtreeItem, quadtreeNew } from "../std/collections/quadtree"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct QuadtreeVizState:
+  totalPoints: int
+  nwClusterHits: int
+  isSubdivided: int
+  sweepX: float
+
+pub fn buildDemoQuadtreePoints(): [QuadtreeItem[int]]:
+  ret [
+    QuadtreeItem(x = 60.0, y = 70.0, payload = 1),
+    QuadtreeItem(x = 110.0, y = 90.0, payload = 2),
+    QuadtreeItem(x = 140.0, y = 130.0, payload = 3),
+    QuadtreeItem(x = 380.0, y = 110.0, payload = 4),
+    QuadtreeItem(x = 410.0, y = 420.0, payload = 5)
+  ]
+
+pub fn buildDemoQuadtree(): QuadtreeNode[int]:
+  mut qt = quadtreeNew[int](0.0, 0.0, 500.0, 500.0, 2)
+  let pts = buildDemoQuadtreePoints()
+  for i in 0..pts.len:
+    let _ = qt.insert(pts[i])
+  ret qt
+
+pub fn evaluateQuadtreeSubdivisionAndQuery(): int:
+  let qt = buildDemoQuadtree()
+  let hits = qt.queryRange(0.0, 0.0, 200.0, 200.0)
+  let divScore = if qt.divided and qt.containsPoint(60.0, 70.0) and qt.intersectsRange(0.0, 0.0, 200.0, 200.0): 100 else: 0
+  ret divScore + qt.count() * 10 + hits.len
+
+pub fn describeQuadtreeSplitPolicy(cap: int): str:
+  if cap == 2:
+    ret "QUADTREE:CAPACITY_2_NW_NE_SW_SE"
+  ret "QUADTREE:ADAPTIVE_LEAF_BUCKET"
+
+pub fn buildQuadtreeVizState(frameIdx: int): QuadtreeVizState:
+  let qt = buildDemoQuadtree()
+  let sx = 20.0 + float((frameIdx * 6) % 280)
+  let hits = qt.queryRange(sx, 20.0, 200.0, 200.0)
+  ret QuadtreeVizState(
+    totalPoints = qt.count(),
+    nwClusterHits = hits.len,
+    isSubdivided = if qt.divided: 1 else: 0,
+    sweepX = sx
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildQuadtreeVizState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.totalPoints * 100 + st.nwClusterHits + frameIndex + dtPad
+
+pub fn renderQuadtreeWindowScene(frame: int): void:
+  let qt = buildDemoQuadtree()
+  let pts = buildDemoQuadtreePoints()
+  let st = buildQuadtreeVizState(frame)
+  let activeHits = qt.queryRange(st.sweepX, 20.0, 200.0, 200.0)
+
+  clearScreen(rgb(10, 15, 26))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 44))
+  drawText("AIPL ex_052: 2D Quadtree Recursive 4-Quadrant Subdivision & AABB Range Query", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Left Quadtree Domain Canvas read directly from qt.boundaryX/Y/W/H
+  let ox = 60.0 + qt.boundaryX
+  let oy = 96.0 + qt.boundaryY
+  drawRect(ox, oy, qt.boundaryW, qt.boundaryH, rgb(16, 23, 38))
+  drawRectOutline(ox, oy, qt.boundaryW, qt.boundaryH, 2.0, rgb(56, 189, 248))
+
+  // Render live QuadtreeNode subdivision boundaries
+  if qt.divided:
+    let nwNode: QuadtreeNode[int] = qt.nw.unwrap()
+    let neNode: QuadtreeNode[int] = qt.ne.unwrap()
+    let swNode: QuadtreeNode[int] = qt.sw.unwrap()
+    let seNode: QuadtreeNode[int] = qt.se.unwrap()
+    drawRectOutline(ox + nwNode.boundaryX, oy + nwNode.boundaryY, nwNode.boundaryW, nwNode.boundaryH, 1.5, rgb(51, 65, 85))
+    drawRectOutline(ox + neNode.boundaryX, oy + neNode.boundaryY, neNode.boundaryW, neNode.boundaryH, 1.5, rgb(51, 65, 85))
+    drawRectOutline(ox + swNode.boundaryX, oy + swNode.boundaryY, swNode.boundaryW, swNode.boundaryH, 1.5, rgb(51, 65, 85))
+    drawRectOutline(ox + seNode.boundaryX, oy + seNode.boundaryY, seNode.boundaryW, seNode.boundaryH, 1.5, rgb(51, 65, 85))
+    drawLine(ox + nwNode.boundaryW, oy, ox + nwNode.boundaryW, oy + qt.boundaryH, rgb(71, 85, 105), 2.0)
+    if nwNode.divided:
+      let subNw: QuadtreeNode[int] = nwNode.nw.unwrap()
+      let subNe: QuadtreeNode[int] = nwNode.ne.unwrap()
+      let subSw: QuadtreeNode[int] = nwNode.sw.unwrap()
+      let subSe: QuadtreeNode[int] = nwNode.se.unwrap()
+      drawRectOutline(ox + subNw.boundaryX, oy + subNw.boundaryY, subNw.boundaryW, subNw.boundaryH, 1.0, rgb(56, 189, 248))
+      drawRectOutline(ox + subNe.boundaryX, oy + subNe.boundaryY, subNe.boundaryW, subNe.boundaryH, 1.0, rgb(56, 189, 248))
+      drawRectOutline(ox + subSw.boundaryX, oy + subSw.boundaryY, subSw.boundaryW, subSw.boundaryH, 1.0, rgb(56, 189, 248))
+      drawRectOutline(ox + subSe.boundaryX, oy + subSe.boundaryY, subSe.boundaryW, subSe.boundaryH, 1.0, rgb(56, 189, 248))
+
+  // Sweeping Range Query AABB
+  drawRectOutline(ox + st.sweepX, oy + 20.0, 200.0, 200.0, 2.5, rgb(74, 222, 128))
+
+  // Render spatial points directly from QuadtreeItem array, highlighted when returned by qt.queryRange
+  for i in 0..pts.len:
+    let pt = pts[i]
+    mut isHit = false
+    for j in 0..activeHits.len:
+      if activeHits[j] == pt.payload:
+        isHit = true
+    let col = if isHit: rgb(250, 204, 21) else: rgb(56, 189, 248)
+    drawCircle(ox + pt.x, oy + pt.y, 7.0, col)
+
+  // Right Telemetry Panel
+  drawRect(648.0, 96.0, 572.0, 540.0, rgb(17, 24, 39))
+  drawRectOutline(648.0, 96.0, 572.0, 540.0, 2.0, rgb(71, 85, 105))
+  drawText("Split Policy: " + describeQuadtreeSplitPolicy(qt.capacity), 676.0, 132.0, 18.0, rgb(125, 211, 252))
+  drawText("Root Subdivided (NW/NE/SW/SE): " + str(qt.divided), 676.0, 172.0, 16.0, rgb(74, 222, 128))
+  drawText("Total Indexed 2D Points: " + str(st.totalPoints), 676.0, 208.0, 16.0, rgb(203, 213, 225))
+  drawText("Live Sweeping Range Query Hits: " + str(activeHits.len), 676.0, 244.0, 16.0, rgb(250, 204, 21))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_052 - 2D Quadtree Subdivision & Range Query")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderQuadtreeWindowScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

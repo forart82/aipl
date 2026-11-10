@@ -1,0 +1,172 @@
+/// # Module: `std/rt/rt_alloc` (`RtAlloc`)
+///
+/// ## Purpose & Domain Scope
+/// Self-hosted runtime bump arena allocator and segregated/fixed-block free-list
+/// slab allocator for deterministic runtime memory management.
+module RtAlloc
+
+import { ptrAlloc, ptrFree, ptrReadI64, ptrWriteI64, ptrMemset } from "std/rt/rt_ptr"
+
+pub struct RtArena:
+  base: int
+  capacity: int
+  offset: int
+  peak: int
+  allocCount: int
+
+pub struct RtArenaCheckpoint:
+  offset: int
+  allocCount: int
+
+pub struct RtFreeList:
+  poolBase: int
+  poolSize: int
+  headAddr: int
+  allocatedBytes: int
+  headPtr: int
+  blockSize: int
+  freeCount: int
+
+pub fn rtArenaNew(capacity: int): RtArena:
+  let realCap = if capacity > 0: capacity else: 65536
+  let ptr = ptrAlloc(realCap)
+  ret RtArena(base = ptr, capacity = realCap, offset = 0, peak = 0, allocCount = 0)
+
+pub fn rtArenaAlloc(mut arena: RtArena, size: int): int:
+  if size <= 0 or arena.base == 0:
+    ret 0
+  let aligned = (size + 7) & -8
+  if arena.offset + aligned > arena.capacity:
+    ret 0
+  let addr = arena.base + arena.offset
+  arena.offset += aligned
+  if arena.offset > arena.peak:
+    arena.peak = arena.offset
+  arena.allocCount += 1
+  ret addr
+
+pub fn rtArenaAllocZeroed(mut arena: RtArena, size: int): int:
+  let addr = rtArenaAlloc(arena, size)
+  if addr != 0:
+    let aligned = (size + 7) & -8
+    ptrMemset(addr, 0, 0, aligned)
+  ret addr
+
+pub fn rtArenaSave(arena: RtArena): RtArenaCheckpoint:
+  ret RtArenaCheckpoint(offset = arena.offset, allocCount = arena.allocCount)
+
+pub fn rtArenaRestore(mut arena: RtArena, cp: RtArenaCheckpoint): void:
+  if cp.offset >= 0 and cp.offset <= arena.capacity:
+    arena.offset = cp.offset
+    arena.allocCount = cp.allocCount
+  ret
+
+pub fn rtArenaReset(mut arena: RtArena): void:
+  arena.offset = 0
+  arena.allocCount = 0
+  ret
+
+pub fn rtArenaFree(mut arena: RtArena): void:
+  if arena.base != 0:
+    ptrFree(arena.base)
+    arena.base = 0
+  arena.capacity = 0
+  arena.offset = 0
+  arena.peak = 0
+  arena.allocCount = 0
+  ret
+
+pub fn rtArenaRemaining(arena: RtArena): int:
+  ret arena.capacity - arena.offset
+
+pub fn rtArenaUsedRatio(arena: RtArena): float:
+  if arena.capacity <= 0:
+    ret 0.0
+  ret float(arena.offset) / float(arena.capacity)
+
+pub fn rtFreeListNew(poolSize: int, blockSize: int = 64): RtFreeList:
+  let realSize = if poolSize > 0: poolSize else: 65536
+  let blk = if blockSize >= 16: ((blockSize + 7) & -8) else: 64
+  let base = ptrAlloc(realSize)
+  if base != 0:
+    ptrWriteI64(base, 0, 0)
+    ptrWriteI64(base, 8, realSize)
+  let totalBlocks = realSize / blk
+  ret RtFreeList(
+    poolBase = base,
+    poolSize = realSize,
+    headAddr = base,
+    allocatedBytes = 0,
+    headPtr = base,
+    blockSize = blk,
+    freeCount = totalBlocks
+  )
+
+pub fn rtFreeListAlloc(mut fl: RtFreeList, size: int = 0): int:
+  let reqSize = if size > 0: size else: fl.blockSize
+  if reqSize <= 0 or fl.headAddr == 0:
+    ret 0
+  let needed = ((reqSize + 15) & -8) + 16
+  mut curr = fl.headAddr
+  mut prev = 0
+  while curr != 0:
+    let nextBlock = ptrReadI64(curr, 0)
+    let bSize = ptrReadI64(curr, 8)
+    if bSize >= needed:
+      let rem = bSize - needed
+      if rem >= 32:
+        let newBlock = curr + needed
+        ptrWriteI64(newBlock, 0, nextBlock)
+        ptrWriteI64(newBlock, 8, rem)
+        if prev == 0:
+          fl.headAddr = newBlock
+          fl.headPtr = newBlock
+        else:
+          ptrWriteI64(prev, 0, newBlock)
+        ptrWriteI64(curr, 8, needed)
+      else:
+        if prev == 0:
+          fl.headAddr = nextBlock
+          fl.headPtr = nextBlock
+        else:
+          ptrWriteI64(prev, 0, nextBlock)
+      fl.allocatedBytes += ptrReadI64(curr, 8)
+      if fl.freeCount > 0:
+        fl.freeCount -= 1
+      ret curr + 16
+    prev = curr
+    curr = nextBlock
+  ret 0
+
+pub fn rtFreeListFree(mut fl: RtFreeList, ptr: int): void:
+  if ptr <= 16:
+    ret
+  let header = ptr - 16
+  let bSize = ptrReadI64(header, 8)
+  fl.allocatedBytes -= bSize
+  ptrWriteI64(header, 0, fl.headAddr)
+  fl.headAddr = header
+  fl.headPtr = header
+  fl.freeCount += 1
+  ret
+
+pub fn rtFreeListReset(mut fl: RtFreeList): void:
+  if fl.poolBase != 0:
+    ptrWriteI64(fl.poolBase, 0, 0)
+    ptrWriteI64(fl.poolBase, 8, fl.poolSize)
+    fl.headAddr = fl.poolBase
+    fl.headPtr = fl.poolBase
+    fl.allocatedBytes = 0
+    fl.freeCount = if fl.blockSize > 0: fl.poolSize / fl.blockSize else: 0
+  ret
+
+pub fn rtFreeListFreePool(mut fl: RtFreeList): void:
+  if fl.poolBase != 0:
+    ptrFree(fl.poolBase)
+    fl.poolBase = 0
+  fl.poolSize = 0
+  fl.headAddr = 0
+  fl.headPtr = 0
+  fl.allocatedBytes = 0
+  fl.freeCount = 0
+  ret

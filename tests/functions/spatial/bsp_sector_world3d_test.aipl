@@ -1,0 +1,83 @@
+module tests.functions.spatial.bsp_sector_world3d_test
+
+import * from "std/spatial/bsp_sector_world3d"
+import { Vec3 } from "std/math/vec_math"
+import { AABB3D, Plane3D, Frustum3D } from "std/math/geom3d"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_bsp_sector_world3d_bspSectorWorldNew_1(): int:
+  let resNom = bspSectorWorldNew()
+  let resEdge = bspSectorWorldNew()
+  assertEqInt(resNom.sectors.len(), 0, "bspSectorWorldNew nominal resNom.sectors.len() == 0")
+  assertEqInt(resEdge.sectors.len(), 0, "bspSectorWorldNew boundary resEdge.sectors.len() == 0")
+  ret 0
+
+pub fn test_bsp_sector_world3d_bspAddSector_2(): int:
+  let arg_world = BspSectorWorld3D(sectors = [])
+  let edge_world = BspSectorWorld3D(sectors = [])
+  let arg_sector = BspSector(sectorId = 1, boundingBox = AABB3D(min = Vec3(x = 1.0, y = 1.0, z = 1.0), max = Vec3(x = 1.0, y = 1.0, z = 1.0)), floorHeight = 0.0, ceilingHeight = 2.0, portals = [], pvsMask = 4)
+  let edge_sector = BspSector(sectorId = 0, boundingBox = AABB3D(min = Vec3(x = 0.5, y = 0.5, z = 0.5), max = Vec3(x = 0.5, y = 0.5, z = 0.5)), floorHeight = 0.0, ceilingHeight = 1.0, portals = [], pvsMask = 1)
+  let resNom = bspAddSector(arg_world, arg_sector)
+  let resEdge = bspAddSector(edge_world, edge_sector)
+  assertEqInt(resNom, 1, "bspAddSector nominal resNom == 1")
+  assertEqInt(resEdge, 0, "bspAddSector boundary resEdge == 0")
+  ret 0
+
+pub fn test_bsp_sector_world3d_bspAddPortal_3(): int:
+  let arg_world = BspSectorWorld3D(sectors = [])
+  let edge_world = BspSectorWorld3D(sectors = [])
+  let arg_fromSector = 4
+  let edge_fromSector = 1
+  let arg_toSector = 2
+  let edge_toSector = 0
+  let arg_portal = BspPortal(targetSectorId = 1, polygonVertices = [], plane = Plane3D(normal = Vec3(x = 1.0, y = 1.0, z = 1.0), distance = 1.0, d = 1.0), isOpen = true)
+  let edge_portal = BspPortal(targetSectorId = 0, polygonVertices = [], plane = Plane3D(normal = Vec3(x = 0.5, y = 0.5, z = 0.5), distance = 0.5, d = 0.5), isOpen = false)
+  let resNom = bspAddPortal(arg_world, arg_fromSector, arg_toSector, arg_portal)
+  let resEdge = bspAddPortal(edge_world, edge_fromSector, edge_toSector, edge_portal)
+  assert(resNom == false, "bspAddPortal nominal resNom == false")
+  assert(resEdge == false, "bspAddPortal boundary resEdge == false")
+  ret 0
+
+pub fn test_bsp_sector_world3d_bspFindSectorContainingPoint_4(): int:
+  let arg_world = BspSectorWorld3D(sectors = [])
+  let edge_world = BspSectorWorld3D(sectors = [])
+  let arg_pt = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_pt = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = bspFindSectorContainingPoint(arg_world, arg_pt)
+  let resEdge = bspFindSectorContainingPoint(edge_world, edge_pt)
+  assert(resNom.isSome() == false, "bspFindSectorContainingPoint nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "bspFindSectorContainingPoint boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_bsp_sector_world3d_isPointInFrustum_5(): int:
+  let arg_frustum = Frustum3D(planes = [])
+  let edge_frustum = Frustum3D(planes = [])
+  let arg_pt = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_pt = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = isPointInFrustum(arg_frustum, arg_pt)
+  let resEdge = isPointInFrustum(edge_frustum, edge_pt)
+  assert(resNom == true, "isPointInFrustum nominal resNom == true")
+  assert(resEdge == true, "isPointInFrustum boundary resEdge == true")
+  ret 0
+
+pub fn test_bsp_sector_world3d_bspQueryVisibleSectors_6(): int:
+  let arg_world = BspSectorWorld3D(sectors = [])
+  let edge_world = BspSectorWorld3D(sectors = [])
+  let arg_currentSectorId = 4
+  let edge_currentSectorId = 1
+  let arg_cameraFrustum = Frustum3D(planes = [])
+  let edge_cameraFrustum = Frustum3D(planes = [])
+  let resNom = bspQueryVisibleSectors(arg_world, arg_currentSectorId, arg_cameraFrustum)
+  let resEdge = bspQueryVisibleSectors(edge_world, edge_currentSectorId, edge_cameraFrustum)
+  assertEqInt(resNom.len(), 1, "bspQueryVisibleSectors nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "bspQueryVisibleSectors boundary resEdge.len() == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_bsp_sector_world3d_bspSectorWorldNew_1(), 0, "test_bsp_sector_world3d_bspSectorWorldNew_1")
+  assertEqInt(test_bsp_sector_world3d_bspAddSector_2(), 0, "test_bsp_sector_world3d_bspAddSector_2")
+  assertEqInt(test_bsp_sector_world3d_bspAddPortal_3(), 0, "test_bsp_sector_world3d_bspAddPortal_3")
+  assertEqInt(test_bsp_sector_world3d_bspFindSectorContainingPoint_4(), 0, "test_bsp_sector_world3d_bspFindSectorContainingPoint_4")
+  assertEqInt(test_bsp_sector_world3d_isPointInFrustum_5(), 0, "test_bsp_sector_world3d_isPointInFrustum_5")
+  assertEqInt(test_bsp_sector_world3d_bspQueryVisibleSectors_6(), 0, "test_bsp_sector_world3d_bspQueryVisibleSectors_6")
+  ret 0

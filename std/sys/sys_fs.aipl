@@ -1,0 +1,131 @@
+// ============================================================================
+// Module: std/sys/sys_fs (SysFs)
+// Layer 0 Direct Host File Descriptor & Directory Syscalls
+// ============================================================================
+module SysFs
+
+import {
+  sysPtrAlloc,
+  sysPtrFree,
+  sysPtrWriteU8,
+  sysPtrReadI64,
+  sysPtrSet
+} from "std/sys/sys_mem"
+
+import {
+  sysArchSyscall1,
+  sysArchSyscall2,
+  sysArchSyscall3,
+  sysArchSyscall4,
+  SYS_READ,
+  SYS_WRITE,
+  SYS_CLOSE,
+  SYS_LSEEK,
+  SYS_FSYNC,
+  SYS_OPENAT,
+  SYS_UNLINKAT,
+  SYS_MKDIRAT,
+  SYS_RENAMEAT,
+  AT_FDCWD
+} from "std/sys/sys_syscall"
+
+pub const SYS_O_RDONLY: int = 0
+pub const SYS_O_WRONLY: int = 1
+pub const SYS_O_RDWR: int = 2
+pub const SYS_O_CREAT: int = 64
+pub const SYS_O_TRUNC: int = 512
+pub const SYS_O_APPEND: int = 1024
+
+pub const SYS_SEEK_SET: int = 0
+pub const SYS_SEEK_CUR: int = 1
+pub const SYS_SEEK_END: int = 2
+
+pub struct SysFileDescriptor:
+  path: str
+  fd: int
+  isOpen: bool
+
+fn allocCStringPtr(s: str): int:
+  let n = s.len
+  let p = sysPtrAlloc(n + 1)
+  mut i = 0
+  while i < n:
+    sysPtrWriteU8(p + i, s.charCodeAt(i))
+    i += 1
+  sysPtrWriteU8(p + n, 0)
+  ret p
+
+pub fn sysFsOpen(path: str, flags: int, mode: int): int:
+  let cstr = allocCStringPtr(path)
+  let fd = sysArchSyscall4(SYS_OPENAT, AT_FDCWD, cstr, flags, mode)
+  sysPtrFree(cstr)
+  ret fd
+
+pub fn sysFsClose(fd: int): int:
+  ret sysArchSyscall1(SYS_CLOSE, fd)
+
+pub fn sysFsRead(fd: int, bufPtr: int, count: int): int:
+  if fd < 0 or bufPtr == 0 or count <= 0:
+    ret -1
+  ret sysArchSyscall3(SYS_READ, fd, bufPtr, count)
+
+pub fn sysFsWrite(fd: int, bufPtr: int, count: int): int:
+  if fd < 0 or bufPtr == 0 or count <= 0:
+    ret -1
+  ret sysArchSyscall3(SYS_WRITE, fd, bufPtr, count)
+
+pub fn sysFsSeek(fd: int, offset: int, whence: int): int:
+  if fd < 0:
+    ret -1
+  ret sysArchSyscall3(SYS_LSEEK, fd, offset, whence)
+
+pub fn sysFsFsync(fd: int): int:
+  if fd < 0:
+    ret -1
+  ret sysArchSyscall1(SYS_FSYNC, fd)
+
+pub fn sysFsStatSize(path: str): int:
+  let fd = sysFsOpen(path, SYS_O_RDONLY, 0)
+  if fd < 0:
+    ret -1
+  let sz = sysFsSeek(fd, 0, SYS_SEEK_END)
+  let _ = sysFsClose(fd)
+  ret sz
+
+pub fn sysFsStatMtime(path: str): int:
+  let cstr = allocCStringPtr(path)
+  let statBuf = sysPtrAlloc(144)
+  sysPtrSet(statBuf, 0, 144)
+  // SYS_NEWFSTATAT = 262 on x86_64 Linux; st_mtime is at offset 88
+  let rc = sysArchSyscall4(262, AT_FDCWD, cstr, statBuf, 0)
+  let mtime = if rc == 0: sysPtrReadI64(statBuf + 88) else: -1
+  sysPtrFree(statBuf)
+  sysPtrFree(cstr)
+  ret mtime
+
+pub fn sysFsUnlink(path: str): int:
+  let cstr = allocCStringPtr(path)
+  let res = sysArchSyscall3(SYS_UNLINKAT, AT_FDCWD, cstr, 0)
+  sysPtrFree(cstr)
+  ret res
+
+pub fn sysFsRename(oldPath: str, newPath: str): int:
+  let cOld = allocCStringPtr(oldPath)
+  let cNew = allocCStringPtr(newPath)
+  let res = sysArchSyscall4(SYS_RENAMEAT, AT_FDCWD, cOld, AT_FDCWD, cNew)
+  sysPtrFree(cOld)
+  sysPtrFree(cNew)
+  ret res
+
+pub fn sysFsMkdir(path: str, mode: int): int:
+  let cstr = allocCStringPtr(path)
+  let res = sysArchSyscall3(SYS_MKDIRAT, AT_FDCWD, cstr, mode)
+  sysPtrFree(cstr)
+  ret res
+
+pub fn sysFsRmdir(path: str): int:
+  let cstr = allocCStringPtr(path)
+  // AT_REMOVEDIR = 0x200 = 512
+  let res = sysArchSyscall3(SYS_UNLINKAT, AT_FDCWD, cstr, 512)
+  sysPtrFree(cstr)
+  ret res

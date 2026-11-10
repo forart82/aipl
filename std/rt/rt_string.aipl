@@ -1,0 +1,221 @@
+/// # Module: `std/rt/rt_string` (`RtString`)
+///
+/// ## Purpose & Domain Scope
+/// Self-hosted UTF-8 byte string management, FNV-1a hashing, substring extraction,
+/// number formatting, and string interning pool.
+module RtString
+
+import { ptrAlloc, ptrFree, ptrReadU8, ptrWriteU8, ptrReadI64, ptrWriteI64, ptrCopy, ptrMemcpy } from "std/rt/rt_ptr"
+
+pub struct RtStringHeader:
+  dataPtr: int
+  byteLen: int
+  hash: int
+
+pub struct RtStringTable:
+  buckets: [int]
+  count: int
+
+pub struct RtString:
+  data: int
+  len: int
+  cap: int
+
+pub fn rtStringHash(dataPtr: int, len: int): int:
+  if dataPtr == 0 or len <= 0:
+    ret 0
+  mut hash = 2166136261
+  let prime = 16777619
+  mut i = 0
+  while i < len:
+    let b = ptrReadU8(dataPtr, i)
+    hash = ((hash ^ b) * prime) & 2147483647
+    i += 1
+  ret hash
+
+pub fn rtStringCompare(p1: int, len1: int, p2: int, len2: int): int:
+  let minLen = if len1 < len2: len1 else: len2
+  mut i = 0
+  while i < minLen:
+    let b1 = ptrReadU8(p1, i)
+    let b2 = ptrReadU8(p2, i)
+    if b1 != b2:
+      ret b1 - b2
+    i += 1
+  if len1 == len2:
+    ret 0
+  ret len1 - len2
+
+pub fn rtStringConcat(p1: int, len1: int, p2: int, len2: int): int:
+  let n1 = if len1 > 0: len1 else: 0
+  let n2 = if len2 > 0: len2 else: 0
+  let total = n1 + n2
+  let buf = ptrAlloc(total + 1)
+  if buf != 0:
+    if n1 > 0 and p1 != 0:
+      ptrMemcpy(buf, 0, p1, 0, n1)
+    if n2 > 0 and p2 != 0:
+      ptrMemcpy(buf, n1, p2, 0, n2)
+    ptrWriteU8(buf, total, 0)
+  ret buf
+
+pub fn rtStringSlice(srcPtr: int, srcLen: int, start: int, end: int): int:
+  mut st = if start < 0: 0 else: start
+  mut en = if end > srcLen: srcLen else: end
+  if st > en:
+    st = en
+  let subLen = en - st
+  let buf = ptrAlloc(subLen + 1)
+  if buf != 0:
+    if subLen > 0 and srcPtr != 0:
+      ptrMemcpy(buf, 0, srcPtr, st, subLen)
+    ptrWriteU8(buf, subLen, 0)
+  ret buf
+
+pub fn rtStringTableNew(initialCap: int): RtStringTable:
+  let cap = if initialCap > 0: initialCap else: 64
+  mut buckets: [int] = []
+  mut i = 0
+  while i < cap:
+    buckets.push(0)
+    i += 1
+  ret RtStringTable(buckets = buckets, count = 0)
+
+pub fn rtStringTableIntern(mut tbl: RtStringTable, dataPtr: int, len: int): int:
+  if dataPtr == 0 or len < 0:
+    ret 0
+  let h = rtStringHash(dataPtr, len)
+  let cap = tbl.buckets.len
+  if cap <= 0:
+    ret dataPtr
+  mut idx = h % cap
+  if idx < 0:
+    idx = -idx
+  let existing = tbl.buckets[idx]
+  if existing != 0:
+    let exLen = ptrReadI64(existing, 0)
+    let exData = existing + 16
+    if exLen == len and rtStringCompare(exData, exLen, dataPtr, len) == 0:
+      ret exData
+  let entry = ptrAlloc(16 + len + 1)
+  if entry != 0:
+    ptrWriteI64(entry, 0, len)
+    ptrWriteI64(entry, 8, h)
+    if len > 0:
+      ptrMemcpy(entry, 16, dataPtr, 0, len)
+    ptrWriteU8(entry, 16 + len, 0)
+    tbl.buckets[idx] = entry
+    tbl.count += 1
+    ret entry + 16
+  ret 0
+
+pub fn rtStrNew(capacity: int): RtString:
+  let realCap = if capacity > 0: capacity else: 16
+  let ptr = ptrAlloc(realCap + 1)
+  if ptr != 0:
+    ptrWriteU8(ptr, 0, 0)
+  ret RtString(data = ptr, len = 0, cap = realCap)
+
+pub fn rtStrFromRaw(ptr: int, len: int): RtString:
+  let buf = ptrAlloc(len + 1)
+  if len > 0 and ptr != 0 and buf != 0:
+    ptrCopy(buf, ptr, len)
+  if buf != 0:
+    ptrWriteU8(buf, len, 0)
+  ret RtString(data = buf, len = len, cap = len)
+
+pub fn rtStrLen(s: RtString): int:
+  ret s.len
+
+pub fn rtStrEq(a: RtString, b: RtString): bool:
+  if a.len != b.len:
+    ret false
+  mut i = 0
+  while i < a.len:
+    if ptrReadU8(a.data, i) != ptrReadU8(b.data, i):
+      ret false
+    i += 1
+  ret true
+
+pub fn rtStrSlice(s: RtString, start: int, end: int): RtString:
+  mut st = if start < 0: 0 else: start
+  mut en = if end > s.len: s.len else: end
+  if st > en:
+    st = en
+  let n = en - st
+  let buf = ptrAlloc(n + 1)
+  if n > 0 and s.data != 0 and buf != 0:
+    ptrCopy(buf, s.data + st, n)
+  if buf != 0:
+    ptrWriteU8(buf, n, 0)
+  ret RtString(data = buf, len = n, cap = n)
+
+pub fn rtStrConcat(a: RtString, b: RtString): RtString:
+  let n = a.len + b.len
+  let buf = ptrAlloc(n + 1)
+  if buf != 0:
+    if a.len > 0 and a.data != 0:
+      ptrCopy(buf, a.data, a.len)
+    if b.len > 0 and b.data != 0:
+      ptrCopy(buf + a.len, b.data, b.len)
+    ptrWriteU8(buf, n, 0)
+  ret RtString(data = buf, len = n, cap = n)
+
+pub fn rtStrIndexOf(haystack: RtString, needle: RtString, fromIndex: int = 0): int:
+  if needle.len == 0:
+    ret 0
+  if haystack.len < needle.len:
+    ret -1
+  mut i = if fromIndex < 0: 0 else: fromIndex
+  let limit = haystack.len - needle.len
+  while i <= limit:
+    mut matchFound = true
+    mut j = 0
+    while j < needle.len:
+      if ptrReadU8(haystack.data, i + j) != ptrReadU8(needle.data, j):
+        matchFound = false
+        break
+      j += 1
+    if matchFound:
+      ret i
+    i += 1
+  ret -1
+
+pub fn rtIntToStr(val: int): RtString:
+  if val == 0:
+    let buf = ptrAlloc(2)
+    if buf != 0:
+      ptrWriteU8(buf, 0, 48)
+      ptrWriteU8(buf, 1, 0)
+    ret RtString(data = buf, len = 1, cap = 1)
+  mut isNeg = false
+  mut v = val
+  if v < 0:
+    isNeg = true
+    v = -v
+  let buf = ptrAlloc(24)
+  mut tempDigits: [int] = []
+  while v > 0:
+    let digit = v % 10
+    tempDigits.push(48 + digit)
+    v = v / 10
+  mut pos = 0
+  if buf != 0:
+    if isNeg:
+      ptrWriteU8(buf, pos, 45)
+      pos += 1
+    mut idx = tempDigits.len - 1
+    while idx >= 0:
+      ptrWriteU8(buf, pos, tempDigits[idx])
+      pos += 1
+      idx -= 1
+    ptrWriteU8(buf, pos, 0)
+  ret RtString(data = buf, len = pos, cap = 23)
+
+pub fn rtStrFree(mut s: RtString): void:
+  if s.data != 0:
+    ptrFree(s.data)
+    s.data = 0
+  s.len = 0
+  s.cap = 0
+  ret

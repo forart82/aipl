@@ -1,0 +1,38 @@
+module Ex169Gfx2dLight2dShadowRaycastWindowTest
+
+import {
+  buildLight2dShadowRaycastAudit,
+  stepLight2DPosition
+} from "../../examples/ex_169_gfx2d_light2d_shadow_raycast_window"
+import { Vec2 } from "../../std/math/vec_math"
+import { rgba8 } from "../../std/gfx/color"
+import {
+  OccluderSegment2D, createPointLight2D,
+  bakeShadowMap1D, sampleLight2DIntensity
+} from "../../std/gfx2d/light2d"
+
+pub fn test_gfx2d_light2d_shadow_raycast(): void:
+  let col = rgba8(255, 220, 120, 255)
+  let light = createPointLight2D(Vec2(x = 0.0, y = 0.0), 120.0, col, 1.0)
+  let occluders = [
+    OccluderSegment2D(p0 = Vec2(x = 60.0, y = -30.0), p1 = Vec2(x = 60.0, y = 30.0))
+  ]
+  let smap = bakeShadowMap1D(light, occluders, 36)
+  assert(smap.resolution == 36 and smap.distances.len() == 36, "1D polar shadow map has 36 angular rays")
+
+  let litIntensity = sampleLight2DIntensity(light, smap, Vec2(x = 30.0, y = 0.0))
+  let shadowedIntensity = sampleLight2DIntensity(light, smap, Vec2(x = 90.0, y = 0.0))
+  assert(litIntensity > 0.5, "Point in front of occluder is illuminated")
+  assert(shadowedIntensity == 0.0, "Point behind occluder is in full shadow")
+
+  let p0 = stepLight2DPosition(0)
+  let p1 = stepLight2DPosition(1)
+  let p20 = stepLight2DPosition(20)
+  let p100 = stepLight2DPosition(100)
+  assert(p0.x != p1.x and p1.x != p20.x and p20.x != p100.x, "stepLight2DPosition progresses across t=0, t=1, t=20, t=100")
+  assert(buildLight2dShadowRaycastAudit() > 80, "buildLight2dShadowRaycastAudit returns valid ray + intensity score")
+
+pub fn main(): int:
+  test_gfx2d_light2d_shadow_raycast()
+  println("PASS: ex_169_gfx2d_light2d_shadow_raycast_window_test")
+  ret 0

@@ -1,0 +1,132 @@
+// ============================================================================
+// Example 081: ISO/IEC 18004 QR Code Matrix & Reed-Solomon ECC Window
+// Demonstrates: generateQrMatrix, encodeQrCode, qrGetModule, qrGf256Mul,
+//               qrReedSolomonEncode, qrComputeBchFormatBits, and renderQrSvg
+//               from std/encoding, rendered as a live 21x21 QR matrix scanner
+//               and Reed-Solomon GF(256) ECC codeword visualizer on 1280x720.
+// ============================================================================
+module Ex081EncodingQrcodeMatrixWindow
+
+import { clampInt } from "../std/prelude"
+import {
+  generateQrMatrix,
+  encodeQrCode,
+  qrGetModule,
+  qrGf256Mul,
+  qrReedSolomonEncode,
+  qrComputeBchFormatBits,
+  renderQrSvg
+} from "../std/encoding"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct QrMatrixWindowState:
+  matrixDim: int
+  darkModuleCount: int
+  bchFormatBits: int
+  scanRow: int
+
+pub fn evaluateQrMatrixAndReedSolomon(payload: str): int:
+  let qr = generateQrMatrix(payload, 1)
+  let qr2 = encodeQrCode(payload)
+  assert(qr.size == 21 and qr2.size == 21, "Version 1 QR code is 21x21")
+  assert(renderQrSvg(qr, 4).contains("<svg"), "renderQrSvg emits valid SVG")
+  let ecc = qrReedSolomonEncode([64, 32, 16], 5)
+  let gfProd = qrGf256Mul(2, 3)
+  ret qr.size + ecc.len + gfProd
+
+pub fn describeQrEccFormatProfile(version: int): str:
+  if version == 1:
+    ret "QR:VERSION_1_21X21_RS_GF256"
+  ret "QR:HIGH_DENSITY_MATRIX"
+
+pub fn buildQrMatrixWindowState(frameIdx: int): QrMatrixWindowState:
+  let qr = generateQrMatrix("https://aipl.dev", 1)
+  mut darkCount = 0
+  for r in 0..qr.size:
+    for c in 0..qr.size:
+      if qrGetModule(qr, c, r):
+        darkCount = darkCount + 1
+  let bch = qrComputeBchFormatBits(1, (frameIdx * 3) % 8)
+  ret QrMatrixWindowState(
+    matrixDim = qr.size,
+    darkModuleCount = darkCount,
+    bchFormatBits = bch,
+    scanRow = (frameIdx * 3) % qr.size
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildQrMatrixWindowState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.darkModuleCount + frameIndex + dtPad
+
+pub fn renderQrCodeScene(frameIdx: int): void:
+  let st = buildQrMatrixWindowState(frameIdx)
+  let qr = generateQrMatrix("https://aipl.dev", 1)
+  let ecc = qrReedSolomonEncode([64 + (frameIdx % 31), 32, 16, 8, 4], 7)
+
+  clearScreen(rgb(12, 17, 29))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(20, 29, 48))
+  drawText("AIPL ex_081: ISO/IEC 18004 QR Code 21x21 Matrix & Reed-Solomon GF(256) ECC Visualizer", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Left Panel: Quiet-Zone White Backing + 21x21 QR Code Modules
+  let qx = 80.0
+  let qy = 100.0
+  let cellPx = 20.0
+  let quietPad = 32.0
+  let boardSpan = float(qr.size) * cellPx + quietPad * 2.0
+  drawRect(qx, qy, boardSpan, boardSpan, rgb(248, 250, 252))
+  drawRectOutline(qx, qy, boardSpan, boardSpan, 3.0, rgb(56, 189, 248))
+
+  for row in 0..qr.size:
+    for col in 0..qr.size:
+      let mx = qx + quietPad + float(col) * cellPx
+      let my = qy + quietPad + float(row) * cellPx
+      if qrGetModule(qr, col, row):
+        let modCol = if row == st.scanRow: rgb(220, 38, 38) else: rgb(15, 23, 42)
+        drawRect(mx, my, cellPx - 1.0, cellPx - 1.0, modCol)
+
+  // Animated laser scanner beam across the QR matrix aligned with st.scanRow
+  let scanY = qy + quietPad + float(st.scanRow) * cellPx + cellPx * 0.5
+  drawLine(qx + 8.0, scanY, qx + boardSpan - 8.0, scanY, rgb(239, 68, 68), 2.5)
+
+  // Right Panel: Reed-Solomon Parity Codewords & Telemetry
+  let rx = 620.0
+  drawRect(rx, qy, 580.0, boardSpan, rgb(17, 24, 39))
+  drawRectOutline(rx, qy, 580.0, boardSpan, 2.0, rgb(71, 85, 105))
+  drawText("Profile: " + describeQrEccFormatProfile(1), rx + 24.0, qy + 32.0, 18.0, rgb(125, 211, 252))
+  drawText("Matrix Dimension: " + str(st.matrixDim) + "x" + str(st.matrixDim) + " modules", rx + 24.0, qy + 70.0, 16.0, rgb(74, 222, 128))
+  drawText("Dark Modules Active: " + str(st.darkModuleCount) + " / 441  (Scan Row: " + str(st.scanRow) + ")", rx + 24.0, qy + 104.0, 16.0, rgb(250, 204, 21))
+  drawText("BCH Format Info Bits: " + str(st.bchFormatBits) + "  Frame: " + str(frameIdx), rx + 24.0, qy + 138.0, 16.0, rgb(203, 213, 225))
+  drawText("Reed-Solomon GF(256) Parity Codewords:", rx + 24.0, qy + 184.0, 16.0, rgb(167, 139, 250))
+
+  for idx in 0..ecc.len:
+    let cw = ecc[idx]
+    let bx = rx + 32.0 + float(idx * 74)
+    let bh = 24.0 + float(cw % 200)
+    let by = qy + 440.0 - bh
+    drawRect(bx, by, 48.0, bh, rgb(56, 189, 248))
+    drawRectOutline(bx, by, 48.0, bh, 1.5, rgb(186, 230, 253))
+    drawText(str(cw), bx + 8.0, by - 22.0, 14.0, rgb(226, 232, 240))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_081 - ISO/IEC 18004 QR Code Matrix & Reed-Solomon ECC")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderQrCodeScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,72 @@
+module tests.functions.phys2d.phys_world2d_test
+
+import * from "std/phys2d/phys_world2d"
+import { Vec2 } from "std/math/vec_math"
+import { RigidBody2D, rigidBody2dIntegrateVelocity, rigidBody2dIntegratePosition } from "std/phys2d/rigid_body2d"
+import { Collider2D, colliderComputeAABB } from "std/phys2d/collider2d"
+import { DynamicAABBTree2D, dynamicAABBTreeNew, dynamicAABBTreeInsert } from "std/phys2d/broadphase2d"
+import { Joint2D, jointSolveVelocity, jointSolvePosition } from "std/phys2d/joint2d"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_phys_world2d_physWorld2dNew_1(): int:
+  let arg_gravity = Vec2(x = 1.0, y = 1.0)
+  let edge_gravity = Vec2(x = 0.5, y = 0.5)
+  let resNom = physWorld2dNew(arg_gravity)
+  let resEdge = physWorld2dNew(edge_gravity)
+  assertEqInt(resNom.bodies.len(), 0, "physWorld2dNew nominal resNom.bodies.len() == 0")
+  assertEqInt(resEdge.bodies.len(), 0, "physWorld2dNew boundary resEdge.bodies.len() == 0")
+  ret 0
+
+pub fn test_phys_world2d_physWorld2dAddBody_2(): int:
+  let arg_world = PhysicsWorld2D(settings = PhysWorldSettings2D(gravity = Vec2(x = 1.0, y = 1.0), velocityIterations = 4, positionIterations = 4, subSteps = 4, allowSleep = true), bodies = [], colliders = [], colliderBodyIds = [], joints = [], broadphase = DynamicAABBTree2D(nodes = [], root = 2, freeList = 2))
+  let edge_world = PhysicsWorld2D(settings = PhysWorldSettings2D(gravity = Vec2(x = 0.5, y = 0.5), velocityIterations = 1, positionIterations = 1, subSteps = 1, allowSleep = false), bodies = [], colliders = [], colliderBodyIds = [], joints = [], broadphase = DynamicAABBTree2D(nodes = [], root = 0, freeList = 0))
+  let arg_body = RigidBody2D(id = 1, bodyType = BodyType2D.Static, position = Vec2(x = 1.0, y = 1.0), angle = 1.0, linearVelocity = Vec2(x = 1.0, y = 1.0), angularVelocity = 0.0, linearDamping = 1.0, angularDamping = 1.0, gravityScale = 2.0, massProps = MassProperties2D(mass = 2.0, invMass = 2.0, inertia = 1.0, invInertia = 1.0, localCenter = Vec2(x = 1.0, y = 1.0)), isAwake = true, isBullet = true)
+  let edge_body = RigidBody2D(id = 0, bodyType = BodyType2D.Static, position = Vec2(x = 0.5, y = 0.5), angle = 0.5, linearVelocity = Vec2(x = 0.5, y = 0.5), angularVelocity = 0.0, linearDamping = 0.5, angularDamping = 0.5, gravityScale = 1.0, massProps = MassProperties2D(mass = 1.0, invMass = 1.0, inertia = 0.5, invInertia = 0.5, localCenter = Vec2(x = 0.5, y = 0.5)), isAwake = false, isBullet = false)
+  let resNom = physWorld2dAddBody(arg_world, arg_body)
+  let resEdge = physWorld2dAddBody(edge_world, edge_body)
+  assertEqInt(resNom, 0, "physWorld2dAddBody nominal resNom == 0")
+  assertEqInt(resEdge, 0, "physWorld2dAddBody boundary resEdge == 0")
+  ret 0
+
+pub fn test_phys_world2d_physWorld2dAddCollider_3(): int:
+  let arg_world = PhysicsWorld2D(settings = PhysWorldSettings2D(gravity = Vec2(x = 1.0, y = 1.0), velocityIterations = 4, positionIterations = 4, subSteps = 4, allowSleep = true), bodies = [], colliders = [], colliderBodyIds = [], joints = [], broadphase = DynamicAABBTree2D(nodes = [], root = 2, freeList = 2))
+  let edge_world = PhysicsWorld2D(settings = PhysWorldSettings2D(gravity = Vec2(x = 0.5, y = 0.5), velocityIterations = 1, positionIterations = 1, subSteps = 1, allowSleep = false), bodies = [], colliders = [], colliderBodyIds = [], joints = [], broadphase = DynamicAABBTree2D(nodes = [], root = 0, freeList = 0))
+  let arg_bodyId = 4
+  let edge_bodyId = 1
+  let arg_collider = Collider2D(shapeType = ColliderShapeType2D.Circle, offset = Vec2(x = 1.0, y = 1.0), circleRadius = 2.0, boxHalfExtents = Vec2(x = 1.0, y = 1.0), capsuleLength = 2.0, polygonVertices = [], material = PhysicsMaterial2D(restitution = 1.0, friction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)
+  let edge_collider = Collider2D(shapeType = ColliderShapeType2D.Circle, offset = Vec2(x = 0.5, y = 0.5), circleRadius = 1.0, boxHalfExtents = Vec2(x = 0.5, y = 0.5), capsuleLength = 1.0, polygonVertices = [], material = PhysicsMaterial2D(restitution = 0.5, friction = 0.5, density = 0.5), isSensor = false, collisionLayer = 1, collisionMask = 1)
+  let resNom = physWorld2dAddCollider(arg_world, arg_bodyId, arg_collider)
+  let resEdge = physWorld2dAddCollider(edge_world, edge_bodyId, edge_collider)
+  assertEqInt(resNom, 0, "physWorld2dAddCollider nominal resNom == 0")
+  assertEqInt(resEdge, 0, "physWorld2dAddCollider boundary resEdge == 0")
+  ret 0
+
+pub fn test_phys_world2d_physWorld2dAddJoint_4(): int:
+  let arg_world = PhysicsWorld2D(settings = PhysWorldSettings2D(gravity = Vec2(x = 1.0, y = 1.0), velocityIterations = 4, positionIterations = 4, subSteps = 4, allowSleep = true), bodies = [], colliders = [], colliderBodyIds = [], joints = [], broadphase = DynamicAABBTree2D(nodes = [], root = 2, freeList = 2))
+  let edge_world = PhysicsWorld2D(settings = PhysWorldSettings2D(gravity = Vec2(x = 0.5, y = 0.5), velocityIterations = 1, positionIterations = 1, subSteps = 1, allowSleep = false), bodies = [], colliders = [], colliderBodyIds = [], joints = [], broadphase = DynamicAABBTree2D(nodes = [], root = 0, freeList = 0))
+  let arg_joint = Joint2D(id = 1, jointType = JointType2D.Distance, bodyIdA = 4, bodyIdB = 4, localAnchorA = Vec2(x = 1.0, y = 1.0), localAnchorB = Vec2(x = 1.0, y = 1.0), targetDistance = 1.0, springStiffness = 1.0, springDamping = 1.0, minLimit = 0.0, maxLimit = 2.0, enableLimits = true)
+  let edge_joint = Joint2D(id = 0, jointType = JointType2D.Distance, bodyIdA = 1, bodyIdB = 1, localAnchorA = Vec2(x = 0.5, y = 0.5), localAnchorB = Vec2(x = 0.5, y = 0.5), targetDistance = 0.5, springStiffness = 0.5, springDamping = 0.5, minLimit = 0.0, maxLimit = 1.0, enableLimits = false)
+  let resNom = physWorld2dAddJoint(arg_world, arg_joint)
+  let resEdge = physWorld2dAddJoint(edge_world, edge_joint)
+  assertEqInt(resNom, 0, "physWorld2dAddJoint nominal resNom == 0")
+  assertEqInt(resEdge, 0, "physWorld2dAddJoint boundary resEdge == 0")
+  ret 0
+
+pub fn test_phys_world2d_physWorld2dStep_5(): int:
+  let arg_world = PhysicsWorld2D(settings = PhysWorldSettings2D(gravity = Vec2(x = 1.0, y = 1.0), velocityIterations = 4, positionIterations = 4, subSteps = 4, allowSleep = true), bodies = [], colliders = [], colliderBodyIds = [], joints = [], broadphase = DynamicAABBTree2D(nodes = [], root = 2, freeList = 2))
+  let edge_world = PhysicsWorld2D(settings = PhysWorldSettings2D(gravity = Vec2(x = 0.5, y = 0.5), velocityIterations = 1, positionIterations = 1, subSteps = 1, allowSleep = false), bodies = [], colliders = [], colliderBodyIds = [], joints = [], broadphase = DynamicAABBTree2D(nodes = [], root = 0, freeList = 0))
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  physWorld2dStep(arg_world, arg_dt)
+  physWorld2dStep(edge_world, edge_dt)
+  assertEqInt(arg_world.bodies.len(), 0, "physWorld2dStep nominal arg_world.bodies.len() == 0")
+  assertEqInt(edge_world.bodies.len(), 0, "physWorld2dStep boundary edge_world.bodies.len() == 0")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_phys_world2d_physWorld2dNew_1(), 0, "test_phys_world2d_physWorld2dNew_1")
+  assertEqInt(test_phys_world2d_physWorld2dAddBody_2(), 0, "test_phys_world2d_physWorld2dAddBody_2")
+  assertEqInt(test_phys_world2d_physWorld2dAddCollider_3(), 0, "test_phys_world2d_physWorld2dAddCollider_3")
+  assertEqInt(test_phys_world2d_physWorld2dAddJoint_4(), 0, "test_phys_world2d_physWorld2dAddJoint_4")
+  assertEqInt(test_phys_world2d_physWorld2dStep_5(), 0, "test_phys_world2d_physWorld2dStep_5")
+  ret 0

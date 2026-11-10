@@ -1,0 +1,98 @@
+module InputTouch
+
+// ============================================================================
+// std/input/touch.aipl — Multi-Touch Pointer Lifecycle & pointerId Isolation
+// ============================================================================
+
+pub const TOUCH_BEGAN: int = 0
+pub const TOUCH_MOVED: int = 1
+pub const TOUCH_STATIONARY: int = 2
+pub const TOUCH_ENDED: int = 3
+pub const TOUCH_CANCELLED: int = 4
+
+pub struct TouchPointer(pointerId: int, phase: int, startX: float, startY: float, currentX: float, currentY: float, deltaX: float, deltaY: float, pressure: float, startTimeMs: int, lastTimeMs: int)
+
+pub struct TouchTracker(activePointers: Map[int, TouchPointer], maxActivePointers: int)
+
+pub fn createTouchTracker(): TouchTracker:
+  mut m: Map[int, TouchPointer] = Map.new()
+  ret TouchTracker(activePointers = m, maxActivePointers = 10)
+
+pub fn handleTouchDown(tracker: TouchTracker, pointerId: int, x: float, y: float, pressure: float, timeMs: int): TouchTracker:
+  mut m = tracker.activePointers
+  if m.keys().len >= tracker.maxActivePointers and not m.containsKey(pointerId):
+    ret tracker
+  let tp = TouchPointer(
+    pointerId = pointerId,
+    phase = TOUCH_BEGAN,
+    startX = x,
+    startY = y,
+    currentX = x,
+    currentY = y,
+    deltaX = 0.0,
+    deltaY = 0.0,
+    pressure = pressure,
+    startTimeMs = timeMs,
+    lastTimeMs = timeMs
+  )
+  m.set(pointerId, tp)
+  ret TouchTracker(activePointers = m, maxActivePointers = tracker.maxActivePointers)
+
+pub fn handleTouchMove(tracker: TouchTracker, pointerId: int, x: float, y: float, pressure: float, timeMs: int): TouchTracker:
+  mut m = tracker.activePointers
+  if not m.containsKey(pointerId):
+    ret tracker
+  let prev = m.get(pointerId).unwrap()
+  let dx = x - prev.currentX
+  let dy = y - prev.currentY
+  let nextPhase = if dx == 0.0 and dy == 0.0: TOUCH_STATIONARY else: TOUCH_MOVED
+  let updated = TouchPointer(
+    pointerId = pointerId,
+    phase = nextPhase,
+    startX = prev.startX,
+    startY = prev.startY,
+    currentX = x,
+    currentY = y,
+    deltaX = dx,
+    deltaY = dy,
+    pressure = pressure,
+    startTimeMs = prev.startTimeMs,
+    lastTimeMs = timeMs
+  )
+  m.set(pointerId, updated)
+  ret TouchTracker(activePointers = m, maxActivePointers = tracker.maxActivePointers)
+
+pub fn handleTouchUp(tracker: TouchTracker, pointerId: int, x: float, y: float, timeMs: int): TouchTracker:
+  mut m = tracker.activePointers
+  if m.containsKey(pointerId):
+    let prev = m.get(pointerId).unwrap()
+    let ended = TouchPointer(
+      pointerId = pointerId,
+      phase = TOUCH_ENDED,
+      startX = prev.startX,
+      startY = prev.startY,
+      currentX = x,
+      currentY = y,
+      deltaX = x - prev.currentX,
+      deltaY = y - prev.currentY,
+      pressure = 0.0,
+      startTimeMs = prev.startTimeMs,
+      lastTimeMs = timeMs
+    )
+    m.set(pointerId, ended)
+    m.remove(pointerId)
+  ret TouchTracker(activePointers = m, maxActivePointers = tracker.maxActivePointers)
+
+pub fn handleTouchCancel(tracker: TouchTracker, pointerId: int): TouchTracker:
+  mut m = tracker.activePointers
+  if m.containsKey(pointerId):
+    m.remove(pointerId)
+  ret TouchTracker(activePointers = m, maxActivePointers = tracker.maxActivePointers)
+
+pub fn getActivePointer(tracker: TouchTracker, pointerId: int): Option[TouchPointer]:
+  if tracker.activePointers.containsKey(pointerId):
+    ret tracker.activePointers.get(pointerId)
+  ret None
+
+pub fn getActivePointerCount(tracker: TouchTracker): int:
+  ret tracker.activePointers.keys().len

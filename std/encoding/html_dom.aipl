@@ -1,0 +1,273 @@
+// ============================================================================
+// Module: std/encoding/html_dom
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// HTML5 tokenizer, DOM tree parser, and CSS selector query engine.
+// ============================================================================
+module EncodingHtmlDom
+
+pub struct HtmlNode:
+  tag: str
+  attributes: [(str, str)]
+  children: [HtmlNode]
+  innerText: str
+  id: str
+  classList: [str]
+
+pub struct HtmlDocument:
+  root: HtmlNode
+
+fn isVoidHtmlTag(tag: str): bool:
+  let t = tag.toLower()
+  ret t == "br" or t == "hr" or t == "img" or t == "input" or t == "meta" or t == "link" or t == "area" or t == "base" or t == "col" or t == "embed" or t == "source" or t == "track" or t == "wbr"
+
+fn parseHtmlAttrs(raw: str): ([(str, str)], str, [str]):
+  mut attrs: [(str, str)] = []
+  mut idVal = ""
+  mut classes: [str] = []
+  let n = raw.len
+  mut i = 0
+  while i < n:
+    while i < n and (raw.charCodeAt(i) == 32 or raw.charCodeAt(i) == 9 or raw.charCodeAt(i) == 10 or raw.charCodeAt(i) == 13):
+      i = i + 1
+    if i >= n:
+      break
+    let kStart = i
+    while i < n and raw.charCodeAt(i) != 61 and raw.charCodeAt(i) != 32 and raw.charCodeAt(i) != 9:
+      i = i + 1
+    let key = raw.slice(kStart, i).trim().toLower()
+    while i < n and (raw.charCodeAt(i) == 32 or raw.charCodeAt(i) == 9):
+      i = i + 1
+    mut val = ""
+    if i < n and raw.charCodeAt(i) == 61:
+      i = i + 1
+      while i < n and (raw.charCodeAt(i) == 32 or raw.charCodeAt(i) == 9):
+        i = i + 1
+      if i < n and (raw.charCodeAt(i) == 34 or raw.charCodeAt(i) == 39):
+        let q = raw.charCodeAt(i)
+        i = i + 1
+        let vStart = i
+        while i < n and raw.charCodeAt(i) != q:
+          i = i + 1
+        val = raw.slice(vStart, i)
+        if i < n:
+          i = i + 1
+      else:
+        let vStart = i
+        while i < n and raw.charCodeAt(i) != 32 and raw.charCodeAt(i) != 9:
+          i = i + 1
+        val = raw.slice(vStart, i)
+    if key.len > 0:
+      attrs.push((key, val))
+      if key == "id":
+        idVal = val
+      elif key == "class":
+        let parts = val.split(" ")
+        mut ci = 0
+        while ci < parts.len:
+          let cl = parts[ci].trim()
+          if cl.len > 0:
+            classes.push(cl)
+          ci = ci + 1
+  ret (attrs, idVal, classes)
+
+fn parseHtmlNodeAt(htmlText: str, startPos: int): (int, HtmlNode):
+  let n = htmlText.len
+  mut p = startPos
+  while p < n:
+    let c = htmlText.charCodeAt(p)
+    if c == 32 or c == 9 or c == 10 or c == 13:
+      p = p + 1
+    elif p + 8 < n and htmlText.slice(p, p + 9).toUpper() == "<!DOCTYPE":
+      let closeDoc = htmlText.indexOf(">", p + 9)
+      p = if closeDoc >= 0: closeDoc + 1 else: n
+    elif p + 3 < n and htmlText.slice(p, p + 4) == "<!--":
+      let closeC = htmlText.indexOf("-->", p + 4)
+      p = if closeC >= 0: closeC + 3 else: n
+    else:
+      break
+  if p >= n or htmlText.charCodeAt(p) != 60:
+    mut eAttrs: [(str, str)] = []
+    mut eKids: [HtmlNode] = []
+    mut eCls: [str] = []
+    ret (n, HtmlNode(tag = "div", attributes = eAttrs, children = eKids, innerText = htmlText.slice(p, n).trim(), id = "", classList = eCls))
+  let closeAngle = htmlText.indexOf(">", p + 1)
+  if closeAngle < 0:
+    mut eAttrs: [(str, str)] = []
+    mut eKids: [HtmlNode] = []
+    mut eCls: [str] = []
+    ret (n, HtmlNode(tag = "div", attributes = eAttrs, children = eKids, innerText = "", id = "", classList = eCls))
+  mut rawTag = htmlText.slice(p + 1, closeAngle).trim()
+  mut selfClosing = false
+  if rawTag.endsWith("/"):
+    selfClosing = true
+    rawTag = rawTag.slice(0, rawTag.len - 1).trim()
+  let spaceIdx = rawTag.indexOf(" ")
+  let tagName = (if spaceIdx >= 0: rawTag.slice(0, spaceIdx).trim() else: rawTag).toLower()
+  let attrStr = if spaceIdx >= 0: rawTag.slice(spaceIdx + 1, rawTag.len) else: ""
+  let (attrs, idVal, classes) = parseHtmlAttrs(attrStr)
+  mut children: [HtmlNode] = []
+  if selfClosing or isVoidHtmlTag(tagName):
+    ret (closeAngle + 1, HtmlNode(tag = tagName, attributes = attrs, children = children, innerText = "", id = idVal, classList = classes))
+  mut cur = closeAngle + 1
+  mut textAccum: [str] = []
+  while cur < n:
+    if htmlText.charCodeAt(cur) == 60:
+      if cur + 1 < n and htmlText.charCodeAt(cur + 1) == 47:
+        let endClose = htmlText.indexOf(">", cur + 2)
+        let nextPos = if endClose >= 0: endClose + 1 else: n
+        ret (nextPos, HtmlNode(tag = tagName, attributes = attrs, children = children, innerText = textAccum.join("").trim(), id = idVal, classList = classes))
+      if cur + 3 < n and htmlText.slice(cur, cur + 4) == "<!--":
+        let endC = htmlText.indexOf("-->", cur + 4)
+        cur = if endC >= 0: endC + 3 else: n
+      else:
+        let (nextCur, child) = parseHtmlNodeAt(htmlText, cur)
+        children.push(child)
+        if child.innerText.len > 0:
+          textAccum.push(child.innerText)
+        cur = nextCur
+    else:
+      let nextLt = htmlText.indexOf("<", cur)
+      if nextLt < 0:
+        textAccum.push(htmlText.slice(cur, n))
+        cur = n
+      else:
+        textAccum.push(htmlText.slice(cur, nextLt))
+        cur = nextLt
+  ret (cur, HtmlNode(tag = tagName, attributes = attrs, children = children, innerText = textAccum.join("").trim(), id = idVal, classList = classes))
+
+pub fn parseHtml(htmlText: str): HtmlDocument:
+  let (_, rootNode) = parseHtmlNodeAt(htmlText, 0)
+  ret HtmlDocument(root = rootNode)
+
+fn matchesSelector(node: HtmlNode, selector: str): bool:
+  let sel = selector.trim()
+  if sel.len == 0:
+    ret false
+  if sel.startsWith("#"):
+    ret node.id == sel.slice(1, sel.len)
+  if sel.startsWith("."):
+    let targetCls = sel.slice(1, sel.len)
+    mut i = 0
+    while i < node.classList.len:
+      if node.classList[i] == targetCls:
+        ret true
+      i = i + 1
+    ret false
+  let dotIdx = sel.indexOf(".")
+  if dotIdx > 0:
+    let tagPart = sel.slice(0, dotIdx).toLower()
+    let clsPart = sel.slice(dotIdx + 1, sel.len)
+    if node.tag != tagPart:
+      ret false
+    mut i = 0
+    while i < node.classList.len:
+      if node.classList[i] == clsPart:
+        ret true
+      i = i + 1
+    ret false
+  let hashIdx = sel.indexOf("#")
+  if hashIdx > 0:
+    let tagPart = sel.slice(0, hashIdx).toLower()
+    let idPart = sel.slice(hashIdx + 1, sel.len)
+    ret node.tag == tagPart and node.id == idPart
+  ret node.tag == sel.toLower()
+
+fn collectMatchingHtmlNodes(node: HtmlNode, selector: str, mut acc: [HtmlNode]): [HtmlNode]:
+  if matchesSelector(node, selector):
+    acc.push(node)
+  mut i = 0
+  while i < node.children.len:
+    acc = collectMatchingHtmlNodes(node.children[i], selector, acc)
+    i = i + 1
+  ret acc
+
+pub fn (self: HtmlDocument) querySelectorAll(selector: str): [HtmlNode]:
+  mut acc: [HtmlNode] = []
+  ret collectMatchingHtmlNodes(self.root, selector, acc)
+
+pub fn (self: HtmlDocument) querySelector(selector: str): Option[HtmlNode]:
+  let matches = self.querySelectorAll(selector)
+  if matches.len > 0:
+    ret Some(matches[0])
+  ret None
+
+pub fn (self: HtmlNode) getElementById(id: str): Option[HtmlNode]:
+  mut acc: [HtmlNode] = []
+  let matches = collectMatchingHtmlNodes(self, "#" + id, acc)
+  if matches.len > 0:
+    ret Some(matches[0])
+  ret None
+
+pub fn (self: HtmlNode) getElementsByClassName(className: str): [HtmlNode]:
+  mut acc: [HtmlNode] = []
+  ret collectMatchingHtmlNodes(self, "." + className, acc)
+
+pub fn escapeHtml(s: str): str:
+  ret s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
+
+pub fn htmlEscape(s: str): str:
+  ret escapeHtml(s)
+
+pub fn htmlUnescape(s: str): str:
+  ret s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'").replace("&amp;", "&")
+
+pub fn unescapeHtml(s: str): str:
+  ret htmlUnescape(s)
+
+pub fn sanitizeUrl(url: str): str:
+  let trimmed = url.trim()
+  let lower = trimmed.toLower()
+  if lower.startsWith("javascript:") or lower.startsWith("vbscript:") or lower.startsWith("data:"):
+    ret "about:blank"
+  ret trimmed
+
+pub fn innerText(node: HtmlNode): str:
+  if node.children.len == 0:
+    ret node.innerText
+  mut parts: [str] = []
+  mut i = 0
+  while i < node.children.len:
+    let sub = innerText(node.children[i])
+    if sub.len > 0:
+      parts.push(sub)
+    i = i + 1
+  if parts.len == 0:
+    ret node.innerText
+  ret parts.join(" ").trim()
+
+pub fn htmlToPlainText(html: str): str:
+  let doc = parseHtml(html)
+  ret innerText(doc.root)
+
+pub fn htmlNodeAttr(node: HtmlNode, attrName: str): Option[str]:
+  let target = attrName.toLower()
+  mut i = 0
+  while i < node.attributes.len:
+    let pair = node.attributes[i]
+    if pair[0] == target:
+      ret Some(pair[1])
+    i = i + 1
+  ret None
+
+pub fn formatHtml(node: HtmlNode): str:
+  mut attrParts: [str] = []
+  mut i = 0
+  while i < node.attributes.len:
+    let pair = node.attributes[i]
+    attrParts.push(" " + pair[0] + "=\"" + escapeHtml(pair[1]) + "\"")
+    i = i + 1
+  let openTag = "<" + node.tag + attrParts.join("") + ">"
+  if isVoidHtmlTag(node.tag):
+    ret openTag
+  let closeTag = "</" + node.tag + ">"
+  if node.children.len == 0:
+    ret openTag + escapeHtml(node.innerText) + closeTag
+  mut childParts: [str] = []
+  mut c = 0
+  while c < node.children.len:
+    childParts.push(formatHtml(node.children[c]))
+    c = c + 1
+  ret openTag + childParts.join("") + closeTag
+
+pub fn toHtml(doc: HtmlDocument): str:
+  ret formatHtml(doc.root)

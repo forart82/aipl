@@ -1,0 +1,175 @@
+module Ex214SpatialBspSectorWorld3dWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import { AABB3D, Plane3D, Frustum3D } from "../std/math/geom3d"
+import {
+  BspPortal, BspSector, BspSectorWorld3D, bspSectorWorldNew,
+  bspAddSector, bspAddPortal, bspFindSectorContainingPoint,
+  bspQueryVisibleSectors
+} from "../std/spatial/bsp_sector_world3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepCamWorldX(frame: int): float:
+  ret 15.0 - cos(float(frame) * 0.035) * 11.5
+
+pub fn stepPortalDoorOpen(frame: int): bool:
+  ret ((frame / 13) % 2) == 0
+
+fn isSectorVisible(vis: [int], secId: int): bool:
+  mut i = 0
+  while i < vis.len():
+    if vis[i] == secId:
+      ret true
+    i = i + 1
+  ret false
+
+fn buildDungeonBsp(door12Open: bool): BspSectorWorld3D:
+  mut bsp = bspSectorWorldNew()
+  let s0 = BspSector(sectorId = 0, boundingBox = AABB3D(min = Vec3(x = 0.0, y = 0.0, z = 0.0), max = Vec3(x = 10.0, y = 10.0, z = 10.0)), floorHeight = 0.0, ceilingHeight = 10.0, portals = [], pvsMask = 1)
+  let s1 = BspSector(sectorId = 1, boundingBox = AABB3D(min = Vec3(x = 10.0, y = 0.0, z = 0.0), max = Vec3(x = 20.0, y = 12.0, z = 10.0)), floorHeight = 1.0, ceilingHeight = 12.0, portals = [], pvsMask = 2)
+  let s2 = BspSector(sectorId = 2, boundingBox = AABB3D(min = Vec3(x = 20.0, y = 0.0, z = 0.0), max = Vec3(x = 30.0, y = 14.0, z = 10.0)), floorHeight = 2.5, ceilingHeight = 14.0, portals = [], pvsMask = 4)
+  bspAddSector(bsp, s0)
+  bspAddSector(bsp, s1)
+  bspAddSector(bsp, s2)
+
+  let p01 = BspPortal(targetSectorId = 1, polygonVertices = [Vec3(x = 10.0, y = 5.0, z = 5.0)], plane = Plane3D(normal = Vec3(x = 1.0, y = 0.0, z = 0.0), distance = -10.0, d = -10.0), isOpen = true)
+  let p10 = BspPortal(targetSectorId = 0, polygonVertices = [Vec3(x = 10.0, y = 5.0, z = 5.0)], plane = Plane3D(normal = Vec3(x = -1.0, y = 0.0, z = 0.0), distance = 10.0, d = 10.0), isOpen = true)
+  let p12 = BspPortal(targetSectorId = 2, polygonVertices = [Vec3(x = 20.0, y = 5.0, z = 5.0)], plane = Plane3D(normal = Vec3(x = 1.0, y = 0.0, z = 0.0), distance = -20.0, d = -20.0), isOpen = door12Open)
+  let p21 = BspPortal(targetSectorId = 1, polygonVertices = [Vec3(x = 20.0, y = 5.0, z = 5.0)], plane = Plane3D(normal = Vec3(x = -1.0, y = 0.0, z = 0.0), distance = 20.0, d = 20.0), isOpen = door12Open)
+  bspAddPortal(bsp, 0, 1, p01)
+  bspAddPortal(bsp, 1, 0, p10)
+  bspAddPortal(bsp, 1, 2, p12)
+  bspAddPortal(bsp, 2, 1, p21)
+  ret bsp
+
+pub fn buildSpatialBspSectorAudit(): int:
+  mut bsp = bspSectorWorldNew()
+  let sec0 = BspSector(
+    sectorId = 0,
+    boundingBox = AABB3D(min = Vec3(x = 0.0, y = 0.0, z = 0.0), max = Vec3(x = 10.0, y = 10.0, z = 10.0)),
+    floorHeight = 0.0,
+    ceilingHeight = 10.0,
+    portals = [],
+    pvsMask = 1
+  )
+  let sec1 = BspSector(
+    sectorId = 1,
+    boundingBox = AABB3D(min = Vec3(x = 10.0, y = 0.0, z = 0.0), max = Vec3(x = 20.0, y = 10.0, z = 10.0)),
+    floorHeight = 0.0,
+    ceilingHeight = 10.0,
+    portals = [],
+    pvsMask = 2
+  )
+  bspAddSector(bsp, sec0)
+  bspAddSector(bsp, sec1)
+  let portal = BspPortal(
+    targetSectorId = 1,
+    polygonVertices = [Vec3(x = 10.0, y = 5.0, z = 5.0)],
+    plane = Plane3D(normal = Vec3(x = 1.0, y = 0.0, z = 0.0), distance = -10.0, d = -10.0),
+    isOpen = true
+  )
+  let linked = bspAddPortal(bsp, 0, 1, portal)
+  let foundSec = bspFindSectorContainingPoint(bsp, Vec3(x = 5.0, y = 5.0, z = 5.0))
+  let frust = Frustum3D(planes = [Plane3D(normal = Vec3(x = 1.0, y = 0.0, z = 0.0), distance = 0.0, d = 0.0)])
+  let vis = bspQueryVisibleSectors(bsp, 0, frust)
+  ret vis.len() + (if linked: 1 else: 0) + (if foundSec.unwrap() == 0: 1 else: 0)
+
+pub fn main(): int:
+  let auditScore = buildSpatialBspSectorAudit()
+  let bspOpen = buildDungeonBsp(true)
+  let bspClosed = buildDungeonBsp(false)
+  let frust = Frustum3D(planes = [Plane3D(normal = Vec3(x = 1.0, y = 0.0, z = 0.0), distance = 0.0, d = 0.0)])
+
+  initWindow(1280, 720, "AIPL ex_214: Spatial 3D BSP Sector World & Portal PVS Visibility")
+  mut frame = 0
+  while not windowShouldClose():
+    let doorOpen = stepPortalDoorOpen(frame)
+    let bsp = if doorOpen: bspOpen else: bspClosed
+    let camWorldX = stepCamWorldX(frame)
+    let camSecOpt = bspFindSectorContainingPoint(bsp, Vec3(x = camWorldX, y = 5.0, z = 5.0))
+    let camSec = if camSecOpt.isSome(): camSecOpt.unwrap() else: 0
+    let visSectors = bspQueryVisibleSectors(bsp, camSec, frust)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_214: 3D BSP SECTOR WORLD & PORTAL FRUSTUM VISIBILITY (PVS)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("camSector=#" + str(camSec) + " (x=" + str(int(camWorldX)) + "m) | visibleSectors=" + str(visSectors.len()) + "/3 | portal12=" + (if doorOpen: "OPEN" else: "CLOSED (OCCLUDED)") + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Top Panel: Top-Down Convex BSP Sectors & Portal Aperture Frustum
+    drawRect(44.0, 108.0, 1192.0, 310.0, rgb(14, 20, 36))
+    drawRectOutline(44.0, 108.0, 1192.0, 310.0, 1.5, rgb(51, 65, 85))
+    drawText("Top-Down BSP Convex Sectors, Portal Apertures & PVS Frustum Flood-Fill", 68.0, 122.0, 17.0, rgb(125, 211, 252))
+
+    mut idx = 0
+    while idx < bsp.sectors.len():
+      let sec: BspSector = bsp.sectors[idx]
+      let sx = 90.0 + sec.boundingBox.min.x * 37.0
+      let sw = (sec.boundingBox.max.x - sec.boundingBox.min.x) * 32.0
+      let isCamIn = sec.sectorId == camSec
+      let isVis = isSectorVisible(visSectors, sec.sectorId)
+      let fillCol = if isCamIn: rgb(26, 54, 93) else: (if isVis: rgb(16, 52, 60) else: rgb(18, 22, 34))
+      let rimCol = if isCamIn: rgb(250, 204, 21) else: (if isVis: rgb(52, 211, 153) else: rgb(71, 85, 105))
+      drawRect(sx, 152.0, sw, 240.0, fillCol)
+      drawRectOutline(sx, 152.0, sw, 240.0, 2.5, rimCol)
+      drawText("BSP Sector #" + str(sec.sectorId), sx + 20.0, 170.0, 18.0, rgb(240, 253, 244))
+      drawText("pvsMask=" + str(sec.pvsMask) + " | " + (if isVis: "PVS VISIBLE" else: "OCCLUDED"), sx + 20.0, 196.0, 14.0, if isVis: rgb(110, 231, 183) else: rgb(248, 113, 113))
+      drawText("AABB x=[" + str(int(sec.boundingBox.min.x)) + ".." + str(int(sec.boundingBox.max.x)) + "]m", sx + 20.0, 362.0, 13.0, rgb(148, 163, 184))
+
+      if idx < 2:
+        let portalOpen = if idx == 0: true else: doorOpen
+        let pCol = if portalOpen: rgb(16, 185, 129) else: rgb(185, 28, 28)
+        let pRim = if portalOpen: rgb(110, 231, 183) else: rgb(252, 165, 165)
+        drawRect(sx + sw, 216.0, 50.0, 112.0, pCol)
+        drawRectOutline(sx + sw, 216.0, 50.0, 112.0, 2.0, pRim)
+        drawText("P" + str(idx) + "->" + str(idx + 1), sx + sw + 4.0, 194.0, 13.0, pRim)
+        drawText(if portalOpen: "OPEN" else: "SHUT", sx + sw + 6.0, 264.0, 13.0, rgb(248, 250, 252))
+      idx = idx + 1
+
+    // Camera Sightline through Open Portals
+    let camScreenX = 90.0 + float(camSec) * 370.0 + (camWorldX - float(camSec) * 10.0) * 32.0
+    let maxRayX = if doorOpen or camSec == 2: 1120.0 else: 780.0
+    if camScreenX < maxRayX:
+      drawLine(camScreenX, 272.0, maxRayX, 224.0, rgb(56, 189, 248), 2.2)
+      drawLine(camScreenX, 272.0, maxRayX, 320.0, rgb(56, 189, 248), 2.2)
+    drawCircle(camScreenX, 272.0, 10.0, rgb(250, 204, 21))
+    drawCircleOutline(camScreenX, 272.0, 14.0, 2.0, rgb(250, 204, 21))
+
+    // Bottom Panel: 3D Vertical Floor/Ceiling Elevation Profile (Side Cross-Section)
+    drawRect(44.0, 436.0, 1192.0, 256.0, rgb(14, 20, 36))
+    drawRectOutline(44.0, 436.0, 1192.0, 256.0, 1.5, rgb(51, 65, 85))
+    drawText("Side Elevation Cross-Section (Stepped Sector floorHeight & ceilingHeight)", 68.0, 452.0, 17.0, rgb(250, 204, 21))
+
+    let baseFloorY = 664.0
+    let meterScaleY = 12.0
+    mut sIdx = 0
+    while sIdx < bsp.sectors.len():
+      let sec2: BspSector = bsp.sectors[sIdx]
+      let ex = 90.0 + sec2.boundingBox.min.x * 37.0
+      let ew = (sec2.boundingBox.max.x - sec2.boundingBox.min.x) * 32.0
+      let ceilY = baseFloorY - sec2.ceilingHeight * meterScaleY
+      let floorY = baseFloorY - sec2.floorHeight * meterScaleY
+      let vis2 = isSectorVisible(visSectors, sec2.sectorId)
+      drawRect(ex, ceilY, ew, floorY - ceilY, if vis2: rgb(22, 48, 72) else: rgb(20, 24, 34))
+      drawLine(ex, ceilY, ex + ew, ceilY, rgb(56, 189, 248), 3.0)
+      drawLine(ex, floorY, ex + ew, floorY, rgb(52, 211, 153), 3.0)
+      drawText("Ceil=" + str(int(sec2.ceilingHeight)) + "m", ex + 18.0, ceilY + 10.0, 14.0, rgb(125, 211, 252))
+      drawText("Floor=" + str(int(sec2.floorHeight)) + "m", ex + 18.0, floorY - 22.0, 14.0, rgb(110, 231, 183))
+      sIdx = sIdx + 1
+
+    let camElevY = baseFloorY - 5.0 * meterScaleY
+    drawCircle(camScreenX, camElevY, 8.0, rgb(250, 204, 21))
+    drawText("Cam y=5m", camScreenX - 30.0, camElevY - 22.0, 13.0, rgb(250, 204, 21))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

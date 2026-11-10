@@ -1,0 +1,156 @@
+// ============================================================================
+// Module: std/sys/sys_mem (SysMem)
+// Layer 0 Host Memory, Raw Pointer Arithmetic, Virtual Pages & Bitcasting
+// ============================================================================
+module SysMem
+
+pub struct SysMemStats:
+  allocatedPages: int
+  totalBytes: int
+  peakBytes: int
+
+pub struct MemoryRegion:
+  address: int
+  size: int
+  active: bool
+
+/// @intrinsic("aipl_rt_ptrAlloc")
+fn ptrAlloc(size: int): int:
+  ret 0
+
+/// @intrinsic("aipl_rt_ptrFree")
+fn ptrFree(ptr: int): void:
+  ret
+
+/// @intrinsic("aipl_rt_ptrReadU8")
+fn ptrReadU8(ptr: int, offset: int): int:
+  ret 0
+
+/// @intrinsic("aipl_rt_ptrWriteU8")
+fn ptrWriteU8(ptr: int, offset: int, val: int): void:
+  ret
+
+/// @intrinsic("aipl_rt_ptrReadI64")
+fn ptrReadI64(ptr: int, offset: int): int:
+  ret 0
+
+/// @intrinsic("aipl_rt_ptrWriteI64")
+fn ptrWriteI64(ptr: int, offset: int, val: int): void:
+  ret
+
+/// @intrinsic("aipl_rt_sizeofType")
+fn sizeofType(typeName: str): int:
+  ret 8
+
+/// @intrinsic("aipl_rt_bitcastF64ToI64")
+fn bitcastF64ToI64(v: float): int:
+  ret 0
+
+/// @intrinsic("aipl_rt_bitcastI64ToF64")
+fn bitcastI64ToF64(v: int): float:
+  ret 0.0
+
+pub fn sysPtrAlloc(bytes: int): int:
+  let sz = if bytes > 0: bytes else: 1
+  ret ptrAlloc(sz)
+
+pub fn sysPtrFree(ptr: int): void:
+  if ptr != 0:
+    ptrFree(ptr)
+
+pub fn sysPtrReadU8(ptr: int): int:
+  if ptr == 0:
+    ret 0
+  ret ptrReadU8(ptr, 0)
+
+pub fn sysPtrWriteU8(ptr: int, val: int): void:
+  if ptr != 0:
+    ptrWriteU8(ptr, 0, val & 255)
+
+pub fn sysPtrReadI64(ptr: int): int:
+  if ptr == 0:
+    ret 0
+  ret ptrReadI64(ptr, 0)
+
+pub fn sysPtrWriteI64(ptr: int, val: int): void:
+  if ptr != 0:
+    ptrWriteI64(ptr, 0, val)
+
+pub fn sysPtrCopy(dst: int, src: int, count: int): void:
+  if dst == 0 or src == 0 or count <= 0 or dst == src:
+    ret
+  if dst < src:
+    mut i = 0
+    while i < count:
+      let b = ptrReadU8(src, i)
+      ptrWriteU8(dst, i, b)
+      i += 1
+  else:
+    mut i = count - 1
+    while i >= 0:
+      let b = ptrReadU8(src, i)
+      ptrWriteU8(dst, i, b)
+      i -= 1
+
+pub fn sysPtrSet(dst: int, byteVal: int, count: int): void:
+  if dst == 0 or count <= 0:
+    ret
+  let v = byteVal & 255
+  mut i = 0
+  while i < count:
+    ptrWriteU8(dst, i, v)
+    i += 1
+
+pub fn sysPtrCompare(a: int, b: int, count: int): int:
+  if count <= 0 or a == b:
+    ret 0
+  mut i = 0
+  while i < count:
+    let ba = ptrReadU8(a, i)
+    let bb = ptrReadU8(b, i)
+    if ba != bb:
+      ret if ba < bb: -1 else: 1
+    i += 1
+  ret 0
+
+pub fn sysPageAlloc(bytes: int): int:
+  let pageSize = 4096
+  let aligned = ((if bytes > 0: bytes else: pageSize) + pageSize - 1) / pageSize * pageSize
+  ret sysPtrAlloc(aligned)
+
+pub fn sysPageFree(addr: int, bytes: int): int:
+  if addr == 0 or bytes < 0:
+    ret -1
+  sysPtrFree(addr)
+  ret 0
+
+pub fn sysPageProtect(addr: int, bytes: int, prot: int): int:
+  if addr == 0 or bytes <= 0 or prot < 0:
+    ret -1
+  ret 0
+
+pub fn sysSizeofType(typeName: str): int:
+  ret sizeofType(typeName)
+
+pub fn sysBitcastF64ToI64(v: float): int:
+  ret bitcastF64ToI64(v)
+
+pub fn sysBitcastI64ToF64(v: int): float:
+  ret bitcastI64ToF64(v)
+
+pub fn MemoryRegion.new(size: int): MemoryRegion:
+  let addr = sysPtrAlloc(size)
+  ret MemoryRegion(address = addr, size = size, active = addr > 0)
+
+pub fn (self: MemoryRegion) free(): void:
+  if self.active and self.address > 0:
+    sysPtrFree(self.address)
+
+pub fn (self: MemoryRegion) readU8(offset: int): int:
+  if offset >= 0 and offset < self.size:
+    ret ptrReadU8(self.address, offset)
+  ret 0
+
+pub fn (self: MemoryRegion) writeU8(offset: int, val: int): void:
+  if offset >= 0 and offset < self.size:
+    ptrWriteU8(self.address, offset, val)

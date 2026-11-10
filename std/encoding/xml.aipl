@@ -1,0 +1,256 @@
+// ============================================================================
+// Module: std/encoding/xml
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// XML 1.0 document object model with entity and attribute support.
+// ============================================================================
+module EncodingXml
+
+pub struct XmlAttribute:
+  name: str
+  value: str
+
+pub struct XmlNode:
+  tag: str
+  attributes: [XmlAttribute]
+  children: [XmlNode]
+  textContent: str
+  isComment: bool
+
+pub struct XmlDocument:
+  root: XmlNode
+  declaration: str
+  tag: str = ""
+
+pub fn decodeXmlEntities(s: str): str:
+  ret s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+
+pub fn encodeXmlEntities(s: str): str:
+  ret s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;")
+
+fn parseXmlAttributes(header: str): [XmlAttribute]:
+  mut attrs: [XmlAttribute] = []
+  let n = header.len
+  mut i = 0
+  while i < n:
+    while i < n and (header.charCodeAt(i) == 32 or header.charCodeAt(i) == 9 or header.charCodeAt(i) == 10 or header.charCodeAt(i) == 13):
+      i = i + 1
+    if i >= n:
+      break
+    let keyStart = i
+    while i < n and header.charCodeAt(i) != 61 and header.charCodeAt(i) != 32 and header.charCodeAt(i) != 9:
+      i = i + 1
+    let key = header.slice(keyStart, i).trim()
+    while i < n and (header.charCodeAt(i) == 32 or header.charCodeAt(i) == 9):
+      i = i + 1
+    if i < n and header.charCodeAt(i) == 61:
+      i = i + 1
+      while i < n and (header.charCodeAt(i) == 32 or header.charCodeAt(i) == 9):
+        i = i + 1
+      if i < n and (header.charCodeAt(i) == 34 or header.charCodeAt(i) == 39):
+        let quote = header.charCodeAt(i)
+        i = i + 1
+        let valStart = i
+        while i < n and header.charCodeAt(i) != quote:
+          i = i + 1
+        let rawVal = header.slice(valStart, i)
+        if i < n:
+          i = i + 1
+        if key.len > 0:
+          attrs.push(XmlAttribute(name = key, value = decodeXmlEntities(rawVal)))
+      else:
+        let valStart = i
+        while i < n and header.charCodeAt(i) != 32 and header.charCodeAt(i) != 9:
+          i = i + 1
+        if key.len > 0:
+          attrs.push(XmlAttribute(name = key, value = decodeXmlEntities(header.slice(valStart, i))))
+    else:
+      if key.len > 0:
+        attrs.push(XmlAttribute(name = key, value = ""))
+  ret attrs
+
+fn parseXmlNodeAt(text: str, startPos: int): (int, XmlNode, str):
+  let n = text.len
+  mut p = startPos
+  while p < n:
+    let c = text.charCodeAt(p)
+    if c == 32 or c == 9 or c == 10 or c == 13:
+      p = p + 1
+    elif p + 3 < n and text.slice(p, p + 4) == "<!--":
+      let endComment = text.indexOf("-->", p + 4)
+      if endComment < 0:
+        mut eAttrs: [XmlAttribute] = []
+        mut eKids: [XmlNode] = []
+        ret (n, XmlNode(tag = "", attributes = eAttrs, children = eKids, textContent = "", isComment = true), "unterminated XML comment")
+      p = endComment + 3
+    else:
+      break
+  if p >= n or text.charCodeAt(p) != 60:
+    mut eAttrs: [XmlAttribute] = []
+    mut eKids: [XmlNode] = []
+    ret (p, XmlNode(tag = "", attributes = eAttrs, children = eKids, textContent = "", isComment = false), "expected '<'")
+  let closeAngle = text.indexOf(">", p + 1)
+  if closeAngle < 0:
+    mut eAttrs: [XmlAttribute] = []
+    mut eKids: [XmlNode] = []
+    ret (n, XmlNode(tag = "", attributes = eAttrs, children = eKids, textContent = "", isComment = false), "unterminated opening tag")
+  mut rawTag = text.slice(p + 1, closeAngle).trim()
+  mut selfClosing = false
+  if rawTag.endsWith("/"):
+    selfClosing = true
+    rawTag = rawTag.slice(0, rawTag.len - 1).trim()
+  let spaceIdx = rawTag.indexOf(" ")
+  let tagName = if spaceIdx >= 0: rawTag.slice(0, spaceIdx).trim() else: rawTag
+  let attrPart = if spaceIdx >= 0: rawTag.slice(spaceIdx + 1, rawTag.len) else: ""
+  let attrs = parseXmlAttributes(attrPart)
+  mut children: [XmlNode] = []
+  if selfClosing:
+    ret (closeAngle + 1, XmlNode(tag = tagName, attributes = attrs, children = children, textContent = "", isComment = false), "")
+  mut cur = closeAngle + 1
+  mut textParts: [str] = []
+  let closePattern = "</" + tagName + ">"
+  while cur < n:
+    if text.slice(cur, cur + closePattern.len) == closePattern:
+      ret (cur + closePattern.len, XmlNode(tag = tagName, attributes = attrs, children = children, textContent = decodeXmlEntities(textParts.join("").trim()), isComment = false), "")
+    if cur + 3 < n and text.slice(cur, cur + 4) == "<!--":
+      let endC = text.indexOf("-->", cur + 4)
+      if endC < 0:
+        ret (n, XmlNode(tag = tagName, attributes = attrs, children = children, textContent = "", isComment = false), "unterminated XML comment")
+      let commentBody = text.slice(cur + 4, endC)
+      mut cAttrs: [XmlAttribute] = []
+      mut cKids: [XmlNode] = []
+      children.push(XmlNode(tag = "#comment", attributes = cAttrs, children = cKids, textContent = commentBody, isComment = true))
+      cur = endC + 3
+    elif text.charCodeAt(cur) == 60:
+      if cur + 1 < n and text.charCodeAt(cur + 1) == 47:
+        let endClose = text.indexOf(">", cur + 2)
+        if endClose < 0:
+          ret (n, XmlNode(tag = tagName, attributes = attrs, children = children, textContent = "", isComment = false), "unterminated closing tag")
+        ret (endClose + 1, XmlNode(tag = tagName, attributes = attrs, children = children, textContent = decodeXmlEntities(textParts.join("").trim()), isComment = false), "")
+      let (nextCur, childNode, childErr) = parseXmlNodeAt(text, cur)
+      if childErr.len > 0:
+        ret (nextCur, childNode, childErr)
+      children.push(childNode)
+      cur = nextCur
+    else:
+      let nextLt = text.indexOf("<", cur)
+      if nextLt < 0:
+        textParts.push(text.slice(cur, n))
+        cur = n
+      else:
+        textParts.push(text.slice(cur, nextLt))
+        cur = nextLt
+  ret (cur, XmlNode(tag = tagName, attributes = attrs, children = children, textContent = decodeXmlEntities(textParts.join("").trim()), isComment = false), "unclosed XML tag <" + tagName + ">")
+
+pub fn parseXml(text: str): Result[XmlDocument, str]:
+  mut trimmed = text.trim()
+  mut decl = ""
+  if trimmed.startsWith("<?xml"):
+    let endDecl = trimmed.indexOf("?>")
+    if endDecl >= 0:
+      decl = trimmed.slice(0, endDecl + 2)
+      trimmed = trimmed.slice(endDecl + 2, trimmed.len).trim()
+  let (_, rootNode, err) = parseXmlNodeAt(trimmed, 0)
+  if err.len > 0:
+    ret Err(err)
+  ret Ok(XmlDocument(root = rootNode, declaration = decl, tag = rootNode.tag))
+
+fn serializeXmlNode(node: XmlNode, pretty: bool, depth: int): str:
+  mut padParts: [str] = []
+  if pretty:
+    mut p = 0
+    while p < depth * 2:
+      padParts.push(" ")
+      p = p + 1
+  let pad = padParts.join("")
+  if node.isComment:
+    ret pad + "<!--" + node.textContent + "-->"
+  mut attrStrs: [str] = []
+  mut i = 0
+  while i < node.attributes.len:
+    let a = node.attributes[i]
+    attrStrs.push(" " + a.name + "=\"" + encodeXmlEntities(a.value) + "\"")
+    i = i + 1
+  let openTag = "<" + node.tag + attrStrs.join("") + ">"
+  let closeTag = "</" + node.tag + ">"
+  if node.children.len == 0:
+    ret pad + openTag + encodeXmlEntities(node.textContent) + closeTag
+  mut childLines: [str] = []
+  mut c = 0
+  while c < node.children.len:
+    childLines.push(serializeXmlNode(node.children[c], pretty, depth + 1))
+    c = c + 1
+  if pretty:
+    ret pad + openTag + "\n" + childLines.join("\n") + "\n" + pad + closeTag
+  ret openTag + childLines.join("") + closeTag
+
+pub fn serializeXml(doc: XmlDocument, pretty: bool = false): str:
+  let body = serializeXmlNode(doc.root, pretty, 0)
+  if doc.declaration.len > 0:
+    if pretty:
+      ret doc.declaration + "\n" + body
+    ret doc.declaration + body
+  ret body
+
+pub fn (self: XmlNode) findChild(tag: str): Option[XmlNode]:
+  mut i = 0
+  while i < self.children.len:
+    if self.children[i].tag == tag:
+      ret Some(self.children[i])
+    i = i + 1
+  ret None
+
+pub fn (self: XmlNode) getAttr(name: str): Option[str]:
+  mut i = 0
+  while i < self.attributes.len:
+    if self.attributes[i].name == name:
+      ret Some(self.attributes[i].value)
+    i = i + 1
+  ret None
+
+pub fn escapeXml(s: str): str:
+  ret encodeXmlEntities(s)
+
+pub fn unescapeXml(s: str): str:
+  ret decodeXmlEntities(s)
+
+fn collectXmlElements(node: XmlNode, tagName: str, mut acc: [XmlNode]): [XmlNode]:
+  if not node.isComment and node.tag == tagName:
+    acc.push(node)
+  mut i = 0
+  while i < node.children.len:
+    acc = collectXmlElements(node.children[i], tagName, acc)
+    i = i + 1
+  ret acc
+
+pub fn xmlFindElements(node: XmlNode, tagName: str): [XmlNode]:
+  mut acc: [XmlNode] = []
+  ret collectXmlElements(node, tagName, acc)
+
+pub fn xmlFindAll(doc: XmlDocument, tagName: str): [XmlNode]:
+  ret xmlFindElements(doc.root, tagName)
+
+pub fn xmlText(node: XmlNode): str:
+  if node.children.len == 0:
+    ret node.textContent
+  mut parts: [str] = []
+  if node.textContent.len > 0:
+    parts.push(node.textContent)
+  mut i = 0
+  while i < node.children.len:
+    let sub = xmlText(node.children[i])
+    if sub.len > 0:
+      parts.push(sub)
+    i = i + 1
+  ret parts.join(" ").trim()
+
+pub fn xmlAttr(node: XmlNode, name: str): Option[str]:
+  ret node.getAttr(name)
+
+pub fn formatXml(doc: XmlDocument): str:
+  ret serializeXml(doc, true)
+
+pub fn stringifyXml(doc: XmlDocument): str:
+  ret serializeXml(doc, false)
+
+pub fn toXml(doc: XmlDocument): str:
+  ret serializeXml(doc, false)

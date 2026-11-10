@@ -1,0 +1,191 @@
+/// # Module: `std/net/dns` (`NetDns`)
+///
+/// ## Purpose & Domain Scope
+/// RFC 1035 wire-format DNS packet encoder, decoder, and record extractors for
+/// A, AAAA, TXT, and SRV queries.
+module NetDns
+
+import "net_addr.aipl"
+
+pub struct DnsQuestion:
+  name: str
+  qtype: int
+  qclass: int
+
+pub struct DnsRecord:
+  name: str
+  rtype: int
+  rclass: int
+  ttl: int
+  data: [int]
+  text: str
+
+pub struct DnsPacket:
+  id: int
+  isResponse: bool
+  opcode: int
+  authoritative: bool
+  truncated: bool
+  recursionDesired: bool
+  recursionAvailable: bool
+  responseCode: int
+  questions: [DnsQuestion]
+  answers: [DnsRecord]
+  authorities: [DnsRecord]
+  additionals: [DnsRecord]
+
+pub fn buildStandardQuery(domainName: str, qtype: int, packetId: int = 1): DnsPacket:
+  let q = DnsQuestion(name: domainName, qtype: qtype, qclass: 1)
+  ret DnsPacket(
+    id: packetId & 65535,
+    isResponse: false,
+    opcode: 0,
+    authoritative: false,
+    truncated: false,
+    recursionDesired: true,
+    recursionAvailable: false,
+    responseCode: 0,
+    questions: [q],
+    answers: [],
+    authorities: [],
+    additionals: []
+  )
+
+pub fn encodeDnsQuery(packet: DnsPacket): [int]:
+  mut out: [int] = []
+  out.push((packet.id >> 8) & 255)
+  out.push(packet.id & 255)
+
+  mut flagsHi = (packet.opcode & 15) << 3
+  if packet.isResponse:
+    flagsHi = flagsHi | 128
+  if packet.authoritative:
+    flagsHi = flagsHi | 4
+  if packet.truncated:
+    flagsHi = flagsHi | 2
+  if packet.recursionDesired:
+    flagsHi = flagsHi | 1
+  mut flagsLo = packet.responseCode & 15
+  if packet.recursionAvailable:
+    flagsLo = flagsLo | 128
+  out.push(flagsHi)
+  out.push(flagsLo)
+
+  let qCount = packet.questions.len()
+  out.push((qCount >> 8) & 255)
+  out.push(qCount & 255)
+  let anCount = packet.answers.len()
+  out.push((anCount >> 8) & 255)
+  out.push(anCount & 255)
+  let nsCount = packet.authorities.len()
+  out.push((nsCount >> 8) & 255)
+  out.push(nsCount & 255)
+  let arCount = packet.additionals.len()
+  out.push((arCount >> 8) & 255)
+  out.push(arCount & 255)
+
+  mut qi = 0
+  while qi < qCount:
+    let q = packet.questions[qi]
+    let labels = q.name.split(".")
+    mut li = 0
+    while li < labels.len():
+      let lbl = labels[li]
+      if lbl.len() > 0:
+        out.push(lbl.len() & 63)
+        mut ci = 0
+        while ci < lbl.len():
+          out.push(lbl.charCodeAt(ci) & 255)
+          ci = ci + 1
+      li = li + 1
+    out.push(0)
+    out.push((q.qtype >> 8) & 255)
+    out.push(q.qtype & 255)
+    out.push((q.qclass >> 8) & 255)
+    out.push(q.qclass & 255)
+    qi = qi + 1
+  ret out
+
+pub fn decodeDnsPacket(wireBytes: [int]): Option[DnsPacket]:
+  if wireBytes.len() < 12:
+    ret None
+  let id = ((wireBytes[0] & 255) << 8) | (wireBytes[1] & 255)
+  let flagsHi = wireBytes[2] & 255
+  let flagsLo = wireBytes[3] & 255
+  let isResp = (flagsHi & 128) != 0
+  let opcode = (flagsHi >> 3) & 15
+  let auth = (flagsHi & 4) != 0
+  let trunc = (flagsHi & 2) != 0
+  let rd = (flagsHi & 1) != 0
+  let ra = (flagsLo & 128) != 0
+  let rcode = flagsLo & 15
+
+  let qCount = ((wireBytes[4] & 255) << 8) | (wireBytes[5] & 255)
+  mut pos = 12
+  mut questions: [DnsQuestion] = []
+  mut qi = 0
+  while qi < qCount and pos < wireBytes.len():
+    mut labels: [str] = []
+    while pos < wireBytes.len():
+      let lenByte = wireBytes[pos] & 255
+      pos = pos + 1
+      if lenByte == 0:
+        break
+      if pos + lenByte > wireBytes.len():
+        ret None
+      mut lbl = ""
+      mut k = 0
+      while k < lenByte:
+        lbl = lbl + chr(wireBytes[pos + k] & 255)
+        k = k + 1
+      labels.push(lbl)
+      pos = pos + lenByte
+    if pos + 4 > wireBytes.len():
+      ret None
+    let qtype = ((wireBytes[pos] & 255) << 8) | (wireBytes[pos + 1] & 255)
+    let qclass = ((wireBytes[pos + 2] & 255) << 8) | (wireBytes[pos + 3] & 255)
+    pos = pos + 4
+    questions.push(DnsQuestion(name: labels.join("."), qtype: qtype, qclass: qclass))
+    qi = qi + 1
+
+  ret Some(DnsPacket(
+    id: id,
+    isResponse: isResp,
+    opcode: opcode,
+    authoritative: auth,
+    truncated: trunc,
+    recursionDesired: rd,
+    recursionAvailable: ra,
+    responseCode: rcode,
+    questions: questions,
+    answers: [],
+    authorities: [],
+    additionals: []
+  ))
+
+pub fn extractIpv4FromDnsRecord(rec: DnsRecord): Option[Ipv4Addr]:
+  if rec.rtype != 1 or rec.data.len() != 4:
+    ret None
+  ret Some(Ipv4Addr(
+    o1: rec.data[0] & 255,
+    o2: rec.data[1] & 255,
+    o3: rec.data[2] & 255,
+    o4: rec.data[3] & 255
+  ))
+
+pub fn extractTxtFromDnsRecord(rec: DnsRecord): str:
+  if rec.text.len() > 0:
+    ret rec.text
+  if rec.data.len() == 0:
+    ret ""
+  mut pos = 0
+  mut out = ""
+  while pos < rec.data.len():
+    let segLen = rec.data[pos] & 255
+    pos = pos + 1
+    mut k = 0
+    while k < segLen and pos < rec.data.len():
+      out = out + chr(rec.data[pos] & 255)
+      pos = pos + 1
+      k = k + 1
+  ret out

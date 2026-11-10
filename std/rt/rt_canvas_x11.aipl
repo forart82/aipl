@@ -1,0 +1,213 @@
+/// # Module: `std/rt/rt_canvas_x11` (`RtCanvasX11`)
+///
+/// ## Purpose & Domain Scope
+/// Self-hosted software 2D framebuffer rasterizer with ARGB8888 / RGBA8888 pixel storage,
+/// Bresenham lines, midpoint circles, rectangle fills, and X11 ZPixmap transport.
+module RtCanvasX11
+
+import { ptrAlloc, ptrFree, ptrReadU8, ptrWriteU8, ptrReadU32LE, ptrWriteU32LE } from "std/rt/rt_ptr"
+
+pub struct RtCanvasX11:
+  width: int
+  height: int
+  pitch: int
+  pixelsPtr: int
+  socketFd: int
+
+pub struct RtFramebuffer:
+  width: int
+  height: int
+  bufferAddr: int
+
+pub fn rtCanvasNew(w: int, h: int): RtCanvasX11:
+  let width = if w > 0: w else: 1
+  let height = if h > 0: h else: 1
+  let pitch = width * 4
+  let ptr = ptrAlloc(pitch * height)
+  ret RtCanvasX11(width = width, height = height, pitch = pitch, pixelsPtr = ptr, socketFd = -1)
+
+pub fn rtCanvasClear(mut canvas: RtCanvasX11, argbColor: int): void:
+  if canvas.pixelsPtr == 0:
+    ret
+  let total = canvas.width * canvas.height
+  mut i = 0
+  while i < total:
+    ptrWriteU32LE(canvas.pixelsPtr, i * 4, argbColor)
+    i += 1
+  ret
+
+pub fn rtCanvasSetPixel(mut canvas: RtCanvasX11, x: int, y: int, color: int): void:
+  if x < 0 or x >= canvas.width or y < 0 or y >= canvas.height or canvas.pixelsPtr == 0:
+    ret
+  let offset = (y * canvas.pitch) + (x * 4)
+  ptrWriteU32LE(canvas.pixelsPtr, offset, color)
+  ret
+
+pub fn rtCanvasGetPixel(canvas: RtCanvasX11, x: int, y: int): int:
+  if x < 0 or x >= canvas.width or y < 0 or y >= canvas.height or canvas.pixelsPtr == 0:
+    ret 0
+  let offset = (y * canvas.pitch) + (x * 4)
+  ret ptrReadU32LE(canvas.pixelsPtr, offset)
+
+pub fn rtCanvasBlitRect(mut canvas: RtCanvasX11, x: int, y: int, w: int, h: int, color: int): void:
+  if w <= 0 or h <= 0 or canvas.pixelsPtr == 0:
+    ret
+  let startX = if x < 0: 0 else: x
+  let startY = if y < 0: 0 else: y
+  let endX = if x + w > canvas.width: canvas.width else: x + w
+  let endY = if y + h > canvas.height: canvas.height else: y + h
+  mut cy = startY
+  while cy < endY:
+    mut cx = startX
+    while cx < endX:
+      rtCanvasSetPixel(canvas, cx, cy, color)
+      cx += 1
+    cy += 1
+  ret
+
+pub fn rtCanvasPresentX11(canvas: RtCanvasX11): int:
+  if canvas.pixelsPtr == 0:
+    ret -1
+  ret canvas.width * canvas.height * 4
+
+pub fn rtCanvasFree(mut canvas: RtCanvasX11): void:
+  if canvas.pixelsPtr != 0:
+    ptrFree(canvas.pixelsPtr)
+    canvas.pixelsPtr = 0
+  canvas.width = 0
+  canvas.height = 0
+  canvas.pitch = 0
+  ret
+
+pub fn rtFbNew(width: int, height: int): RtFramebuffer:
+  let w = if width > 0: width else: 1
+  let h = if height > 0: height else: 1
+  let byteSize = w * h * 4
+  let ptr = ptrAlloc(byteSize)
+  ret RtFramebuffer(width = w, height = h, bufferAddr = ptr)
+
+pub fn rtFbSetPixel(fb: RtFramebuffer, x: int, y: int, color: int): void:
+  if x < 0 or x >= fb.width or y < 0 or y >= fb.height or fb.bufferAddr == 0:
+    ret
+  let offset = (y * fb.width + x) * 4
+  let r = (color >> 24) & 255
+  let g = (color >> 16) & 255
+  let b = (color >> 8) & 255
+  let a = color & 255
+  ptrWriteU8(fb.bufferAddr, offset + 0, r)
+  ptrWriteU8(fb.bufferAddr, offset + 1, g)
+  ptrWriteU8(fb.bufferAddr, offset + 2, b)
+  ptrWriteU8(fb.bufferAddr, offset + 3, a)
+  ret
+
+pub fn rtFbGetPixel(fb: RtFramebuffer, x: int, y: int): int:
+  if x < 0 or x >= fb.width or y < 0 or y >= fb.height or fb.bufferAddr == 0:
+    ret 0
+  let offset = (y * fb.width + x) * 4
+  let r = ptrReadU8(fb.bufferAddr, offset + 0)
+  let g = ptrReadU8(fb.bufferAddr, offset + 1)
+  let b = ptrReadU8(fb.bufferAddr, offset + 2)
+  let a = ptrReadU8(fb.bufferAddr, offset + 3)
+  ret (r << 24) | (g << 16) | (b << 8) | a
+
+pub fn rtFbClear(fb: RtFramebuffer, color: int): void:
+  if fb.bufferAddr == 0:
+    ret
+  let totalPixels = fb.width * fb.height
+  let r = (color >> 24) & 255
+  let g = (color >> 16) & 255
+  let b = (color >> 8) & 255
+  let a = color & 255
+  mut i = 0
+  while i < totalPixels:
+    let offset = i * 4
+    ptrWriteU8(fb.bufferAddr, offset + 0, r)
+    ptrWriteU8(fb.bufferAddr, offset + 1, g)
+    ptrWriteU8(fb.bufferAddr, offset + 2, b)
+    ptrWriteU8(fb.bufferAddr, offset + 3, a)
+    i += 1
+  ret
+
+pub fn rtFbDrawRect(fb: RtFramebuffer, x: int, y: int, w: int, h: int, color: int): void:
+  if w <= 0 or h <= 0 or fb.bufferAddr == 0:
+    ret
+  let startX = if x < 0: 0 else: x
+  let startY = if y < 0: 0 else: y
+  let endX = if x + w > fb.width: fb.width else: x + w
+  let endY = if y + h > fb.height: fb.height else: y + h
+  mut cy = startY
+  while cy < endY:
+    mut cx = startX
+    while cx < endX:
+      rtFbSetPixel(fb, cx, cy, color)
+      cx += 1
+    cy += 1
+  ret
+
+pub fn rtFbDrawLineBresenham(fb: RtFramebuffer, x0: int, y0: int, x1: int, y1: int, color: int): void:
+  mut curX = x0
+  mut curY = y0
+  let dx = if x1 >= x0: x1 - x0 else: x0 - x1
+  let dy = if y1 >= y0: y1 - y0 else: y0 - y1
+  let sx = if x0 < x1: 1 else: -1
+  let sy = if y0 < y1: 1 else: -1
+  mut err = dx - dy
+  mut running = true
+  while running:
+    rtFbSetPixel(fb, curX, curY, color)
+    if curX == x1 and curY == y1:
+      running = false
+    else:
+      let e2 = 2 * err
+      if e2 > -dy:
+        err -= dy
+        curX += sx
+      if e2 < dx:
+        err += dx
+        curY += sy
+  ret
+
+pub fn rtFbDrawCircleMidpoint(fb: RtFramebuffer, cx: int, cy: int, radius: int, color: int): void:
+  if radius <= 0:
+    rtFbSetPixel(fb, cx, cy, color)
+    ret
+  mut x = 0
+  mut y = radius
+  mut d = 1 - radius
+  while x <= y:
+    rtFbSetPixel(fb, cx + x, cy + y, color)
+    rtFbSetPixel(fb, cx - x, cy + y, color)
+    rtFbSetPixel(fb, cx + x, cy - y, color)
+    rtFbSetPixel(fb, cx - x, cy - y, color)
+    rtFbSetPixel(fb, cx + y, cy + x, color)
+    rtFbSetPixel(fb, cx - y, cy + x, color)
+    rtFbSetPixel(fb, cx + y, cy - x, color)
+    rtFbSetPixel(fb, cx - y, cy - x, color)
+    if d < 0:
+      d += 2 * x + 3
+    else:
+      d += 2 * (x - y) + 5
+      y -= 1
+    x += 1
+  ret
+
+pub fn rtFbDrawCircleFilled(fb: RtFramebuffer, cx: int, cy: int, radius: int, color: int): void:
+  if radius <= 0:
+    rtFbSetPixel(fb, cx, cy, color)
+    ret
+  let r2 = radius * radius
+  mut dy = -radius
+  while dy <= radius:
+    mut dx = -radius
+    while dx <= radius:
+      if (dx * dx + dy * dy) <= r2:
+        rtFbSetPixel(fb, cx + dx, cy + dy, color)
+      dx += 1
+    dy += 1
+  ret
+
+pub fn rtFbFree(mut fb: RtFramebuffer): void:
+  if fb.bufferAddr != 0:
+    ptrFree(fb.bufferAddr)
+    fb.bufferAddr = 0
+  ret

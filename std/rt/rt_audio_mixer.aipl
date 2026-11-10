@@ -1,0 +1,220 @@
+/// # Module: `std/rt/rt_audio_mixer` (`RtAudioMixer`)
+///
+/// ## Purpose & Domain Scope
+/// Self-hosted PCM audio voice mixing kernel, floating-point sample accumulation,
+/// cubic soft-clip saturation, sine synthesizer, and RIFF/WAVE header encoding.
+module RtAudioMixer
+
+import { ptrReadU16LE, ptrWriteU16LE } from "std/rt/rt_ptr"
+
+pub const RT_AUDIO_PI: float = 3.14159265358979323846
+pub const RT_AUDIO_TWO_PI: float = 6.28318530717958647692
+
+pub struct RtVoice:
+  sampleDataPtr: int
+  lengthFrames: int
+  cursor: int
+  volume: float
+  looping: bool
+  active: bool
+
+pub struct RtAudioMixer:
+  sampleRate: int
+  channels: int
+  voices: [RtVoice]
+
+pub struct RtWavHeader:
+  sampleRate: int
+  channels: int
+  bitsPerSample: int
+  dataBytes: int
+
+pub fn rtAudioMixerNew(sampleRate: int, channels: int): RtAudioMixer:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let ch = if channels > 0: channels else: 2
+  mut voices: [RtVoice] = []
+  ret RtAudioMixer(sampleRate = sr, channels = ch, voices = voices)
+
+pub fn rtAudioMixerAddVoice(mut mixer: RtAudioMixer, voice: RtVoice): int:
+  let id = mixer.voices.len
+  mixer.voices.push(voice)
+  ret id
+
+pub fn rtAudioMixerStopVoice(mut mixer: RtAudioMixer, voiceId: int): void:
+  if voiceId >= 0 and voiceId < mixer.voices.len:
+    mut v = mixer.voices[voiceId]
+    v.active = false
+    mixer.voices[voiceId] = v
+  ret
+
+pub fn rtAudioSoftClip(x: float): float:
+  if x > 1.5:
+    ret 1.0
+  if x < -1.5:
+    ret -1.0
+  ret x - ((x * x * x) / 6.75)
+
+pub fn rtAudioMixerRender(mut mixer: RtAudioMixer, outBufferPtr: int, framesToRender: int): int:
+  if outBufferPtr == 0 or framesToRender <= 0:
+    ret 0
+  mut frame = 0
+  while frame < framesToRender:
+    mut accum = 0.0
+    mut vi = 0
+    while vi < mixer.voices.len:
+      mut v = mixer.voices[vi]
+      if v.active and v.sampleDataPtr != 0 and v.lengthFrames > 0:
+        if v.cursor < v.lengthFrames:
+          let rawU16 = ptrReadU16LE(v.sampleDataPtr, v.cursor * 2)
+          let signedSample = if rawU16 >= 32768: rawU16 - 65536 else: rawU16
+          accum += (float(signedSample) / 32768.0) * v.volume
+          v.cursor += 1
+          if v.cursor >= v.lengthFrames:
+            if v.looping:
+              v.cursor = 0
+            else:
+              v.active = false
+          mixer.voices[vi] = v
+      vi += 1
+    let clipped = rtAudioSoftClip(accum)
+    mut pcm = int(clipped * 32767.0)
+    if pcm > 32767:
+      pcm = 32767
+    if pcm < -32768:
+      pcm = -32768
+    let u16Val = if pcm < 0: pcm + 65536 else: pcm
+    ptrWriteU16LE(outBufferPtr, frame * 2, u16Val)
+    frame += 1
+  ret framesToRender
+
+pub fn rtSin(rad: float): float:
+  mut x = rad % RT_AUDIO_TWO_PI
+  if x > RT_AUDIO_PI:
+    x -= RT_AUDIO_TWO_PI
+  elif x < -RT_AUDIO_PI:
+    x += RT_AUDIO_TWO_PI
+  let x2 = x * x
+  let x3 = x * x2
+  let x5 = x3 * x2
+  let x7 = x5 * x2
+  ret x - (x3 / 6.0) + (x5 / 120.0) - (x7 / 5040.0)
+
+pub fn rtSynthSinePcm16(freqHz: float, durationSeconds: float, volume: float = 0.5, sampleRate: int = 44100): [int]:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let numSamples = int(durationSeconds * float(sr))
+  mut samples: [int] = []
+  if numSamples <= 0:
+    ret samples
+  let vol = if volume > 1.0: 1.0 else: if volume < 0.0: 0.0 else: volume
+  let amp = vol * 32767.0
+  let phaseStep = (RT_AUDIO_TWO_PI * freqHz) / float(sr)
+  mut phase = 0.0
+  mut i = 0
+  while i < numSamples:
+    let sampleVal = int(amp * rtSin(phase))
+    samples.push(sampleVal)
+    phase += phaseStep
+    if phase >= RT_AUDIO_TWO_PI:
+      phase -= RT_AUDIO_TWO_PI
+    i += 1
+  ret samples
+
+pub fn rtMixPcm16(bufferA: [int], bufferB: [int], volumeA: float = 1.0, volumeB: float = 1.0): [int]:
+  let count = if bufferA.len > bufferB.len: bufferA.len else: bufferB.len
+  mut out: [int] = []
+  mut i = 0
+  while i < count:
+    let sA = if i < bufferA.len: float(bufferA[i]) * volumeA else: 0.0
+    let sB = if i < bufferB.len: float(bufferB[i]) * volumeB else: 0.0
+    mut mixed = int(sA + sB)
+    if mixed > 32767:
+      mixed = 32767
+    elif mixed < -32768:
+      mixed = -32768
+    out.push(mixed)
+    i += 1
+  ret out
+
+pub fn rtPcm16ToBytes(samples: [int]): [int]:
+  mut bytes: [int] = []
+  mut i = 0
+  while i < samples.len:
+    mut s = samples[i]
+    if s < 0:
+      s = s + 65536
+    let b0 = s & 255
+    let b1 = (s >> 8) & 255
+    bytes.push(b0)
+    bytes.push(b1)
+    i += 1
+  ret bytes
+
+pub fn rtEncodeWavHeader(sampleRate: int, channels: int, numSamples: int): [int]:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let ch = if channels > 0: channels else: 1
+  let bitsPerSample = 16
+  let bytesPerSample = 2
+  let dataBytes = numSamples * ch * bytesPerSample
+  let fileSizeBytes = 36 + dataBytes
+  let byteRate = sr * ch * bytesPerSample
+  let blockAlign = ch * bytesPerSample
+
+  mut hdr: [int] = []
+  // "RIFF"
+  hdr.push(82)
+  hdr.push(73)
+  hdr.push(70)
+  hdr.push(70)
+  // File size - 8
+  hdr.push(fileSizeBytes & 255)
+  hdr.push((fileSizeBytes >> 8) & 255)
+  hdr.push((fileSizeBytes >> 16) & 255)
+  hdr.push((fileSizeBytes >> 24) & 255)
+  // "WAVE"
+  hdr.push(87)
+  hdr.push(65)
+  hdr.push(86)
+  hdr.push(69)
+  // "fmt "
+  hdr.push(102)
+  hdr.push(109)
+  hdr.push(116)
+  hdr.push(32)
+  // Subchunk1Size = 16
+  hdr.push(16)
+  hdr.push(0)
+  hdr.push(0)
+  hdr.push(0)
+  // AudioFormat = 1 (PCM)
+  hdr.push(1)
+  hdr.push(0)
+  // NumChannels
+  hdr.push(ch & 255)
+  hdr.push((ch >> 8) & 255)
+  // SampleRate
+  hdr.push(sr & 255)
+  hdr.push((sr >> 8) & 255)
+  hdr.push((sr >> 16) & 255)
+  hdr.push((sr >> 24) & 255)
+  // ByteRate
+  hdr.push(byteRate & 255)
+  hdr.push((byteRate >> 8) & 255)
+  hdr.push((byteRate >> 16) & 255)
+  hdr.push((byteRate >> 24) & 255)
+  // BlockAlign
+  hdr.push(blockAlign & 255)
+  hdr.push((blockAlign >> 8) & 255)
+  // BitsPerSample
+  hdr.push(bitsPerSample & 255)
+  hdr.push((bitsPerSample >> 8) & 255)
+  // "data"
+  hdr.push(100)
+  hdr.push(97)
+  hdr.push(116)
+  hdr.push(97)
+  // Subchunk2Size
+  hdr.push(dataBytes & 255)
+  hdr.push((dataBytes >> 8) & 255)
+  hdr.push((dataBytes >> 16) & 255)
+  hdr.push((dataBytes >> 24) & 255)
+  ret hdr

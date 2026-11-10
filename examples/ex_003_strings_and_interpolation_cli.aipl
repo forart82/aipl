@@ -1,0 +1,70 @@
+// ============================================================================
+// Example 003: Strings, Interpolation, Slicing & StringBuilder CLI
+// Demonstrates: String methods, StringBuilder chunk accumulation, zero-copy
+//               StringView slices, and character classification from
+//               std/fmt/str_builder.
+// ============================================================================
+module Ex003StringsAndInterpolationCli
+
+import {
+  stringBuilderNew,
+  sbAppend,
+  sbToString,
+  sbLen,
+  stringViewFrom,
+  substring,
+  isAlpha,
+  isDigit
+} from "../std/fmt/str_builder"
+
+pub struct StringTemplateSummary:
+  rendered: str
+  charLength: int
+  prefixSlice: str
+
+pub fn formatKeyValLine(key: str, val: str, idNum: int): str:
+  mut sb = stringBuilderNew(32)
+  sb = sbAppend(sb, key)
+  sb = sbAppend(sb, "=")
+  sb = sbAppend(sb, val)
+  sb = sbAppend(sb, " (id:")
+  sb = sbAppend(sb, str(idNum))
+  sb = sbAppend(sb, ")")
+  ret sbToString(sb)
+
+pub fn extractDomainView(modulePath: str, startIdx: int, length: int): str:
+  let view = stringViewFrom(modulePath, startIdx, length)
+  ret view.toString()
+
+pub fn classifyIdentifierToken(token: str): str:
+  if isAlpha(token):
+    ret "STR:ALPHA_ONLY"
+  if isDigit(token):
+    ret "STR:DIGITS_ONLY"
+  ret "STR:MIXED_TOKEN"
+
+pub fn buildStringTemplateSummary(appName: str, versionStr: str, exampleCount: int): StringTemplateSummary:
+  mut sb = stringBuilderNew(64)
+  sb = sbAppend(sb, "[")
+  sb = sbAppend(sb, appName)
+  sb = sbAppend(sb, "@")
+  sb = sbAppend(sb, versionStr)
+  sb = sbAppend(sb, "] examples=")
+  sb = sbAppend(sb, str(exampleCount))
+  let outStr = sbToString(sb)
+  let totalChars = sbLen(sb)
+  let prefix = substring(outStr, 1, 1 + appName.len())
+  ret StringTemplateSummary(
+    rendered = outStr,
+    charLength = totalChars,
+    prefixSlice = prefix
+  )
+
+pub fn main(): int:
+  let summary = buildStringTemplateSummary("aipl", "4.0.0", 250)
+  let kv = formatKeyValLine("engine", "aipl-v4", 42)
+  let dom = extractDomainView("std/fmt/str_builder.aipl", 4, 3)
+  let kind = classifyIdentifierToken("camelCase")
+  println("[ex_003_strings_and_interpolation_cli] " + summary.rendered + " (len=" + str(summary.charLength) + ", prefix=" + summary.prefixSlice + ")")
+  println("[ex_003_strings_and_interpolation_cli] kv='" + kv + "' | domain='" + dom + "' | kind=" + kind)
+  ret 0

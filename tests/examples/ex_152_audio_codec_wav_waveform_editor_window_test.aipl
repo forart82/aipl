@@ -1,0 +1,31 @@
+// ============================================================================
+// Twin Test Suite 152: WAV 16-Bit PCM Codec & Resampler Waveform Editor (WINDOW)
+// Verifies examples/ex_152_audio_codec_wav_waveform_editor_window.aipl
+// ============================================================================
+module Ex152AudioCodecWavWaveformEditorWindowTest
+
+import {
+  verifyWavPcmCodecAndResamplers,
+  computeWavByteRatePerSec,
+  describeWavContainerFormat,
+  renderFrameStep
+} from "../../examples/ex_152_audio_codec_wav_waveform_editor_window.aipl"
+
+pub fn test_audio_codec_wav_waveform_editor_window(): int:
+  assert(verifyWavPcmCodecAndResamplers() == 68, "52-byte encoded WAV + 8 linear resampled + 8 cubic resampled frames == 68")
+  assert(computeWavByteRatePerSec(44100, 2, 16) == 176400, "44100Hz * 2ch * 2B == 176400 bytes/sec")
+  assert(describeWavContainerFormat(16) == "WAV:RIFF_PCM_16BIT_LE", "16-bit little-endian PCM WAV label")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  let f100 = renderFrameStep(100, 0.016)
+  assert(f0 > 68, "frame 0 decodes WAV buffer and samples cubic resampled playhead amplitude")
+  assert(f0 != f1, "decoded WAV cubic resampled playhead sample advances between frame 0 and frame 1")
+  assert(f1 != f20, "decoded WAV cubic resampled playhead sample advances between frame 1 and frame 20")
+  assert(f20 != f100, "decoded WAV cubic resampled playhead sample advances between frame 20 and frame 100")
+  ret 0
+
+pub fn main(): int:
+  test_audio_codec_wav_waveform_editor_window()
+  println("PASS: ex_152_audio_codec_wav_waveform_editor_window_test")
+  ret 0

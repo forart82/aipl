@@ -1,0 +1,44 @@
+// ============================================================================
+// Twin Test Suite 031: Quaternion SLERP Orientation & 3D Gimbal Window
+// Verifies examples/ex_031_math_quat_slerp_orientation_window.aipl
+// ============================================================================
+module Ex031MathQuatSlerpOrientationWindowTest
+
+import {
+  QuatGimbalState,
+  evaluateQuatSlerpBasisTipMilli,
+  buildQuatGimbalState,
+  describeQuatSlerpMode,
+  renderFrameStep
+} from "../../examples/ex_031_math_quat_slerp_orientation_window"
+
+pub fn test_quat_slerp_and_axis_rotation(): int:
+  // At t = 1.0, rotating (1, 0, 0) by 90 deg around Z gives (0, 1, 0) -> y * 1000 == 1000
+  let yFull = evaluateQuatSlerpBasisTipMilli(1.0)
+  assert(yFull >= 999 and yFull <= 1001, "90 deg Z rotation maps X-axis to Y-axis (1000 milli)")
+  // At t = 0.5 (45 deg), y = sin(45 deg) ~= 0.707 -> ~707 milli
+  let yHalf = evaluateQuatSlerpBasisTipMilli(0.5)
+  assert(yHalf >= 700 and yHalf <= 715, "SLERP midpoint t=0.5 maps X-axis to ~0.707 Y")
+  ret 0
+
+pub fn test_gimbal_window_state_and_step(): int:
+  let st0 = buildQuatGimbalState(0)
+  let st1 = buildQuatGimbalState(1)
+  let st20 = buildQuatGimbalState(20)
+  let st100 = buildQuatGimbalState(100)
+  assert(st0.normCheckPermille == 1000 and st100.normCheckPermille == 1000, "unit quaternion norm stays 1000 permille")
+  assert(st0.tPermille == 0 and st1.tPermille > 0 and st20.tPermille > st1.tPermille and st100.tPermille > st20.tPermille, "tPermille advances 0 -> 1 -> 20 -> 100")
+  assert(st100.tipY > st20.tipY and st20.tipY > st0.tipY, "rotated X-basis tipY rises along SLERP geodesic")
+  assert(describeQuatSlerpMode(0) == "QUAT:GEODESIC_SLERP_UNIT_S3", "mode 0")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m1 > m0 and m20 > m1 and m100 > m20, "renderFrameStep advances across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_quat_slerp_and_axis_rotation()
+  test_gimbal_window_state_and_step()
+  println("PASS: ex_031_math_quat_slerp_orientation_window_test")
+  ret 0

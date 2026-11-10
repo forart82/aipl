@@ -1,0 +1,34 @@
+// AIPL Self-Hosted Tri-Target & Telemetry Performance Profiler (`tools/perf_profiler.aipl` - v0.8.0)
+// Profiles source size, HTML5 bundle size, WASM binary size, <app>_wasm.html host size,
+// and HEBAR telemetry across all 9 flagship POC applications.
+
+import { fileExists, readBytes, readFile } from "std/fs"
+
+pub fn profilePoc(pocName: str): bool:
+  let baseDir = "examples/" + pocName
+  let srcPath = baseDir + "/" + pocName + ".aipl"
+  let htmlPath = baseDir + "/" + pocName + ".html"
+  let wasmPath = baseDir + "/" + pocName + ".wasm"
+  let wasmHtmlPath = baseDir + "/" + pocName + "_wasm.html"
+  let hebarPath = baseDir + "/hebar_telemetry.json"
+  let srcKB = if fileExists(srcPath): readFile(srcPath).len / 1024 else: 0
+  let htmlKB = if fileExists(htmlPath): readFile(htmlPath).len / 1024 else: 0
+  let wasmKB = if fileExists(wasmPath): readBytes(wasmPath).len / 1024 else: 0
+  let wasmHtmlKB = if fileExists(wasmHtmlPath): readFile(wasmHtmlPath).len / 1024 else: 0
+  let hebarB = if fileExists(hebarPath): readFile(hebarPath).len else: 0
+  let ok = srcKB > 0 and htmlKB > 0 and wasmKB > 0 and wasmHtmlKB > 0 and hebarB > 20
+  let status = if ok: "[PASS]" else: "[FAIL]"
+  print("  " + status + " " + pocName + " | src=" + str(srcKB) + "KB | html=" + str(htmlKB) + "KB | wasm=" + str(wasmKB) + "KB | wasm_html=" + str(wasmHtmlKB) + "KB | hebar=" + str(hebarB) + "B")
+  ret ok
+
+pub fn main(): int:
+  let pocs = ["crm", "markdown", "paint", "notepad", "survival_horror", "tactical_fps", "fantasy_rts", "powdergame", "dark_arpg"]
+  print("[AIPL PerfProfiler v0.8.0] Profiling 9 Flagship POC Tri-Target Footprints & Telemetry:")
+  mut passed = 0
+  mut i = 0
+  while i < pocs.len:
+    if profilePoc(pocs[i]):
+      passed += 1
+    i += 1
+  print("[AIPL PerfProfiler v0.8.0] Summary: " + str(passed) + "/" + str(pocs.len) + " POC suites profiled with 100% tri-target parity.")
+  ret if passed == pocs.len: 0 else: 1

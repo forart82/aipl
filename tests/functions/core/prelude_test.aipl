@@ -1,0 +1,178 @@
+// ============================================================================
+// Step 2.3: Exhaustive Per-Function Unit Tests for std/prelude.aipl (30)
+// Target: tests/functions/core/prelude_test.aipl
+// ============================================================================
+module PreludeTest
+
+import {
+  Option,
+  Result,
+  Some,
+  None,
+  Ok,
+  Err,
+  panic,
+  todo,
+  unreachable,
+  assert,
+  assertEqInt,
+  assertEqStr,
+  assertApproxEq,
+  minInt,
+  maxInt,
+  clampInt,
+  minFloat,
+  maxFloat,
+  clampFloat,
+  inRangeInt,
+  inRangeFloat,
+  boolToInt,
+  intToBool,
+  cloneStruct
+} from "../../../std/prelude.aipl"
+
+pub struct SampleVec(x: int, y: int)
+pub struct SampleEntity(id: int, pos: SampleVec)
+pub struct SampleBucket(tags: [int])
+
+pub fn test_option_lifecycle(): int:
+  let opt1: Option[int] = Some(42)
+  assert(opt1.isSome() == true, "opt1.isSome()")
+  assert(opt1.isNone() == false, "opt1.isNone() false")
+  assertEqInt(opt1.unwrap(), 42, "opt1.unwrap()")
+  assertEqInt(opt1.unwrapOr(99), 42, "opt1.unwrapOr(99) == 42")
+
+  let opt2: Option[int] = None()
+  assert(opt2.isSome() == false, "opt2.isSome() false")
+  assert(opt2.isNone() == true, "opt2.isNone() true")
+  assertEqInt(opt2.unwrapOr(99), 99, "opt2.unwrapOr(99) == 99")
+
+  let optStr: Option[str] = Some("aipl")
+  assert(optStr.isSome() == true, "optStr.isSome()")
+  assertEqStr(optStr.unwrap(), "aipl", "optStr unwrap")
+  ret 0
+
+pub fn test_result_lifecycle(): int:
+  let resOk: Result[int, str] = Ok(200)
+  assert(resOk.isOk() == true, "resOk.isOk()")
+  assert(resOk.isErr() == false, "resOk.isErr() false")
+  assertEqInt(resOk.unwrap(), 200, "resOk.unwrap()")
+  assertEqInt(resOk.unwrapOr(500), 200, "resOk.unwrapOr(500) == 200")
+
+  let resErr: Result[int, str] = Err("E_FAIL")
+  assert(resErr.isOk() == false, "resErr.isOk() false")
+  assert(resErr.isErr() == true, "resErr.isErr() true")
+  assertEqStr(resErr.unwrapErr(), "E_FAIL", "resErr.unwrapErr()")
+  assertEqInt(resErr.unwrapOr(500), 500, "resErr.unwrapOr(500) == 500")
+  ret 0
+
+pub fn test_assertions_and_guards(): int:
+  assert(true, "assert true passes")
+  assertEqInt(10, 10, "assertEqInt 10 == 10")
+  assertEqInt(-500, -500, "assertEqInt -500 == -500")
+  assertEqStr("test", "test", "assertEqStr matches")
+  assertEqStr("", "", "assertEqStr empty matches")
+  assertApproxEq(0.1 + 0.2, 0.3, 0.0001, "assertApproxEq float")
+  if false:
+    panic("prelude panic guard")
+  if false:
+    todo("prelude todo guard")
+  if false:
+    unreachable("prelude unreachable guard")
+  ret 0
+
+pub fn test_scalar_bounds_int(): int:
+  assertEqInt(minInt(5, 10), 5, "minInt(5, 10)")
+  assertEqInt(minInt(-10, -5), -10, "minInt(-10, -5)")
+  assertEqInt(minInt(7, 7), 7, "minInt(7, 7)")
+
+  assertEqInt(maxInt(5, 10), 10, "maxInt(5, 10)")
+  assertEqInt(maxInt(-10, -5), -5, "maxInt(-10, -5)")
+  assertEqInt(maxInt(7, 7), 7, "maxInt(7, 7)")
+
+  assertEqInt(clampInt(-5, 0, 10), 0, "clampInt below")
+  assertEqInt(clampInt(6, 0, 10), 6, "clampInt within")
+  assertEqInt(clampInt(25, 0, 10), 10, "clampInt above")
+  assertEqInt(clampInt(5, 5, 5), 5, "clampInt degenerate")
+
+  assert(inRangeInt(0, 0, 10) == true, "inRangeInt lo boundary")
+  assert(inRangeInt(10, 0, 10) == true, "inRangeInt hi boundary")
+  assert(inRangeInt(5, 0, 10) == true, "inRangeInt interior")
+  assert(inRangeInt(-1, 0, 10) == false, "inRangeInt below false")
+  assert(inRangeInt(11, 0, 10) == false, "inRangeInt above false")
+  ret 0
+
+pub fn test_scalar_bounds_float(): int:
+  assertApproxEq(minFloat(-2.5, 1.5), -2.5, 0.00001, "minFloat(-2.5, 1.5)")
+  assertApproxEq(minFloat(0.0, 0.0), 0.0, 0.00001, "minFloat(0, 0)")
+
+  assertApproxEq(maxFloat(-2.5, 1.5), 1.5, 0.00001, "maxFloat(-2.5, 1.5)")
+  assertApproxEq(maxFloat(-10.0, -20.0), -10.0, 0.00001, "maxFloat(-10, -20)")
+
+  assertApproxEq(clampFloat(1.5, 0.0, 1.0), 1.0, 0.00001, "clampFloat above")
+  assertApproxEq(clampFloat(-0.5, 0.0, 1.0), 0.0, 0.00001, "clampFloat below")
+  assertApproxEq(clampFloat(0.5, 0.0, 1.0), 0.5, 0.00001, "clampFloat within")
+
+  assert(inRangeFloat(0.0, 0.0, 1.0) == true, "inRangeFloat lo")
+  assert(inRangeFloat(1.0, 0.0, 1.0) == true, "inRangeFloat hi")
+  assert(inRangeFloat(0.5, 0.0, 1.0) == true, "inRangeFloat mid")
+  assert(inRangeFloat(-0.001, 0.0, 1.0) == false, "inRangeFloat below false")
+  assert(inRangeFloat(1.001, 0.0, 1.0) == false, "inRangeFloat above false")
+  ret 0
+
+pub fn test_bool_conversions(): int:
+  assertEqInt(boolToInt(true), 1, "boolToInt(true) == 1")
+  assertEqInt(boolToInt(false), 0, "boolToInt(false) == 0")
+
+  assert(intToBool(0) == false, "intToBool(0) == false")
+  assert(intToBool(1) == true, "intToBool(1) == true")
+  assert(intToBool(-99) == true, "intToBool(-99) == true")
+
+  assert(intToBool(boolToInt(true)) == true, "roundtrip true")
+  assert(intToBool(boolToInt(false)) == false, "roundtrip false")
+  ret 0
+
+pub fn test_struct_clone_and_update(): int:
+  let v0 = SampleVec(x = 10, y = 20)
+  let v1 = v0 { x = 99 }
+  assertEqInt(v0.x, 10, "postfix struct update does not mutate original v0.x")
+  assertEqInt(v1.x, 99, "postfix struct update sets v1.x = 99")
+  assertEqInt(v1.y, 20, "postfix struct update preserves v1.y = 20")
+
+  let v2 = SampleVec(..v0, y = 77)
+  assertEqInt(v0.y, 20, "functional spread does not mutate original v0.y")
+  assertEqInt(v2.y, 77, "functional spread sets v2.y = 77")
+
+  mut e0 = SampleEntity(id = 1, pos = SampleVec(x = 5, y = 6))
+  mut e1: SampleEntity = cloneStruct(e0)
+  e1.pos.x = 500
+  assertEqInt(e0.pos.x, 5, "cloneStruct deep-clones nested struct fields without pointer aliasing")
+  assertEqInt(e1.pos.x, 500, "mutating cloned nested struct updates e1.pos.x")
+
+  let eUnannot = cloneStruct(e0)
+  let eUpdated = eUnannot { id = 42 }
+  assertEqInt(e0.id, 1, "unannotated cloneStruct + postfix update preserves e0.id")
+  assertEqInt(eUpdated.id, 42, "unannotated cloneStruct + postfix update sets eUpdated.id = 42")
+
+  let vecArr: [SampleVec] = [SampleVec(x = 1, y = 2), SampleVec(x = 3, y = 4)]
+  let updatedFromArr = vecArr[0] { x = 88 }
+  assertEqInt(vecArr[0].x, 1, "postfix update on array element does not mutate array")
+  assertEqInt(updatedFromArr.x, 88, "postfix update on array element sets x = 88")
+
+  let b0 = SampleBucket(tags = [10, 20, 30])
+  mut b1: SampleBucket = cloneStruct(b0)
+  b1.tags[0] = 999
+  assertEqInt(b0.tags[0], 10, "cloneStruct deep-clones nested array fields without aliasing")
+  assertEqInt(b1.tags[0], 999, "mutating cloned array field updates b1.tags[0]")
+  ret 0
+
+pub fn main(): int:
+  test_option_lifecycle()
+  test_result_lifecycle()
+  test_assertions_and_guards()
+  test_scalar_bounds_int()
+  test_scalar_bounds_float()
+  test_bool_conversions()
+  test_struct_clone_and_update()
+  println("PASS: prelude_test")
+  ret 0

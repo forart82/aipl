@@ -1,0 +1,115 @@
+module Ex170Gfx2dFilter2dConvolutionBlurWindow
+
+import {
+  generateGaussianKernel1D, generateSobelKernels, applyConvolution2D
+} from "../std/gfx2d/filter2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepGaussianSigma(frame: int): float:
+  ret 0.85 + float(frame % 29) * 0.045
+
+pub fn buildFilter2dConvolutionAudit(): int:
+  let gauss = generateGaussianKernel1D(2, 1.0)
+  let sobels = generateSobelKernels()
+  let stepGrid = [
+    0, 0, 200,
+    0, 0, 200,
+    0, 0, 200
+  ]
+  let gxOut = applyConvolution2D(stepGrid, 3, 3, sobels[0])
+  ret gauss.len() + gxOut.len() + gxOut[4]
+
+pub fn main(): int:
+  let sobels = generateSobelKernels()
+  let audit = buildFilter2dConvolutionAudit()
+
+  initWindow(1280, 720, "AIPL ex_170: 2D Separable Gaussian Blur & Sobel Edge Convolution")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let sigma = stepGaussianSigma(frame)
+    let gauss7 = generateGaussianKernel1D(3, sigma)
+    let hiLuma = 160 + ((frame * 3) % 73)
+    let stepGrid = [
+      20, 20, hiLuma,
+      20, 20, hiLuma,
+      20, 20, hiLuma
+    ]
+    let gxOut = applyConvolution2D(stepGrid, 3, 3, sobels[0])
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_170: 2D SEPARABLE GAUSSIAN BLUR & SOBEL SPATIAL CONVOLUTION", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/filter2d: generateGaussianKernel1D | generateSobelKernels | applyConvolution2D | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: 7-Tap Normalized Gaussian Bell Curve Weights
+    drawRect(40.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 580.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("7-TAP SEPARABLE GAUSSIAN KERNEL (Radius=3, Sigma=" + str(sigma) + ")", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    mut t: int = 0
+    mut prevX: float = 0.0
+    mut prevY: float = 0.0
+    while t < gauss7.len():
+      let w = gauss7[t]
+      let barH = w * 500.0
+      let bx = 80.0 + float(t) * 72.0
+      let topY = 440.0 - barH
+      drawRect(bx, topY, 52.0, barH, rgb(14, 165, 233))
+      drawRectOutline(bx, topY, 52.0, barH, 1.5, rgb(248, 250, 252))
+      if t > 0:
+        drawLine(prevX, prevY, bx + 26.0, topY, rgb(250, 204, 21), 2.5)
+      drawCircle(bx + 26.0, topY, 4.5, rgb(250, 204, 21))
+      drawText("x=" + str(t - 3), bx + 10.0, 452.0, 14.0, rgb(203, 213, 225))
+      drawText(str(int(w * 100.0)) + "%", bx + 10.0, topY - 20.0, 14.0, rgb(253, 224, 71))
+      prevX = bx + 26.0
+      prevY = topY
+      t = t + 1
+
+    // Right Panel: 3x3 Input Step Matrix vs Sobel Gx Edge Output Matrix
+    drawRect(650.0, 96.0, 590.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 96.0, 590.0, 410.0, 2.0, rgb(250, 204, 21))
+    drawText("3x3 SOBEL Gx HORIZONTAL EDGE CONVOLUTION", 670.0, 118.0, 16.0, rgb(253, 224, 71))
+
+    drawText("Input Luma Step (3x3)", 685.0, 160.0, 15.0, rgb(203, 213, 225))
+    drawText("Sobel Gx Edge Response", 965.0, 160.0, 15.0, rgb(134, 239, 172))
+
+    mut r: int = 0
+    while r < 3:
+      mut c: int = 0
+      while c < 3:
+        let k = r * 3 + c
+        let inVal = stepGrid[k]
+        let outVal = gxOut[k]
+        let inX = 685.0 + float(c) * 74.0
+        let outX = 965.0 + float(c) * 74.0
+        let rowY = 192.0 + float(r) * 74.0
+
+        drawRect(inX, rowY, 66.0, 66.0, rgb(inVal, inVal, inVal))
+        drawRectOutline(inX, rowY, 66.0, 66.0, 1.5, rgb(56, 189, 248))
+        drawText(str(inVal), inX + 18.0, rowY + 25.0, 15.0, rgb(244, 63, 94))
+
+        let clampedEdge = if outVal > 255: 255 else: outVal
+        drawRect(outX, rowY, 66.0, 66.0, rgb(clampedEdge / 2, clampedEdge, clampedEdge / 3))
+        drawRectOutline(outX, rowY, 66.0, 66.0, 1.5, rgb(34, 197, 94))
+        drawText(str(outVal), outX + 14.0, rowY + 25.0, 15.0, rgb(248, 250, 252))
+        c = c + 1
+      r = r + 1
+
+    drawText("Sobel Gx = [-1, 0, +1 | -2, 0, +2 | -1, 0, +1] * Step(" + str(hiLuma) + " - 20)", 685.0, 442.0, 14.0, rgb(253, 224, 71))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("SPATIAL FILTER & CONVOLUTION TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Gaussian Center Weight w[0]=" + str(gauss7[3]) + " | Sobel Gx Kernel=[-1,0,1, -2,0,2, -1,0,1]", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Center Step Gradient Response gxOut[4]=" + str(gxOut[4]) + " | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

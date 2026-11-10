@@ -1,0 +1,158 @@
+module Ex211SpatialContinuousWorld2dWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import { Rect2D } from "../std/math/geom2d"
+import {
+  SpatialObject2D, SpatialRayHit2D, continuousWorld2dNew, continuousWorld2dInsert,
+  continuousWorld2dQueryRadius, continuousWorld2dQueryAABB,
+  continuousWorld2dRaycast, continuousWorld2dUpdate
+} from "../std/spatial/continuous_world2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepSensorPosition2D(frame: int): Vec2:
+  let sx = 240.0 + float((frame * 9) % 760)
+  let sy = 360.0 + sin(float(frame) * 0.07) * 95.0
+  ret Vec2(x = sx, y = sy)
+
+pub fn stepRaycastOriginY2D(frame: int): float:
+  let row = (frame / 14) % 5
+  let baseY = 200.0 + float(row) * 83.0
+  ret baseY + sin(float(frame) * 0.13) * 16.0
+
+fn containsId(ids: [int], target: int): bool:
+  mut i = 0
+  while i < ids.len():
+    if ids[i] == target:
+      ret true
+    i = i + 1
+  ret false
+
+pub fn buildSpatialContinuous2dAudit(): int:
+  mut cw = continuousWorld2dNew(Rect2D(x = 0.0, y = 0.0, w = 1000.0, h = 1000.0), 64.0)
+  let obj1 = SpatialObject2D(
+    id = 101,
+    position = Vec2(x = 50.0, y = 50.0),
+    radius = 10.0,
+    layerMask = 1,
+    bounds = Rect2D(x = 40.0, y = 40.0, w = 20.0, h = 20.0)
+  )
+  let obj2 = SpatialObject2D(
+    id = 102,
+    position = Vec2(x = 500.0, y = 500.0),
+    radius = 10.0,
+    layerMask = 1,
+    bounds = Rect2D(x = 490.0, y = 490.0, w = 20.0, h = 20.0)
+  )
+  continuousWorld2dInsert(cw, obj1)
+  continuousWorld2dInsert(cw, obj2)
+  let nearIds = continuousWorld2dQueryRadius(cw, Vec2(x = 55.0, y = 55.0), 25.0, 1)
+  let boxIds = continuousWorld2dQueryAABB(cw, Rect2D(x = 0.0, y = 0.0, w = 100.0, h = 100.0), 1)
+  let hit = continuousWorld2dRaycast(cw, Vec2(x = 0.0, y = 50.0), Vec2(x = 1.0, y = 0.0), 200.0, 1)
+  let updated = continuousWorld2dUpdate(cw, 101, Vec2(x = 200.0, y = 200.0))
+  ret nearIds[0] + boxIds[0] + (if hit.isSome(): 1 else: 0) + (if updated: 1 else: 0)
+
+pub fn main(): int:
+  let auditScore = buildSpatialContinuous2dAudit()
+  mut cw = continuousWorld2dNew(Rect2D(x = 0.0, y = 0.0, w = 1280.0, h = 720.0), 64.0)
+  mut idx = 0
+  while idx < 10:
+    let px = 220.0 + float((idx * 105) % 860)
+    let py = 200.0 + float((idx * 83) % 420)
+    let obj = SpatialObject2D(
+      id = 200 + idx,
+      position = Vec2(x = px, y = py),
+      radius = 26.0,
+      layerMask = 1,
+      bounds = Rect2D(x = px - 26.0, y = py - 26.0, w = 52.0, h = 52.0)
+    )
+    continuousWorld2dInsert(cw, obj)
+    idx = idx + 1
+
+  initWindow(1280, 720, "AIPL ex_211: Spatial Continuous 2D World (Radius, AABB & Circle Raycast)")
+  mut frame = 0
+  while not windowShouldClose():
+    let _upd0 = continuousWorld2dUpdate(cw, 200, Vec2(x = 220.0 + sin(float(frame) * 0.06) * 55.0, y = 200.0))
+    let _upd3 = continuousWorld2dUpdate(cw, 203, Vec2(x = 535.0 + cos(float(frame) * 0.05) * 65.0, y = 449.0))
+    let _upd7 = continuousWorld2dUpdate(cw, 207, Vec2(x = 955.0 + sin(float(frame) * 0.07) * 50.0, y = 361.0))
+
+    let sensorPos = stepSensorPosition2D(frame)
+    let nearIds = continuousWorld2dQueryRadius(cw, sensorPos, 155.0, 1)
+    let aabbBox = Rect2D(x = 740.0 + sin(float(frame) * 0.04) * 40.0, y = 180.0, w = 390.0, h = 390.0)
+    let boxIds = continuousWorld2dQueryAABB(cw, aabbBox, 1)
+    let rayOriginY = stepRaycastOriginY2D(frame)
+    let rayHitOpt = continuousWorld2dRaycast(cw, Vec2(x = 64.0, y = rayOriginY), Vec2(x = 1.0, y = 0.0), 1140.0, 1)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_211: CONTINUOUS 2D SPATIAL WORLD (RADIUS, AABB & RAYCAST QUERIES)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("cellSize=" + str( int(cw.cellSize) ) + " | radiusHits=" + str(nearIds.len()) + " | aabbHits=" + str(boxIds.len()) + " | rayHit=" + str(rayHitOpt.isSome()) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Draw background spatial grid cells (cw.cellSize = 64.0)
+    mut gx = 64.0
+    while gx < 1220.0:
+      drawLine(gx, 116.0, gx, 680.0, rgb(18, 26, 42), 1.0)
+      gx = gx + cw.cellSize
+    mut gy = 128.0
+    while gy < 680.0:
+      drawLine(48.0, gy, 1232.0, gy, rgb(18, 26, 42), 1.0)
+      gy = gy + cw.cellSize
+
+    // Draw AABB Query Region
+    drawRect(aabbBox.x, aabbBox.y, aabbBox.w, aabbBox.h, rgb(36, 20, 62))
+    drawRectOutline(aabbBox.x, aabbBox.y, aabbBox.w, aabbBox.h, 2.5, rgb(168, 85, 247))
+    drawText("AABB Query Box (matches=" + str(boxIds.len()) + ")", aabbBox.x + 12.0, aabbBox.y + 12.0, 15.0, rgb(216, 180, 254))
+
+    // Draw Sensor Radius Query Circle
+    drawCircleOutline(sensorPos.x, sensorPos.y, 155.0, 2.5, rgb(52, 211, 153))
+    drawCircle(sensorPos.x, sensorPos.y, 6.5, rgb(52, 211, 153))
+    drawRect(48.0, 656.0, 420.0, 34.0, rgb(15, 23, 42))
+    drawRectOutline(48.0, 656.0, 420.0, 34.0, 1.5, rgb(52, 211, 153))
+    drawText("Radius Sensor: center=(" + str(int(sensorPos.x)) + "," + str(int(sensorPos.y)) + ") r=155 hits=" + str(nearIds.len()), 60.0, 666.0, 14.0, rgb(110, 231, 183))
+
+    let hitObjId = if rayHitOpt.isSome(): rayHitOpt.unwrap().objectId else: -1
+
+    // Draw Spatial Objects with live query state coloring & AABB bounds
+    mut k = 0
+    while k < cw.objects.len():
+      let ob: SpatialObject2D = cw.objects[k]
+      let inRad = containsId(nearIds, ob.id)
+      let inBox = containsId(boxIds, ob.id)
+      let isRayHit = ob.id == hitObjId
+
+      if inRad:
+        drawLine(sensorPos.x, sensorPos.y, ob.position.x, ob.position.y, rgb(52, 211, 153), 1.8)
+
+      drawRectOutline(ob.bounds.x, ob.bounds.y, ob.bounds.w, ob.bounds.h, 1.2, if inBox: rgb(192, 132, 252) else: rgb(45, 62, 90))
+      let fillCol = if isRayHit: rgb(180, 83, 9) else: (if inRad: rgb(6, 95, 70) else: (if inBox: rgb(88, 28, 135) else: rgb(30, 58, 138)))
+      let rimCol = if isRayHit: rgb(250, 204, 21) else: (if inRad: rgb(52, 211, 153) else: (if inBox: rgb(192, 132, 252) else: rgb(56, 189, 248)))
+      drawCircle(ob.position.x, ob.position.y, ob.radius, fillCol)
+      drawCircleOutline(ob.position.x, ob.position.y, ob.radius, 2.2, rimCol)
+      drawText("#" + str(ob.id), ob.position.x - 16.0, ob.position.y - 7.0, 14.0, rgb(248, 250, 252))
+      k = k + 1
+
+    // Draw Raycast Beam & Hit Normal
+    drawCircle(64.0, rayOriginY, 6.0, rgb(250, 204, 21))
+    if rayHitOpt.isSome():
+      let rh: SpatialRayHit2D = rayHitOpt.unwrap()
+      drawLine(64.0, rayOriginY, rh.point.x, rh.point.y, rgb(250, 204, 21), 3.0)
+      drawCircle(rh.point.x, rh.point.y, 6.5, rgb(239, 68, 68))
+      let nx = rh.point.x + rh.normal.x * 42.0
+      let ny = rh.point.y + rh.normal.y * 42.0
+      drawLine(rh.point.x, rh.point.y, nx, ny, rgb(248, 113, 113), 2.5)
+      drawText("rayHit #" + str(rh.objectId) + " (dist=" + str(int(rh.distance)) + ")", 64.0, rayOriginY - 22.0, 14.0, rgb(254, 202, 202))
+    else:
+      drawLine(64.0, rayOriginY, 1204.0, rayOriginY, rgb(250, 204, 21), 2.0)
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

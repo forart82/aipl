@@ -1,0 +1,245 @@
+// ============================================================================
+// Module: std/encoding/yaml
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// YAML 1.2 configuration parser and emitter.
+// ============================================================================
+module EncodingYaml
+
+pub struct YamlNode:
+  kind: str
+  scalar: str
+  sequence: [YamlNode]
+  mapping: [(str, YamlNode)]
+
+fn yamlScalar(s: str): YamlNode:
+  mut emptySeq: [YamlNode] = []
+  mut emptyMap: [(str, YamlNode)] = []
+  ret YamlNode(kind = "scalar", scalar = s, sequence = emptySeq, mapping = emptyMap)
+
+fn yamlSequence(items: [YamlNode]): YamlNode:
+  mut emptyMap: [(str, YamlNode)] = []
+  ret YamlNode(kind = "sequence", scalar = "", sequence = items, mapping = emptyMap)
+
+fn yamlMapping(entries: [(str, YamlNode)]): YamlNode:
+  mut emptySeq: [YamlNode] = []
+  ret YamlNode(kind = "mapping", scalar = "", sequence = emptySeq, mapping = entries)
+
+fn countLeadingSpaces(line: str): int:
+  mut n = 0
+  while n < line.len and line.charCodeAt(n) == 32:
+    n = n + 1
+  ret n
+
+fn cleanYamlScalarText(raw: str): str:
+  let t = raw.trim()
+  if (t.startsWith("\"") and t.endsWith("\"") and t.len >= 2) or (t.startsWith("'") and t.endsWith("'") and t.len >= 2):
+    ret t.slice(1, t.len - 1)
+  ret t
+
+fn parseYamlLines(lines: [str], startIdx: int, minIndent: int): (int, YamlNode):
+  mut idx = startIdx
+  let n = lines.len
+  while idx < n:
+    let trimmed = lines[idx].trim()
+    if trimmed.len == 0 or trimmed.startsWith("#") or trimmed == "---":
+      idx = idx + 1
+    else:
+      break
+  if idx >= n:
+    ret (idx, yamlScalar(""))
+  let firstIndent = countLeadingSpaces(lines[idx])
+  if firstIndent < minIndent:
+    ret (idx, yamlScalar(""))
+  let firstTrim = lines[idx].trim()
+  if firstTrim.startsWith("- ") or firstTrim == "-":
+    mut items: [YamlNode] = []
+    while idx < n:
+      let t = lines[idx].trim()
+      if t.len == 0 or t.startsWith("#"):
+        idx = idx + 1
+      else:
+        let ind = countLeadingSpaces(lines[idx])
+        if ind < firstIndent or not (t.startsWith("- ") or t == "-"):
+          break
+        let itemText = if t.len > 2: t.slice(2, t.len).trim() else: ""
+        if itemText.len > 0:
+          items.push(yamlScalar(cleanYamlScalarText(itemText)))
+          idx = idx + 1
+        else:
+          let (nextIdx, childNode) = parseYamlLines(lines, idx + 1, ind + 1)
+          items.push(childNode)
+          idx = nextIdx
+    ret (idx, yamlSequence(items))
+
+  mut entries: [(str, YamlNode)] = []
+  while idx < n:
+    let t = lines[idx].trim()
+    if t.len == 0 or t.startsWith("#"):
+      idx = idx + 1
+    else:
+      let ind = countLeadingSpaces(lines[idx])
+      if ind < firstIndent:
+        break
+      let colonIdx = t.indexOf(":")
+      if colonIdx < 0:
+        if entries.len == 0:
+          ret (idx + 1, yamlScalar(cleanYamlScalarText(t)))
+        break
+      let key = t.slice(0, colonIdx).trim()
+      let valPart = t.slice(colonIdx + 1, t.len).trim()
+      if valPart.len > 0:
+        entries.push((key, yamlScalar(cleanYamlScalarText(valPart))))
+        idx = idx + 1
+      else:
+        let (nextIdx, subNode) = parseYamlLines(lines, idx + 1, ind + 1)
+        entries.push((key, subNode))
+        idx = nextIdx
+  ret (idx, yamlMapping(entries))
+
+pub fn parseYaml(text: str): Result[YamlNode, str]:
+  let lines = text.split("\n")
+  let (_, root) = parseYamlLines(lines, 0, 0)
+  ret Ok(root)
+
+fn makeYamlPad(spaces: int): str:
+  mut out: [str] = []
+  mut i = 0
+  while i < spaces:
+    out.push(" ")
+    i = i + 1
+  ret out.join("")
+
+fn serializeYamlDepth(node: YamlNode, indentStep: int, depth: int): str:
+  let pad = makeYamlPad(depth * indentStep)
+  if node.kind == "scalar":
+    ret node.scalar
+  if node.kind == "sequence":
+    mut lines: [str] = []
+    mut i = 0
+    while i < node.sequence.len:
+      let item = node.sequence[i]
+      if item.kind == "scalar":
+        lines.push(pad + "- " + item.scalar)
+      else:
+        lines.push(pad + "-\n" + serializeYamlDepth(item, indentStep, depth + 1))
+      i = i + 1
+    ret lines.join("\n")
+  if node.kind == "mapping":
+    mut lines: [str] = []
+    mut i = 0
+    while i < node.mapping.len:
+      let pair = node.mapping[i]
+      let k = pair[0]
+      let v = pair[1]
+      if v.kind == "scalar":
+        lines.push(pad + k + ": " + v.scalar)
+      else:
+        lines.push(pad + k + ":\n" + serializeYamlDepth(v, indentStep, depth + 1))
+      i = i + 1
+    ret lines.join("\n")
+  ret ""
+
+pub fn serializeYaml(node: YamlNode, indent: int = 2): str:
+  let step = if indent <= 0: 2 else: indent
+  ret serializeYamlDepth(node, step, 0)
+
+pub struct YamlEntry:
+  key: str
+  value: str
+
+pub fn parseYamlEntries(src: str): [YamlEntry]:
+  mut entries: [YamlEntry] = []
+  let res = parseYaml(src)
+  if res.isErr():
+    ret entries
+  let root = res.unwrap()
+  if root.kind == "mapping":
+    mut i = 0
+    while i < root.mapping.len:
+      let pair = root.mapping[i]
+      let k = pair[0]
+      let v = pair[1]
+      entries.push(YamlEntry(key = k, value = v.scalar))
+      i = i + 1
+  ret entries
+
+pub fn parseYamlMap(src: str): Map[str, str]:
+  mut m: Map[str, str] = mapNew()
+  let entries = parseYamlEntries(src)
+  mut i = 0
+  while i < entries.len:
+    let e = entries[i]
+    m.set(e.key, e.value)
+    i = i + 1
+  ret m
+
+pub fn getYamlValue(src: str, key: str, defaultVal: str): str:
+  let m = parseYamlMap(src)
+  let opt = m.get(key)
+  if opt.isSome():
+    ret opt.unwrap()
+  ret defaultVal
+
+pub fn parseYamlList(src: str): [str]:
+  mut items: [str] = []
+  let res = parseYaml(src)
+  if res.isErr():
+    ret items
+  let root = res.unwrap()
+  if root.kind == "sequence":
+    mut i = 0
+    while i < root.sequence.len:
+      items.push(root.sequence[i].scalar)
+      i = i + 1
+  ret items
+
+pub fn toYamlMap(m: Map[str, str]): str:
+  mut lines: [str] = []
+  let ks = m.keys()
+  mut i = 0
+  while i < ks.len:
+    let k = ks[i]
+    let vOpt = m.get(k)
+    if vOpt.isSome():
+      lines.push(k + ": " + vOpt.unwrap())
+    i = i + 1
+  ret lines.join("\n")
+
+pub fn toYamlList(items: [str]): str:
+  mut lines: [str] = []
+  mut i = 0
+  while i < items.len:
+    lines.push("- " + items[i])
+    i = i + 1
+  ret lines.join("\n")
+
+fn yamlNodeToJsonStr(node: YamlNode): str:
+  if node.kind == "scalar":
+    let s = node.scalar
+    if s == "true" or s == "false" or s == "null":
+      ret s
+    ret "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+  if node.kind == "sequence":
+    mut parts: [str] = []
+    mut i = 0
+    while i < node.sequence.len:
+      parts.push(yamlNodeToJsonStr(node.sequence[i]))
+      i = i + 1
+    ret "[" + parts.join(",") + "]"
+  if node.kind == "mapping":
+    mut parts: [str] = []
+    mut i = 0
+    while i < node.mapping.len:
+      let pair = node.mapping[i]
+      let k = pair[0].replace("\\", "\\\\").replace("\"", "\\\"")
+      let v = yamlNodeToJsonStr(pair[1])
+      parts.push("\"" + k + "\":" + v)
+      i = i + 1
+    ret "{" + parts.join(",") + "}"
+  ret "null"
+
+pub fn yamlToJson(src: str): str:
+  let res = parseYaml(src)
+  if res.isErr():
+    ret "{}"
+  ret yamlNodeToJsonStr(res.unwrap())

@@ -1,0 +1,293 @@
+// ============================================================================
+// Canonical Example 260: Textured 2.5D Isometric Valley Village & River (WINDOW)
+// Showcases hardware/software UV texture mapping across std/gfx25d:
+// - Slope-splatted heightfield terrain (drawHeightfieldPatchTextured25D)
+// - Animated UV-scrolled river & cobblestone road (drawSplineRibbonTextured25D)
+// - Textured brick & roof-shingle cottages/towers (drawPrismTextured25D)
+// - Disk PPM texture loading (loadImage) + C-accelerated createProceduralTexture
+// ============================================================================
+module Ex260Textured25dVillageAndRiverWindow
+
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  setWindowMode,
+  getWindowMode,
+  setDepthTest,
+  clearDepth,
+  beginWorldPass,
+  endWorldPass,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  loadImage,
+  createProceduralTexture,
+  rgb,
+  rgba
+} from "../std/gfx2d/shape2d.aipl"
+import { Vec3 } from "../std/math/vec_math.aipl"
+import {
+  TerrainHeightfield,
+  sampleHeightAt
+} from "../std/gfx3d/terrain3d.aipl"
+import {
+  Camera25D,
+  createCamera25D,
+  updateCamera25D,
+  getVisibleWorldAABB,
+  drawHeightfieldPatchTextured25D,
+  drawPrismTextured25D,
+  drawCone25D,
+  drawBillboard25D,
+  drawSplineRibbonTextured25D
+} from "../std/gfx25d/gfx25d_mod.aipl"
+
+pub struct Village25DTextures(grassTex: int, rockTex: int, waterTex: int, cobbleTex: int, brickTex: int, roofTex: int)
+
+pub struct Village25DState(terrain: TerrainHeightfield, cam: Camera25D, textures: Village25DTextures, riverNodes: [Vec3], roadNodes: [Vec3], riverScrollU: float, villagerWx: float, villagerWy: float, villagerWz: float, tick: int)
+
+pub fn loadOrCreateTexture(assetPath: str, procKind: str, seed: int): int:
+  let loaded = loadImage(assetPath)
+  if loaded.isOk():
+    ret loaded.unwrap()
+  ret createProceduralTexture(procKind, 64, 64, seed)
+
+pub fn createVillage25DState(viewportW: float, viewportH: float): Village25DState:
+  mut heights: [float] = []
+  mut gz = 0
+  while gz < 14:
+    mut gx = 0
+    while gx < 14:
+      let dx = float(gx) - 6.5
+      let dz = float(gz) - 6.5
+      let ridge = 0.38 * sin(float(gx) * 0.52) * cos(float(gz) * 0.46)
+      let rim = (dx * dx + dz * dz) * 0.012
+      let hVal = 0.25 + ridge + rim
+      heights.push(hVal)
+      gx += 1
+    gz += 1
+
+  let terrain = TerrainHeightfield(
+    width = 14,
+    depth = 14,
+    heightValues = heights,
+    heightScale = 46.0,
+    horizontalScale = 18.0
+  )
+
+  let texSet = Village25DTextures(
+    grassTex = loadOrCreateTexture("examples/assets/grass_tile.ppm", "grass", 101),
+    rockTex = createProceduralTexture("cliff", 64, 64, 202),
+    waterTex = createProceduralTexture("water", 64, 64, 303),
+    cobbleTex = loadOrCreateTexture("examples/assets/cobble_road.ppm", "cobble", 404),
+    brickTex = loadOrCreateTexture("examples/assets/brick_wall.ppm", "brick", 505),
+    roofTex = createProceduralTexture("roof", 64, 64, 606)
+  )
+
+  let baseCam = createCamera25D(viewportW, viewportH, 1.35, 45.0, 32.0)
+  let cx = 112.0
+  let cy = 112.0
+  let cz = sampleHeightAt(terrain, cx, cy)
+  let cam = baseCam { worldX = cx, worldY = cy, worldZ = cz }
+
+  let riverNodes: [Vec3] = [
+    Vec3(x = 22.0, y = 32.0, z = sampleHeightAt(terrain, 22.0, 32.0) + 0.5),
+    Vec3(x = 66.0, y = 70.0, z = sampleHeightAt(terrain, 66.0, 70.0) + 0.5),
+    Vec3(x = 112.0, y = 108.0, z = sampleHeightAt(terrain, 112.0, 108.0) + 0.5),
+    Vec3(x = 158.0, y = 148.0, z = sampleHeightAt(terrain, 158.0, 148.0) + 0.5),
+    Vec3(x = 206.0, y = 192.0, z = sampleHeightAt(terrain, 206.0, 192.0) + 0.5)
+  ]
+
+  let roadNodes: [Vec3] = [
+    Vec3(x = 36.0, y = 184.0, z = sampleHeightAt(terrain, 36.0, 184.0) + 0.65),
+    Vec3(x = 78.0, y = 142.0, z = sampleHeightAt(terrain, 78.0, 142.0) + 0.65),
+    Vec3(x = 116.0, y = 110.0, z = sampleHeightAt(terrain, 116.0, 110.0) + 0.65),
+    Vec3(x = 156.0, y = 76.0, z = sampleHeightAt(terrain, 156.0, 76.0) + 0.65),
+    Vec3(x = 196.0, y = 42.0, z = sampleHeightAt(terrain, 196.0, 42.0) + 0.65)
+  ]
+
+  ret Village25DState(
+    terrain = terrain,
+    cam = cam,
+    textures = texSet,
+    riverNodes = riverNodes,
+    roadNodes = roadNodes,
+    riverScrollU = 0.0,
+    villagerWx = cx,
+    villagerWy = cy,
+    villagerWz = cz,
+    tick = 0
+  )
+
+pub fn stepVillage25DState(state: Village25DState, dt: float): Village25DState:
+  let nextTick = state.tick + 1
+  let phase = float(nextTick) * 0.035
+  let targetWx = 112.0 + cos(phase) * 24.0
+  let targetWy = 112.0 + sin(phase) * 24.0
+  let targetWz = sampleHeightAt(state.terrain, targetWx, targetWy)
+  let nextCam = updateCamera25D(state.cam, targetWx, targetWy, targetWz, dt)
+  let nextScroll = state.riverScrollU - dt * 0.85
+  ret state {
+    cam = nextCam,
+    riverScrollU = nextScroll,
+    villagerWx = targetWx,
+    villagerWy = targetWy,
+    villagerWz = targetWz,
+    tick = nextTick
+  }
+
+pub fn renderVillage25DScene(state: Village25DState): int:
+  clearScreen(rgb(14, 22, 36))
+  setDepthTest(true)
+  clearDepth()
+  beginWorldPass()
+
+  let sunDir = Vec3(x = -0.42, y = -0.48, z = 0.77)
+  let visBox = getVisibleWorldAABB(state.cam, -30.0, 90.0)
+
+  // 1. Slope-splatted UV-textured heightfield terrain (grass on meadows, cliff rock on slopes)
+  let terrainQuads = drawHeightfieldPatchTextured25D(
+    state.cam,
+    state.terrain,
+    0,
+    0,
+    12,
+    12,
+    sunDir,
+    state.textures.grassTex,
+    state.textures.rockTex,
+    0.45
+  )
+
+  // 2. Animated UV-scrolled river ribbon
+  let riverQuads = drawSplineRibbonTextured25D(
+    state.cam,
+    state.riverNodes,
+    11.0,
+    state.textures.waterTex,
+    state.riverScrollU,
+    0.035,
+    rgb(225, 245, 255),
+    0.35
+  )
+
+  // 3. Cobblestone village road ribbon
+  let roadQuads = drawSplineRibbonTextured25D(
+    state.cam,
+    state.roadNodes,
+    7.5,
+    state.textures.cobbleTex,
+    0.0,
+    0.045,
+    rgb(245, 240, 232),
+    0.55
+  )
+
+  // 4. Textured village cottages & watchtower (brick walls + shingle roofs)
+  let hHouseA = sampleHeightAt(state.terrain, 88.0, 92.0)
+  let houseAFaces = drawPrismTextured25D(
+    state.cam,
+    88.0,
+    92.0,
+    hHouseA,
+    26.0,
+    24.0,
+    30.0,
+    state.textures.brickTex,
+    state.textures.roofTex,
+    rgb(255, 248, 240),
+    sunDir
+  )
+
+  let hHouseB = sampleHeightAt(state.terrain, 138.0, 94.0)
+  let houseBFaces = drawPrismTextured25D(
+    state.cam,
+    138.0,
+    94.0,
+    hHouseB,
+    24.0,
+    28.0,
+    36.0,
+    state.textures.brickTex,
+    state.textures.roofTex,
+    rgb(248, 242, 235),
+    sunDir
+  )
+
+  let hBridge = sampleHeightAt(state.terrain, 114.0, 109.0) + 3.5
+  let bridgeFaces = drawPrismTextured25D(
+    state.cam,
+    114.0,
+    109.0,
+    hBridge,
+    28.0,
+    14.0,
+    5.0,
+    state.textures.cobbleTex,
+    state.textures.cobbleTex,
+    rgb(235, 232, 226),
+    sunDir
+  )
+
+  // 5. Pine trees & villager billboard
+  let hPineA = sampleHeightAt(state.terrain, 72.0, 122.0)
+  let pineATris = drawCone25D(state.cam, 72.0, 122.0, hPineA, 13.0, 30.0, rgb(34, 148, 76), sunDir, 10)
+
+  let hPineB = sampleHeightAt(state.terrain, 152.0, 128.0)
+  let pineBTris = drawCone25D(state.cam, 152.0, 128.0, hPineB, 14.0, 32.0, rgb(40, 162, 84), sunDir, 10)
+
+  let villagerQuads = drawBillboard25D(
+    state.cam,
+    state.villagerWx,
+    state.villagerWy,
+    state.villagerWz + 2.0,
+    12.0,
+    22.0,
+    rgb(250, 204, 21),
+    rgb(234, 88, 12)
+  )
+
+  endWorldPass()
+  setDepthTest(false)
+
+  // 6. Screen-space HUD overlay
+  drawRect(18.0, 16.0, 620.0, 62.0, rgba(15, 23, 42, 0.88))
+  drawRectOutline(18.0, 16.0, 620.0, 62.0, 1.5, rgb(56, 189, 248))
+  drawText("AIPL ex_260: TEXTURED 2.5D VALLEY VILLAGE & UV RIVER", 32.0, 26.0, 16.0, rgb(248, 250, 252))
+  drawText(
+    "TerrainQuads=" + str(terrainQuads) + " | RiverQuads=" + str(riverQuads) + " | RoadQuads=" + str(roadQuads) + " | VisW=" + str(int(visBox.maxX - visBox.minX)),
+    32.0,
+    50.0,
+    13.0,
+    rgb(148, 163, 184)
+  )
+
+  ret terrainQuads + riverQuads + roadQuads + houseAFaces + houseBFaces + bridgeFaces + pineATris + pineBTris + villagerQuads
+
+pub fn renderVillageFrameStep(frameIndex: int, dt: float): int:
+  setWindowMode("glx")
+  mut st = createVillage25DState(640.0, 360.0)
+  mut i = 0
+  let steps = (frameIndex % 4) + 1
+  while i < steps:
+    st = stepVillage25DState(st, dt)
+    i = i + 1
+  ret renderVillage25DScene(st)
+
+pub fn main(): int:
+  setWindowMode("glx")
+  initWindow(1280, 720, "AIPL ex_260 - Textured 2.5D Valley Village & UV River")
+  mut state = createVillage25DState(1280.0, 720.0)
+  mut frame: int = 0
+  while not windowShouldClose():
+    state = stepVillage25DState(state, 0.016)
+    beginDrawing()
+    let _ = renderVillage25DScene(state)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

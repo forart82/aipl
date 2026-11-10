@@ -1,0 +1,283 @@
+// ============================================================================
+// Module: std/regex/regex_vm
+// Layer 1: Regular Expression Engine & Text Diffing
+// PikeVM non-backtracking linear-time NFA execution engine.
+// ============================================================================
+module RegexVm
+
+import {
+  OP_MATCH,
+  OP_CHAR,
+  OP_ANY,
+  OP_CHAR_CLASS,
+  OP_SPLIT,
+  OP_JUMP,
+  OP_SAVE,
+  OP_ANCHOR_START,
+  OP_ANCHOR_END,
+  RegexFlags,
+  RegexCharClass,
+  RegexInstruction,
+  RegexBytecode,
+  Regex
+} from "./regex_compile.aipl"
+
+pub struct RegexMatch:
+  start: int
+  end: int
+  text: str
+  groups: [str]
+
+pub struct RegexSpan:
+  start: int
+  end: int
+
+struct PikeThread:
+  pc: int
+  slots: [int]
+
+fn toLowerAsciiCode(c: int): int:
+  if c >= 65 and c <= 90:
+    ret c + 32
+  ret c
+
+fn charMatchesClass(c: int, cc: RegexCharClass, ignoreCase: bool): bool:
+  let checkCode = if ignoreCase: toLowerAsciiCode(c) else: c
+  mut matched = false
+  mut i = 0
+  while i < cc.ranges.len:
+    let pair = cc.ranges[i]
+    let lo = if ignoreCase: toLowerAsciiCode(pair[0]) else: pair[0]
+    let hi = if ignoreCase: toLowerAsciiCode(pair[1]) else: pair[1]
+    if checkCode >= lo and checkCode <= hi:
+      matched = true
+      break
+    i += 1
+  ret if cc.negated: not matched else: matched
+
+fn cloneIntSlots(slots: [int]): [int]:
+  mut copy: [int] = []
+  mut i = 0
+  while i < slots.len:
+    copy.push(slots[i])
+    i += 1
+  ret copy
+
+fn addPikeThread(mut list: [PikeThread], mut visited: [int], stepId: int, pc: int, slots: [int], bc: RegexBytecode, flags: RegexFlags, text: str, pos: int): [PikeThread]:
+  if pc < 0 or pc >= bc.instructions.len:
+    ret list
+  if visited[pc] == stepId:
+    ret list
+  visited[pc] = stepId
+  let inst = bc.instructions[pc]
+  let op = inst.opcode
+  if op == OP_JUMP:
+    ret addPikeThread(list, visited, stepId, inst.targetA, slots, bc, flags, text, pos)
+  if op == OP_SPLIT:
+    list = addPikeThread(list, visited, stepId, inst.targetA, slots, bc, flags, text, pos)
+    ret addPikeThread(list, visited, stepId, inst.targetB, slots, bc, flags, text, pos)
+  if op == OP_SAVE:
+    mut nextSlots = cloneIntSlots(slots)
+    if inst.groupIdx >= 0 and inst.groupIdx < nextSlots.len:
+      nextSlots[inst.groupIdx] = pos
+    ret addPikeThread(list, visited, stepId, pc + 1, nextSlots, bc, flags, text, pos)
+  if op == OP_ANCHOR_START:
+    let okStart = (pos == 0) or (flags.multiline and pos > 0 and text.charCodeAt(pos - 1) == 10)
+    if okStart:
+      ret addPikeThread(list, visited, stepId, pc + 1, slots, bc, flags, text, pos)
+    ret list
+  if op == OP_ANCHOR_END:
+    let okEnd = (pos == text.len) or (flags.multiline and pos < text.len and text.charCodeAt(pos) == 10)
+    if okEnd:
+      ret addPikeThread(list, visited, stepId, pc + 1, slots, bc, flags, text, pos)
+    ret list
+  list.push(PikeThread(pc = pc, slots = slots))
+  ret list
+
+fn runPikeAtPos(re: Regex, text: str, startPos: int): Option[[int]]:
+  let bc = re.bytecode
+  let flags = re.flags
+  let numInsts = bc.instructions.len
+  let numSlots = re.groupCount * 2
+  mut initSlots: [int] = []
+  mut s = 0
+  while s < numSlots:
+    initSlots.push(-1)
+    s += 1
+  mut visited: [int] = []
+  mut v = 0
+  while v < numInsts:
+    visited.push(0)
+    v += 1
+
+  mut stepId = 1
+  mut clist: [PikeThread] = []
+  clist = addPikeThread(clist, visited, stepId, 0, initSlots, bc, flags, text, startPos)
+
+  mut hasMatch = false
+  mut bestSlots: [int] = []
+  mut pos = startPos
+  let n = text.len
+
+  while pos <= n and clist.len > 0:
+    stepId += 1
+    mut nlist: [PikeThread] = []
+    let chCode = if pos < n: text.charCodeAt(pos) else: -1
+    mut ti = 0
+    while ti < clist.len:
+      let th = clist[ti]
+      let inst = bc.instructions[th.pc]
+      if inst.opcode == OP_MATCH:
+        hasMatch = true
+        bestSlots = th.slots
+        break
+      if pos < n:
+        if inst.opcode == OP_CHAR:
+          let matched = if flags.ignoreCase:
+            toLowerAsciiCode(chCode) == toLowerAsciiCode(inst.charCode)
+          else:
+            chCode == inst.charCode
+          if matched:
+            nlist = addPikeThread(nlist, visited, stepId, th.pc + 1, th.slots, bc, flags, text, pos + 1)
+        elif inst.opcode == OP_ANY:
+          if flags.dotAll or chCode != 10:
+            nlist = addPikeThread(nlist, visited, stepId, th.pc + 1, th.slots, bc, flags, text, pos + 1)
+        elif inst.opcode == OP_CHAR_CLASS:
+          if charMatchesClass(chCode, inst.charClass, flags.ignoreCase):
+            nlist = addPikeThread(nlist, visited, stepId, th.pc + 1, th.slots, bc, flags, text, pos + 1)
+      ti += 1
+    clist = nlist
+    pos += 1
+
+  if hasMatch:
+    ret Some(bestSlots)
+  ret None
+
+fn buildRegexMatch(text: str, slots: [int], groupCount: int): RegexMatch:
+  let mStart = if slots.len >= 2 and slots[0] >= 0: slots[0] else: 0
+  let mEnd = if slots.len >= 2 and slots[1] >= mStart: slots[1] else: mStart
+  mut groups: [str] = []
+  mut g = 0
+  while g < groupCount:
+    let gs = slots[g * 2]
+    let ge = slots[(g * 2) + 1]
+    if gs >= 0 and ge >= gs and ge <= text.len:
+      groups.push(text.slice(gs, ge))
+    else:
+      groups.push("")
+    g += 1
+  ret RegexMatch(start = mStart, end = mEnd, text = text.slice(mStart, mEnd), groups = groups)
+
+pub fn (self: Regex) find(text: str): Option[RegexMatch]:
+  mut pos = 0
+  let n = text.len
+  while pos <= n:
+    let res = runPikeAtPos(self, text, pos)
+    if res.isSome():
+      ret Some(buildRegexMatch(text, res.unwrap(), self.groupCount))
+    pos += 1
+  ret None
+
+pub fn (self: Regex) isMatch(text: str): bool:
+  ret self.find(text).isSome()
+
+pub fn (self: Regex) findSpan(text: str): Option[RegexSpan]:
+  let mOpt = self.find(text)
+  if mOpt.isNone():
+    ret None
+  let m = mOpt.unwrap()
+  ret Some(RegexSpan(start = m.start, end = m.end))
+
+pub fn (self: Regex) findAll(text: str): [RegexMatch]:
+  mut matches: [RegexMatch] = []
+  mut pos = 0
+  let n = text.len
+  while pos <= n:
+    let res = runPikeAtPos(self, text, pos)
+    if res.isSome():
+      let m = buildRegexMatch(text, res.unwrap(), self.groupCount)
+      matches.push(m)
+      if m.end > pos:
+        pos = m.end
+      else:
+        pos += 1
+    else:
+      pos += 1
+  ret matches
+
+pub fn (self: Regex) captures(text: str): [str]:
+  let mOpt = self.find(text)
+  if mOpt.isNone():
+    mut empty: [str] = []
+    ret empty
+  ret mOpt.unwrap().groups
+
+fn expandReplacement(replacement: str, m: RegexMatch): str:
+  mut out = ""
+  mut i = 0
+  let n = replacement.len
+  while i < n:
+    let ch = replacement.charAt(i)
+    if ch == "$" and i + 1 < n:
+      let nxt = replacement.charAt(i + 1)
+      if nxt == "$":
+        out = out + "$"
+        i += 2
+        continue
+      if nxt == "&":
+        out = out + m.text
+        i += 2
+        continue
+      if nxt >= "0" and nxt <= "9":
+        let gIdx = nxt.charCodeAt(0) - 48
+        if gIdx >= 0 and gIdx < m.groups.len:
+          out = out + m.groups[gIdx]
+        i += 2
+        continue
+    out = out + ch
+    i += 1
+  ret out
+
+pub fn (self: Regex) replace(text: str, replacement: str): str:
+  let mOpt = self.find(text)
+  if mOpt.isNone():
+    ret text
+  let m = mOpt.unwrap()
+  let expanded = expandReplacement(replacement, m)
+  ret text.slice(0, m.start) + expanded + text.slice(m.end, text.len)
+
+pub fn (self: Regex) replaceAll(text: str, replacement: str): str:
+  let all = self.findAll(text)
+  if all.len == 0:
+    ret text
+  mut out = ""
+  mut lastEnd = 0
+  mut i = 0
+  while i < all.len:
+    let m = all[i]
+    out = out + text.slice(lastEnd, m.start) + expandReplacement(replacement, m)
+    lastEnd = m.end
+    i += 1
+  out = out + text.slice(lastEnd, text.len)
+  ret out
+
+pub fn (self: Regex) splitN(text: str, limit: int): [str]:
+  mut parts: [str] = []
+  if limit == 1:
+    parts.push(text)
+    ret parts
+  let all = self.findAll(text)
+  mut lastEnd = 0
+  mut i = 0
+  while i < all.len:
+    if limit > 0 and parts.len + 1 >= limit:
+      break
+    let m = all[i]
+    parts.push(text.slice(lastEnd, m.start))
+    lastEnd = m.end
+    i += 1
+  parts.push(text.slice(lastEnd, text.len))
+  ret parts
+
+pub fn (self: Regex) split(text: str): [str]:
+  ret self.splitN(text, -1)

@@ -1,0 +1,66 @@
+// ============================================================================
+// Example 096: Buffered Reader Refill & Buffered Writer Flush (CLI)
+// Demonstrates: bufReaderNew, bufReaderFillBuf, bufReaderConsume,
+//               bufReaderLines, bufReaderRead, bufReaderReadUntil,
+//               bufReaderReadLine, bufWriterNew, bufWriterWriteStr,
+//               bufWriterWrite, bufWriterBufferedLen, bufWriterFlush, and
+//               bufWriterGetOutput from std/io.
+// ============================================================================
+module Ex096IoBufferedReaderWriterCli
+
+import {
+  bufReaderNew,
+  bufReaderFillBuf,
+  bufReaderConsume,
+  bufReaderLines,
+  bufReaderRead,
+  bufReaderReadUntil,
+  bufReaderReadLine,
+  bufWriterNew,
+  bufWriterWriteStr,
+  bufWriterWrite,
+  bufWriterBufferedLen,
+  bufWriterFlush,
+  bufWriterGetOutput
+} from "../std/io"
+
+// Reads CRLF/LF lines through a 4-byte buffered reader and flushes a 4-byte buffered writer.
+pub fn evaluateBufReaderLinesAndFlushedLen(): int:
+  let rawBytes = [72, 101, 108, 108, 111, 13, 10, 87, 111, 114, 108, 100, 10, 65, 73, 80, 76]
+  mut reader = bufReaderNew(rawBytes, 4)
+  let peek = bufReaderFillBuf(reader)
+  assert(peek.len() == 4 and peek[0] == 72, "4-byte window peek starts with 'H'")
+  reader = bufReaderConsume(reader, 0)
+  let lines = bufReaderLines(reader)
+  assert(lines[0] == "Hello" and lines[1] == "World" and lines[2] == "AIPL", "CRLF and LF stripped cleanly")
+
+  mut writer = bufWriterNew(4)
+  let _ = bufWriterWriteStr(writer, "AB")
+  assert(bufWriterBufferedLen(writer) == 2, "2 bytes pending in buffer")
+  let _ = bufWriterWrite(writer, [67, 68, 69])
+  writer = bufWriterFlush(writer)
+  let out = bufWriterGetOutput(writer)
+  ret lines.len() + out.len()
+
+// Verifies multi-refill reads and delimiter-bounded reads on BufReader.
+pub fn verifyBufReaderDelimiterAndMultiFill(): int:
+  mut r = bufReaderNew([1, 2, 3, 4, 5], 2)
+  let first3 = bufReaderRead(r, 3)
+  let until5 = bufReaderReadUntil(r, 5)
+  let eofLine = bufReaderReadLine(r)
+  if first3.len() == 3 and first3[2] == 3 and until5.len() == 2 and until5[1] == 5 and eofLine.isNone():
+    ret 1
+  ret 0
+
+// Returns a canonical label for a buffered I/O capacity policy.
+pub fn describeBufferFlushPolicy(capacityBytes: int): str:
+  if capacityBytes == 4:
+    ret "BUFIO:RING_WINDOW_4B_AUTO_FLUSH"
+  ret "BUFIO:PAGE_ALIGNED_8K"
+
+pub fn main(): int:
+  let total = evaluateBufReaderLinesAndFlushedLen()
+  let delimOk = verifyBufReaderDelimiterAndMultiFill()
+  let policy = describeBufferFlushPolicy(4)
+  println("ex_096_io_buffered_reader_writer_cli: total=" + str(total) + " delimOk=" + str(delimOk) + " policy=" + policy)
+  ret 0

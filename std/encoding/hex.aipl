@@ -1,0 +1,143 @@
+// ============================================================================
+// Module: std/encoding/hex
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// High-speed hexadecimal byte array conversion and formatted memory dumping.
+// ============================================================================
+module EncodingHex
+
+fn hexNibbleToChar(nib: int, uppercase: bool): str:
+  let v = nib & 15
+  if v < 10:
+    ret chr(48 + v)
+  if uppercase:
+    ret chr(55 + v)
+  ret chr(87 + v)
+
+fn hexCharToVal(code: int): int:
+  if code >= 48 and code <= 57:
+    ret code - 48
+  if code >= 65 and code <= 70:
+    ret code - 55
+  if code >= 97 and code <= 102:
+    ret code - 87
+  ret -1
+
+pub fn hexEncode(data: bytes, uppercase: bool = false): str:
+  let n = data.len()
+  mut parts: [str] = []
+  mut i = 0
+  while i < n:
+    let b = data[i] & 255
+    parts.push(hexNibbleToChar((b >> 4) & 15, uppercase))
+    parts.push(hexNibbleToChar(b & 15, uppercase))
+    i = i + 1
+  ret parts.join("")
+
+pub fn hexDecode(s: str): Result[bytes, str]:
+  let clean = s.trim()
+  if (clean.len % 2) != 0:
+    ret Err("hexDecode: input length must be even")
+  mut out: [int] = []
+  mut i = 0
+  while i < clean.len:
+    let hi = hexCharToVal(clean.charCodeAt(i))
+    let lo = hexCharToVal(clean.charCodeAt(i + 1))
+    if hi < 0 or lo < 0:
+      ret Err("hexDecode: invalid hex character at index " + str(i))
+    out.push((hi << 4) | lo)
+    i = i + 2
+  ret Ok(bytesFromArray(out))
+
+fn padHex4(val: int): str:
+  mut chars: [str] = []
+  chars.push(hexNibbleToChar((val >> 12) & 15, false))
+  chars.push(hexNibbleToChar((val >> 8) & 15, false))
+  chars.push(hexNibbleToChar((val >> 4) & 15, false))
+  chars.push(hexNibbleToChar(val & 15, false))
+  ret chars.join("")
+
+pub fn hexDump(data: bytes, bytesPerLine: int = 16): str:
+  let step = if bytesPerLine <= 0: 16 else: bytesPerLine
+  let n = data.len()
+  if n == 0:
+    ret "0000: "
+  mut lines: [str] = []
+  mut offset = 0
+  while offset < n:
+    mut hexCols: [str] = []
+    mut asciiCols: [str] = []
+    mut col = 0
+    while col < step:
+      let idx = offset + col
+      if idx < n:
+        let b = data[idx] & 255
+        hexCols.push(hexNibbleToChar((b >> 4) & 15, false) + hexNibbleToChar(b & 15, false))
+        if b >= 32 and b <= 126:
+          asciiCols.push(chr(b))
+        else:
+          asciiCols.push(".")
+      else:
+        hexCols.push("  ")
+      col = col + 1
+    lines.push(padHex4(offset) + ": " + hexCols.join(" ") + "  |" + asciiCols.join("") + "|")
+    offset = offset + step
+  ret lines.join("\n")
+
+pub fn hexDigitChar(val: int): str:
+  ret hexNibbleToChar(val, false)
+
+pub fn hexEncodeUpper(data: bytes): str:
+  ret hexEncode(data, true)
+
+pub fn hexValidate(s: str): bool:
+  let clean = s.trim()
+  if clean.len == 0 or (clean.len % 2) != 0:
+    ret false
+  mut i = 0
+  while i < clean.len:
+    if hexCharToVal(clean.charCodeAt(i)) < 0:
+      ret false
+    i = i + 1
+  ret true
+
+pub fn formatHexOffset8(offset: int): str:
+  mut parts: [str] = []
+  mut shift = 28
+  while shift >= 0:
+    parts.push(hexDigitChar((offset >> shift) & 15))
+    shift = shift - 4
+  ret parts.join("")
+
+pub fn formatHexdump(data: bytes): [str]:
+  let n = data.len()
+  if n == 0:
+    ret []
+  mut lines: [str] = []
+  mut offset = 0
+  while offset < n:
+    let offHex = formatHexOffset8(offset)
+    mut hexCols: [str] = []
+    mut asciiCols: [str] = []
+    mut col = 0
+    while col < 16:
+      if offset + col < n:
+        let b = data[offset + col] & 255
+        hexCols.push(hexDigitChar((b >> 4) & 15) + hexDigitChar(b & 15) + " ")
+        if b >= 32 and b <= 126:
+          asciiCols.push(chr(b))
+        else:
+          asciiCols.push(".")
+      else:
+        hexCols.push("   ")
+      if col == 7:
+        hexCols.push(" ")
+      col = col + 1
+    lines.push(offHex + "  " + hexCols.join("") + " |" + asciiCols.join("") + "|")
+    offset = offset + 16
+  ret lines
+
+pub fn hexdump(data: bytes): str:
+  let lines = formatHexdump(data)
+  if lines.len == 0:
+    ret ""
+  ret lines.join("\n")

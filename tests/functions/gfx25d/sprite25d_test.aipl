@@ -1,0 +1,86 @@
+module tests.functions.gfx25d.sprite25d_test
+
+import { assert, assertEqInt } from "std/prelude"
+import {
+  rgb,
+  initCanvas,
+  clearScreen,
+  setDepthTest,
+  clearDepth,
+  getPixel,
+  createProceduralTexture,
+  createIsometricSpriteSheet
+} from "std/gfx2d/shape2d"
+import {
+  createCamera25D,
+  project3DToIso,
+  IsoSpriteRig25D,
+  direction8FromVelocity,
+  createIsoSpriteRig25D,
+  stepIsoSpriteRig25D,
+  drawContactShadow25D,
+  drawSpriteBillboard25D,
+  drawIsoSpriteRig25D
+} from "std/gfx25d/gfx25d_mod"
+
+pub fn test_sprite25d_direction8_quantizer(): int:
+  assertEqInt(direction8FromVelocity(0.0, -10.0, 4), 0, "North (0, -1) -> dir 0")
+  assertEqInt(direction8FromVelocity(10.0, -10.0, 4), 1, "North-East (1, -1) -> dir 1")
+  assertEqInt(direction8FromVelocity(10.0, 0.0, 4), 2, "East (1, 0) -> dir 2")
+  assertEqInt(direction8FromVelocity(10.0, 10.0, 4), 3, "South-East (1, 1) -> dir 3")
+  assertEqInt(direction8FromVelocity(0.0, 10.0, 0), 4, "South (0, 1) -> dir 4")
+  assertEqInt(direction8FromVelocity(-10.0, 10.0, 0), 5, "South-West (-1, 1) -> dir 5")
+  assertEqInt(direction8FromVelocity(-10.0, 0.0, 0), 6, "West (-1, 0) -> dir 6")
+  assertEqInt(direction8FromVelocity(-10.0, -10.0, 0), 7, "North-West (-1, -1) -> dir 7")
+  assertEqInt(direction8FromVelocity(0.0, 0.0, 6), 6, "Zero velocity preserves fallbackDir8 = 6")
+  ret 0
+
+pub fn test_sprite25d_rig_step_and_alpha_cutout_zbuffer(): int:
+  initCanvas(320, 240)
+  clearScreen(rgb(30, 40, 55))
+  setDepthTest(true)
+  clearDepth()
+
+  let cam = createCamera25D(320.0, 240.0, 1.0, 45.0, 30.0)
+  let shadowTex = createProceduralTexture("light_cookie", 32, 32, 19)
+  let knightSheet = createIsometricSpriteSheet("hero_knight", 40, 40, 8, 4, 77)
+  assert(knightSheet > 0, "createIsometricSpriteSheet synthesizes 8-dir hero_knight sheet")
+
+  mut rig = createIsoSpriteRig25D(knightSheet, 40, 40, 8, 4, 0.0, 0.0, 0.0, 1.25, 10.0)
+  assertEqInt(rig.dir8, 4, "initial rig faces South (4)")
+
+  rig = stepIsoSpriteRig25D(rig, 20.0, -20.0, 5.0, 0.12)
+  assertEqInt(rig.dir8, 1, "stepping (+20, -20) updates dir8 to NE (1)")
+  assertEqInt(rig.animFrame, 1, "stepping 0.12s at 10fps advances animFrame to 1")
+  assert(rig.wz == 5.0, "stepIsoSpriteRig25D snaps wz to terrainWz")
+
+  // Draw foreground sprite rig at (0, 0, 5)
+  let shadowQuads = drawContactShadow25D(cam, shadowTex, 0.0, 0.0, 5.0, 24.0, 12.0, 0.5)
+  assertEqInt(shadowQuads, 1, "drawContactShadow25D renders 1 elliptical contact shadow quad")
+  let quads = drawIsoSpriteRig25D(cam, rig, shadowTex, rgb(255, 255, 255))
+  assertEqInt(quads, 2, "drawIsoSpriteRig25D renders 1 contact shadow + 1 billboard quad")
+
+  // Verify alpha-test Z-buffer cutout: top-left corner of the foreground sprite quad is transparent (alpha=0),
+  // so drawing a bright green billboard BEHIND the sprite's transparent corner must still be visible!
+  let anchor = project3DToIso(cam, rig.wx, rig.wy, rig.wz)
+  let cornerX = int(anchor.x - 21.0)
+  let cornerY = int(anchor.y - 44.0)
+  let bgBefore = getPixel(cornerX, cornerY)
+  assertEqInt((bgBefore >> 16) & 255, 40, "transparent sprite corner preserves background pixel")
+
+  // Draw a solid bright-green quad behind the hero rig overlapping the hero's transparent top-left corner
+  let solidTex = createProceduralTexture("grass", 16, 16, 5)
+  let bb = drawSpriteBillboard25D(cam, solidTex, -15.0, -15.0, 22.0, 60.0, 60.0, 0.0, 0.0, 1.0, 1.0, rgb(50, 255, 80))
+  assertEqInt(bb, 1, "drawSpriteBillboard25D returns 1")
+
+  let bgAfter = getPixel(cornerX, cornerY)
+  assert(((bgAfter >> 16) & 255) > 80, "background geometry shines through transparent sprite corner (alpha-test Z cutout)")
+
+  setDepthTest(false)
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_sprite25d_direction8_quantizer(), 0, "test_sprite25d_direction8_quantizer")
+  assertEqInt(test_sprite25d_rig_step_and_alpha_cutout_zbuffer(), 0, "test_sprite25d_rig_step_and_alpha_cutout_zbuffer")
+  println("PASS: sprite25d_test")
+  ret 0

@@ -1,0 +1,203 @@
+// ============================================================================
+// Module: std/time/cooldown_timer (CooldownTimerMod)
+// Layer 1 (Core Primitives & Math) — Cooldowns, Tickers, Stopwatches & Debounce
+// ============================================================================
+module CooldownTimerMod
+
+import { Duration, durationZero, durationFromNanos } from "./duration"
+import { Instant, instantNow, instantFromNanos } from "./instant"
+
+pub struct CooldownTimer:
+  duration: Duration
+  lastTrigger: Instant
+  isReady: bool
+
+pub struct RepeatingTicker:
+  interval: Duration
+  lastTick: Instant
+  ticksPending: int
+
+pub struct Stopwatch:
+  startInstant: Instant
+  accumulated: Duration
+  isRunning: bool
+
+pub struct DebounceTimer:
+  delay: Duration
+  pendingInstant: Instant
+  hasPending: bool
+
+pub fn cooldownTimerNew(d: Duration): CooldownTimer:
+  ret CooldownTimer(
+    duration = d,
+    lastTrigger = instantFromNanos(0),
+    isReady = true
+  )
+
+pub fn (mut self: CooldownTimer) trigger(): bool:
+  let now = instantNow()
+  if self.isReady:
+    self.lastTrigger = now
+    self.isReady = false
+    ret true
+  let elapsedNs = now.durationSince(self.lastTrigger).toNanos()
+  if elapsedNs >= self.duration.toNanos():
+    self.lastTrigger = now
+    self.isReady = false
+    ret true
+  ret false
+
+pub fn (mut self: CooldownTimer) triggerAt(now: Instant): bool:
+  if self.isReady:
+    self.lastTrigger = now
+    self.isReady = false
+    ret true
+  let elapsedNs = now.durationSince(self.lastTrigger).toNanos()
+  if elapsedNs >= self.duration.toNanos():
+    self.lastTrigger = now
+    self.isReady = false
+    ret true
+  ret false
+
+pub fn (mut self: CooldownTimer) reset(): void:
+  self.isReady = true
+  self.lastTrigger = instantFromNanos(0)
+
+pub fn (self: CooldownTimer) remainingAt(now: Instant): Duration:
+  if self.isReady:
+    ret durationZero()
+  let elapsedNs = now.durationSince(self.lastTrigger).toNanos()
+  let remNs = self.duration.toNanos() - elapsedNs
+  if remNs <= 0:
+    ret durationZero()
+  ret durationFromNanos(remNs)
+
+pub fn (self: CooldownTimer) remaining(): Duration:
+  ret self.remainingAt(instantNow())
+
+pub fn (self: CooldownTimer) progressAt(now: Instant): float:
+  if self.isReady:
+    ret 1.0
+  let totalNs = self.duration.toNanos()
+  if totalNs <= 0:
+    ret 1.0
+  let elapsedNs = now.durationSince(self.lastTrigger).toNanos()
+  if elapsedNs <= 0:
+    ret 0.0
+  if elapsedNs >= totalNs:
+    ret 1.0
+  ret float(elapsedNs) / float(totalNs)
+
+pub fn (self: CooldownTimer) progress(): float:
+  ret self.progressAt(instantNow())
+
+pub fn repeatingTickerNew(interval: Duration): RepeatingTicker:
+  ret RepeatingTicker(
+    interval = interval,
+    lastTick = instantNow(),
+    ticksPending = 0
+  )
+
+pub fn repeatingTickerNewAt(interval: Duration, start: Instant): RepeatingTicker:
+  ret RepeatingTicker(
+    interval = interval,
+    lastTick = start,
+    ticksPending = 0
+  )
+
+pub fn (mut self: RepeatingTicker) pollTicks(now: Instant): int:
+  let stepNs = self.interval.toNanos()
+  if stepNs <= 0:
+    ret 0
+  let elapsedNs = now.durationSince(self.lastTick).toNanos()
+  if elapsedNs < stepNs:
+    ret 0
+  let count = elapsedNs / stepNs
+  self.lastTick = Instant(nanos = self.lastTick.nanos + count * stepNs)
+  self.ticksPending = count
+  ret count
+
+pub fn (mut self: RepeatingTicker) resetAt(now: Instant): void:
+  self.lastTick = now
+  self.ticksPending = 0
+
+pub fn stopwatchNew(): Stopwatch:
+  ret Stopwatch(
+    startInstant = instantFromNanos(0),
+    accumulated = durationZero(),
+    isRunning = false
+  )
+
+pub fn (mut self: Stopwatch) start(): void:
+  if not self.isRunning:
+    self.startInstant = instantNow()
+    self.isRunning = true
+
+pub fn (mut self: Stopwatch) startAt(now: Instant): void:
+  if not self.isRunning:
+    self.startInstant = now
+    self.isRunning = true
+
+pub fn (mut self: Stopwatch) stop(): void:
+  if self.isRunning:
+    let now = instantNow()
+    let delta = now.durationSince(self.startInstant)
+    self.accumulated = self.accumulated.add(delta)
+    self.isRunning = false
+
+pub fn (mut self: Stopwatch) stopAt(now: Instant): void:
+  if self.isRunning:
+    let delta = now.durationSince(self.startInstant)
+    self.accumulated = self.accumulated.add(delta)
+    self.isRunning = false
+
+pub fn (mut self: Stopwatch) reset(): void:
+  self.startInstant = instantFromNanos(0)
+  self.accumulated = durationZero()
+  self.isRunning = false
+
+pub fn (mut self: Stopwatch) restart(): Duration:
+  let total = self.elapsed()
+  self.accumulated = durationZero()
+  self.startInstant = instantNow()
+  self.isRunning = true
+  ret total
+
+pub fn (self: Stopwatch) elapsedAt(now: Instant): Duration:
+  if not self.isRunning:
+    ret self.accumulated
+  let active = now.durationSince(self.startInstant)
+  ret self.accumulated.add(active)
+
+pub fn (self: Stopwatch) elapsed(): Duration:
+  ret self.elapsedAt(instantNow())
+
+pub fn (self: Stopwatch) elapsedMs(): int:
+  ret self.elapsed().toMillis()
+
+pub fn debounceTimerNew(delay: Duration): DebounceTimer:
+  ret DebounceTimer(
+    delay = delay,
+    pendingInstant = instantFromNanos(0),
+    hasPending = false
+  )
+
+pub fn (mut self: DebounceTimer) trigger(): void:
+  self.pendingInstant = instantNow()
+  self.hasPending = true
+
+pub fn (mut self: DebounceTimer) triggerAt(now: Instant): void:
+  self.pendingInstant = now
+  self.hasPending = true
+
+pub fn (mut self: DebounceTimer) cancel(): void:
+  self.hasPending = false
+
+pub fn (mut self: DebounceTimer) isReady(now: Instant): bool:
+  if not self.hasPending:
+    ret false
+  let elapsedNs = now.durationSince(self.pendingInstant).toNanos()
+  if elapsedNs >= self.delay.toNanos():
+    self.hasPending = false
+    ret true
+  ret false

@@ -1,0 +1,164 @@
+// ============================================================================
+// Canonical Example 152: WAV 16-Bit PCM Codec & Resampler Waveform Editor (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/audio/audio_codec
+// ============================================================================
+module Ex152AudioCodecWavWaveformEditorWindow
+
+import {
+  PcmAudioBuffer,
+  decodeWav,
+  encodeWav,
+  resamplePcmLinear,
+  resamplePcmCubic,
+  encodeWavPcm16,
+  decodeWavPcm16
+} from "../std/audio/audio_codec.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+import { playPcmBuffer, playToneEx } from "../std/audio/audio_device.aipl"
+
+pub fn verifyWavPcmCodecAndResamplers(): int:
+  mut wav = [
+    82, 73, 70, 70, 44, 0, 0, 0, 87, 65, 86, 69,
+    102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 1, 0,
+    68, 172, 0, 0, 136, 88, 1, 0, 2, 0, 16, 0,
+    100, 97, 116, 97, 8, 0, 0, 0,
+    0, 0, 0, 64, 0, 192, 0, 0
+  ]
+  let buf = decodeWav(wav).unwrap()
+  let reEncoded = encodeWav(buf)
+  let resLin = resamplePcmLinear(buf, 88200)
+  let resCub = resamplePcmCubic(buf, 88200)
+
+  let rawWav16 = encodeWavPcm16([0.0, 0.5, -0.5, 1.0], 22050, 1)
+  assert(decodeWavPcm16(rawWav16).isOk(), "decodeWavPcm16 ok")
+  ret reEncoded.len() + resLin.totalFrames + resCub.totalFrames
+
+pub fn computeWavByteRatePerSec(sampleRateHz: int, channels: int, bitsPerSample: int): int:
+  let sr = maxInt(8000, sampleRateHz)
+  let ch = clampInt(channels, 1, 8)
+  let bytesPerSample = maxInt(1, bitsPerSample / 8)
+  ret sr * ch * bytesPerSample
+
+pub fn describeWavContainerFormat(bitDepth: int): str:
+  let b = clampInt(bitDepth, 8, 32)
+  ret "WAV:RIFF_PCM_" + str(b) + "BIT_LE"
+
+pub fn buildLiveWavResampledBuffers(): (PcmAudioBuffer, PcmAudioBuffer):
+  mut srcSamples: [float] = []
+  mut i = 0
+  while i < 24:
+    let rawAmp = float(((i * 37 + 19) % 180) - 90) / 100.0
+    srcSamples.push(rawAmp)
+    i = i + 1
+  let srcBuf = PcmAudioBuffer(
+    sampleRate = 44100,
+    channels = 1,
+    totalFrames = 24,
+    samples = srcSamples
+  )
+  let encodedBytes = encodeWav(srcBuf)
+  let decodedBuf = decodeWav(encodedBytes).unwrap()
+  let resLin = resamplePcmLinear(decodedBuf, 88200)
+  let resCub = resamplePcmCubic(decodedBuf, 88200)
+  ret (resLin, resCub)
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let (_, resCub) = buildLiveWavResampledBuffers()
+  let playheadBar = frameIndex % resCub.samples.len
+  let s = resCub.samples[playheadBar]
+  let absPm = int((if s < 0.0: -s else: s) * 1000.0 + 0.5)
+  ret verifyWavPcmCodecAndResamplers() + absPm + playheadBar * 10 + int(dt * 0.0)
+
+pub fn renderWavWaveformEditorScene(frameIndex: int): void:
+  let (resLin, resCub) = buildLiveWavResampledBuffers()
+  let playheadBar = frameIndex % resCub.samples.len
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_152 // RIFF WAVE 16-BIT PCM WAVEFORM EDITOR & CUBIC RESAMPLER", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Top: Bipolar PCM Waveform Editor Track driven by decoded & cubic-resampled PcmAudioBuffer
+  let wx = 56.0
+  let wy = 96.0
+  let ww = 1168.0
+  let wh = 310.0
+  drawRect(wx, wy, ww, wh, rgb(14, 21, 36))
+  drawRectOutline(wx, wy, ww, wh, 2.0, rgb(71, 85, 105))
+
+  // Highlighted Non-Destructive Trim Region
+  drawRect(wx + 240.0, wy + 40.0, 520.0, wh - 56.0, rgb(20, 36, 62))
+  drawLine(wx + 240.0, wy + 30.0, wx + 240.0, wy + wh - 16.0, rgb(250, 204, 21), 2.5)
+  drawLine(wx + 760.0, wy + 30.0, wx + 760.0, wy + wh - 16.0, rgb(250, 204, 21), 2.5)
+  drawText("NON-DESTRUCTIVE LOOP REGION [00:01.20 .. 00:03.80]", wx + 256.0, wy + 16.0, 14.0, rgb(250, 204, 21))
+
+  let centerLineY = wy + 175.0
+  drawLine(wx + 20.0, centerLineY, wx + ww - 20.0, centerLineY, rgb(51, 65, 85), 1.5)
+
+  mut b = 0
+  while b < resCub.samples.len:
+    let bx = wx + 44.0 + float(b * 23)
+    let sampleVal = resCub.samples[b]
+    let absVal = if sampleVal < 0.0: -sampleVal else: sampleVal
+    let amp = 14.0 + absVal * 95.0
+    let isPos = b == playheadBar
+    let barCol = if isPos: rgb(34, 197, 94) else: (if b >= 9 and b <= 31: rgb(56, 189, 248) else: rgb(100, 116, 139))
+    drawRect(bx, centerLineY - amp, 14.0, amp * 2.0, barCol)
+    b = b + 1
+
+  // Bottom: 44.1kHz -> 88.2kHz Upsampling Comparison & RIFF Header Breakdown
+  drawRect(56.0, 430.0, 1168.0, 246.0, rgb(16, 24, 42))
+  drawRectOutline(56.0, 430.0, 1168.0, 246.0, 2.0, rgb(56, 189, 248))
+  drawText("44-BYTE RIFF/WAVE HEADER & 2X CATMULL-ROM CUBIC UPSAMPLER (44.1kHz -> " + str(resCub.sampleRate) + "Hz)", 80.0, 456.0, 17.0, rgb(56, 189, 248))
+  drawText(describeWavContainerFormat(16) + " | Stereo ByteRate: " + str(computeWavByteRatePerSec(44100, 2, 16)) + " B/s", 80.0, 492.0, 15.0, rgb(74, 222, 128))
+  drawText("Chunks: [RIFF 4B] [FileSize 4B] [WAVE 4B] [fmt  24B] [data 8B+PCM] | Resampled Frames: 24 -> " + str(resCub.totalFrames), 80.0, 526.0, 15.0, rgb(226, 232, 240))
+
+  // Draw 8 live resampled nodes comparing resamplePcmLinear vs resamplePcmCubic around playhead
+  mut n = 0
+  while n < 8:
+    let idx = (playheadBar + n) % resCub.samples.len
+    let nx = 120.0 + float(n * 135)
+    let cubY = 605.0 - resCub.samples[idx] * 38.0
+    let linY = 605.0 - resLin.samples[idx] * 38.0
+    if n < 7:
+      let nextIdx = (playheadBar + n + 1) % resCub.samples.len
+      let nextX = 120.0 + float((n + 1) * 135)
+      let nextCubY = 605.0 - resCub.samples[nextIdx] * 38.0
+      let nextLinY = 605.0 - resLin.samples[nextIdx] * 38.0
+      drawLine(nx, linY, nextX, nextLinY, rgb(56, 189, 248), 2.0)
+      drawLine(nx, cubY, nextX, nextCubY, rgb(168, 85, 247), 2.5)
+    drawCircle(nx, linY, 5.0, rgb(56, 189, 248))
+    drawCircle(nx, cubY, 7.0, rgb(168, 85, 247))
+    drawText("S" + str(idx), nx - 10.0, cubY + 14.0, 13.0, rgb(216, 180, 254))
+    n = n + 1
+
+pub fn main(): int:
+  let m = verifyWavPcmCodecAndResamplers()
+  assert(m == 68, "WAV codec metric 68")
+  initWindow(1280, 720, "AIPL ex_152 - WAV 16-Bit PCM Codec & Waveform Editor")
+  mut frame: int = 0
+  while not windowShouldClose():
+    if frame % 24 == 0:
+      let (_, resCub) = buildLiveWavResampledBuffers()
+      let _ = playPcmBuffer(resCub.samples, resCub.sampleRate)
+      let _ = playToneEx(329.63, 180.0, 0.30, "bell")
+    beginDrawing()
+    renderWavWaveformEditorScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

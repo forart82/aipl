@@ -1,0 +1,51 @@
+// ============================================================================
+// Canonical Example 120: UDP Datagram Multicast & Broadcaster (CLI)
+// Target Profile: CLI | Standard Library Module: std/net
+// ============================================================================
+module Ex120NetUdpDatagramBroadcasterCli
+
+import {
+  parseSocketAddr,
+  netUdpBind,
+  netUdpSetBroadcast,
+  netUdpJoinMulticast,
+  netUdpLeaveMulticast,
+  netUdpSendTo,
+  netUdpRecvFrom,
+  netUdpClose
+} from "../std/net/net_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyUdpMulticastAndDatagramExchange(): int:
+  let addr = parseSocketAddr("127.0.0.1:9001").unwrap()
+  mut udp = netUdpBind(addr).unwrap()
+  assert(netUdpSetBroadcast(udp, true).unwrap(), "UDP broadcast enabled")
+  assert(netUdpJoinMulticast(udp, addr.ip, addr.ip).unwrap(), "UDP multicast join")
+  assert(netUdpLeaveMulticast(udp, addr.ip, addr.ip).unwrap(), "UDP multicast leave")
+
+  let sent = netUdpSendTo(udp, addr, [10, 20, 30]).unwrap()
+  assert(sent == 3, "3 UDP bytes sent")
+  let dgram = netUdpRecvFrom(udp, 16).unwrap()
+  assert(netUdpClose(udp), "UDP socket closed")
+  ret dgram.length
+
+pub fn computeSafeUdpPayloadUnderMtu(mtuBytes: int): int:
+  let m = maxInt(68, mtuBytes)
+  ret m - 28
+
+pub fn describeUdpMulticastScope(firstOctet: int): str:
+  let o = clampInt(firstOctet, 0, 255)
+  if o == 239:
+    ret "UDP:ADMIN_SCOPED_MULTICAST_239"
+  if o >= 224 and o <= 238:
+    ret "UDP:GLOBAL_MULTICAST_" + str(o)
+  ret "UDP:UNICAST_OR_BROADCAST_" + str(o)
+
+pub fn main(): int:
+  let dgramLen = verifyUdpMulticastAndDatagramExchange()
+  let safeMtu = computeSafeUdpPayloadUnderMtu(1500)
+  let tag = describeUdpMulticastScope(239)
+  assert(dgramLen == 3, "UDP datagram length 3")
+  assert(safeMtu == 1472, "safe UDP payload 1472")
+  println(tag + " | dgram=" + str(dgramLen) + " | safeMtu=" + str(safeMtu))
+  ret 0

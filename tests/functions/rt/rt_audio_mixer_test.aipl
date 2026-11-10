@@ -1,0 +1,88 @@
+// ============================================================================
+// Step 3.11: Exhaustive Per-Function Unit Tests for std/rt/rt_audio_mixer.aipl (10)
+// Target: tests/functions/rt/rt_audio_mixer_test.aipl
+// ============================================================================
+module RtAudioMixerTest
+
+import {
+  assert,
+  assertEqInt,
+  assertApproxEq
+} from "../../../std/prelude.aipl"
+
+import {
+  sysPtrAlloc,
+  sysPtrFree
+} from "../../../std/sys/sys_mem.aipl"
+
+import {
+  RtVoice,
+  RtAudioMixer,
+  RtWavHeader,
+  rtAudioMixerNew,
+  rtAudioMixerAddVoice,
+  rtAudioMixerStopVoice,
+  rtAudioSoftClip,
+  rtAudioMixerRender,
+  rtSin,
+  rtSynthSinePcm16,
+  rtMixPcm16,
+  rtPcm16ToBytes,
+  rtEncodeWavHeader
+} from "../../../std/rt/rt_audio_mixer.aipl"
+
+pub fn test_audio_dsp_math(): int:
+  assertApproxEq(rtSin(0.0), 0.0, 0.0001, "rtSin(0) == 0")
+  assertApproxEq(rtAudioSoftClip(0.0), 0.0, 0.0001, "softClip(0) == 0")
+  assertApproxEq(rtAudioSoftClip(2.0), 1.0, 0.0001, "softClip saturation hi")
+  assertApproxEq(rtAudioSoftClip(-2.0), -1.0, 0.0001, "softClip saturation lo")
+
+  let sineSamples = rtSynthSinePcm16(440.0, 0.01, 0.5, 44100)
+  assert(sineSamples.len() > 0, "sine samples generated")
+
+  let mixed = rtMixPcm16(sineSamples, sineSamples, 0.5, 0.5)
+  assertEqInt(mixed.len(), sineSamples.len(), "mixed len matches")
+
+  let rawBytes = rtPcm16ToBytes(sineSamples)
+  assertEqInt(rawBytes.len(), sineSamples.len() * 2, "pcm16 bytes length is 2x samples")
+  ret 0
+
+pub fn test_wav_header_and_mixer(): int:
+  let hdr = rtEncodeWavHeader(44100, 2, 1000)
+  assertEqInt(hdr.len(), 44, "RIFF/WAVE header is exactly 44 bytes")
+  // Check 'RIFF' magic
+  assertEqInt(hdr[0], 82, "R")
+  assertEqInt(hdr[1], 73, "I")
+  assertEqInt(hdr[2], 70, "F")
+  assertEqInt(hdr[3], 70, "F")
+  // Check 'WAVE'
+  assertEqInt(hdr[8], 87, "W")
+  assertEqInt(hdr[9], 65, "A")
+  assertEqInt(hdr[10], 86, "V")
+  assertEqInt(hdr[11], 69, "E")
+
+  mut mixer = rtAudioMixerNew(44100, 2)
+  let voice = RtVoice(
+    sampleDataPtr = 0,
+    lengthFrames = 0,
+    cursor = 0,
+    volume = 1.0,
+    looping = false,
+    active = false
+  )
+  let vId = rtAudioMixerAddVoice(mixer, voice)
+  assertEqInt(vId, 0, "voice id 0")
+  rtAudioMixerStopVoice(mixer, vId)
+  assert(mixer.voices[0].active == false, "voice stopped")
+
+  let outBuf = sysPtrAlloc(512)
+  let rendered = rtAudioMixerRender(mixer, outBuf, 128)
+  assertEqInt(rendered, 128, "rendered 128 frames")
+  sysPtrFree(outBuf)
+  ret 0
+
+pub fn main(): int:
+  test_audio_dsp_math()
+  test_wav_header_and_mixer()
+  println("PASS: rt_audio_mixer_test")
+  ret 0

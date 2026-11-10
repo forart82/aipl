@@ -1,0 +1,76 @@
+// ============================================================================
+// Twin Test Suite 262: Dark-Fantasy Encampment 2.5D ARPG Showcase
+// Verifies examples/ex_262_dark_fantasy_encampment_arpg_window.aipl
+// ============================================================================
+module Ex262DarkFantasyEncampmentArpgWindowTest
+
+import {
+  EncampmentState25D,
+  resolveEncampmentAssetPath,
+  createEncampmentState25D,
+  stepEncampmentState25D,
+  renderEncampmentScene25D,
+  renderEncampmentFrameStep
+} from "../../examples/ex_262_dark_fantasy_encampment_arpg_window.aipl"
+import { project3DToIso } from "../../std/gfx25d/gfx25d_mod.aipl"
+import { sampleHeightAt } from "../../std/gfx3d/terrain3d.aipl"
+import { initCanvas, getPixel, getWindowMode } from "../../std/gfx2d/shape2d.aipl"
+import { assert, assertEqInt, absInt, fileExists } from "../../std/prelude.aipl"
+
+pub fn test_dark_fantasy_encampment_arpg(): int:
+  initCanvas(640, 360)
+  mut st: EncampmentState25D = createEncampmentState25D(640.0, 360.0)
+
+  // Verify pre-baked P6 PPM assets exist on disk and texture handles are valid
+  assert(fileExists(resolveEncampmentAssetPath("examples/assets/hero_knight_8dir.ppm")), "hero_knight_8dir.ppm baked on disk")
+  assert(fileExists(resolveEncampmentAssetPath("examples/assets/campfire_anim.ppm")), "campfire_anim.ppm baked on disk")
+  assert(fileExists(resolveEncampmentAssetPath("examples/assets/light_cookie.ppm")), "light_cookie.ppm baked on disk")
+  assert(fileExists(resolveEncampmentAssetPath("examples/assets/mud_track.ppm")), "mud_track.ppm baked on disk")
+  assert(st.assets.heroSheet >= 1 and st.assets.campfireSheet >= 1 and st.assets.lightCookieTex >= 1, "ARPG sprite sheets and light cookie handles valid")
+
+  // Step state across multiple compass directions
+  st = stepEncampmentState25D(st, 0.08)
+  assertEqInt(st.tick, 1, "stepEncampmentState25D increments tick")
+  assert(st.heroRig.dir8 >= 0 and st.heroRig.dir8 <= 7, "heroRig dir8 in 0..7")
+
+  let prims = renderEncampmentScene25D(st)
+  assert(prims > 260, "renderEncampmentScene25D emits > 260 splatted terrain, structure, sprite, mist & lighting primitives")
+
+  // Verify campfire center luminance is significantly brighter than distant ambient moor pixel
+  let cx = 117.0
+  let cy = 117.0
+  let cz = sampleHeightAt(st.terrain, cx, cy)
+  let campProj = project3DToIso(st.cam, cx, cy, cz + 6.0)
+  let campPx = getPixel(int(campProj.x), int(campProj.y))
+  let campLum = ((campPx >> 24) & 255) + ((campPx >> 16) & 255) + ((campPx >> 8) & 255)
+
+  let moorProj = project3DToIso(st.cam, cx - 75.0, cy - 65.0, sampleHeightAt(st.terrain, cx - 75.0, cy - 65.0))
+  let moorPx = getPixel(int(moorProj.x), int(moorProj.y))
+  let moorLum = ((moorPx >> 24) & 255) + ((moorPx >> 16) & 255) + ((moorPx >> 8) & 255)
+  assert(campLum > moorLum + 80, "additive campfire light cookie is significantly brighter than distant ambient moor")
+
+  // Verify high-frequency texel variance across the encampment courtyard
+  mut neighborDiffSum = 0
+  mut prevR = -1
+  mut sy = 130
+  while sy <= 230:
+    mut sx = 220
+    while sx <= 420:
+      let px = getPixel(sx, sy)
+      let r = (px >> 24) & 255
+      if prevR >= 0:
+        neighborDiffSum += absInt(r - prevR)
+      prevR = r
+      sx += 4
+    sy += 8
+  assert(neighborDiffSum > 350, "multi-biome splatted encampment exhibits high-frequency texel detail")
+
+  let f0 = renderEncampmentFrameStep(0, 0.02)
+  assert(getWindowMode() == "glx", "window mode is glx")
+  assert(f0 > 260, "renderEncampmentFrameStep primitive count > 260")
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_dark_fantasy_encampment_arpg(), 0, "test_dark_fantasy_encampment_arpg")
+  println("PASS: ex_262_dark_fantasy_encampment_arpg_window_test")
+  ret 0

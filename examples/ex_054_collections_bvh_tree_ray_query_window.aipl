@@ -1,0 +1,163 @@
+// ============================================================================
+// Example 054: SAH BVH Tree Hierarchy & Ray Traversal Window
+// Demonstrates: BvhAabb, bvhAabbUnion, bvhAabbSurfaceArea, bvhAabbRayHit,
+//               bvhBuildSAH, and .rayIntersect() from std/collections/bvh_tree,
+//               rendered in a 1280x720 desktop window.
+// ============================================================================
+module Ex054CollectionsBvhTreeRayQueryWindow
+
+import { clampInt } from "../std/prelude"
+import {
+  BvhAabb,
+  BvhNode,
+  BvhTree3D,
+  bvhAabbUnion,
+  bvhAabbSurfaceArea,
+  bvhAabbRayHit,
+  bvhBuildSAH
+} from "../std/collections/bvh_tree"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct BvhQueryState:
+  leafZeroArea: int
+  unionMaxX: int
+  rayHitLeaves: int
+  rayXWorld: float
+
+pub fn buildDemoBvh(): BvhTree3D:
+  let leaf0 = BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 2.0, maxY = 2.0, maxZ = 2.0)
+  let leaf1 = BvhAabb(minX = 10.0, minY = 0.0, minZ = 0.0, maxX = 12.0, maxY = 2.0, maxZ = 2.0)
+  ret bvhBuildSAH([leaf0, leaf1])
+
+pub fn evaluateSahBvhRayAndSurfaceArea(): int:
+  let bvh = buildDemoBvh()
+  let leaf0 = bvh.nodes[0].bounds
+  let leaf1 = bvh.nodes[1].bounds
+  let parentBox = bvhAabbUnion(leaf0, leaf1)
+  let area0 = int(bvhAabbSurfaceArea(leaf0) + 0.5)
+  let hits = bvh.rayIntersect(1.0, 1.0, -5.0, 0.0, 0.0, 1.0)
+  if bvhAabbRayHit(leaf0, 1.0, 1.0, -5.0, 0.0, 0.0, 1.0) and hits[0] == 0:
+    ret area0 + int(parentBox.maxX + 0.5) + hits.len
+  ret -1
+
+pub fn describeBvhPartitionHeuristic(modeId: int): str:
+  if modeId == 0:
+    ret "BVH:SURFACE_AREA_HEURISTIC_SAH"
+  ret "BVH:MEDIAN_CENTROID_SPLIT"
+
+pub fn buildBvhQueryState(frameIdx: int): BvhQueryState:
+  let bvh = buildDemoBvh()
+  let leaf0 = bvh.nodes[0].bounds
+  let rootNode: BvhNode = bvh.nodes[bvh.rootIndex]
+  let uBox = rootNode.bounds
+  let hits = bvh.rayIntersect(1.0, 1.0, -5.0, 0.0, 0.0, 1.0)
+  ret BvhQueryState(
+    leafZeroArea = int(bvhAabbSurfaceArea(leaf0) + 0.5),
+    unionMaxX = int(uBox.maxX + 0.5),
+    rayHitLeaves = hits.len,
+    rayXWorld = float(frameIdx % 90) * 0.15
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildBvhQueryState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.leafZeroArea + st.unionMaxX + frameIndex + dtPad
+
+pub fn renderBvhWindowScene(frame: int): void:
+  let bvh = buildDemoBvh()
+  let st = buildBvhQueryState(frame)
+  let rootNode: BvhNode = bvh.nodes[bvh.rootIndex]
+  let leftNode: BvhNode = bvh.nodes[rootNode.leftChild]
+  let rightNode: BvhNode = bvh.nodes[rootNode.rightChild]
+  let rayXWorld = st.rayXWorld
+  let liveHits = bvh.rayIntersect(rayXWorld, 1.0, -5.0, 0.0, 0.0, 1.0)
+  mut hitLeft = false
+  mut hitRight = false
+  for i in 0..liveHits.len:
+    if liveHits[i] == leftNode.primitiveIndex:
+      hitLeft = true
+    if liveHits[i] == rightNode.primitiveIndex:
+      hitRight = true
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 44))
+  drawText("AIPL ex_054: Surface Area Heuristic (SAH) BVH Tree & Ray-AABB Pruning", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Left Panel: Spatial Bounding Volumes & Query Ray read directly from BvhNode.bounds
+  drawRect(48.0, 92.0, 620.0, 560.0, rgb(16, 23, 38))
+  drawRectOutline(48.0, 92.0, 620.0, 560.0, 2.0, rgb(56, 189, 248))
+  drawText("Spatial BVH Root Union AABB & Leaf Bounding Volumes", 72.0, 116.0, 18.0, rgb(191, 219, 254))
+
+  let scale = 42.0
+  let ox = 96.0
+  let oy = 210.0
+  let rBox = rootNode.bounds
+  drawRectOutline(ox + rBox.minX * scale - 8.0, oy - 24.0, (rBox.maxX - rBox.minX) * scale + 16.0, (rBox.maxY - rBox.minY) * scale + 112.0, 2.0, rgb(148, 163, 184))
+  drawText("Root Union AABB [0.0 .. " + str(int(rBox.maxX)) + ".0]", ox, oy - 48.0, 15.0, rgb(148, 163, 184))
+
+  let lBox = leftNode.bounds
+  let lx = ox + lBox.minX * scale
+  let lw = (lBox.maxX - lBox.minX) * scale
+  let lh = (lBox.maxY - lBox.minY) * scale + 64.0
+  drawRect(lx, oy, lw, lh, if hitLeft: rgb(69, 26, 38) else: rgb(23, 37, 84))
+  drawRectOutline(lx, oy, lw, lh, 2.5, if hitLeft: rgb(248, 113, 113) else: rgb(56, 189, 248))
+  drawText("L0 [0..2]", lx + 6.0, oy + 58.0, 14.0, rgb(254, 202, 202))
+  drawText(if hitLeft: "Leaf 0: HIT" else: "Leaf 0: PRUNED", lx, oy + lh + 26.0, 15.0, if hitLeft: rgb(248, 113, 113) else: rgb(148, 163, 184))
+
+  let rtBox = rightNode.bounds
+  let rx = ox + rtBox.minX * scale
+  let rw = (rtBox.maxX - rtBox.minX) * scale
+  let rh = (rtBox.maxY - rtBox.minY) * scale + 64.0
+  drawRect(rx, oy, rw, rh, if hitRight: rgb(69, 26, 38) else: rgb(23, 37, 84))
+  drawRectOutline(rx, oy, rw, rh, 2.0, if hitRight: rgb(248, 113, 113) else: rgb(56, 189, 248))
+  drawText("L1 [10..12]", rx + 4.0, oy + 58.0, 13.0, rgb(186, 230, 253))
+  drawText(if hitRight: "Leaf 1: HIT" else: "Leaf 1: PRUNED", rx - 24.0, oy + rh + 26.0, 15.0, if hitRight: rgb(248, 113, 113) else: rgb(148, 163, 184))
+
+  // Animated Ray beam piercing the BVH along +Z at x = rayXWorld
+  let screenRayX = ox + rayXWorld * scale
+  drawLine(screenRayX, 160.0, screenRayX, 420.0, rgb(250, 204, 21), 3.0)
+  drawCircle(screenRayX, oy + 70.0, 7.0, if liveHits.len > 0: rgb(248, 113, 113) else: rgb(148, 163, 184))
+
+  // Right Panel: BVH Hierarchy Tree Diagram & SAH Telemetry
+  drawRect(704.0, 92.0, 528.0, 560.0, rgb(17, 24, 39))
+  drawRectOutline(704.0, 92.0, 528.0, 560.0, 2.0, rgb(71, 85, 105))
+  drawText("SAH BVH Binary Hierarchy (nodes=" + str(bvh.nodes.len) + ")", 732.0, 120.0, 18.0, rgb(250, 204, 21))
+
+  // Root node box -> Left Leaf 0 and Right Leaf 1
+  drawRect(880.0, 170.0, 176.0, 52.0, rgb(30, 41, 59))
+  drawText("Root Union (maxX=" + str(st.unionMaxX) + ")", 894.0, 188.0, 15.0, rgb(226, 232, 240))
+  drawLine(968.0, 222.0, 830.0, 290.0, if hitLeft: rgb(248, 113, 113) else: rgb(71, 85, 105), 2.5)
+  drawLine(968.0, 222.0, 1100.0, 290.0, if hitRight: rgb(248, 113, 113) else: rgb(71, 85, 105), 2.0)
+
+  drawRect(748.0, 290.0, 164.0, 52.0, if hitLeft: rgb(127, 29, 29) else: rgb(30, 58, 138))
+  drawText("Leaf 0 (SA=" + str(st.leafZeroArea) + ")", 768.0, 308.0, 15.0, rgb(254, 226, 226))
+  drawRect(1018.0, 290.0, 164.0, 52.0, if hitRight: rgb(127, 29, 29) else: rgb(30, 58, 138))
+  drawText("Leaf 1 (idx=" + str(rightNode.primitiveIndex) + ")", 1042.0, 308.0, 15.0, rgb(191, 219, 254))
+
+  drawText("Heuristic: " + describeBvhPartitionHeuristic(0), 732.0, 410.0, 16.0, rgb(167, 243, 208))
+  drawText("Intersected Leaf Count: " + str(liveHits.len) + " (ref=" + str(st.rayHitLeaves) + ")", 732.0, 446.0, 16.0, rgb(250, 204, 21))
+  drawText("Ray Origin X: " + str(int(rayXWorld * 100.0)) + " cm  Frame: " + str(frame), 732.0, 482.0, 16.0, rgb(148, 163, 184))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_054 - SAH BVH Tree & Ray Traversal")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderBvhWindowScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

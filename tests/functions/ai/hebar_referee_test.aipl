@@ -1,0 +1,162 @@
+module tests.functions.ai.hebar_referee_test
+
+import * from "std/ai/hebar_referee"
+import { Vec2 } from "std/math/vec_math"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_hebar_referee_hebarRefereeNew_1(): int:
+  let arg_minDelayMs = 4
+  let edge_minDelayMs = 1
+  let arg_maxDelayMs = 4
+  let edge_maxDelayMs = 1
+  let arg_maxApm = 4
+  let edge_maxApm = 1
+  let resNom = hebarRefereeNew(arg_minDelayMs, arg_maxDelayMs, arg_maxApm)
+  let resEdge = hebarRefereeNew(edge_minDelayMs, edge_maxDelayMs, edge_maxApm)
+  assertEqInt(resNom.minReactionDelayMs, 4, "hebarRefereeNew nominal resNom.minReactionDelayMs == 4")
+  assertEqInt(resEdge.minReactionDelayMs, 1, "hebarRefereeNew boundary resEdge.minReactionDelayMs == 1")
+  ret 0
+
+pub fn test_hebar_referee_hebarEnqueueAction_2(): int:
+  let arg_referee = HebarReferee(minReactionDelayMs = 4, maxReactionDelayMs = 4, maxActionsPerMinute = 4, actionHistory = [], lastPopTimestampMs = 4)
+  let edge_referee = HebarReferee(minReactionDelayMs = 1, maxReactionDelayMs = 1, maxActionsPerMinute = 1, actionHistory = [], lastPopTimestampMs = 1)
+  let arg_action = HebarActionRecord(timestampMs = 4, actionTag = "test", targetPos = Vec2(x = 1.0, y = 1.0))
+  let edge_action = HebarActionRecord(timestampMs = 1, actionTag = "a", targetPos = Vec2(x = 0.5, y = 0.5))
+  let arg_currentTimestampMs = 4
+  let edge_currentTimestampMs = 1
+  let resNom = hebarEnqueueAction(arg_referee, arg_action, arg_currentTimestampMs)
+  let resEdge = hebarEnqueueAction(edge_referee, edge_action, edge_currentTimestampMs)
+  assert(resNom == true, "hebarEnqueueAction nominal resNom == true")
+  assert(resEdge == true, "hebarEnqueueAction boundary resEdge == true")
+  ret 0
+
+pub fn test_hebar_referee_hebarPopReadyActions_3(): int:
+  let arg_referee = HebarReferee(minReactionDelayMs = 4, maxReactionDelayMs = 4, maxActionsPerMinute = 4, actionHistory = [], lastPopTimestampMs = 4)
+  let edge_referee = HebarReferee(minReactionDelayMs = 1, maxReactionDelayMs = 1, maxActionsPerMinute = 1, actionHistory = [], lastPopTimestampMs = 1)
+  let arg_currentTimestampMs = 4
+  let edge_currentTimestampMs = 1
+  let resNom = hebarPopReadyActions(arg_referee, arg_currentTimestampMs)
+  let resEdge = hebarPopReadyActions(edge_referee, edge_currentTimestampMs)
+  assertEqInt(resNom.len(), 0, "hebarPopReadyActions nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "hebarPopReadyActions boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_hebar_referee_hebarIsWithinApmLimit_4(): int:
+  let arg_actionsInWindow = 4
+  let edge_actionsInWindow = 1
+  let arg_windowDurationMs = 4
+  let edge_windowDurationMs = 1
+  let arg_maxApm = 4
+  let edge_maxApm = 1
+  let resNom = hebarIsWithinApmLimit(arg_actionsInWindow, arg_windowDurationMs, arg_maxApm)
+  let resEdge = hebarIsWithinApmLimit(edge_actionsInWindow, edge_windowDurationMs, edge_maxApm)
+  assert(resNom == false, "hebarIsWithinApmLimit nominal resNom == false")
+  assert(resEdge == false, "hebarIsWithinApmLimit boundary resEdge == false")
+  ret 0
+
+pub fn test_hebar_referee_hebarClampReactionDelayMs_5(): int:
+  let arg_delayMs = 4
+  let edge_delayMs = 1
+  let arg_minMs = 4
+  let edge_minMs = 1
+  let arg_maxMs = 4
+  let edge_maxMs = 1
+  let resNom = hebarClampReactionDelayMs(arg_delayMs, arg_minMs, arg_maxMs)
+  let resEdge = hebarClampReactionDelayMs(edge_delayMs, edge_minMs, edge_maxMs)
+  assertEqInt(resNom, 4, "hebarClampReactionDelayMs nominal resNom == 4")
+  assertEqInt(resEdge, 1, "hebarClampReactionDelayMs boundary resEdge == 1")
+  ret 0
+
+pub fn test_hebar_referee_hebarQuantizeFloat_6(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let resNom = hebarQuantizeFloat(arg_val)
+  let resEdge = hebarQuantizeFloat(edge_val)
+  assertEqInt(resNom, 1000, "hebarQuantizeFloat nominal resNom == 1000")
+  assertEqInt(resEdge, 500, "hebarQuantizeFloat boundary resEdge == 500")
+  ret 0
+
+pub fn test_hebar_referee_hebarHashInt_7(): int:
+  let arg_hashState = 1
+  let edge_hashState = 0
+  let arg_value = 2
+  let edge_value = 0
+  let resNom = hebarHashInt(arg_hashState, arg_value)
+  let resEdge = hebarHashInt(edge_hashState, edge_value)
+  assertEqInt(resNom, 1887747379, "hebarHashInt nominal resNom == 1887747379")
+  assertEqInt(resEdge, 1268118805, "hebarHashInt boundary resEdge == 1268118805")
+  ret 0
+
+pub fn test_hebar_referee_hebarHashFloat_8(): int:
+  let arg_hashState = 1
+  let edge_hashState = 0
+  let arg_value = 1.0
+  let edge_value = 0.5
+  let resNom = hebarHashFloat(arg_hashState, arg_value)
+  let resEdge = hebarHashFloat(edge_hashState, edge_value)
+  assertEqInt(resNom, 999378072, "hebarHashFloat nominal resNom == 999378072")
+  assertEqInt(resEdge, 857394166, "hebarHashFloat boundary resEdge == 857394166")
+  ret 0
+
+pub fn test_hebar_referee_hebarVerifyDeterminism_9(): int:
+  let arg_hashesA = [2]
+  let edge_hashesA = []
+  let arg_hashesB = [4]
+  let edge_hashesB = []
+  let resNom = hebarVerifyDeterminism(arg_hashesA, arg_hashesB)
+  let resEdge = hebarVerifyDeterminism(edge_hashesA, edge_hashesB)
+  assert(resNom == false, "hebarVerifyDeterminism nominal resNom == false")
+  assert(resEdge == true, "hebarVerifyDeterminism boundary resEdge == true")
+  ret 0
+
+pub fn test_hebar_referee_hebarStepDamageTrail_10(): int:
+  let arg_trailHp = 2.0
+  let edge_trailHp = 1.0
+  let arg_currentHp = 2.0
+  let edge_currentHp = 1.0
+  let arg_drainSpeed = 1.0
+  let edge_drainSpeed = 0.5
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = hebarStepDamageTrail(arg_trailHp, arg_currentHp, arg_drainSpeed, arg_dt)
+  let resEdge = hebarStepDamageTrail(edge_trailHp, edge_currentHp, edge_drainSpeed, edge_dt)
+  assertApproxEq(resNom, 2.0, 0.001, "hebarStepDamageTrail nominal resNom ~= 2.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "hebarStepDamageTrail boundary resEdge ~= 1.0")
+  ret 0
+
+pub fn test_hebar_referee_five_bounds_and_telemetry_11(): int:
+  let ref = hebarRefereeNew(150, 250, 900)
+  assert(hebarVerifyZeroTampering(ref, 0) == true, "canonical 5-bound referee passes zero-tampering check")
+  assert(hebarVerifyZeroTampering(ref, 1) == false, "directMemoryWrites > 0 rejected by zero-tampering check")
+
+  let p0 = Vec2(x = 0.0, y = 0.0)
+  let pTarget = Vec2(x = 1000.0, y = 0.0)
+  let pStep = hebarStepCursorTrajectory(p0, pTarget, 780.0, 0.1)
+  assertApproxEq(pStep.x, 78.0, 0.01, "cursor trajectory clamped to <= 780 px/s (78 px in 0.1s)")
+  assertApproxEq(pStep.y, 0.0, 0.01, "cursor trajectory Y unchanged")
+
+  let nextAng = hebarClampAngularSlew(0.0, 3.0, 6.283185307179586, 0.1)
+  assertApproxEq(nextAng, 0.6283185, 0.001, "angular slew clamped to <= 2*PI rad/s (0.6283 rad in 0.1s)")
+
+  let winPid = connectTargetWindow("nonexistent_hebar_target_window_xyz", 0)
+  assertEqInt(winPid, -1, "connectTargetWindow returns -1 immediately on timeoutMs=0 when window absent")
+
+  renderHebarRefereeDashboard(ref, 10.0, 10.0, 320.0, 84.0)
+  let tmpJson = "/tmp/aipl_hebar_telemetry_unit_test.json"
+  let exported = exportHebarTelemetryJson(ref, tmpJson)
+  assert(exported == true, "exportHebarTelemetryJson writes telemetry file")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_hebar_referee_hebarRefereeNew_1(), 0, "test_hebar_referee_hebarRefereeNew_1")
+  assertEqInt(test_hebar_referee_hebarEnqueueAction_2(), 0, "test_hebar_referee_hebarEnqueueAction_2")
+  assertEqInt(test_hebar_referee_hebarPopReadyActions_3(), 0, "test_hebar_referee_hebarPopReadyActions_3")
+  assertEqInt(test_hebar_referee_hebarIsWithinApmLimit_4(), 0, "test_hebar_referee_hebarIsWithinApmLimit_4")
+  assertEqInt(test_hebar_referee_hebarClampReactionDelayMs_5(), 0, "test_hebar_referee_hebarClampReactionDelayMs_5")
+  assertEqInt(test_hebar_referee_hebarQuantizeFloat_6(), 0, "test_hebar_referee_hebarQuantizeFloat_6")
+  assertEqInt(test_hebar_referee_hebarHashInt_7(), 0, "test_hebar_referee_hebarHashInt_7")
+  assertEqInt(test_hebar_referee_hebarHashFloat_8(), 0, "test_hebar_referee_hebarHashFloat_8")
+  assertEqInt(test_hebar_referee_hebarVerifyDeterminism_9(), 0, "test_hebar_referee_hebarVerifyDeterminism_9")
+  assertEqInt(test_hebar_referee_hebarStepDamageTrail_10(), 0, "test_hebar_referee_hebarStepDamageTrail_10")
+  assertEqInt(test_hebar_referee_five_bounds_and_telemetry_11(), 0, "test_hebar_referee_five_bounds_and_telemetry_11")
+  ret 0

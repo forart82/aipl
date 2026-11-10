@@ -1,0 +1,42 @@
+// ============================================================================
+// Twin Test Suite 014: Berkeley Socket ABI, Non-Blocking Fcntl & Poll CLI
+// Verifies examples/ex_014_sys_net_socket_abi_cli.aipl
+// ============================================================================
+module Ex014SysNetSocketAbiCliTest
+
+import {
+  SocketAbiProbe,
+  openAndCloseUdpSocket,
+  probeInvalidSocketOps,
+  describeSocketFamilyAndType,
+  buildSocketAbiProbe
+} from "../../examples/ex_014_sys_net_socket_abi_cli.aipl"
+
+pub fn test_udp_socket_lifecycle_and_invalid_ops(): int:
+  let closeStatus = openAndCloseUdpSocket()
+  assert(closeStatus == 0, "opening and closing AF_INET SOCK_DGRAM socket returns 0")
+  let errCount = probeInvalidSocketOps()
+  assert(errCount == 3, "bind(-1), listen(-1), and poll(0, -1, 0) all return negative error codes")
+  ret 0
+
+pub fn test_socket_family_and_type_description(): int:
+  assert(describeSocketFamilyAndType(2, 1) == "SOCK:AF_INET_STREAM_TCP", "IPv4 stream")
+  assert(describeSocketFamilyAndType(2, 2) == "SOCK:AF_INET_DGRAM_UDP", "IPv4 datagram")
+  assert(describeSocketFamilyAndType(10, 1) == "SOCK:AF_INET6_STREAM", "IPv6 stream")
+  ret 0
+
+pub fn test_build_socket_abi_probe(): int:
+  let probe = buildSocketAbiProbe()
+  assert(probe.afInet == 2, "SYS_AF_INET == 2")
+  assert(probe.sockStream == 1, "SYS_SOCK_STREAM == 1")
+  assert(probe.sockDgram == 2, "SYS_SOCK_DGRAM == 2")
+  assert(probe.udpCloseResult == 0, "udpCloseResult == 0")
+  assert(probe.rejectedCalls == 3, "rejectedCalls == 3")
+  ret 0
+
+pub fn main(): int:
+  test_udp_socket_lifecycle_and_invalid_ops()
+  test_socket_family_and_type_description()
+  test_build_socket_abi_probe()
+  println("PASS: ex_014_sys_net_socket_abi_cli_test")
+  ret 0

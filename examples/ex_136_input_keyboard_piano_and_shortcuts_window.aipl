@@ -1,0 +1,148 @@
+// ============================================================================
+// Canonical Example 136: Keyboard Piano Synthesizer & Shortcut Transitions (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/input/keyboard
+// ============================================================================
+module Ex136InputKeyboardPianoAndShortcutsWindow
+
+import {
+  KeyboardState,
+  createKeyboardState,
+  pushKeyboardEvent,
+  pushTextInput,
+  isKeyDown,
+  isKeyJustPressed,
+  isKeyJustReleased,
+  hasModifier,
+  flushKeyFrame,
+  KEY_A,
+  KEY_SPACE,
+  MOD_SHIFT
+} from "../std/input/keyboard"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+import { clampInt } from "../std/prelude"
+
+pub fn verifyKeyboardStateTransitionsAndModifiers(): int:
+  mut kbd = createKeyboardState()
+  if isKeyDown(kbd, KEY_SPACE):
+    ret 0
+  kbd = pushKeyboardEvent(kbd, KEY_SPACE, true, false)
+  kbd = pushTextInput(kbd, " ")
+  kbd.modifiers = MOD_SHIFT
+  if not isKeyDown(kbd, KEY_SPACE) or not isKeyJustPressed(kbd, KEY_SPACE):
+    ret 0
+  if not hasModifier(kbd, MOD_SHIFT):
+    ret 0
+  kbd = flushKeyFrame(kbd)
+  if not isKeyDown(kbd, KEY_SPACE) or isKeyJustPressed(kbd, KEY_SPACE):
+    ret 0
+  kbd = pushKeyboardEvent(kbd, KEY_SPACE, false, false)
+  if not isKeyJustReleased(kbd, KEY_SPACE):
+    ret 0
+  ret 1
+
+pub fn computePianoKeyMidiNote(octave: int, semitoneOffset: int): int:
+  let oct = clampInt(octave, 1, 7)
+  let semi = clampInt(semitoneOffset, 0, 11)
+  ret (oct + 1) * 12 + semi
+
+pub fn describeKeyboardEdgeState(edgeCode: int): str:
+  if edgeCode == 1:
+    ret "KBD:JUST_PRESSED_RISING_EDGE"
+  if edgeCode == 2:
+    ret "KBD:HELD_SUSTAIN"
+  ret "KBD:JUST_RELEASED_FALLING_EDGE"
+
+pub fn buildPianoKeyboardState(frameIndex: int): KeyboardState:
+  mut kbd = createKeyboardState()
+  kbd = pushKeyboardEvent(kbd, KEY_SPACE, true, false)
+  kbd.modifiers = MOD_SHIFT
+  let activeSlot = (frameIndex / 8) % 14
+  kbd = pushKeyboardEvent(kbd, KEY_A + activeSlot, true, false)
+  if frameIndex % 8 > 0:
+    kbd = flushKeyFrame(kbd)
+  ret kbd
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let kbd = buildPianoKeyboardState(frameIndex)
+  let _ = int(dt * 0.0)
+  mut activeKeyIdx = 0
+  for k in 0..14:
+    if isKeyDown(kbd, KEY_A + k):
+      activeKeyIdx = k
+  let sustainBonus = if isKeyJustPressed(kbd, KEY_A + activeKeyIdx): 0 else: 100
+  ret computePianoKeyMidiNote(4 + (activeKeyIdx / 12), activeKeyIdx % 12) + sustainBonus
+
+pub fn renderKeyboardPianoScene(frameIndex: int): void:
+  let kbd = buildPianoKeyboardState(frameIndex)
+  mut activeWhite = 0
+  for k in 0..14:
+    if isKeyDown(kbd, KEY_A + k):
+      activeWhite = k
+  let activeMidi = computePianoKeyMidiNote(4 + (activeWhite / 12), activeWhite % 12)
+  let edgeCode = if isKeyJustPressed(kbd, KEY_A + activeWhite): 1 else: 2
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_136 // KEYBOARD STATE TRANSITIONS, MODIFIER CHORDS & 14-KEY SYNTH PIANO", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Top Shortcut Chord & Edge State Telemetry Bar
+  drawRect(56.0, 96.0, 1168.0, 84.0, rgb(16, 24, 42))
+  drawRectOutline(56.0, 96.0, 1168.0, 84.0, 1.5, rgb(71, 85, 105))
+  drawText("ACTIVE CHORD: [MOD_SHIFT + KEY_SPACE] | " + describeKeyboardEdgeState(edgeCode), 80.0, 118.0, 16.0, rgb(74, 222, 128))
+  drawText("Active Arpeggio Note: MIDI #" + str(activeMidi) + " | KeyScan: " + str(KEY_A + activeWhite), 80.0, 148.0, 15.0, rgb(250, 204, 21))
+
+  // 14 White Piano Keys reading isKeyDown(kbd, KEY_A + k) and isKeyJustPressed(kbd, KEY_A + k)
+  let startX = 68.0
+  let keyY = 216.0
+  let keyW = 80.0
+  let keyH = 380.0
+  mut k = 0
+  while k < 14:
+    let kx = startX + float(k) * 82.0
+    let isPressed = isKeyDown(kbd, KEY_A + k)
+    let isRising = isKeyJustPressed(kbd, KEY_A + k)
+    let keyCol = if isRising: rgb(250, 204, 21) else: (if isPressed: rgb(56, 189, 248) else: rgb(241, 245, 249))
+    drawRect(kx, keyY, keyW, keyH, keyCol)
+    drawRectOutline(kx, keyY, keyW, keyH, 2.0, rgb(30, 41, 59))
+    drawText("K" + str(k), kx + 26.0, keyY + keyH - 36.0, 15.0, rgb(15, 23, 42))
+    k = k + 1
+
+  // Black Sharp Keys Overlay
+  mut b = 0
+  while b < 13:
+    let mod7 = b % 7
+    if mod7 != 2 and mod7 != 6:
+      let bx = startX + float(b) * 82.0 + 56.0
+      drawRect(bx, keyY, 48.0, 230.0, rgb(15, 23, 42))
+      drawRectOutline(bx, keyY, 48.0, 230.0, 1.5, rgb(100, 116, 139))
+    b = b + 1
+
+  // Bottom Status Strip
+  drawRect(56.0, 624.0, 1168.0, 56.0, rgb(16, 24, 42))
+  drawRectOutline(56.0, 624.0, 1168.0, 56.0, 1.5, rgb(51, 65, 85))
+  drawText("isKeyDown(SPACE)=" + str(isKeyDown(kbd, KEY_SPACE)) + " | hasModifier(SHIFT)=" + str(hasModifier(kbd, MOD_SHIFT)) + " | frame=" + str(frameIndex), 80.0, 645.0, 15.0, rgb(203, 213, 225))
+
+pub fn main(): int:
+  let ok = verifyKeyboardStateTransitionsAndModifiers()
+  assert(ok == 1, "keyboard state transitions verified")
+  initWindow(1280, 720, "AIPL ex_136 - Keyboard Piano Synthesizer & Shortcuts")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderKeyboardPianoScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,148 @@
+module Ex191UiStyleDarkLightThemeStudioWindow
+
+import {
+  createDarkTheme, createLightTheme, getDefaultDesignTokens,
+  RgbColor, HslColor, hslToRgb, toCssRgb, contrastRatio, meetsWcagAA, meetsWcagAAA,
+  paletteShades, defaultDarkPalette, defaultLightPalette
+} from "../std/ui/ui_style"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawLine, drawCircle, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepAccentHueDeg(frame: int): float:
+  ret float((frame * 3) % 360)
+
+pub fn stepActiveSwatchIndex(frame: int, count: int): int:
+  let c = if count > 0: count else: 1
+  ret (frame / 8) % c
+
+pub fn buildUiStyleThemeStudioAudit(): int:
+  let dark = createDarkTheme()
+  let light = createLightTheme()
+  let tokens = getDefaultDesignTokens()
+  let white = RgbColor(r = 255, g = 255, b = 255, a = 255)
+  let black = RgbColor(r = 0, g = 0, b = 0, a = 255)
+  let cr = int(contrastRatio(white, black))
+  let shades = paletteShades(RgbColor(r = 56, g = 189, b = 248, a = 255), 5)
+  let flags = (if dark.isDark: 1 else: 0) + (if not light.isDark: 1 else: 0)
+  ret int(tokens.spacingMd) + cr + shades.len() + flags
+
+pub fn main(): int:
+  let auditScore = buildUiStyleThemeStudioAudit()
+  let dark = createDarkTheme()
+  let light = createLightTheme()
+  let tokens = getDefaultDesignTokens()
+  let shadesSky = paletteShades(RgbColor(r = 56, g = 189, b = 248, a = 255), 6)
+  let shadesViolet = paletteShades(RgbColor(r = 168, g = 85, b = 247, a = 255), 6)
+  let dPal = defaultDarkPalette()
+  let lPal = defaultLightPalette()
+  let wcagOk = meetsWcagAA(RgbColor(r = 248, g = 250, b = 252, a = 255), RgbColor(r = 15, g = 23, b = 42, a = 255)) and meetsWcagAAA(RgbColor(r = 255, g = 255, b = 255, a = 255), RgbColor(r = 0, g = 0, b = 0, a = 255))
+
+  initWindow(1280, 720, "AIPL ex_191: UI Style Dark/Light Theme Studio & WCAG Tokens")
+  mut frame = 0
+  while not windowShouldClose():
+    let activeSwatchIdx = stepActiveSwatchIndex(frame, shadesSky.len())
+    let activeShade = shadesSky[activeSwatchIdx]
+    let darkBgRgb = RgbColor(r = dark.surfaceBase.r, g = dark.surfaceBase.g, b = dark.surfaceBase.b, a = 255)
+    let lightBgRgb = RgbColor(r = light.surfaceBase.r, g = light.surfaceBase.g, b = light.surfaceBase.b, a = 255)
+    let liveCrDark = contrastRatio(activeShade, darkBgRgb)
+    let liveCrLight = contrastRatio(activeShade, lightBgRgb)
+    let liveAa = meetsWcagAA(activeShade, darkBgRgb)
+    let liveAaa = meetsWcagAAA(activeShade, darkBgRgb)
+
+    let hueDeg = stepAccentHueDeg(frame)
+    let dynAccent = hslToRgb(HslColor(h = hueDeg, s = 0.85, l = 0.58, a = 1.0))
+    let shadesDynamic = paletteShades(dynAccent, 6)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 26, 44))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_191: UI STYLE DARK & LIGHT THEME STUDIO (WCAG CONTRAST & DESIGN TOKENS)", 48.0, 34.0, 21.0, rgb(240, 249, 255))
+    drawText("spacingMd=" + str(int(tokens.spacingMd)) + "px | hue=" + str(int(hueDeg)) + "deg | darkCR=" + str(int(liveCrDark)) + ":1 (AA=" + str(liveAa) + " AAA=" + str(liveAaa) + ") | lightCR=" + str(int(liveCrLight)) + ":1 | audit=" + str(auditScore), 48.0, 60.0, 15.0, rgb(125, 211, 252))
+
+    // Dark Theme Card
+    drawRect(60.0, 106.0, 560.0, 304.0, rgb(dark.surfaceBase.r, dark.surfaceBase.g, dark.surfaceBase.b))
+    drawRectOutline(60.0, 106.0, 560.0, 304.0, 2.0, rgb(dark.primary.r, dark.primary.g, dark.primary.b))
+    drawRect(84.0, 128.0, 512.0, 64.0, rgb(dark.surfaceCard.r, dark.surfaceCard.g, dark.surfaceCard.b))
+    drawRectOutline(84.0, 128.0, 512.0, 64.0, 1.5, rgb(dark.outline.r, dark.outline.g, dark.outline.b))
+    drawText("DARK THEME SURFACE (isDark=true)", 102.0, 144.0, 18.0, rgb(dark.textPrimary.r, dark.textPrimary.g, dark.textPrimary.b))
+    drawText("surfaceBase=#0F172A | surfaceCard=#1E293B | textMuted=#94A3B8", 102.0, 168.0, 13.0, rgb(dark.textMuted.r, dark.textMuted.g, dark.textMuted.b))
+
+    drawRect(84.0, 208.0, 176.0, 44.0, rgb(dark.primary.r, dark.primary.g, dark.primary.b))
+    drawText("Primary Action", 106.0, 222.0, 16.0, rgb(15, 23, 42))
+    drawRect(276.0, 208.0, 156.0, 44.0, rgb(dark.surfaceElevated.r, dark.surfaceElevated.g, dark.surfaceElevated.b))
+    drawText("Elevated Card", 296.0, 222.0, 16.0, rgb(dark.textPrimary.r, dark.textPrimary.g, dark.textPrimary.b))
+    drawRect(448.0, 208.0, 148.0, 44.0, rgb(dark.error.r, dark.error.g, dark.error.b))
+    drawText("Error Alert", 476.0, 222.0, 16.0, rgb(255, 255, 255))
+
+    // Live WCAG Contrast Meter on Dark Surface
+    drawRect(84.0, 270.0, 512.0, 120.0, rgb(11, 17, 32))
+    drawRectOutline(84.0, 270.0, 512.0, 120.0, 1.5, rgb(activeShade.r, activeShade.g, activeShade.b))
+    drawRect(100.0, 284.0, 20.0, 20.0, rgb(activeShade.r, activeShade.g, activeShade.b))
+    drawRectOutline(100.0, 284.0, 20.0, 20.0, 1.0, rgb(248, 250, 252))
+    drawText("Live Swatch #" + str(activeSwatchIdx + 1) + " (" + toCssRgb(activeShade) + ") on Dark Surface", 128.0, 286.0, 15.0, rgb(248, 250, 252))
+    drawText("WCAG Contrast Ratio: " + str(int(liveCrDark)) + ":1 | AA (>=4.5): " + str(liveAa) + " | AAA (>=7.0): " + str(liveAaa), 100.0, 314.0, 14.0, rgb(203, 213, 225))
+    drawRect(100.0, 344.0, 460.0, 22.0, rgb(30, 41, 59))
+    let crBarW = if liveCrDark * 21.0 > 460.0: 460.0 else: liveCrDark * 21.0
+    drawRect(100.0, 344.0, crBarW, 22.0, rgb(activeShade.r, activeShade.g, activeShade.b))
+    drawLine(100.0 + 4.5 * 21.0, 340.0, 100.0 + 4.5 * 21.0, 370.0, 2.0, rgb(250, 204, 21))
+    drawLine(100.0 + 7.0 * 21.0, 340.0, 100.0 + 7.0 * 21.0, 370.0, 2.0, rgb(52, 211, 153))
+
+    // Light Theme Card
+    drawRect(660.0, 106.0, 560.0, 304.0, rgb(light.surfaceBase.r, light.surfaceBase.g, light.surfaceBase.b))
+    drawRectOutline(660.0, 106.0, 560.0, 304.0, 2.0, rgb(light.primary.r, light.primary.g, light.primary.b))
+    drawRect(684.0, 128.0, 512.0, 64.0, rgb(light.surfaceCard.r, light.surfaceCard.g, light.surfaceCard.b))
+    drawRectOutline(684.0, 128.0, 512.0, 64.0, 1.5, rgb(light.outline.r, light.outline.g, light.outline.b))
+    drawText("LIGHT THEME SURFACE (isDark=false)", 702.0, 144.0, 18.0, rgb(light.textPrimary.r, light.textPrimary.g, light.textPrimary.b))
+    drawText("surfaceBase=#F8FAFC | surfaceCard=#FFFFFF | textMuted=#64748B", 702.0, 168.0, 13.0, rgb(light.textMuted.r, light.textMuted.g, light.textMuted.b))
+
+    drawRect(684.0, 208.0, 176.0, 44.0, rgb(light.primary.r, light.primary.g, light.primary.b))
+    drawText("Primary Action", 706.0, 222.0, 16.0, rgb(255, 255, 255))
+    drawRect(876.0, 208.0, 156.0, 44.0, rgb(light.surfaceElevated.r, light.surfaceElevated.g, light.surfaceElevated.b))
+    drawRectOutline(876.0, 208.0, 156.0, 44.0, 1.5, rgb(light.outline.r, light.outline.g, light.outline.b))
+    drawText("Elevated Card", 896.0, 222.0, 16.0, rgb(light.textPrimary.r, light.textPrimary.g, light.textPrimary.b))
+    drawRect(1048.0, 208.0, 148.0, 44.0, rgb(light.error.r, light.error.g, light.error.b))
+    drawText("Error Alert", 1076.0, 222.0, 16.0, rgb(255, 255, 255))
+
+    // Design Tokens Spacing & Radius Scale Preview on Light Surface
+    drawRect(684.0, 270.0, 512.0, 120.0, rgb(241, 245, 249))
+    drawRectOutline(684.0, 270.0, 512.0, 120.0, 1.5, rgb(light.outline.r, light.outline.g, light.outline.b))
+    drawText("DesignTokens Spacing Scale (XS=4, SM=8, MD=16, LG=24, XL=32)", 700.0, 286.0, 14.0, rgb(15, 23, 42))
+    drawRect(700.0, 314.0, tokens.spacingXs * 4.0, 24.0, rgb(dynAccent.r, dynAccent.g, dynAccent.b))
+    drawRect(740.0, 314.0, tokens.spacingSm * 4.0, 24.0, rgb(dynAccent.r, dynAccent.g, dynAccent.b))
+    drawRect(796.0, 314.0, tokens.spacingMd * 4.0, 24.0, rgb(dynAccent.r, dynAccent.g, dynAccent.b))
+    drawRect(884.0, 314.0, tokens.spacingLg * 4.0, 24.0, rgb(dynAccent.r, dynAccent.g, dynAccent.b))
+    drawRect(1004.0, 314.0, tokens.spacingXl * 4.0, 24.0, rgb(dynAccent.r, dynAccent.g, dynAccent.b))
+    drawText("Live HSL Accent: " + toCssRgb(dynAccent) + " (Light CR=" + str(int(liveCrLight)) + ":1)", 700.0, 354.0, 14.0, rgb(51, 65, 85))
+
+    // Tonal Swatch Ramps (Sky, Violet, and Live HSL Accent)
+    drawText("Tonal Swatch Ramps (paletteShades 6-step: Sky / Violet / Live HSL Accent):", 60.0, 428.0, 17.0, rgb(226, 232, 240))
+    mut i = 0
+    while i < shadesSky.len():
+      let s1 = shadesSky[i]
+      let s2 = shadesViolet[i]
+      let s3 = shadesDynamic[i]
+      let sx = 60.0 + float(i) * 194.0
+      let labelCol = if i < 3: rgb(248, 250, 252) else: rgb(15, 23, 42)
+      drawRect(sx, 458.0, 178.0, 68.0, rgb(s1.r, s1.g, s1.b))
+      drawRectOutline(sx, 458.0, 178.0, 68.0, if i == activeSwatchIdx: 3.5 else: 1.5, if i == activeSwatchIdx: rgb(250, 204, 21) else: rgb(148, 163, 184))
+      drawText("Sky #" + str(i + 1), sx + 12.0, 484.0, 14.0, labelCol)
+
+      drawRect(sx, 538.0, 178.0, 68.0, rgb(s2.r, s2.g, s2.b))
+      drawRectOutline(sx, 538.0, 178.0, 68.0, 1.5, rgb(148, 163, 184))
+      drawText("Violet #" + str(i + 1), sx + 12.0, 564.0, 14.0, labelCol)
+
+      drawRect(sx, 618.0, 178.0, 68.0, rgb(s3.r, s3.g, s3.b))
+      drawRectOutline(sx, 618.0, 178.0, 68.0, 2.0, rgb(dynAccent.r, dynAccent.g, dynAccent.b))
+      drawText("Live #" + str(i + 1), sx + 12.0, 644.0, 14.0, labelCol)
+      i = i + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

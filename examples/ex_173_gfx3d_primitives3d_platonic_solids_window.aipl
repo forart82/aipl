@@ -1,0 +1,136 @@
+module Ex173Gfx3dPrimitives3dPlatonicSolidsWindow
+
+import { Mesh3D } from "../std/gfx3d/mesh3d"
+import {
+  generateBoxMesh, generateUvSphereMesh, generateIcosphereMesh,
+  generateCylinderMesh, generateConeMesh, generateTorusMesh,
+  generatePlaneMesh, generateCapsuleMesh
+} from "../std/gfx3d/primitives3d"
+import {
+  Color, initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawRegularPolygon,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+fn drawMeshWireframe(mesh: Mesh3D, cx: float, cy: float, scale: float, yaw: float, col: Color): void:
+  let cyaw = cos(yaw)
+  let syaw = sin(yaw)
+  mut idx: int = 0
+  let totalIndices = mesh.indices.len()
+  while idx + 2 < totalIndices:
+    let v0 = mesh.vertices[mesh.indices[idx]].pos
+    let v1 = mesh.vertices[mesh.indices[idx + 1]].pos
+    let v2 = mesh.vertices[mesh.indices[idx + 2]].pos
+    let x0 = cx + (v0.x * cyaw - v0.z * syaw) * scale
+    let y0 = cy - v0.y * scale + (v0.x * syaw + v0.z * cyaw) * scale * 0.35
+    let x1 = cx + (v1.x * cyaw - v1.z * syaw) * scale
+    let y1 = cy - v1.y * scale + (v1.x * syaw + v1.z * cyaw) * scale * 0.35
+    let x2 = cx + (v2.x * cyaw - v2.z * syaw) * scale
+    let y2 = cy - v2.y * scale + (v2.x * syaw + v2.z * cyaw) * scale * 0.35
+    drawLine(x0, y0, x1, y1, col, 1.2)
+    drawLine(x1, y1, x2, y2, col, 1.2)
+    drawLine(x2, y2, x0, y0, col, 1.2)
+    idx = idx + 3
+
+pub fn stepPrimitives3dGalleryYaw(frame: int): float:
+  ret float(frame) * 0.041
+
+pub fn buildPrimitives3dGalleryAudit(): int:
+  let boxM = generateBoxMesh(2.0, 4.0, 6.0)
+  let icoM = generateIcosphereMesh(1.0, 1)
+  let planeM = generatePlaneMesh(10.0, 10.0, 2, 2)
+  ret boxM.vertices.len() + boxM.indices.len() + planeM.vertices.len() + icoM.vertices.len()
+
+pub fn main(): int:
+  let boxM = generateBoxMesh(2.4, 2.8, 3.2)
+  let ico0 = generateIcosphereMesh(1.0, 0)
+  let ico1 = generateIcosphereMesh(1.0, 1)
+  let uvSph = generateUvSphereMesh(1.0, 8, 5)
+  let torusM = generateTorusMesh(1.6, 0.55, 10, 6)
+  let cylM = generateCylinderMesh(0.95, 2.3, 10, true)
+  let coneM = generateConeMesh(1.0, 2.4, 10)
+  let capM = generateCapsuleMesh(0.55, 1.5, 3, 6)
+  let planeM = generatePlaneMesh(7.0, 7.0, 3, 3)
+  let audit = buildPrimitives3dGalleryAudit()
+
+  initWindow(1280, 720, "AIPL ex_173: 3D Procedural Primitives & Platonic Solids Gallery")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let yaw = stepPrimitives3dGalleryYaw(frame)
+    let icoSub = (frame / 13) % 2
+    let icoM = if icoSub == 0: ico0 else: ico1
+    let activeCard = (frame / 11) % 8
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawText("EX_173: 3D PROCEDURAL MESH PRIMITIVES & PLATONIC SOLIDS GALLERY", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/primitives3d: Box | Icosphere | UvSphere | Torus | Cylinder | Cone | Capsule | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // 4x2 Showcase Grid of 8 Procedural 3D Primitives
+    // Card 0: Box
+    drawRect(40.0, 96.0, 285.0, 185.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 285.0, 185.0, if activeCard == 0: 3.0 else: 2.0, if activeCard == 0: rgb(250, 204, 21) else: rgb(56, 189, 248))
+    drawText("1. BoxMesh (2.4x2.8x3.2)", 58.0, 114.0, 15.0, rgb(125, 211, 252))
+    drawMeshWireframe(boxM, 182.0, 188.0, 15.0, yaw, rgb(56, 189, 248))
+    drawText("V=" + str(boxM.vertices.len()) + " I=" + str(boxM.indices.len()) + " (12 Tris)", 58.0, 254.0, 13.0, rgb(226, 232, 240))
+
+    // Card 1: Subdivided Icosphere
+    drawRect(345.0, 96.0, 285.0, 185.0, rgb(15, 23, 42))
+    drawRectOutline(345.0, 96.0, 285.0, 185.0, if activeCard == 1: 3.0 else: 2.0, if activeCard == 1: rgb(250, 204, 21) else: rgb(168, 85, 247))
+    drawText("2. Icosphere (sub=" + str(icoSub) + ")", 363.0, 114.0, 15.0, rgb(216, 180, 254))
+    drawMeshWireframe(icoM, 488.0, 188.0, 42.0, yaw, rgb(216, 180, 254))
+    drawText("V=" + str(icoM.vertices.len()) + " I=" + str(icoM.indices.len()) + " (" + str(icoM.indices.len() / 3) + " Tris)", 363.0, 254.0, 13.0, rgb(226, 232, 240))
+
+    // Card 2: UV Sphere
+    drawRect(650.0, 96.0, 285.0, 185.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 96.0, 285.0, 185.0, if activeCard == 2: 3.0 else: 2.0, if activeCard == 2: rgb(250, 204, 21) else: rgb(34, 197, 94))
+    drawText("3. UvSphere (8x5)", 668.0, 114.0, 15.0, rgb(134, 239, 172))
+    drawMeshWireframe(uvSph, 792.0, 188.0, 42.0, yaw, rgb(34, 197, 94))
+    drawText("V=" + str(uvSph.vertices.len()) + " I=" + str(uvSph.indices.len()) + " (" + str(uvSph.indices.len() / 3) + " Tris)", 668.0, 254.0, 13.0, rgb(226, 232, 240))
+
+    // Card 3: Torus
+    drawRect(955.0, 96.0, 285.0, 185.0, rgb(15, 23, 42))
+    drawRectOutline(955.0, 96.0, 285.0, 185.0, if activeCard == 3: 3.0 else: 2.0, if activeCard == 3: rgb(56, 189, 248) else: rgb(250, 204, 21))
+    drawText("4. Torus (R=1.6, r=0.55)", 973.0, 114.0, 15.0, rgb(253, 224, 71))
+    drawMeshWireframe(torusM, 1098.0, 188.0, 22.0, yaw, rgb(250, 204, 21))
+    drawText("V=" + str(torusM.vertices.len()) + " I=" + str(torusM.indices.len()) + " (" + str(torusM.indices.len() / 3) + " Tris)", 973.0, 254.0, 13.0, rgb(226, 232, 240))
+
+    // Row 2: Cylinder, Cone, Capsule, Plane
+    drawRect(40.0, 300.0, 285.0, 185.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 300.0, 285.0, 185.0, if activeCard == 4: 3.0 else: 2.0, if activeCard == 4: rgb(250, 204, 21) else: rgb(244, 63, 94))
+    drawText("5. Cylinder (10 seg)", 58.0, 318.0, 15.0, rgb(253, 164, 175))
+    drawMeshWireframe(cylM, 182.0, 392.0, 22.0, yaw, rgb(244, 63, 94))
+    drawText("V=" + str(cylM.vertices.len()) + " I=" + str(cylM.indices.len()) + " (" + str(cylM.indices.len() / 3) + " Tris)", 58.0, 458.0, 13.0, rgb(226, 232, 240))
+
+    drawRect(345.0, 300.0, 285.0, 185.0, rgb(15, 23, 42))
+    drawRectOutline(345.0, 300.0, 285.0, 185.0, if activeCard == 5: 3.0 else: 2.0, if activeCard == 5: rgb(250, 204, 21) else: rgb(56, 189, 248))
+    drawText("6. Cone (10 seg)", 363.0, 318.0, 15.0, rgb(125, 211, 252))
+    drawMeshWireframe(coneM, 488.0, 392.0, 22.0, yaw, rgb(56, 189, 248))
+    drawText("V=" + str(coneM.vertices.len()) + " I=" + str(coneM.indices.len()) + " (" + str(coneM.indices.len() / 3) + " Tris)", 363.0, 458.0, 13.0, rgb(226, 232, 240))
+
+    drawRect(650.0, 300.0, 285.0, 185.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 300.0, 285.0, 185.0, if activeCard == 6: 3.0 else: 2.0, if activeCard == 6: rgb(250, 204, 21) else: rgb(168, 85, 247))
+    drawText("7. Capsule (r=0.55, h=1.5)", 668.0, 318.0, 15.0, rgb(216, 180, 254))
+    drawMeshWireframe(capM, 792.0, 392.0, 22.0, yaw, rgb(168, 85, 247))
+    drawText("V=" + str(capM.vertices.len()) + " I=" + str(capM.indices.len()) + " (" + str(capM.indices.len() / 3) + " Tris)", 668.0, 458.0, 13.0, rgb(226, 232, 240))
+
+    drawRect(955.0, 300.0, 285.0, 185.0, rgb(15, 23, 42))
+    drawRectOutline(955.0, 300.0, 285.0, 185.0, if activeCard == 7: 3.0 else: 2.0, if activeCard == 7: rgb(250, 204, 21) else: rgb(34, 197, 94))
+    drawText("8. Subdivided Plane (3x3)", 973.0, 318.0, 15.0, rgb(134, 239, 172))
+    drawMeshWireframe(planeM, 1098.0, 392.0, 11.0, yaw, rgb(34, 197, 94))
+    drawText("V=" + str(planeM.vertices.len()) + " I=" + str(planeM.indices.len()) + " (" + str(planeM.indices.len() / 3) + " Tris)", 973.0, 458.0, 13.0, rgb(226, 232, 240))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 506.0, 1200.0, 170.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 506.0, 1200.0, 170.0, 2.0, rgb(51, 65, 85))
+    drawText("PROCEDURAL 3D MESH BOUNDING BOX & TOPOLOGY TELEMETRY", 60.0, 528.0, 18.0, rgb(56, 189, 248))
+    drawText("Box AABB max=(" + str(boxM.boundingBox.max.x) + ", " + str(boxM.boundingBox.max.y) + ", " + str(boxM.boundingBox.max.z) + ") | Active Card=#" + str(activeCard + 1) + " | Yaw=" + str(yaw), 60.0, 566.0, 16.0, rgb(226, 232, 240))
+    drawText("Total Gallery Vertices Across 8 Meshes: " + str(boxM.vertices.len() + icoM.vertices.len() + uvSph.vertices.len() + torusM.vertices.len() + cylM.vertices.len() + coneM.vertices.len() + capM.vertices.len() + planeM.vertices.len()) + " | Audit=" + str(audit), 60.0, 602.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

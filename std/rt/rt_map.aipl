@@ -1,0 +1,333 @@
+/// # Module: `std/rt/rt_map` (`RtMap`)
+///
+/// ## Purpose & Domain Scope
+/// Self-hosted SwissTable open-addressed hash map kernel with 1-byte control metadata
+/// and string-keyed Robin Hood / linear-probing runtime dictionary.
+module RtMap
+
+import { ptrAlloc, ptrFree, ptrReadU8, ptrWriteU8, ptrReadI64, ptrWriteI64, ptrMemset } from "std/rt/rt_ptr"
+
+pub const CTRL_EMPTY: int = 128
+pub const CTRL_DELETED: int = 254
+pub const CTRL_SENTINEL: int = 255
+
+pub const STATUS_EMPTY: int = 0
+pub const STATUS_OCCUPIED: int = 1
+pub const STATUS_DELETED: int = 2
+
+pub struct RtHashMap:
+  ctrlPtr: int
+  keysPtr: int
+  valsPtr: int
+  capacity: int
+  size: int
+  growthLeft: int
+
+pub struct RtMap:
+  capacity: int
+  count: int
+  keys: [str]
+  values: [int]
+  status: [int]
+
+pub fn rtHashFnv1a(s: str): int:
+  mut hash = 2166136261
+  let prime = 16777619
+  mut i = 0
+  let n = s.length
+  while i < n:
+    let c = s.charCodeAt(i)
+    hash = ((hash ^ c) * prime) & 2147483647
+    i += 1
+  ret hash
+
+pub fn rtMapNew(initialCapacity: int = 16): RtMap:
+  mut cap = 16
+  while cap < initialCapacity:
+    cap = cap * 2
+  mut keys: [str] = []
+  mut values: [int] = []
+  mut status: [int] = []
+  mut i = 0
+  while i < cap:
+    keys.push("")
+    values.push(0)
+    status.push(STATUS_EMPTY)
+    i += 1
+  ret RtMap(capacity = cap, count = 0, keys = keys, values = values, status = status)
+
+fn rtMapGrow(mut map: RtMap): void:
+  let oldCap = map.capacity
+  let newCap = oldCap * 2
+  let oldKeys = map.keys
+  let oldValues = map.values
+  let oldStatus = map.status
+
+  mut newKeys: [str] = []
+  mut newValues: [int] = []
+  mut newStatus: [int] = []
+  mut i = 0
+  while i < newCap:
+    newKeys.push("")
+    newValues.push(0)
+    newStatus.push(STATUS_EMPTY)
+    i += 1
+
+  map.capacity = newCap
+  map.count = 0
+  map.keys = newKeys
+  map.values = newValues
+  map.status = newStatus
+
+  let mask = newCap - 1
+  mut j = 0
+  while j < oldCap:
+    if oldStatus[j] == STATUS_OCCUPIED:
+      let k = oldKeys[j]
+      let v = oldValues[j]
+      let h = rtHashFnv1a(k)
+      mut idx = h & mask
+      mut placed = false
+      while not placed:
+        if map.status[idx] == STATUS_EMPTY:
+          map.keys[idx] = k
+          map.values[idx] = v
+          map.status[idx] = STATUS_OCCUPIED
+          map.count += 1
+          placed = true
+        else:
+          idx = (idx + 1) & mask
+    j += 1
+  ret
+
+pub fn rtMapSet(mut map: RtMap, key: str, val: int): void:
+  if (map.count + 1) * 10 >= map.capacity * 7:
+    rtMapGrow(map)
+  let mask = map.capacity - 1
+  let h = rtHashFnv1a(key)
+  mut idx = h & mask
+  mut firstDeleted = -1
+  mut step = 0
+  while step < map.capacity:
+    let st = map.status[idx]
+    if st == STATUS_EMPTY:
+      let insertIdx = if firstDeleted >= 0: firstDeleted else: idx
+      map.keys[insertIdx] = key
+      map.values[insertIdx] = val
+      map.status[insertIdx] = STATUS_OCCUPIED
+      map.count += 1
+      ret
+    if st == STATUS_DELETED:
+      if firstDeleted < 0:
+        firstDeleted = idx
+    elif st == STATUS_OCCUPIED:
+      if map.keys[idx] == key:
+        map.values[idx] = val
+        ret
+    idx = (idx + 1) & mask
+    step += 1
+  if firstDeleted >= 0:
+    map.keys[firstDeleted] = key
+    map.values[firstDeleted] = val
+    map.status[firstDeleted] = STATUS_OCCUPIED
+    map.count += 1
+  ret
+
+pub fn rtMapGet(map: RtMap, key: str): int:
+  if map.count == 0 or map.capacity == 0:
+    ret 0
+  let mask = map.capacity - 1
+  let h = rtHashFnv1a(key)
+  mut idx = h & mask
+  mut step = 0
+  while step < map.capacity:
+    let st = map.status[idx]
+    if st == STATUS_EMPTY:
+      ret 0
+    if st == STATUS_OCCUPIED and map.keys[idx] == key:
+      ret map.values[idx]
+    idx = (idx + 1) & mask
+    step += 1
+  ret 0
+
+pub fn rtMapHas(map: RtMap, key: str): bool:
+  if map.count == 0 or map.capacity == 0:
+    ret false
+  let mask = map.capacity - 1
+  let h = rtHashFnv1a(key)
+  mut idx = h & mask
+  mut step = 0
+  while step < map.capacity:
+    let st = map.status[idx]
+    if st == STATUS_EMPTY:
+      ret false
+    if st == STATUS_OCCUPIED and map.keys[idx] == key:
+      ret true
+    idx = (idx + 1) & mask
+    step += 1
+  ret false
+
+pub fn rtMapDelete(mut map: RtMap, key: str): bool:
+  if map.count == 0 or map.capacity == 0:
+    ret false
+  let mask = map.capacity - 1
+  let h = rtHashFnv1a(key)
+  mut idx = h & mask
+  mut step = 0
+  while step < map.capacity:
+    let st = map.status[idx]
+    if st == STATUS_EMPTY:
+      ret false
+    if st == STATUS_OCCUPIED and map.keys[idx] == key:
+      map.keys[idx] = ""
+      map.values[idx] = 0
+      map.status[idx] = STATUS_DELETED
+      map.count -= 1
+      ret true
+    idx = (idx + 1) & mask
+    step += 1
+  ret false
+
+pub fn rtMapSize(map: RtMap): int:
+  ret map.count
+
+pub fn rtMapKeys(map: RtMap): [str]:
+  mut out: [str] = []
+  mut i = 0
+  while i < map.capacity:
+    if map.status[i] == STATUS_OCCUPIED:
+      out.push(map.keys[i])
+    i += 1
+  ret out
+
+pub fn rtMapValues(map: RtMap): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < map.capacity:
+    if map.status[i] == STATUS_OCCUPIED:
+      out.push(map.values[i])
+    i += 1
+  ret out
+
+pub fn rtHashMapNew(capacity: int): RtHashMap:
+  mut cap = 16
+  while cap < capacity:
+    cap = cap * 2
+  let ctrl = ptrAlloc(cap * 9)
+  let keys = ptrAlloc(cap * 8)
+  let vals = ptrAlloc(cap * 8)
+  if ctrl != 0:
+    ptrMemset(ctrl, 0, CTRL_EMPTY, cap)
+  ret RtHashMap(
+    ctrlPtr = ctrl,
+    keysPtr = keys,
+    valsPtr = vals,
+    capacity = cap,
+    size = 0,
+    growthLeft = (cap * 7) / 8
+  )
+
+pub fn rtMapInsert(mut map: RtHashMap, keyHash: int, keyAddr: int, valAddr: int): bool:
+  if map.ctrlPtr == 0 or map.capacity <= 0:
+    ret false
+  let h1 = keyHash >> 7
+  let h2 = keyHash & 127
+  let mask = map.capacity - 1
+  mut idx = h1 & mask
+  mut step = 0
+  while step < map.capacity:
+    let ctrl = ptrReadU8(map.ctrlPtr, idx)
+    if ctrl == CTRL_EMPTY or ctrl == CTRL_DELETED:
+      ptrWriteU8(map.ctrlPtr, idx, h2)
+      ptrWriteI64(map.ctrlPtr, map.capacity + idx * 8, keyHash)
+      ptrWriteI64(map.keysPtr, idx * 8, keyAddr)
+      ptrWriteI64(map.valsPtr, idx * 8, valAddr)
+      map.size += 1
+      if map.growthLeft > 0:
+        map.growthLeft -= 1
+      ret true
+    if ctrl == h2 and ptrReadI64(map.keysPtr, idx * 8) == keyAddr:
+      ptrWriteI64(map.valsPtr, idx * 8, valAddr)
+      ret false
+    idx = (idx + 1) & mask
+    step += 1
+  ret false
+
+pub fn rtMapFind(map: RtHashMap, keyHash: int, keyAddr: int): int:
+  if map.ctrlPtr == 0 or map.capacity <= 0:
+    ret 0
+  let h1 = keyHash >> 7
+  let h2 = keyHash & 127
+  let mask = map.capacity - 1
+  mut idx = h1 & mask
+  mut step = 0
+  while step < map.capacity:
+    let ctrl = ptrReadU8(map.ctrlPtr, idx)
+    if ctrl == CTRL_EMPTY:
+      ret 0
+    if ctrl == h2 and ptrReadI64(map.keysPtr, idx * 8) == keyAddr:
+      ret ptrReadI64(map.valsPtr, idx * 8)
+    idx = (idx + 1) & mask
+    step += 1
+  ret 0
+
+pub fn rtMapRemove(mut map: RtHashMap, keyHash: int, keyAddr: int): bool:
+  if map.ctrlPtr == 0 or map.capacity <= 0:
+    ret false
+  let h1 = keyHash >> 7
+  let h2 = keyHash & 127
+  let mask = map.capacity - 1
+  mut idx = h1 & mask
+  mut step = 0
+  while step < map.capacity:
+    let ctrl = ptrReadU8(map.ctrlPtr, idx)
+    if ctrl == CTRL_EMPTY:
+      ret false
+    if ctrl == h2 and ptrReadI64(map.keysPtr, idx * 8) == keyAddr:
+      ptrWriteU8(map.ctrlPtr, idx, CTRL_DELETED)
+      map.size -= 1
+      ret true
+    idx = (idx + 1) & mask
+    step += 1
+  ret false
+
+pub fn rtMapRehash(mut map: RtHashMap, newCap: int): void:
+  mut nextMap = rtHashMapNew(newCap)
+  if map.ctrlPtr != 0 and map.keysPtr != 0 and map.valsPtr != 0:
+    mut i = 0
+    while i < map.capacity:
+      let ctrl = ptrReadU8(map.ctrlPtr, i)
+      if ctrl != CTRL_EMPTY and ctrl != CTRL_DELETED:
+        let kh = ptrReadI64(map.ctrlPtr, map.capacity + i * 8)
+        let ka = ptrReadI64(map.keysPtr, i * 8)
+        let va = ptrReadI64(map.valsPtr, i * 8)
+        let _ = rtMapInsert(nextMap, kh, ka, va)
+      i += 1
+  if map.ctrlPtr != 0:
+    ptrFree(map.ctrlPtr)
+  if map.keysPtr != 0:
+    ptrFree(map.keysPtr)
+  if map.valsPtr != 0:
+    ptrFree(map.valsPtr)
+  map.ctrlPtr = nextMap.ctrlPtr
+  map.keysPtr = nextMap.keysPtr
+  map.valsPtr = nextMap.valsPtr
+  map.capacity = nextMap.capacity
+  map.size = nextMap.size
+  map.growthLeft = nextMap.growthLeft
+  ret
+
+pub fn rtMapFree(mut map: RtHashMap): void:
+  if map.ctrlPtr != 0:
+    ptrFree(map.ctrlPtr)
+    map.ctrlPtr = 0
+  if map.keysPtr != 0:
+    ptrFree(map.keysPtr)
+    map.keysPtr = 0
+  if map.valsPtr != 0:
+    ptrFree(map.valsPtr)
+    map.valsPtr = 0
+  map.capacity = 0
+  map.size = 0
+  map.growthLeft = 0
+  ret

@@ -1,0 +1,176 @@
+/// # Module: `std/gfx25d/sprite25d` (`Gfx25dSprite25d`)
+///
+/// ## Purpose & Domain Scope
+/// 8-directional pre-rendered 3D isometric character/prop sprite rigs (`IsoSpriteRig25D`),
+/// compass velocity quantizer (`direction8FromVelocity`), elliptical ground contact shadows
+/// (`drawContactShadow25D`), and alpha-tested Z-buffered sprite billboards (`drawSpriteBillboard25D`,
+/// `drawIsoSpriteRig25D`).
+///
+/// ## Architectural Boundary
+/// - `std/gfx2d/sprite2d` & `sprite_anim2d`: Pure 2D screen-space sprites without 3D world projection or Z-buffering.
+/// - `std/gfx25d/sprite25d`: 3D world-space isometric rigs projected via `Camera25D` with hardware/software alpha-tested Z-buffer depth cutouts.
+///
+/// ## Runnable Example
+/// ```aipl
+/// import { rgb, createProceduralTexture, createIsometricSpriteSheet } from "std/gfx2d/shape2d"
+/// import { createCamera25D } from "std/gfx25d/camera25d"
+/// import { createIsoSpriteRig25D, stepIsoSpriteRig25D, drawIsoSpriteRig25D } from "std/gfx25d/sprite25d"
+///
+/// let cam = createCamera25D(800.0, 600.0, 1.0)
+/// let shadowTex = createProceduralTexture("light_cookie", 32, 32, 1)
+/// let knightSheet = createIsometricSpriteSheet("hero_knight", 48, 48, 8, 6, 42)
+/// mut hero = createIsoSpriteRig25D(knightSheet, 48, 48, 8, 6, 120.0, 120.0, 8.0, 1.2, 10.0)
+/// hero = stepIsoSpriteRig25D(hero, 18.0, -18.0, 8.0, 0.05)
+/// let tris = drawIsoSpriteRig25D(cam, hero, shadowTex, rgb(255, 255, 255))
+/// ```
+module Gfx25dSprite25d
+
+import { clampFloat, clampInt, maxFloat, maxInt } from "../prelude"
+import { Color, drawQuad3DTextured } from "../gfx2d/shape2d"
+import { Camera25D, project3DToIso } from "./camera25d"
+
+/// 8-directional isometric sprite rig state tracking sprite sheet metadata, 3D world coordinates, velocity, active compass direction `dir8` (`0..7`), and animation cycle state.
+pub struct IsoSpriteRig25D(sheetTexId: int, frameW: int, frameH: int, dirs: int, framesPerDir: int, wx: float, wy: float, wz: float, vx: float, vy: float, dir8: int, animFrame: int, animTimer: float, fps: float, scale: float)
+
+/// Maps velocity vector `(vx, vy)` into one of the 8 canonical compass directions (`0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW`), returning `fallbackDir8` when speed `< 0.01`.
+pub fn direction8FromVelocity(vx: float, vy: float, fallbackDir8: int = 4): int:
+  let speedSq = vx * vx + vy * vy
+  if speedSq < 0.0001:
+    ret clampInt(fallbackDir8, 0, 7)
+  let ang = atan2(vy, vx)
+  mut shifted = ang + 1.5707963267948966
+  if shifted < 0.0:
+    shifted += 6.283185307179586
+  let sector = int(floor((shifted + 0.39269908169872414) / 0.7853981633974483)) % 8
+  ret clampInt(sector, 0, 7)
+
+/// Creates an `IsoSpriteRig25D` anchored at `(wx, wy, wz)` facing South (`dir8 = 4`).
+pub fn createIsoSpriteRig25D(sheetTexId: int, frameW: int, frameH: int, dirs: int, framesPerDir: int, wx: float, wy: float, wz: float, scale: float = 1.0, fps: float = 10.0): IsoSpriteRig25D:
+  ret IsoSpriteRig25D(
+    sheetTexId = sheetTexId,
+    frameW = maxInt(frameW, 1),
+    frameH = maxInt(frameH, 1),
+    dirs = maxInt(dirs, 1),
+    framesPerDir = maxInt(framesPerDir, 1),
+    wx = wx,
+    wy = wy,
+    wz = wz,
+    vx = 0.0,
+    vy = 0.0,
+    dir8 = 4,
+    animFrame = 0,
+    animTimer = 0.0,
+    fps = maxFloat(fps, 1.0),
+    scale = maxFloat(scale, 0.1)
+  )
+
+/// Advances `rig` position by `(vx, vy) * dt`, snaps `wz` to `terrainWz`, resolves `dir8`, and steps `animFrame`.
+pub fn stepIsoSpriteRig25D(rig: IsoSpriteRig25D, vx: float, vy: float, terrainWz: float, dt: float): IsoSpriteRig25D:
+  let stepDt = clampFloat(dt, 0.0, 0.25)
+  let nwx = rig.wx + vx * stepDt
+  let nwy = rig.wy + vy * stepDt
+  let speed = sqrt(vx * vx + vy * vy)
+  let ndir = direction8FromVelocity(vx, vy, rig.dir8)
+  let nDirs = maxInt(rig.dirs, 1)
+  let clampedDir = ndir % nDirs
+  let nFrames = maxInt(rig.framesPerDir, 1)
+
+  mut nTimer = rig.animTimer
+  mut nFrame = rig.animFrame
+  if speed >= 0.05 or nDirs == 1:
+    nTimer += stepDt * rig.fps
+    let totalFrames = int(floor(nTimer))
+    nFrame = totalFrames % nFrames
+    if nFrame < 0:
+      nFrame = 0
+  else:
+    nFrame = 0
+    nTimer = 0.0
+
+  ret IsoSpriteRig25D(
+    sheetTexId = rig.sheetTexId,
+    frameW = rig.frameW,
+    frameH = rig.frameH,
+    dirs = rig.dirs,
+    framesPerDir = rig.framesPerDir,
+    wx = nwx,
+    wy = nwy,
+    wz = terrainWz,
+    vx = vx,
+    vy = vy,
+    dir8 = clampedDir,
+    animFrame = nFrame,
+    animTimer = nTimer,
+    fps = rig.fps,
+    scale = rig.scale
+  )
+
+/// Renders a soft elliptical dark contact shadow on the ground at `(wx, wy, wz)` using `shadowCookieTexId`.
+pub fn drawContactShadow25D(cam: Camera25D, shadowCookieTexId: int, wx: float, wy: float, wz: float, pixelW: float, pixelH: float, alpha: float = 0.55): int:
+  if shadowCookieTexId <= 0:
+    ret 0
+  let anchor = project3DToIso(cam, wx, wy, wz)
+  let hw = maxFloat(pixelW * 0.5 * cam.zoom, 2.0)
+  let hh = maxFloat(pixelH * 0.5 * cam.zoom, 1.5)
+  let x0 = anchor.x - hw
+  let x1 = anchor.x + hw
+  let y0 = anchor.y - hh
+  let y1 = anchor.y + hh
+  let z = anchor.z - 0.0008
+  let shadowCol = Color(r = 0.03, g = 0.04, b = 0.06, a = clampFloat(alpha, 0.0, 0.95))
+  drawQuad3DTextured(
+    shadowCookieTexId,
+    x0, y0, z, 0.0, 0.0,
+    x1, y0, z, 1.0, 0.0,
+    x1, y1, z, 1.0, 1.0,
+    x0, y1, z, 0.0, 1.0,
+    shadowCol, shadowCol, shadowCol, shadowCol
+  )
+  ret 1
+
+/// Projects `(wx, wy, wz)` through `cam` and emits an alpha-tested, Z-buffered textured sprite billboard quad anchored at the character/prop feet.
+pub fn drawSpriteBillboard25D(cam: Camera25D, sheetTexId: int, wx: float, wy: float, wz: float, pixelW: float, pixelH: float, u0: float, v0: float, u1: float, v1: float, tintColor: Color): int:
+  if sheetTexId <= 0:
+    ret 0
+  let anchor = project3DToIso(cam, wx, wy, wz)
+  let hw = maxFloat(pixelW * 0.5 * cam.zoom, 1.0)
+  let h = maxFloat(pixelH * cam.zoom, 2.0)
+  let x0 = anchor.x - hw
+  let x1 = anchor.x + hw
+  let yTop = anchor.y - h + h * 0.10
+  let yBot = anchor.y + h * 0.10
+  let z = anchor.z - 0.0025
+  drawQuad3DTextured(
+    sheetTexId,
+    x0, yTop, z, u0, v0,
+    x1, yTop, z, u1, v0,
+    x1, yBot, z, u1, v1,
+    x0, yBot, z, u0, v1,
+    tintColor, tintColor, tintColor, tintColor
+  )
+  ret 1
+
+/// Renders the ground contact shadow and the active `(dir8, animFrame)` UV sub-rect billboard for `rig`.
+pub fn drawIsoSpriteRig25D(cam: Camera25D, rig: IsoSpriteRig25D, shadowCookieTexId: int, tintColor: Color): int:
+  if rig.sheetTexId <= 0:
+    ret 0
+  let pw = float(rig.frameW) * rig.scale
+  let ph = float(rig.frameH) * rig.scale
+  mut quads = 0
+  if shadowCookieTexId > 0:
+    quads += drawContactShadow25D(cam, shadowCookieTexId, rig.wx, rig.wy, rig.wz, pw * 0.62, pw * 0.30, 0.58)
+  let nFrames = maxInt(rig.framesPerDir, 1)
+  let nDirs = maxInt(rig.dirs, 1)
+  let col = clampInt(rig.animFrame, 0, nFrames - 1)
+  let row = clampInt(rig.dir8, 0, nDirs - 1)
+  let invCols = 1.0 / float(nFrames)
+  let invRows = 1.0 / float(nDirs)
+  // Small half-texel inset prevents neighboring sprite frame bleed underGL_REPEAT
+  let epsU = 0.002 * invCols
+  let epsV = 0.002 * invRows
+  let u0 = float(col) * invCols + epsU
+  let u1 = float(col + 1) * invCols - epsU
+  let v0 = float(row) * invRows + epsV
+  let v1 = float(row + 1) * invRows - epsV
+  quads += drawSpriteBillboard25D(cam, rig.sheetTexId, rig.wx, rig.wy, rig.wz, pw, ph, u0, v0, u1, v1, tintColor)
+  ret quads

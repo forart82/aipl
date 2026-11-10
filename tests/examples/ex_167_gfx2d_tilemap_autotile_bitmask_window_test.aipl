@@ -1,0 +1,57 @@
+module Ex167Gfx2dTilemapAutotileBitmaskWindowTest
+
+import {
+  buildTilemapAutotileAudit,
+  stepAutotileLayer
+} from "../../examples/ex_167_gfx2d_tilemap_autotile_bitmask_window"
+import { createCamera2D, getCameraVisibleBounds } from "../../std/gfx2d/camera2d"
+import {
+  TilemapLayer2D, createWangBlob47Autotiler,
+  evaluateAutotileBitmask, resolveWang47TileIndex, cullTilemapLayer
+} from "../../std/gfx2d/tilemap_renderer2d"
+
+pub fn test_gfx2d_tilemap_autotile_bitmask(): void:
+  let autotiler = createWangBlob47Autotiler()
+  assert(resolveWang47TileIndex(autotiler, 0) == 0, "Isolated tile resolves to 0")
+  assert(resolveWang47TileIndex(autotiler, 255) == 46, "Surrounded tile (255) resolves to 46")
+
+  let layer = TilemapLayer2D(
+    layerId = 1,
+    width = 3,
+    height = 3,
+    tiles = [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    zOrder = 0,
+    opacity = 1.0
+  )
+  let centerMask = evaluateAutotileBitmask(layer, 1, 1, 1)
+  assert(centerMask == 255, "Center of 3x3 all-1 block has 8-neighbor mask 255")
+
+  let layer2 = TilemapLayer2D(
+    layerId = 1,
+    width = 3,
+    height = 3,
+    tiles = [0, 1, 1, 1, 1, 1, 1, 1, 1],
+    zOrder = 0,
+    opacity = 1.0
+  )
+  let maskNoNW = evaluateAutotileBitmask(layer2, 1, 1, 1)
+  assert(maskNoNW != centerMask, "Clearing NW neighbor updates autotile bitmask")
+
+  let vis = cullTilemapLayer(layer, getCameraVisibleBounds(createCamera2D(128.0, 128.0)), 32.0, 32.0)
+  assert(vis.len() == 4, "cullTilemapLayer returns [minCol, minRow, maxCol, maxRow]")
+
+  let l0 = stepAutotileLayer(0)
+  let l1 = stepAutotileLayer(1)
+  let l20 = stepAutotileLayer(20)
+  let l100 = stepAutotileLayer(100)
+  let m0 = evaluateAutotileBitmask(l0, 1, 1, 1)
+  let m1 = evaluateAutotileBitmask(l1, 1, 1, 1)
+  let m20 = evaluateAutotileBitmask(l20, 4, 1, 1)
+  let m100 = evaluateAutotileBitmask(l100, 4, 1, 1)
+  assert(m0 != m1 and m20 != m100, "stepAutotileLayer updates neighbor bitmasks across t=0, t=1, t=20, t=100")
+  assert(buildTilemapAutotileAudit() == 305, "buildTilemapAutotileAudit returns 255 + 46 + 4 == 305")
+
+pub fn main(): int:
+  test_gfx2d_tilemap_autotile_bitmask()
+  println("PASS: ex_167_gfx2d_tilemap_autotile_bitmask_window_test")
+  ret 0

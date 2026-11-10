@@ -1,0 +1,45 @@
+module Ex160GfxGpuPipelineAndCommandGraphWindowTest
+
+import {
+  buildPipelineCommandGraphAudit,
+  recordFrameCommandBuffer
+} from "../../examples/ex_160_gfx_gpu_pipeline_and_command_graph_window"
+import { createGpuDevice } from "../../std/gfx/gpu_device"
+import { compileShaderModule } from "../../std/gfx/gpu_shader"
+import {
+  DepthStencilState, VertexAttribute, VertexLayout,
+  blendModeAlpha, blendModeAdditive, blendModeOpaque, createRenderPipeline
+} from "../../std/gfx/gpu_pipeline"
+import {
+  createCommandEncoder, recordDraw, finishCommandBuffer, submitCommandBuffer
+} from "../../std/gfx/gpu_command"
+
+pub fn test_gfx_gpu_pipeline_and_command_graph(): void:
+  let dev = createGpuDevice(1)
+  let sh = compileShaderModule(dev, 0, "@group(0) @binding(0) fn main() {}", "main")
+  let attr0 = VertexAttribute(location = 0, offsetBytes = 0, formatSize = 12)
+  let attr1 = VertexAttribute(location = 1, offsetBytes = 12, formatSize = 8)
+  let layout = VertexLayout(strideBytes = 20, attributes = [attr0, attr1])
+  let depth = DepthStencilState(depthTest = true, depthWrite = true, depthCompareOp = 1)
+
+  let pOpaque = createRenderPipeline(dev, sh, layout, blendModeOpaque(), depth)
+  let pAlpha = createRenderPipeline(dev, sh, layout, blendModeAlpha(), depth)
+  let pAdd = createRenderPipeline(dev, sh, layout, blendModeAdditive(), depth)
+  assert(pOpaque.pipelineId == 1 and not pOpaque.blend.enabled, "Opaque PSO blend disabled")
+  assert(pAlpha.blend.enabled and pAdd.blend.dstColor == 1, "Alpha and Additive PSO blend modes")
+
+  let cmd0 = recordFrameCommandBuffer(pOpaque, pAlpha, pAdd, 0)
+  let cmd1 = recordFrameCommandBuffer(pOpaque, pAlpha, pAdd, 1)
+  let cmd20 = recordFrameCommandBuffer(pOpaque, pAlpha, pAdd, 20)
+  let cmd100 = recordFrameCommandBuffer(pOpaque, pAlpha, pAdd, 100)
+  assert(cmd0.commands.len() == 3, "3 draw calls recorded in command buffer")
+  assert(cmd0.commands[0].instanceCount == 4 and cmd1.commands[0].instanceCount == 5, "t=0 -> t=1 updates pass 0 instanceCount")
+  assert(cmd20.commands[2].instanceCount != cmd1.commands[2].instanceCount and cmd100.commands[2].instanceCount != cmd20.commands[2].instanceCount, "multi-frame command buffer recording progresses across t=0, t=1, t=20, t=100")
+  let subResult = submitCommandBuffer(dev, cmd0)
+  assert(subResult == 4, "submitCommandBuffer returns 3 + 1 == 4")
+  assert(buildPipelineCommandGraphAudit() == 568, "buildPipelineCommandGraphAudit returns 360 + 120 + 64 + 20 + 4 == 568")
+
+pub fn main(): int:
+  test_gfx_gpu_pipeline_and_command_graph()
+  println("PASS: ex_160_gfx_gpu_pipeline_and_command_graph_window_test")
+  ret 0

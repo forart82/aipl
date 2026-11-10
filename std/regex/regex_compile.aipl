@@ -1,0 +1,465 @@
+// ============================================================================
+// Module: std/regex/regex_compile
+// Layer 1: Regular Expression Engine & Text Diffing
+// AST parser and Thompson NFA bytecode compiler.
+// ============================================================================
+module RegexCompile
+
+pub const OP_MATCH: int = 0
+pub const OP_CHAR: int = 1
+pub const OP_ANY: int = 2
+pub const OP_CHAR_CLASS: int = 3
+pub const OP_SPLIT: int = 4
+pub const OP_JUMP: int = 5
+pub const OP_SAVE: int = 6
+pub const OP_ANCHOR_START: int = 7
+pub const OP_ANCHOR_END: int = 8
+
+pub struct RegexFlags:
+  ignoreCase: bool
+  multiline: bool
+  dotAll: bool
+  ungreedy: bool
+
+pub struct RegexCharClass:
+  ranges: [(int, int)]
+  negated: bool
+
+pub struct RegexAstNode:
+  kind: str
+  charCode: int
+  minCount: int
+  maxCount: int
+  children: [RegexAstNode]
+  charClass: RegexCharClass
+  groupIndex: int
+
+pub struct RegexInstruction:
+  opcode: int
+  charCode: int
+  targetA: int
+  targetB: int
+  groupIdx: int
+  charClass: RegexCharClass
+
+pub struct RegexBytecode:
+  instructions: [RegexInstruction]
+  groupCount: int
+  anchoredStart: bool
+  anchoredEnd: bool
+
+pub struct Regex:
+  pattern: str
+  bytecode: RegexBytecode
+  flags: RegexFlags
+  groupCount: int
+
+struct ParseState:
+  pattern: str
+  pos: int
+  groupCount: int
+  err: str
+
+pub fn defaultRegexFlags(): RegexFlags:
+  ret RegexFlags(ignoreCase = false, multiline = false, dotAll = false, ungreedy = false)
+
+pub fn emptyCharClass(): RegexCharClass:
+  mut r: [(int, int)] = []
+  ret RegexCharClass(ranges = r, negated = false)
+
+fn makeNode(kind: str, charCode: int): RegexAstNode:
+  mut ch: [RegexAstNode] = []
+  ret RegexAstNode(
+    kind = kind,
+    charCode = charCode,
+    minCount = 1,
+    maxCount = 1,
+    children = ch,
+    charClass = emptyCharClass(),
+    groupIndex = 0
+  )
+
+fn makeClassNode(ranges: [(int, int)], negated: bool): RegexAstNode:
+  mut ch: [RegexAstNode] = []
+  ret RegexAstNode(
+    kind = "class",
+    charCode = 0,
+    minCount = 1,
+    maxCount = 1,
+    children = ch,
+    charClass = RegexCharClass(ranges = ranges, negated = negated),
+    groupIndex = 0
+  )
+
+fn makeEscapeNode(esc: str): RegexAstNode:
+  if esc == "d" or esc == "D":
+    ret makeClassNode([(48, 57)], esc == "D")
+  if esc == "w" or esc == "W":
+    ret makeClassNode([(48, 57), (65, 90), (95, 95), (97, 122)], esc == "W")
+  if esc == "s" or esc == "S":
+    ret makeClassNode([(9, 13), (32, 32)], esc == "S")
+  if esc == "n":
+    ret makeNode("char", 10)
+  if esc == "r":
+    ret makeNode("char", 13)
+  if esc == "t":
+    ret makeNode("char", 9)
+  ret makeNode("char", esc.charCodeAt(0))
+
+fn parseBracketClass(mut st: ParseState): (RegexAstNode, ParseState):
+  let pat = st.pattern
+  let n = pat.len
+  mut idx = st.pos
+  mut negated = false
+  if idx < n and pat.charAt(idx) == "^":
+    negated = true
+    idx += 1
+  mut ranges: [(int, int)] = []
+  while idx < n and pat.charAt(idx) != "]":
+    mut startCode = pat.charCodeAt(idx)
+    if pat.charAt(idx) == "\\" and idx + 1 < n:
+      idx += 1
+      let esc = pat.charAt(idx)
+      if esc == "d":
+        ranges.push((48, 57))
+        idx += 1
+        continue
+      if esc == "w":
+        ranges.push((48, 57))
+        ranges.push((65, 90))
+        ranges.push((95, 95))
+        ranges.push((97, 122))
+        idx += 1
+        continue
+      if esc == "s":
+        ranges.push((9, 13))
+        ranges.push((32, 32))
+        idx += 1
+        continue
+      if esc == "n":
+        startCode = 10
+      elif esc == "r":
+        startCode = 13
+      elif esc == "t":
+        startCode = 9
+      else:
+        startCode = pat.charCodeAt(idx)
+    if idx + 2 < n and pat.charAt(idx + 1) == "-" and pat.charAt(idx + 2) != "]":
+      let endCode = pat.charCodeAt(idx + 2)
+      ranges.push((startCode, endCode))
+      idx += 3
+    else:
+      ranges.push((startCode, startCode))
+      idx += 1
+  if idx >= n or pat.charAt(idx) != "]":
+    st.err = "unclosed character class '['"
+    st.pos = idx
+    ret (makeNode("empty", 0), st)
+  st.pos = idx + 1
+  ret (makeClassNode(ranges, negated), st)
+
+fn parseQuantifierBounds(mut st: ParseState): (int, int, ParseState):
+  let pat = st.pattern
+  let n = pat.len
+  mut idx = st.pos
+  mut minVal = 0
+  mut hasMin = false
+  while idx < n and pat.charAt(idx) >= "0" and pat.charAt(idx) <= "9":
+    hasMin = true
+    minVal = (minVal * 10) + (pat.charCodeAt(idx) - 48)
+    idx += 1
+  if not hasMin:
+    st.err = "invalid quantifier '{'"
+    ret (1, 1, st)
+  mut maxVal = minVal
+  if idx < n and pat.charAt(idx) == ",":
+    idx += 1
+    mut hasMax = false
+    mut parsedMax = 0
+    while idx < n and pat.charAt(idx) >= "0" and pat.charAt(idx) <= "9":
+      hasMax = true
+      parsedMax = (parsedMax * 10) + (pat.charCodeAt(idx) - 48)
+      idx += 1
+    if hasMax:
+      maxVal = parsedMax
+    else:
+      maxVal = -1
+  if idx >= n or pat.charAt(idx) != "}":
+    st.err = "unclosed quantifier '{'"
+    ret (1, 1, st)
+  st.pos = idx + 1
+  ret (minVal, maxVal, st)
+
+fn parseAlternation(mut st: ParseState): (RegexAstNode, ParseState):
+  let firstPair = parseConcat(st)
+  mut leftNode = firstPair[0]
+  st = firstPair[1]
+  if st.err.len > 0:
+    ret (leftNode, st)
+  while st.pos < st.pattern.len and st.pattern.charAt(st.pos) == "|":
+    st.pos = st.pos + 1
+    let rightPair = parseConcat(st)
+    let rightNode = rightPair[0]
+    st = rightPair[1]
+    mut altNode = makeNode("alt", 0)
+    altNode.children.push(leftNode)
+    altNode.children.push(rightNode)
+    leftNode = altNode
+  ret (leftNode, st)
+
+fn parseConcat(mut st: ParseState): (RegexAstNode, ParseState):
+  mut items: [RegexAstNode] = []
+  while st.pos < st.pattern.len and st.err.len == 0:
+    let ch = st.pattern.charAt(st.pos)
+    if ch == ")" or ch == "|":
+      break
+    let atomPair = parseQuantifiedAtom(st)
+    items.push(atomPair[0])
+    st = atomPair[1]
+  if items.len == 0:
+    ret (makeNode("empty", 0), st)
+  if items.len == 1:
+    ret (items[0], st)
+  mut seq = makeNode("concat", 0)
+  seq.children = items
+  ret (seq, st)
+
+fn parseQuantifiedAtom(mut st: ParseState): (RegexAstNode, ParseState):
+  let basePair = parseAtom(st)
+  mut atom = basePair[0]
+  st = basePair[1]
+  if st.err.len > 0 or st.pos >= st.pattern.len:
+    ret (atom, st)
+  let qch = st.pattern.charAt(st.pos)
+  if qch == "*" or qch == "+" or qch == "?":
+    st.pos = st.pos + 1
+    mut lazy = false
+    if st.pos < st.pattern.len and st.pattern.charAt(st.pos) == "?":
+      lazy = true
+      st.pos = st.pos + 1
+    mut qNode = makeNode(if lazy: "quant_lazy" else: "quant", 0)
+    qNode.minCount = if qch == "+": 1 else: 0
+    qNode.maxCount = if qch == "?": 1 else: -1
+    qNode.children.push(atom)
+    ret (qNode, st)
+  if qch == "{":
+    st.pos = st.pos + 1
+    let bounds = parseQuantifierBounds(st)
+    let minC = bounds[0]
+    let maxC = bounds[1]
+    st = bounds[2]
+    if st.err.len > 0:
+      ret (atom, st)
+    mut lazy = false
+    if st.pos < st.pattern.len and st.pattern.charAt(st.pos) == "?":
+      lazy = true
+      st.pos = st.pos + 1
+    mut qNode = makeNode(if lazy: "quant_lazy" else: "quant", 0)
+    qNode.minCount = minC
+    qNode.maxCount = maxC
+    qNode.children.push(atom)
+    ret (qNode, st)
+  ret (atom, st)
+
+fn parseAtom(mut st: ParseState): (RegexAstNode, ParseState):
+  let pat = st.pattern
+  if st.pos >= pat.len:
+    ret (makeNode("empty", 0), st)
+  let ch = pat.charAt(st.pos)
+  if ch == "^":
+    st.pos = st.pos + 1
+    ret (makeNode("anchor_start", 0), st)
+  if ch == "$":
+    st.pos = st.pos + 1
+    ret (makeNode("anchor_end", 0), st)
+  if ch == ".":
+    st.pos = st.pos + 1
+    ret (makeNode("any", 0), st)
+  if ch == "\\":
+    if st.pos + 1 >= pat.len:
+      st.err = "trailing backslash in regex"
+      ret (makeNode("empty", 0), st)
+    let esc = pat.charAt(st.pos + 1)
+    st.pos = st.pos + 2
+    ret (makeEscapeNode(esc), st)
+  if ch == "[":
+    st.pos = st.pos + 1
+    ret parseBracketClass(st)
+  if ch == "(":
+    st.pos = st.pos + 1
+    mut isCapturing = true
+    if st.pos + 1 < pat.len and pat.charAt(st.pos) == "?" and pat.charAt(st.pos + 1) == ":":
+      isCapturing = false
+      st.pos = st.pos + 2
+    mut gIdx = 0
+    if isCapturing:
+      st.groupCount = st.groupCount + 1
+      gIdx = st.groupCount
+    let innerPair = parseAlternation(st)
+    let innerNode = innerPair[0]
+    st = innerPair[1]
+    if st.pos >= pat.len or pat.charAt(st.pos) != ")":
+      st.err = "unclosed group '('"
+      ret (innerNode, st)
+    st.pos = st.pos + 1
+    if not isCapturing:
+      ret (innerNode, st)
+    mut gNode = makeNode("group", 0)
+    gNode.groupIndex = gIdx
+    gNode.children.push(innerNode)
+    ret (gNode, st)
+  st.pos = st.pos + 1
+  ret (makeNode("char", pat.charCodeAt(st.pos - 1)), st)
+
+pub fn parseRegexAst(pattern: str): Result[RegexAstNode, str]:
+  mut st = ParseState(pattern = pattern, pos = 0, groupCount = 0, err = "")
+  let res = parseAlternation(st)
+  let root = res[0]
+  let finalSt = res[1]
+  if finalSt.err.len > 0:
+    ret Err(finalSt.err)
+  if finalSt.pos < pattern.len:
+    ret Err("unexpected token in regex at position " + str(finalSt.pos))
+  ret Ok(root)
+
+fn makeInst(opcode: int, charCode: int, targetA: int, targetB: int, groupIdx: int, cc: RegexCharClass): RegexInstruction:
+  ret RegexInstruction(
+    opcode = opcode,
+    charCode = charCode,
+    targetA = targetA,
+    targetB = targetB,
+    groupIdx = groupIdx,
+    charClass = cc
+  )
+
+fn emitNodeBytecode(node: RegexAstNode, flags: RegexFlags, mut insts: [RegexInstruction]): [RegexInstruction]:
+  let k = node.kind
+  if k == "empty":
+    ret insts
+  if k == "char":
+    insts.push(makeInst(OP_CHAR, node.charCode, 0, 0, 0, emptyCharClass()))
+    ret insts
+  if k == "any":
+    insts.push(makeInst(OP_ANY, 0, 0, 0, 0, emptyCharClass()))
+    ret insts
+  if k == "anchor_start":
+    insts.push(makeInst(OP_ANCHOR_START, 0, 0, 0, 0, emptyCharClass()))
+    ret insts
+  if k == "anchor_end":
+    insts.push(makeInst(OP_ANCHOR_END, 0, 0, 0, 0, emptyCharClass()))
+    ret insts
+  if k == "class":
+    insts.push(makeInst(OP_CHAR_CLASS, 0, 0, 0, 0, node.charClass))
+    ret insts
+  if k == "group":
+    let gSlotStart = node.groupIndex * 2
+    let gSlotEnd = gSlotStart + 1
+    insts.push(makeInst(OP_SAVE, 0, 0, 0, gSlotStart, emptyCharClass()))
+    if node.children.len > 0:
+      insts = emitNodeBytecode(node.children[0], flags, insts)
+    insts.push(makeInst(OP_SAVE, 0, 0, 0, gSlotEnd, emptyCharClass()))
+    ret insts
+  if k == "concat":
+    mut i = 0
+    while i < node.children.len:
+      insts = emitNodeBytecode(node.children[i], flags, insts)
+      i += 1
+    ret insts
+  if k == "alt":
+    let splitIdx = insts.len
+    insts.push(makeInst(OP_SPLIT, 0, 0, 0, 0, emptyCharClass()))
+    let leftStart = insts.len
+    insts = emitNodeBytecode(node.children[0], flags, insts)
+    let jmpIdx = insts.len
+    insts.push(makeInst(OP_JUMP, 0, 0, 0, 0, emptyCharClass()))
+    let rightStart = insts.len
+    insts = emitNodeBytecode(node.children[1], flags, insts)
+    let afterRight = insts.len
+    insts[splitIdx] = makeInst(OP_SPLIT, 0, leftStart, rightStart, 0, emptyCharClass())
+    insts[jmpIdx] = makeInst(OP_JUMP, 0, afterRight, 0, 0, emptyCharClass())
+    ret insts
+  if k == "quant" or k == "quant_lazy":
+    let child = node.children[0]
+    let isLazy = (k == "quant_lazy") or flags.ungreedy
+    let minC = node.minCount
+    let maxC = node.maxCount
+    mut r = 0
+    while r < minC:
+      insts = emitNodeBytecode(child, flags, insts)
+      r += 1
+    if maxC == -1:
+      // Unbounded tail (*)
+      let splitIdx = insts.len
+      insts.push(makeInst(OP_SPLIT, 0, 0, 0, 0, emptyCharClass()))
+      let bodyStart = insts.len
+      insts = emitNodeBytecode(child, flags, insts)
+      insts.push(makeInst(OP_JUMP, 0, splitIdx, 0, 0, emptyCharClass()))
+      let afterLoop = insts.len
+      if isLazy:
+        insts[splitIdx] = makeInst(OP_SPLIT, 0, afterLoop, bodyStart, 0, emptyCharClass())
+      else:
+        insts[splitIdx] = makeInst(OP_SPLIT, 0, bodyStart, afterLoop, 0, emptyCharClass())
+      ret insts
+    let optCount = maxC - minC
+    mut o = 0
+    while o < optCount:
+      let splitIdx = insts.len
+      insts.push(makeInst(OP_SPLIT, 0, 0, 0, 0, emptyCharClass()))
+      let bodyStart = insts.len
+      insts = emitNodeBytecode(child, flags, insts)
+      let afterOpt = insts.len
+      if isLazy:
+        insts[splitIdx] = makeInst(OP_SPLIT, 0, afterOpt, bodyStart, 0, emptyCharClass())
+      else:
+        insts[splitIdx] = makeInst(OP_SPLIT, 0, bodyStart, afterOpt, 0, emptyCharClass())
+      o += 1
+    ret insts
+  ret insts
+
+fn countAstGroups(node: RegexAstNode): int:
+  mut maxG = node.groupIndex
+  mut i = 0
+  while i < node.children.len:
+    let cg = countAstGroups(node.children[i])
+    if cg > maxG:
+      maxG = cg
+    i += 1
+  ret maxG
+
+pub fn compileAstToBytecode(ast: RegexAstNode, flags: RegexFlags): RegexBytecode:
+  mut insts: [RegexInstruction] = []
+  insts.push(makeInst(OP_SAVE, 0, 0, 0, 0, emptyCharClass()))
+  insts = emitNodeBytecode(ast, flags, insts)
+  insts.push(makeInst(OP_SAVE, 0, 0, 0, 1, emptyCharClass()))
+  insts.push(makeInst(OP_MATCH, 0, 0, 0, 0, emptyCharClass()))
+  let gCount = countAstGroups(ast) + 1
+  ret RegexBytecode(
+    instructions = insts,
+    groupCount = gCount,
+    anchoredStart = false,
+    anchoredEnd = false
+  )
+
+pub fn regexCompileEx(pattern: str, flags: RegexFlags): Result[Regex, str]:
+  let astRes = parseRegexAst(pattern)
+  if astRes.isErr():
+    ret Err(astRes.unwrapErr())
+  let ast = astRes.unwrap()
+  let bc = compileAstToBytecode(ast, flags)
+  ret Ok(Regex(pattern = pattern, bytecode = bc, flags = flags, groupCount = bc.groupCount))
+
+pub fn regexCompile(pattern: str): Result[Regex, str]:
+  ret regexCompileEx(pattern, defaultRegexFlags())
+
+pub fn escapeRegexSpecial(pattern: str): str:
+  let specials = "\\.*+?()[]{}^$|"
+  mut out = ""
+  mut i = 0
+  while i < pattern.len:
+    let ch = pattern.charAt(i)
+    if specials.indexOf(ch) >= 0:
+      out = out + "\\" + ch
+    else:
+      out = out + ch
+    i += 1
+  ret out

@@ -1,0 +1,130 @@
+// ============================================================================
+// Module: std/collections/btree_map (BTreeMap)
+// Layer 1 (Core Primitives & Math) — Ordered B-Tree Map & Set with Range Queries
+// ============================================================================
+module BTreeMapMod
+
+pub struct BTreeNode[K, V]:
+  isLeaf: bool
+  keys: [K]
+  values: [V]
+  children: [BTreeNode[K, V]]
+
+pub struct BTreeMap[K, V]:
+  root: Option[BTreeNode[K, V]]
+  order: int
+  count: int
+
+pub fn btreeNodeNew[K, V](isLeaf: bool): BTreeNode[K, V]:
+  let k: [K] = []
+  let v: [V] = []
+  let c: [BTreeNode[K, V]] = []
+  ret BTreeNode(isLeaf = isLeaf, keys = k, values = v, children = c)
+
+pub fn btreeMapNew[K, V](order: int): BTreeMap[K, V]:
+  mut ord = order
+  if ord < 2:
+    ord = 2
+  ret BTreeMap(root = None, order = ord, count = 0)
+
+pub fn (mut self: BTreeMap[K, V]) insert(key: K, val: V): void:
+  if self.root.isNone():
+    mut node = btreeNodeNew[K, V](true)
+    node.keys.push(key)
+    node.values.push(val)
+    self.root = Some(node)
+    self.count = 1
+    ret
+  mut node = self.root.unwrap()
+  let n = node.keys.len
+  for i in 0..n:
+    if node.keys[i] == key:
+      node.values[i] = val
+      self.root = Some(node)
+      ret
+  mut nextKeys: [K] = []
+  mut nextVals: [V] = []
+  mut inserted = false
+  for i in 0..n:
+    if not inserted and key < node.keys[i]:
+      nextKeys.push(key)
+      nextVals.push(val)
+      inserted = true
+    nextKeys.push(node.keys[i])
+    nextVals.push(node.values[i])
+  if not inserted:
+    nextKeys.push(key)
+    nextVals.push(val)
+  node.keys = nextKeys
+  node.values = nextVals
+  self.root = Some(node)
+  self.count = self.count + 1
+
+pub fn (self: BTreeMap[K, V]) get(key: K): Option[V]:
+  if self.root.isNone():
+    ret None
+  let node = self.root.unwrap()
+  let n = node.keys.len
+  mut lo = 0
+  mut hi = n - 1
+  while lo <= hi:
+    let mid = (lo + hi) / 2
+    if node.keys[mid] == key:
+      ret Some(node.values[mid])
+    elif node.keys[mid] < key:
+      lo = mid + 1
+    else:
+      hi = mid - 1
+  ret None
+
+pub fn (self: BTreeMap[K, V]) containsKey(key: K): bool:
+  let res = self.get(key)
+  ret res.isSome()
+
+pub fn (self: BTreeMap[K, V]) len(): int:
+  ret self.count
+
+pub fn (self: BTreeMap[K, V]) isEmpty(): bool:
+  ret self.count == 0
+
+pub fn (self: BTreeMap[K, V]) range(minKey: K, maxKey: K): [V]:
+  mut out: [V] = []
+  if self.root.isNone():
+    ret out
+  let node = self.root.unwrap()
+  let n = node.keys.len
+  for i in 0..n:
+    let k = node.keys[i]
+    if k >= minKey and k <= maxKey:
+      out.push(node.values[i])
+  ret out
+
+pub fn (self: BTreeMap[K, V]) minKey(): Option[K]:
+  if self.root.isNone():
+    ret None
+  let node = self.root.unwrap()
+  if node.keys.len == 0:
+    ret None
+  ret Some(node.keys[0])
+
+pub fn (self: BTreeMap[K, V]) maxKey(): Option[K]:
+  if self.root.isNone():
+    ret None
+  let node = self.root.unwrap()
+  if node.keys.len == 0:
+    ret None
+  ret Some(node.keys[node.keys.len - 1])
+
+pub fn (self: BTreeMap[K, V]) keys(): [K]:
+  if self.root.isNone():
+    let empty: [K] = []
+    ret empty
+  let node = self.root.unwrap()
+  ret node.keys
+
+pub fn (self: BTreeMap[K, V]) values(): [V]:
+  if self.root.isNone():
+    let empty: [V] = []
+    ret empty
+  let node = self.root.unwrap()
+  ret node.values

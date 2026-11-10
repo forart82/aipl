@@ -1,0 +1,527 @@
+module tests.functions.db.sqlite_test
+
+import * from "std/db/sqlite"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_sqlite_sqlValNull_1(): int:
+  let resNom = sqlValNull()
+  let resEdge = sqlValNull()
+  assertEqInt(resNom.kind, 0, "sqlValNull nominal resNom.kind == 0")
+  assertEqInt(resEdge.kind, 0, "sqlValNull boundary resEdge.kind == 0")
+  ret 0
+
+pub fn test_sqlite_sqlValInt_2(): int:
+  let arg_v = 2
+  let edge_v = 0
+  let resNom = sqlValInt(arg_v)
+  let resEdge = sqlValInt(edge_v)
+  assertEqInt(resNom.kind, 1, "sqlValInt nominal resNom.kind == 1")
+  assertEqInt(resEdge.kind, 1, "sqlValInt boundary resEdge.kind == 1")
+  ret 0
+
+pub fn test_sqlite_sqlValFloat_3(): int:
+  let arg_v = 1.0
+  let edge_v = 0.5
+  let resNom = sqlValFloat(arg_v)
+  let resEdge = sqlValFloat(edge_v)
+  assertEqInt(resNom.kind, 2, "sqlValFloat nominal resNom.kind == 2")
+  assertEqInt(resEdge.kind, 2, "sqlValFloat boundary resEdge.kind == 2")
+  ret 0
+
+pub fn test_sqlite_sqlValStr_4(): int:
+  let arg_v = "test"
+  let edge_v = "a"
+  let resNom = sqlValStr(arg_v)
+  let resEdge = sqlValStr(edge_v)
+  assertEqInt(resNom.kind, 3, "sqlValStr nominal resNom.kind == 3")
+  assertEqInt(resEdge.kind, 3, "sqlValStr boundary resEdge.kind == 3")
+  ret 0
+
+pub fn test_sqlite_sqlValBlob_5(): int:
+  let arg_b = [4]
+  let edge_b = []
+  let resNom = sqlValBlob(arg_b)
+  let resEdge = sqlValBlob(edge_b)
+  assertEqInt(resNom.kind, 4, "sqlValBlob nominal resNom.kind == 4")
+  assertEqInt(resEdge.kind, 4, "sqlValBlob boundary resEdge.kind == 4")
+  ret 0
+
+pub fn test_sqlite_cloneSqliteValue_6(): int:
+  let arg_v = SqliteValue(kind = 4, intVal = 4, floatVal = 0.0, strVal = "test", isNull = true, blobVal = [])
+  let edge_v = SqliteValue(kind = 1, intVal = 1, floatVal = 0.0, strVal = "a", isNull = false, blobVal = [])
+  let resNom = cloneSqliteValue(arg_v)
+  let resEdge = cloneSqliteValue(edge_v)
+  assertEqInt(resNom.kind, 4, "cloneSqliteValue nominal resNom.kind == 4")
+  assertEqInt(resEdge.kind, 1, "cloneSqliteValue boundary resEdge.kind == 1")
+  ret 0
+
+pub fn test_sqlite_cloneTablesList_7(): int:
+  let arg_tables = [SqliteTable(name = "test", columns = [], rows = [])]
+  let edge_tables = []
+  let resNom = cloneTablesList(arg_tables)
+  let resEdge = cloneTablesList(edge_tables)
+  assertEqInt(resNom.len(), 1, "cloneTablesList nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "cloneTablesList boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_sqlite_replaceTablesInPlace_8(): int:
+  let arg_target = [SqliteTable(name = "test", columns = [], rows = [])]
+  let edge_target = []
+  let arg_src = [SqliteTable(name = "test", columns = [], rows = [])]
+  let edge_src = []
+  replaceTablesInPlace(arg_target, arg_src)
+  replaceTablesInPlace(edge_target, edge_src)
+  assertEqInt(arg_target.len(), 1, "replaceTablesInPlace nominal arg_target.len() == 1")
+  assertEqInt(edge_target.len(), 0, "replaceTablesInPlace boundary edge_target.len() == 0")
+  ret 0
+
+pub fn test_sqlite_findTableIdx_9(): int:
+  let arg_tables = [SqliteTable(name = "test", columns = [], rows = [])]
+  let edge_tables = []
+  let arg_name = "test"
+  let edge_name = "a"
+  let resNom = findTableIdx(arg_tables, arg_name)
+  let resEdge = findTableIdx(edge_tables, edge_name)
+  assertEqInt(resNom, 0, "findTableIdx nominal resNom == 0")
+  assertEqInt(resEdge, -1, "findTableIdx boundary resEdge == -1")
+  ret 0
+
+pub fn test_sqlite_findColIdx_10(): int:
+  let arg_cols = ["test"]
+  let edge_cols = []
+  let arg_colName = "test"
+  let edge_colName = "a"
+  let resNom = findColIdx(arg_cols, arg_colName)
+  let resEdge = findColIdx(edge_cols, edge_colName)
+  assertEqInt(resNom, 0, "findColIdx nominal resNom == 0")
+  assertEqInt(resEdge, -1, "findColIdx boundary resEdge == -1")
+  ret 0
+
+pub fn test_sqlite_parseSqlLiteralOrParam_11(): int:
+  let arg_raw = "test"
+  let edge_raw = "a"
+  let arg_params = [SqliteValue(kind = 4, intVal = 4, floatVal = 0.0, strVal = "test", isNull = true, blobVal = [])]
+  let edge_params = []
+  let arg_paramCursor = [4]
+  let edge_paramCursor = []
+  let resNom = parseSqlLiteralOrParam(arg_raw, arg_params, arg_paramCursor)
+  let resEdge = parseSqlLiteralOrParam(edge_raw, edge_params, edge_paramCursor)
+  assertEqInt(resNom.kind, 3, "parseSqlLiteralOrParam nominal resNom.kind == 3")
+  assertEqInt(resEdge.kind, 3, "parseSqlLiteralOrParam boundary resEdge.kind == 3")
+  ret 0
+
+pub fn test_sqlite_sqlValueMatches_12(): int:
+  let arg_a = SqliteValue(kind = 4, intVal = 4, floatVal = 0.0, strVal = "test", isNull = true, blobVal = [])
+  let edge_a = SqliteValue(kind = 1, intVal = 1, floatVal = 0.0, strVal = "a", isNull = false, blobVal = [])
+  let arg_b = SqliteValue(kind = 4, intVal = 4, floatVal = 0.0, strVal = "test", isNull = true, blobVal = [])
+  let edge_b = SqliteValue(kind = 1, intVal = 1, floatVal = 0.0, strVal = "a", isNull = false, blobVal = [])
+  let resNom = sqlValueMatches(arg_a, arg_b)
+  let resEdge = sqlValueMatches(edge_a, edge_b)
+  assert(resNom == true, "sqlValueMatches nominal resNom == true")
+  assert(resEdge == true, "sqlValueMatches boundary resEdge == true")
+  ret 0
+
+pub fn test_sqlite_execOnTables_13(): int:
+  let arg_tables = [SqliteTable(name = "test", columns = [], rows = [])]
+  let edge_tables = []
+  let arg_sql = "test"
+  let edge_sql = "a"
+  let arg_params = [SqliteValue(kind = 4, intVal = 4, floatVal = 0.0, strVal = "test", isNull = true, blobVal = [])]
+  let edge_params = []
+  let resNom = execOnTables(arg_tables, arg_sql, arg_params)
+  let resEdge = execOnTables(edge_tables, edge_sql, edge_params)
+  assert(resNom.isOk() == false, "execOnTables nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "execOnTables boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_sqlite_sqliteOpen_14(): int:
+  let arg_path = "/tmp/aipl_test_path"
+  let edge_path = "/tmp/aipl_test_path"
+  let arg_config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4)
+  let edge_config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1)
+  let resNom = sqliteOpen(arg_path, arg_config)
+  let resEdge = sqliteOpen(edge_path, edge_config)
+  assert(resNom.isOk() == true, "sqliteOpen nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "sqliteOpen boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_sqlite_sqliteOpenInMemory_15(): int:
+  let resNom = sqliteOpenInMemory()
+  let resEdge = sqliteOpenInMemory()
+  assertEqStr(resNom.path, ":memory:", "sqliteOpenInMemory nominal string matches")
+  assertEqStr(resEdge.path, ":memory:", "sqliteOpenInMemory boundary string matches")
+  ret 0
+
+pub fn test_sqlite_sqliteClose_16(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let resNom = sqliteClose(arg_db)
+  let resEdge = sqliteClose(edge_db)
+  assert(resNom == true, "sqliteClose nominal resNom == true")
+  assert(resEdge == false, "sqliteClose boundary resEdge == false")
+  ret 0
+
+pub fn test_sqlite_sqliteExec_17(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let arg_sql = "test"
+  let edge_sql = "a"
+  let resNom = sqliteExec(arg_db, arg_sql)
+  let resEdge = sqliteExec(edge_db, edge_sql)
+  assert(resNom.isOk() == false, "sqliteExec nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "sqliteExec boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_sqlite_sqliteQuery_18(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let arg_sql = "test"
+  let edge_sql = "a"
+  let resNom = sqliteQuery(arg_db, arg_sql)
+  let resEdge = sqliteQuery(edge_db, edge_sql)
+  assert(resNom.isOk() == false, "sqliteQuery nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "sqliteQuery boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_sqlite_sqlitePrepare_19(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let arg_sql = "test"
+  let edge_sql = "a"
+  let resNom = sqlitePrepare(arg_db, arg_sql)
+  let resEdge = sqlitePrepare(edge_db, edge_sql)
+  assert(resNom.isOk() == true, "sqlitePrepare nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == false, "sqlitePrepare boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_sqlite_ensureParamSlot_20(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_idx = 1
+  let edge_idx = 0
+  ensureParamSlot(arg_stmt, arg_idx)
+  ensureParamSlot(edge_stmt, edge_idx)
+  assertEqInt(arg_stmt.boundParams.len(), 1, "ensureParamSlot nominal arg_stmt.boundParams.len() == 1")
+  assertEqInt(edge_stmt.boundParams.len(), 0, "ensureParamSlot boundary edge_stmt.boundParams.len() == 0")
+  ret 0
+
+pub fn test_sqlite_stmtBindInt_21(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "42", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "0", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_idx = 1
+  let edge_idx = 0
+  let arg_val = 2
+  let edge_val = 0
+  let resNom = stmtBindInt(arg_stmt, arg_idx, arg_val)
+  let resEdge = stmtBindInt(edge_stmt, edge_idx, edge_val)
+  assertEqStr(resNom.dbPath, "/tmp/aipl_test_path", "stmtBindInt nominal string matches")
+  assertEqStr(resEdge.dbPath, "/tmp/aipl_test_path", "stmtBindInt boundary string matches")
+  ret 0
+
+pub fn test_sqlite_stmtBindFloat_22(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "42", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "0", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_idx = 1
+  let edge_idx = 0
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let resNom = stmtBindFloat(arg_stmt, arg_idx, arg_val)
+  let resEdge = stmtBindFloat(edge_stmt, edge_idx, edge_val)
+  assertEqStr(resNom.dbPath, "/tmp/aipl_test_path", "stmtBindFloat nominal string matches")
+  assertEqStr(resEdge.dbPath, "/tmp/aipl_test_path", "stmtBindFloat boundary string matches")
+  ret 0
+
+pub fn test_sqlite_stmtBindStr_23(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_idx = 1
+  let edge_idx = 0
+  let arg_val = "test"
+  let edge_val = "a"
+  let resNom = stmtBindStr(arg_stmt, arg_idx, arg_val)
+  let resEdge = stmtBindStr(edge_stmt, edge_idx, edge_val)
+  assertEqStr(resNom.dbPath, "/tmp/aipl_test_path", "stmtBindStr nominal string matches")
+  assertEqStr(resEdge.dbPath, "/tmp/aipl_test_path", "stmtBindStr boundary string matches")
+  ret 0
+
+pub fn test_sqlite_stmtBindBlob_24(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_idx = 1
+  let edge_idx = 0
+  let arg_b = [4]
+  let edge_b = []
+  let resNom = stmtBindBlob(arg_stmt, arg_idx, arg_b)
+  let resEdge = stmtBindBlob(edge_stmt, edge_idx, edge_b)
+  assertEqStr(resNom.dbPath, "/tmp/aipl_test_path", "stmtBindBlob nominal string matches")
+  assertEqStr(resEdge.dbPath, "/tmp/aipl_test_path", "stmtBindBlob boundary string matches")
+  ret 0
+
+pub fn test_sqlite_stmtBindNull_25(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_idx = 1
+  let edge_idx = 0
+  let resNom = stmtBindNull(arg_stmt, arg_idx)
+  let resEdge = stmtBindNull(edge_stmt, edge_idx)
+  assertEqStr(resNom.dbPath, "/tmp/aipl_test_path", "stmtBindNull nominal string matches")
+  assertEqStr(resEdge.dbPath, "/tmp/aipl_test_path", "stmtBindNull boundary string matches")
+  ret 0
+
+pub fn test_sqlite_stmtStep_26(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let resNom = stmtStep(arg_stmt)
+  let resEdge = stmtStep(edge_stmt)
+  assert(resNom == false, "stmtStep nominal resNom == false")
+  assert(resEdge == false, "stmtStep boundary resEdge == false")
+  ret 0
+
+pub fn test_sqlite_stmtColInt_27(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "42", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "0", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_colIdx = 1
+  let edge_colIdx = 0
+  let resNom = stmtColInt(arg_stmt, arg_colIdx)
+  let resEdge = stmtColInt(edge_stmt, edge_colIdx)
+  assertEqInt(resNom, 0, "stmtColInt nominal resNom == 0")
+  assertEqInt(resEdge, 0, "stmtColInt boundary resEdge == 0")
+  ret 0
+
+pub fn test_sqlite_stmtColFloat_28(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "42", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "0", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_colIdx = 1
+  let edge_colIdx = 0
+  let resNom = stmtColFloat(arg_stmt, arg_colIdx)
+  let resEdge = stmtColFloat(edge_stmt, edge_colIdx)
+  assertApproxEq(resNom, 0.0, 0.001, "stmtColFloat nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "stmtColFloat boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_sqlite_stmtColStr_29(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_colIdx = 1
+  let edge_colIdx = 0
+  let resNom = stmtColStr(arg_stmt, arg_colIdx)
+  let resEdge = stmtColStr(edge_stmt, edge_colIdx)
+  assertEqStr(resNom, "", "stmtColStr nominal string matches")
+  assertEqStr(resEdge, "", "stmtColStr boundary string matches")
+  ret 0
+
+pub fn test_sqlite_stmtColBytes_30(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_colIdx = 1
+  let edge_colIdx = 0
+  let resNom = stmtColBytes(arg_stmt, arg_colIdx)
+  let resEdge = stmtColBytes(edge_stmt, edge_colIdx)
+  assertEqInt(resNom.len(), 0, "stmtColBytes nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "stmtColBytes boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_sqlite_stmtColIsNull_31(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_colIdx = 1
+  let edge_colIdx = 0
+  let resNom = stmtColIsNull(arg_stmt, arg_colIdx)
+  let resEdge = stmtColIsNull(edge_stmt, edge_colIdx)
+  assert(resNom == true, "stmtColIsNull nominal resNom == true")
+  assert(resEdge == true, "stmtColIsNull boundary resEdge == true")
+  ret 0
+
+pub fn test_sqlite_stmtColName_32(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let arg_colIdx = 1
+  let edge_colIdx = 0
+  let resNom = stmtColName(arg_stmt, arg_colIdx)
+  let resEdge = stmtColName(edge_stmt, edge_colIdx)
+  assertEqStr(resNom, "", "stmtColName nominal string matches")
+  assertEqStr(resEdge, "", "stmtColName boundary string matches")
+  ret 0
+
+pub fn test_sqlite_stmtColCount_33(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let resNom = stmtColCount(arg_stmt)
+  let resEdge = stmtColCount(edge_stmt)
+  assertEqInt(resNom, 0, "stmtColCount nominal resNom == 0")
+  assertEqInt(resEdge, 0, "stmtColCount boundary resEdge == 0")
+  ret 0
+
+pub fn test_sqlite_stmtReset_34(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let resNom = stmtReset(arg_stmt)
+  let resEdge = stmtReset(edge_stmt)
+  assertEqStr(resNom.dbPath, "/tmp/aipl_test_path", "stmtReset nominal string matches")
+  assertEqStr(resEdge.dbPath, "/tmp/aipl_test_path", "stmtReset boundary string matches")
+  ret 0
+
+pub fn test_sqlite_stmtFinalize_35(): int:
+  let arg_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "test", boundParams = [], rows = [], cursorIdx = 1, finalized = true, tablesRef = [])
+  let edge_stmt = SqliteStmt(dbPath = "/tmp/aipl_test_path", sql = "a", boundParams = [], rows = [], cursorIdx = 0, finalized = false, tablesRef = [])
+  let resNom = stmtFinalize(arg_stmt)
+  let resEdge = stmtFinalize(edge_stmt)
+  assert(resNom == false, "stmtFinalize nominal resNom == false")
+  assert(resEdge == true, "stmtFinalize boundary resEdge == true")
+  ret 0
+
+pub fn test_sqlite_sqliteBegin_36(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let resNom = sqliteBegin(arg_db)
+  let resEdge = sqliteBegin(edge_db)
+  assert(resNom.isOk() == false, "sqliteBegin nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == true, "sqliteBegin boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_sqlite_sqliteCommit_37(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let resNom = sqliteCommit(arg_db)
+  let resEdge = sqliteCommit(edge_db)
+  assert(resNom.isOk() == true, "sqliteCommit nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == false, "sqliteCommit boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_sqlite_sqliteRollback_38(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let resNom = sqliteRollback(arg_db)
+  let resEdge = sqliteRollback(edge_db)
+  assert(resNom.isOk() == true, "sqliteRollback nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == false, "sqliteRollback boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_sqlite_sqliteSavepoint_39(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "42", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "0", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let arg_name = "42"
+  let edge_name = "0"
+  let resNom = sqliteSavepoint(arg_db, arg_name)
+  let resEdge = sqliteSavepoint(edge_db, edge_name)
+  assert(resNom.isOk() == true, "sqliteSavepoint nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "sqliteSavepoint boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_sqlite_sqliteRollbackTo_40(): int:
+  mut db = sqliteOpenInMemory()
+  sqliteExec(db, "CREATE TABLE items (id INT)")
+  sqliteSavepoint(db, "sp1")
+  sqliteExec(db, "INSERT INTO items VALUES (1)")
+  let rbRes = sqliteRollbackTo(db, "sp1")
+  assert(rbRes.isOk() == true, "sqliteRollbackTo valid savepoint isOk")
+  let rbBad = sqliteRollbackTo(db, "nonexistent")
+  assert(rbBad.isOk() == false, "sqliteRollbackTo missing savepoint is Err")
+  ret 0
+
+pub fn test_sqlite_sqliteReleaseSavepoint_41(): int:
+  mut db = sqliteOpenInMemory()
+  sqliteSavepoint(db, "sp1")
+  let relRes = sqliteReleaseSavepoint(db, "sp1")
+  assert(relRes.isOk() == true, "sqliteReleaseSavepoint valid savepoint isOk")
+  let relBad = sqliteReleaseSavepoint(db, "nonexistent")
+  assert(relBad.isOk() == false, "sqliteReleaseSavepoint missing savepoint is Err")
+  ret 0
+
+pub fn test_sqlite_sqliteTableExists_42(): int:
+  mut db = sqliteOpenInMemory()
+  assert(sqliteTableExists(db, "users") == false, "sqliteTableExists before create is false")
+  sqliteExec(db, "CREATE TABLE users (id INT, name TEXT)")
+  assert(sqliteTableExists(db, "users") == true, "sqliteTableExists after create is true")
+  ret 0
+
+pub fn test_sqlite_sqliteGetSchema_43(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let arg_tableName = "test"
+  let edge_tableName = "a"
+  let resNom = sqliteGetSchema(arg_db, arg_tableName)
+  let resEdge = sqliteGetSchema(edge_db, edge_tableName)
+  assertEqInt(resNom.len(), 0, "sqliteGetSchema nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "sqliteGetSchema boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_sqlite_sqliteCreateMigrationPlan_44(): int:
+  let arg_migrations = [SqlMigration(version = 4, name = "test", upSql = "test", downSql = "test")]
+  let edge_migrations = []
+  let arg_currentVer = 4
+  let edge_currentVer = 1
+  let arg_targetVer = 2
+  let edge_targetVer = 0
+  let resNom = sqliteCreateMigrationPlan(arg_migrations, arg_currentVer, arg_targetVer)
+  let resEdge = sqliteCreateMigrationPlan(edge_migrations, edge_currentVer, edge_targetVer)
+  assertEqInt(resNom.migrations.len(), 1, "sqliteCreateMigrationPlan nominal resNom.migrations.len() == 1")
+  assertEqInt(resEdge.migrations.len(), 0, "sqliteCreateMigrationPlan boundary resEdge.migrations.len() == 0")
+  ret 0
+
+pub fn test_sqlite_sqliteApplyMigrations_45(): int:
+  let arg_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = true, config = SqliteConfig(busyTimeoutMs = 4, readOnly = true, journalMode = "test", cacheSize = 4), tables = [], inTransaction = true, savepoints = [], isOpen = true, txSnapshot = [], spSnapshots = [])
+  let edge_db = SqliteDb(path = "/tmp/aipl_test_path", inMemory = false, config = SqliteConfig(busyTimeoutMs = 1, readOnly = false, journalMode = "a", cacheSize = 1), tables = [], inTransaction = false, savepoints = [], isOpen = false, txSnapshot = [], spSnapshots = [])
+  let arg_plan = SqlMigrationPlan(migrations = [], currentVersion = 4, targetVersion = 4)
+  let edge_plan = SqlMigrationPlan(migrations = [], currentVersion = 1, targetVersion = 1)
+  let resNom = sqliteApplyMigrations(arg_db, arg_plan)
+  let resEdge = sqliteApplyMigrations(edge_db, edge_plan)
+  assert(resNom.isOk() == true, "sqliteApplyMigrations nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "sqliteApplyMigrations boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_sqlite_sqlRowGet_46(): int:
+  let arg_row = SqliteRow(columns = [], values = [])
+  let edge_row = SqliteRow(columns = [], values = [])
+  let arg_colName = "test"
+  let edge_colName = "a"
+  let resNom = sqlRowGet(arg_row, arg_colName)
+  let resEdge = sqlRowGet(edge_row, edge_colName)
+  assertEqInt(resNom.kind, 0, "sqlRowGet nominal resNom.kind == 0")
+  assertEqInt(resEdge.kind, 0, "sqlRowGet boundary resEdge.kind == 0")
+  ret 0
+
+pub fn test_sqlite_sqlRowCount_47(): int:
+  let arg_tbl = SqliteTable(name = "test", columns = [], rows = [])
+  let edge_tbl = SqliteTable(name = "a", columns = [], rows = [])
+  let resNom = sqlRowCount(arg_tbl)
+  let resEdge = sqlRowCount(edge_tbl)
+  assertEqInt(resNom, 0, "sqlRowCount nominal resNom == 0")
+  assertEqInt(resEdge, 0, "sqlRowCount boundary resEdge == 0")
+  ret 0
+
+pub fn test_sqlite_sqlTableNew_48(): int:
+  let arg_name = "test"
+  let edge_name = "a"
+  let arg_cols = ["test"]
+  let edge_cols = []
+  let resNom = sqlTableNew(arg_name, arg_cols)
+  let resEdge = sqlTableNew(edge_name, edge_cols)
+  assertEqStr(resNom.name, "test", "sqlTableNew nominal string matches")
+  assertEqStr(resEdge.name, "a", "sqlTableNew boundary string matches")
+  ret 0
+
+pub fn test_sqlite_sqlTableFilter_49(): int:
+  let arg_tbl = SqliteTable(name = "test", columns = [], rows = [])
+  let edge_tbl = SqliteTable(name = "a", columns = [], rows = [])
+  let arg_colName = "test"
+  let edge_colName = "a"
+  let arg_expectedVal = "test"
+  let edge_expectedVal = "a"
+  let resNom = sqlTableFilter(arg_tbl, arg_colName, arg_expectedVal)
+  let resEdge = sqlTableFilter(edge_tbl, edge_colName, edge_expectedVal)
+  assertEqStr(resNom.name, "test", "sqlTableFilter nominal string matches")
+  assertEqStr(resEdge.name, "a", "sqlTableFilter boundary string matches")
+  ret 0
+
+pub fn test_sqlite_sqlTableProject_50(): int:
+  let arg_tbl = SqliteTable(name = "test", columns = [], rows = [])
+  let edge_tbl = SqliteTable(name = "a", columns = [], rows = [])
+  let arg_cols = ["test"]
+  let edge_cols = []
+  let resNom = sqlTableProject(arg_tbl, arg_cols)
+  let resEdge = sqlTableProject(edge_tbl, edge_cols)
+  assertEqStr(resNom.name, "test", "sqlTableProject nominal string matches")
+  assertEqStr(resEdge.name, "a", "sqlTableProject boundary string matches")
+  ret 0

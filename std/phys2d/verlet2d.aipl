@@ -1,0 +1,105 @@
+/// # Module: `std/phys2d/verlet2d` (`Verlet2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Particle-based Verlet integration for soft bodies, cloth grids, and catenary ropes.
+module Verlet2DMod
+
+import { sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+
+pub struct VerletParticle2D(position: Vec2, prevPosition: Vec2, acceleration: Vec2, isPinned: bool)
+
+pub struct VerletStick2D(p1Idx: int, p2Idx: int, restLength: float, stiffness: float)
+
+pub struct VerletClothGrid2D(particles: [VerletParticle2D], sticks: [VerletStick2D], cols: int, rows: int)
+
+pub fn verletParticleNew(pos: Vec2, isPinned: bool): VerletParticle2D:
+  ret VerletParticle2D(
+    position = pos,
+    prevPosition = pos,
+    acceleration = Vec2(x = 0.0, y = 0.0),
+    isPinned = isPinned
+  )
+
+pub fn verletClothGridNew(cols: int, rows: int, spacing: float): VerletClothGrid2D:
+  mut pts: [VerletParticle2D] = []
+  mut stks: [VerletStick2D] = []
+
+  mut r = 0
+  while r < rows:
+    mut c = 0
+    while c < cols:
+      let pinned = r == 0
+      pts.push(verletParticleNew(Vec2(x = float(c) * spacing, y = float(r) * spacing), pinned))
+      if c > 0:
+        stks.push(VerletStick2D(
+          p1Idx = r * cols + (c - 1),
+          p2Idx = r * cols + c,
+          restLength = spacing,
+          stiffness = 1.0
+        ))
+      if r > 0:
+        stks.push(VerletStick2D(
+          p1Idx = (r - 1) * cols + c,
+          p2Idx = r * cols + c,
+          restLength = spacing,
+          stiffness = 1.0
+        ))
+      c = c + 1
+    r = r + 1
+
+  ret VerletClothGrid2D(particles = pts, sticks = stks, cols = cols, rows = rows)
+
+pub fn verletStepSimulation(mut cloth: VerletClothGrid2D, gravity: Vec2, iterations: int, dt: float): void:
+  mut pts = cloth.particles
+  let dtSq = dt * dt
+  mut i = 0
+  while i < pts.len:
+    let p: VerletParticle2D = pts[i]
+    if not p.isPinned:
+      let cur: Vec2 = p.position
+      let prv: Vec2 = p.prevPosition
+      let vx = (cur.x - prv.x) * 0.99
+      let vy = (cur.y - prv.y) * 0.99
+      let nx = cur.x + vx + gravity.x * dtSq
+      let ny = cur.y + vy + gravity.y * dtSq
+      pts[i] = VerletParticle2D(
+        position = Vec2(x = nx, y = ny),
+        prevPosition = cur,
+        acceleration = Vec2(x = 0.0, y = 0.0),
+        isPinned = false
+      )
+    i = i + 1
+
+  mut it = 0
+  while it < iterations:
+    mut s = 0
+    while s < cloth.sticks.len:
+      let stk: VerletStick2D = cloth.sticks[s]
+      let p1: VerletParticle2D = pts[stk.p1Idx]
+      let p2: VerletParticle2D = pts[stk.p2Idx]
+      let dx = p2.position.x - p1.position.x
+      let dy = p2.position.y - p1.position.y
+      let dist = sqrt(dx * dx + dy * dy)
+      if dist > 0.000001:
+        let diff = ((stk.restLength - dist) / dist) * stk.stiffness * 0.5
+        let ox = dx * diff
+        let oy = dy * diff
+        if not p1.isPinned:
+          pts[stk.p1Idx] = VerletParticle2D(
+            position = Vec2(x = p1.position.x - ox, y = p1.position.y - oy),
+            prevPosition = p1.prevPosition,
+            acceleration = p1.acceleration,
+            isPinned = false
+          )
+        if not p2.isPinned:
+          pts[stk.p2Idx] = VerletParticle2D(
+            position = Vec2(x = p2.position.x + ox, y = p2.position.y + oy),
+            prevPosition = p2.prevPosition,
+            acceleration = p2.acceleration,
+            isPinned = false
+          )
+      s = s + 1
+    it = it + 1
+
+  cloth.particles = pts

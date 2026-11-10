@@ -1,0 +1,169 @@
+/// # Module: `std/particle/emitter2d` (`Emitter2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 2D particle simulation pool, spatial emission shapes (Point, Circle, Ring, Box),
+/// force affector integration, and lifetime compaction.
+module Emitter2DMod
+
+import { TAU, maxFloat, clampFloat } from "std/math/consts"
+import { sin, cos, sqrt } from "std/math/trig"
+import { Vec2, Vec3 } from "std/math/vec_math"
+import { ColorRgba8 } from "std/gfx/color"
+import {
+  ParticleAffector,
+  AFFECTOR_GRAVITY, AFFECTOR_DRAG, AFFECTOR_VORTEX, AFFECTOR_CURL_NOISE,
+  evaluateVortexForce, evaluateCurlNoiseForce
+} from "std/particle/affector"
+
+pub struct Particle2D(pos: Vec2, vel: Vec2, startColor: ColorRgba8, endColor: ColorRgba8, size: float, rotationRad: float, rotSpeedRad: float, ageSec: float, lifetimeSec: float, isAlive: bool)
+
+pub struct EmissionShape2D(shapeType: int, radius: float, innerRadius: float, boxExtents: Vec2)
+
+pub struct ParticlePool2D(particles: [Particle2D], maxParticles: int, liveCount: int, emissionRatePerSec: float, emissionAccumulator: float)
+
+pub fn createParticlePool2D(maxParticles: int = 1024, emissionRate: float = 100.0): ParticlePool2D:
+  let cap = if maxParticles > 0: maxParticles else: 1
+  mut parts: [Particle2D] = []
+  ret ParticlePool2D(
+    particles = parts,
+    maxParticles = cap,
+    liveCount = 0,
+    emissionRatePerSec = maxFloat(emissionRate, 0.0),
+    emissionAccumulator = 0.0
+  )
+
+pub fn sampleEmissionPosition2D(shape: EmissionShape2D, rngRoll1: float, rngRoll2: float): Vec2:
+  let u1 = clampFloat(rngRoll1, 0.0, 1.0)
+  let u2 = clampFloat(rngRoll2, 0.0, 1.0)
+  // shapeType == 0: point
+  if shape.shapeType == 0:
+    ret Vec2(x = 0.0, y = 0.0)
+  // shapeType == 1: circle / ring
+  if shape.shapeType == 1:
+    let theta = u1 * TAU
+    let rMin2 = shape.innerRadius * shape.innerRadius
+    let rMax2 = shape.radius * shape.radius
+    let r = sqrt(rMin2 + (rMax2 - rMin2) * u2)
+    ret Vec2(x = cos(theta) * r, y = sin(theta) * r)
+  // shapeType == 2: box
+  ret Vec2(
+    x = (u1 * 2.0 - 1.0) * shape.boxExtents.x,
+    y = (u2 * 2.0 - 1.0) * shape.boxExtents.y
+  )
+
+pub fn stepParticlePool2D(pool: ParticlePool2D, dt: float, affectors: [ParticleAffector]): ParticlePool2D:
+  mut nextParticles: [Particle2D] = []
+  mut aliveCount = 0
+
+  mut i = 0
+  while i < pool.particles.len:
+    let p = pool.particles[i]
+    let nextAge = p.ageSec + dt
+    if p.isAlive and nextAge < p.lifetimeSec:
+      mut vx = p.vel.x
+      mut vy = p.vel.y
+      mut ai = 0
+      while ai < affectors.len:
+        let aff = affectors[ai]
+        if aff.affectorType == AFFECTOR_GRAVITY:
+          vx = vx + aff.direction.x * aff.strength * dt
+          vy = vy + aff.direction.y * aff.strength * dt
+        elif aff.affectorType == AFFECTOR_DRAG:
+          let damp = maxFloat(0.0, 1.0 - aff.strength * dt)
+          vx = vx * damp
+          vy = vy * damp
+        elif aff.affectorType == AFFECTOR_VORTEX:
+          let vf = evaluateVortexForce(aff, Vec3(x = p.pos.x, y = p.pos.y, z = 0.0))
+          vx = vx + vf.x * dt
+          vy = vy + vf.y * dt
+        elif aff.affectorType == AFFECTOR_CURL_NOISE:
+          let cf = evaluateCurlNoiseForce(aff, Vec3(x = p.pos.x, y = p.pos.y, z = 0.0))
+          vx = vx + cf.x * dt
+          vy = vy + cf.y * dt
+        ai = ai + 1
+
+      nextParticles.push(Particle2D(
+        pos = Vec2(x = p.pos.x + vx * dt, y = p.pos.y + vy * dt),
+        vel = Vec2(x = vx, y = vy),
+        startColor = p.startColor,
+        endColor = p.endColor,
+        size = p.size,
+        rotationRad = p.rotationRad + p.rotSpeedRad * dt,
+        rotSpeedRad = p.rotSpeedRad,
+        ageSec = nextAge,
+        lifetimeSec = p.lifetimeSec,
+        isAlive = true
+      ))
+      aliveCount = aliveCount + 1
+    i = i + 1
+
+  ret ParticlePool2D(
+    particles = nextParticles,
+    maxParticles = pool.maxParticles,
+    liveCount = aliveCount,
+    emissionRatePerSec = pool.emissionRatePerSec,
+    emissionAccumulator = pool.emissionAccumulator + pool.emissionRatePerSec * dt
+  )
+
+pub fn spawnParticle2D(pool: ParticlePool2D, p: Particle2D): ParticlePool2D:
+  if pool.particles.len >= pool.maxParticles:
+    ret pool
+  mut next: [Particle2D] = []
+  mut i = 0
+  while i < pool.particles.len:
+    next.push(pool.particles[i])
+    i = i + 1
+  next.push(p)
+  ret ParticlePool2D(
+    particles = next,
+    maxParticles = pool.maxParticles,
+    liveCount = next.len,
+    emissionRatePerSec = pool.emissionRatePerSec,
+    emissionAccumulator = pool.emissionAccumulator
+  )
+
+pub fn emitParticleBurst2D(pool: ParticlePool2D, origin: Vec2, count: int, speed: float, lifetimeSec: float, startColor: ColorRgba8, endColor: ColorRgba8): ParticlePool2D:
+  mut cur = pool
+  let n = if count > 0: count else: 0
+  mut i = 0
+  while i < n and cur.particles.len < cur.maxParticles:
+    let angle = (float(i) / float(if n > 0: n else: 1)) * TAU
+    let p = Particle2D(
+      pos = origin,
+      vel = Vec2(x = cos(angle) * speed, y = sin(angle) * speed),
+      startColor = startColor,
+      endColor = endColor,
+      size = 2.0,
+      rotationRad = angle,
+      rotSpeedRad = 0.0,
+      ageSec = 0.0,
+      lifetimeSec = maxFloat(lifetimeSec, 0.01),
+      isAlive = true
+    )
+    cur = spawnParticle2D(cur, p)
+    i = i + 1
+  ret cur
+
+pub fn particleNormalizedAge2D(p: Particle2D): float:
+  if p.lifetimeSec <= 0.0:
+    ret 1.0
+  ret clampFloat(p.ageSec / p.lifetimeSec, 0.0, 1.0)
+
+pub fn clearParticlePool2D(pool: ParticlePool2D): ParticlePool2D:
+  mut empty: [Particle2D] = []
+  ret ParticlePool2D(
+    particles = empty,
+    maxParticles = pool.maxParticles,
+    liveCount = 0,
+    emissionRatePerSec = pool.emissionRatePerSec,
+    emissionAccumulator = 0.0
+  )
+
+pub fn countActiveParticles2D(pool: ParticlePool2D): int:
+  mut c = 0
+  mut i = 0
+  while i < pool.particles.len:
+    if pool.particles[i].isAlive:
+      c = c + 1
+    i = i + 1
+  ret c

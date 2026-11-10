@@ -1,0 +1,184 @@
+module Ex193UiWidgetRetainedFormsAndTabsWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import { Rect } from "../std/math/geom2d"
+import {
+  ButtonWidget, SliderWidget, TextInputWidget, DropdownWidget, ScrollViewWidget,
+  updateButton, updateSlider, handleTextInputKey,
+  drawTabs, drawProgressBarUI, drawKeycapBadge,
+  drawSm2FlashcardMasteryBar, drawNetGraphPacketBar
+} from "../std/ui/ui_widget"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawText, rgb, colorHex
+} from "../std/gfx2d/shape2d"
+
+pub fn stepSliderMouseSimX(frame: int): float:
+  ret 140.0 + float((frame * 7) % 440)
+
+pub fn stepTextInputCycle(inp: TextInputWidget, frame: int): TextInputWidget:
+  let cyc = frame % 96
+  if cyc == 0:
+    ret handleTextInputKey(inp, 95, false, false)
+  if cyc == 16:
+    ret handleTextInputKey(inp, 118, false, false)
+  if cyc == 20:
+    ret handleTextInputKey(inp, 50, false, false)
+  if cyc == 40:
+    ret handleTextInputKey(inp, 57, false, false)
+  if cyc == 60 or cyc == 72 or cyc == 84 or cyc == 92:
+    ret handleTextInputKey(inp, 0, true, false)
+  ret inp
+
+pub fn buildUiWidgetFormsAudit(): int:
+  let btn = ButtonWidget(
+    label = "Submit",
+    bounds = Rect(x = 10.0, y = 10.0, w = 80.0, h = 30.0),
+    isHovered = false,
+    isPressed = false,
+    isFocused = false,
+    isEnabled = true
+  )
+  let btnPressed = updateButton(btn, Vec2(x = 20.0, y = 20.0), true)
+  let slider = SliderWidget(
+    value = 0.0,
+    minValue = 0.0,
+    maxValue = 100.0,
+    step = 10.0,
+    bounds = Rect(x = 0.0, y = 0.0, w = 200.0, h = 20.0)
+  )
+  let sliderUpdated = updateSlider(slider, Vec2(x = 100.0, y = 10.0), true)
+  let inp = TextInputWidget(
+    content = "ai",
+    cursorIndex = 2,
+    selectionStart = 2,
+    selectionEnd = 2,
+    placeholder = "Type...",
+    isFocused = true
+  )
+  let inp2 = handleTextInputKey(inp, 112, false, false)
+  let inp3 = handleTextInputKey(inp2, 108, false, false)
+  let flags = (if btnPressed.isHovered: 1 else: 0) + (if btnPressed.isPressed: 1 else: 0)
+  ret int(sliderUpdated.value) + inp3.cursorIndex + flags
+
+pub fn main(): int:
+  let auditScore = buildUiWidgetFormsAudit()
+
+  mut inp = TextInputWidget(
+    content = "agent_01",
+    cursorIndex = 8,
+    selectionStart = 8,
+    selectionEnd = 8,
+    placeholder = "Enter Agent ID...",
+    isFocused = true
+  )
+
+  mut slider = SliderWidget(
+    value = 60.0,
+    minValue = 0.0,
+    maxValue = 100.0,
+    step = 5.0,
+    bounds = Rect(x = 140.0, y = 370.0, w = 440.0, h = 24.0)
+  )
+
+  initWindow(1280, 720, "AIPL ex_193: UI Retained Widgets - Forms, Sliders, Inputs & Tabs")
+  mut frame = 0
+  while not windowShouldClose():
+    inp = stepTextInputCycle(inp, frame)
+    let mouseSimX = stepSliderMouseSimX(frame)
+    slider = updateSlider(slider, Vec2(x = mouseSimX, y = 380.0), true)
+    let btn = updateButton(
+      ButtonWidget(label = "Apply Configuration", bounds = Rect(x = 140.0, y = 556.0, w = 240.0, h = 48.0), isHovered = false, isPressed = false, isFocused = false, isEnabled = true),
+      Vec2(x = 200.0, y = 576.0),
+      frame % 40 < 20
+    )
+    let dd = DropdownWidget(
+      options = ["Production Cluster (us-east)", "Staging Canary (eu-west)", "Local Sandbox (loopback)"],
+      selectedIndex = (frame / 30) % 3,
+      isOpen = true,
+      bounds = Rect(x = 660.0, y = 236.0, w = 460.0, h = 40.0)
+    )
+    let scroll = ScrollViewWidget(
+      contentSize = Vec2(x = 460.0, y = 600.0),
+      scrollOffset = Vec2(x = 0.0, y = float((frame * 5) % 320)),
+      viewportBounds = Rect(x = 660.0, y = 430.0, w = 460.0, h = 174.0)
+    )
+
+    beginDrawing()
+    clearScreen(rgb(12, 17, 29))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_193: RETAINED FORM WIDGETS (BUTTON, SLIDER, TEXTINPUT, TABS & PROGRESS)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("textInput='" + inp.content + "' | cursor=" + str(inp.cursorIndex) + " | sliderVal=" + str(int(slider.value)) + "% | btnPressed=" + str(btn.isPressed) + " | audit=" + str(auditScore), 52.0, 66.0, 15.0, rgb(125, 211, 252))
+
+    let activeTab = (frame / 35) % 3
+    let cAccent = colorHex(0x38BDF8)
+    let cMuted = colorHex(0x1E293B)
+    let cText = colorHex(0xF8FAFC)
+    let _tabIdx = drawTabs(["General Settings", "Telemetry Pipeline", "Security Keys"], activeTab, 100.0, 122.0, 230.0, 38.0, cAccent, cMuted)
+
+    drawRect(100.0, 160.0, 1080.0, 504.0, rgb(17, 24, 39))
+    drawRectOutline(100.0, 160.0, 1080.0, 504.0, 2.0, rgb(56, 189, 248))
+
+    // Left Column: Text Input, Slider, Progress Bar, Button
+    drawText("1. Agent Identifier (TextInputWidget):", 140.0, 198.0, 16.0, rgb(203, 213, 225))
+    drawRect(140.0, 228.0, 440.0, 44.0, rgb(15, 23, 42))
+    drawRectOutline(140.0, 228.0, 440.0, 44.0, 2.0, rgb(56, 189, 248))
+    let caretGlyph = if (frame / 10) % 2 == 0: "|" else: ""
+    drawText(inp.content + caretGlyph, 156.0, 242.0, 18.0, rgb(248, 250, 252))
+    let _k1 = drawKeycapBadge("Ctrl+S", 456.0, 196.0, cMuted, cAccent)
+    let _k2 = drawKeycapBadge("Bksp", 528.0, 196.0, cMuted, cAccent)
+
+    drawText("2. Worker Pool Concurrency (" + str(int(slider.value)) + "%, step=5%):", 140.0, 326.0, 17.0, rgb(203, 213, 225))
+    drawRect(slider.bounds.x, slider.bounds.y, slider.bounds.w, slider.bounds.h, rgb(30, 41, 59))
+    let fillW = (slider.value / 100.0) * slider.bounds.w
+    drawRect(slider.bounds.x, slider.bounds.y, fillW, slider.bounds.h, rgb(56, 189, 248))
+    drawRectOutline(slider.bounds.x, slider.bounds.y, slider.bounds.w, slider.bounds.h, 1.5, rgb(125, 211, 252))
+    drawCircle(slider.bounds.x + fillW, slider.bounds.y + 12.0, 13.0, rgb(240, 249, 255))
+
+    drawText("3. Build Verification Progress & Mastery Distribution:", 140.0, 434.0, 17.0, rgb(203, 213, 225))
+    drawProgressBarUI(140.0, 464.0, 440.0, 22.0, slider.value / 100.0, cAccent, cMuted, cText)
+    drawSm2FlashcardMasteryBar(140.0, 502.0, 440.0, 20.0, int(slider.value), 45, 20, 10)
+
+    let btnCol = if btn.isPressed: rgb(14, 165, 233) else: rgb(56, 189, 248)
+    drawRect(btn.bounds.x, btn.bounds.y, btn.bounds.w, btn.bounds.h, btnCol)
+    drawRectOutline(btn.bounds.x, btn.bounds.y, btn.bounds.w, btn.bounds.h, 2.0, rgb(240, 249, 255))
+    drawText(btn.label, btn.bounds.x + 28.0, btn.bounds.y + 15.0, 17.0, rgb(15, 23, 42))
+    drawText(if btn.isPressed: "STATE: PRESSED & FOCUSED" else: "STATE: HOVERED", 400.0, 572.0, 15.0, if btn.isPressed: rgb(52, 211, 153) else: rgb(148, 163, 184))
+
+    // Right Column: DropdownWidget & ScrollViewWidget + NetGraph Telemetry
+    drawText("4. Target Environment (DropdownWidget):", 660.0, 198.0, 17.0, rgb(203, 213, 225))
+    drawRect(dd.bounds.x, dd.bounds.y, dd.bounds.w, dd.bounds.h, rgb(15, 23, 42))
+    drawRectOutline(dd.bounds.x, dd.bounds.y, dd.bounds.w, dd.bounds.h, 2.0, rgb(168, 85, 247))
+    drawText(dd.options[dd.selectedIndex], dd.bounds.x + 14.0, dd.bounds.y + 11.0, 16.0, rgb(243, 232, 255))
+    mut optIdx = 0
+    while optIdx < dd.options.len():
+      let oy = dd.bounds.y + 44.0 + float(optIdx) * 34.0
+      let isSel = optIdx == dd.selectedIndex
+      drawRect(dd.bounds.x, oy, dd.bounds.w, 32.0, if isSel: rgb(46, 32, 84) else: rgb(24, 32, 50))
+      drawRectOutline(dd.bounds.x, oy, dd.bounds.w, 32.0, 1.0, if isSel: rgb(192, 132, 252) else: rgb(51, 65, 85))
+      drawText((if isSel: "> " else: "  ") + dd.options[optIdx], dd.bounds.x + 12.0, oy + 8.0, 15.0, if isSel: rgb(250, 204, 21) else: rgb(203, 213, 225))
+      optIdx = optIdx + 1
+
+    drawText("5. ScrollView Viewport & NetGraph Telemetry (offsetY=" + str(int(scroll.scrollOffset.y)) + "px):", 660.0, 400.0, 16.0, rgb(203, 213, 225))
+    drawRect(scroll.viewportBounds.x, scroll.viewportBounds.y, scroll.viewportBounds.w, scroll.viewportBounds.h, rgb(11, 17, 30))
+    drawRectOutline(scroll.viewportBounds.x, scroll.viewportBounds.y, scroll.viewportBounds.w, scroll.viewportBounds.h, 2.0, rgb(52, 211, 153))
+    mut barIdx = 0
+    while barIdx < 24:
+      let bx = scroll.viewportBounds.x + 16.0 + float(barIdx) * 17.5
+      let ping = 25 + ((barIdx * 19 + frame * 3) % 130)
+      let choke = (barIdx * 7 + frame) % 35
+      let lost = ((barIdx + frame / 12) % 19) == 0
+      drawNetGraphPacketBar(bx, scroll.viewportBounds.y + scroll.viewportBounds.h - 14.0, 12.0, 130.0, ping, choke, lost)
+      barIdx = barIdx + 1
+    // Scrollbar thumb on right edge of ScrollViewWidget
+    let thumbY = scroll.viewportBounds.y + 6.0 + (scroll.scrollOffset.y / 320.0) * (scroll.viewportBounds.h - 48.0)
+    drawRect(scroll.viewportBounds.x + scroll.viewportBounds.w - 10.0, thumbY, 6.0, 36.0, rgb(52, 211, 153))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

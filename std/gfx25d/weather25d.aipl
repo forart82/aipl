@@ -1,0 +1,301 @@
+/// # Module: `std/gfx25d/weather25d` (`Gfx25dWeather25d`)
+///
+/// ## Purpose & Domain Scope
+/// 2.5D Atmospheric Weather & Particle Emitters providing deterministic 3D diagonal rain streaks
+/// with expanding elliptical ground splash rings (`RainDrop25D`, `RainSystem25D`, `createRainSystem25D`,
+/// `stepAndDrawRain25D`), rising campfire smoke & additive ember sparks (`EmberParticle25D`,
+/// `EmberSmokeEmitter25D`, `createEmberSmokeEmitter25D`, `stepAndDrawEmberSmoke25D`), and dual
+/// counter-scrolling UV ground mist layers (`drawGroundMist25D`).
+///
+/// ## Architectural Boundary
+/// - `std/gfx2d/filter2d`: 2D screen-space spark particles.
+/// - `std/gfx25d/weather25d`: 3D world-space weather and emitter systems projected through `Camera25D`.
+///
+/// ## Runnable Example
+/// ```aipl
+/// import { rgba, createProceduralTexture } from "std/gfx2d/shape2d"
+/// import { createCamera25D } from "std/gfx25d/camera25d"
+/// import { createRainSystem25D, stepAndDrawRain25D, createEmberSmokeEmitter25D, stepAndDrawEmberSmoke25D, drawGroundMist25D } from "std/gfx25d/weather25d"
+///
+/// let cam = createCamera25D(800.0, 600.0, 1.0)
+/// let cookieTex = createProceduralTexture("light_cookie", 32, 32, 11)
+/// let mistTex = createProceduralTexture("mist", 64, 64, 22)
+/// mut rain = createRainSystem25D(24, 220.0)
+/// rain = stepAndDrawRain25D(cam, rain, 0.0, 0.0, 6.0, 0.03)
+/// mut emitter = createEmberSmokeEmitter25D(0.0, 0.0, 10.0, 16)
+/// emitter = stepAndDrawEmberSmoke25D(cam, emitter, cookieTex, 0.03)
+/// let mistQuads = drawGroundMist25D(cam, mistTex, 0.0, 0.0, 8.0, 200.0, 1.0, rgba(160, 185, 215, 0.25))
+/// ```
+module Gfx25dWeather25d
+
+import { clampFloat, clampInt, maxFloat, maxInt } from "../prelude"
+import { Color, rgba, drawLine, drawEllipse, drawQuad3DTextured, setBlendMode, blendModeAlpha, blendModeAdditive, blendModeScreen } from "../gfx2d/shape2d"
+import { Camera25D, project3DToIso } from "./camera25d"
+
+/// Individual 3D raindrop state tracking world coordinates `(wx, wy, wz)` and ground splash ring timer.
+pub struct RainDrop25D(wx: float, wy: float, wz: float, groundWz: float, splashTime: float, splashMax: float)
+
+/// Deterministic 2.5D rain simulation state with wind velocity, vertical fall speed, and active drop pool.
+pub struct RainSystem25D(drops: [RainDrop25D], windVx: float, windVy: float, fallSpeed: float, areaHalfExtent: float)
+
+/// Individual 3D campfire ember spark or rising smoke puff particle.
+pub struct EmberParticle25D(wx: float, wy: float, wz: float, vx: float, vy: float, vz: float, life: float, maxLife: float, isSmoke: bool, sizePx: float)
+
+/// 2.5D campfire emitter combining rising dark-gray smoke puffs and swirling additive orange/gold ember sparks.
+pub struct EmberSmokeEmitter25D(originWx: float, originWy: float, originWz: float, particles: [EmberParticle25D], timeAccum: float)
+
+fn hashFloat01(seed: int): float:
+  let h = ((seed * 1103515245 + 12345) % 2147483647)
+  let pos = if h < 0: -h else: h
+  ret float(pos % 10000) / 10000.0
+
+/// Initializes a deterministic `RainSystem25D` with `dropCount` raindrops distributed across `[-areaHalfExtent, areaHalfExtent]`.
+pub fn createRainSystem25D(dropCount: int, areaHalfExtent: float, windVx: float = -18.0, windVy: float = 12.0, fallSpeed: float = 110.0): RainSystem25D:
+  let count = clampInt(dropCount, 1, 256)
+  let ext = maxFloat(areaHalfExtent, 32.0)
+  mut drops: [RainDrop25D] = []
+  mut i = 0
+  while i < count:
+    let rx = (hashFloat01(i * 17 + 3) * 2.0 - 1.0) * ext
+    let ry = (hashFloat01(i * 31 + 11) * 2.0 - 1.0) * ext
+    let rz = hashFloat01(i * 47 + 19) * 140.0 + 10.0
+    let smax = 0.22 + hashFloat01(i * 61 + 29) * 0.14
+    let stime = if (i % 4) == 0: hashFloat01(i * 73 + 5) * smax else: smax + 0.1
+    drops.push(RainDrop25D(
+      wx = rx,
+      wy = ry,
+      wz = rz,
+      groundWz = 0.0,
+      splashTime = stime,
+      splashMax = smax
+    ))
+    i += 1
+  ret RainSystem25D(
+    drops = drops,
+    windVx = windVx,
+    windVy = windVy,
+    fallSpeed = maxFloat(fallSpeed, 20.0),
+    areaHalfExtent = ext
+  )
+
+/// Advances all raindrops in `rain` around `(centerWx, centerWy)`, draws diagonal rain streaks and ground splash ripples, and returns the updated `RainSystem25D`.
+pub fn stepAndDrawRain25D(cam: Camera25D, mut rain: RainSystem25D, centerWx: float, centerWy: float, groundWz: float, dt: float): RainSystem25D:
+  let stepDt = clampFloat(dt, 0.001, 0.20)
+  let ext = maxFloat(rain.areaHalfExtent, 32.0)
+  mut updated: [RainDrop25D] = []
+  mut i = 0
+  while i < rain.drops.len:
+    let d = rain.drops[i]
+    mut wx = d.wx + rain.windVx * stepDt
+    mut wy = d.wy + rain.windVy * stepDt
+    mut wz = d.wz - rain.fallSpeed * stepDt
+    mut stime = d.splashTime + stepDt
+
+    if wx < centerWx - ext:
+      wx += ext * 2.0
+    elif wx > centerWx + ext:
+      wx -= ext * 2.0
+    if wy < centerWy - ext:
+      wy += ext * 2.0
+    elif wy > centerWy + ext:
+      wy -= ext * 2.0
+
+    if wz <= groundWz:
+      wz = groundWz + 115.0 + hashFloat01(i * 29 + int(wz * 10.0)) * 35.0
+      stime = 0.0
+
+    let headProj = project3DToIso(cam, wx, wy, wz)
+    let tailProj = project3DToIso(cam, wx - rain.windVx * 0.08, wy - rain.windVy * 0.08, wz + rain.fallSpeed * 0.08)
+    drawLine(tailProj.x, tailProj.y, headProj.x, headProj.y, rgba(175, 202, 235, 0.42))
+
+    if stime < d.splashMax:
+      let p = clampFloat(stime / maxFloat(d.splashMax, 0.01), 0.0, 1.0)
+      let gProj = project3DToIso(cam, wx, wy, groundWz)
+      let rx = (2.0 + p * 6.5) * cam.zoom
+      let ry = rx * 0.52
+      let a = (1.0 - p) * 0.48
+      drawEllipse(gProj.x, gProj.y, rx, ry, rgba(185, 215, 245, a))
+
+    updated.push(RainDrop25D(
+      wx = wx,
+      wy = wy,
+      wz = wz,
+      groundWz = groundWz,
+      splashTime = stime,
+      splashMax = d.splashMax
+    ))
+    i += 1
+
+  rain.drops = updated
+  ret rain
+
+fn initEmberParticle(originWx: float, originWy: float, originWz: float, idx: int, phaseSeed: float): EmberParticle25D:
+  let isSmoke = (idx % 3) == 0
+  let s1 = hashFloat01(idx * 37 + int(phaseSeed * 100.0) + 7)
+  let s2 = hashFloat01(idx * 53 + int(phaseSeed * 100.0) + 19)
+  let s3 = hashFloat01(idx * 71 + int(phaseSeed * 100.0) + 31)
+  let ang = s1 * 6.283185307179586
+  let rad = (0.5 + s2 * 4.5) * (if isSmoke: 1.35 else: 0.85)
+  let ox = originWx + cos(ang) * rad
+  let oy = originWy + sin(ang) * rad
+  let oz = originWz + (if isSmoke: 8.0 + s3 * 6.0 else: 2.0 + s3 * 5.0)
+  let vx = cos(ang + 1.2) * (if isSmoke: 3.5 else: 7.5)
+  let vy = sin(ang + 1.2) * (if isSmoke: 3.5 else: 7.5)
+  let vz = if isSmoke: 16.0 + s2 * 10.0 else: 26.0 + s2 * 22.0
+  let maxL = if isSmoke: 1.6 + s3 * 0.9 else: 0.85 + s3 * 0.65
+  let sz = if isSmoke: 14.0 + s1 * 10.0 else: 4.5 + s1 * 4.0
+  ret EmberParticle25D(
+    wx = ox,
+    wy = oy,
+    wz = oz,
+    vx = vx,
+    vy = vy,
+    vz = vz,
+    life = s3 * maxL,
+    maxLife = maxL,
+    isSmoke = isSmoke,
+    sizePx = sz
+  )
+
+/// Creates an `EmberSmokeEmitter25D` anchored at `(originWx, originWy, originWz)` with `particleCount` smoke and spark particles.
+pub fn createEmberSmokeEmitter25D(originWx: float, originWy: float, originWz: float, particleCount: int = 36): EmberSmokeEmitter25D:
+  let count = clampInt(particleCount, 4, 160)
+  mut parts: [EmberParticle25D] = []
+  mut i = 0
+  while i < count:
+    parts.push(initEmberParticle(originWx, originWy, originWz, i, float(i) * 0.13))
+    i += 1
+  ret EmberSmokeEmitter25D(
+    originWx = originWx,
+    originWy = originWy,
+    originWz = originWz,
+    particles = parts,
+    timeAccum = 0.0
+  )
+
+/// Steps and renders rising smoke plumes (`blendModeAlpha()`) and additive glowing campfire embers (`blendModeAdditive()`).
+pub fn stepAndDrawEmberSmoke25D(cam: Camera25D, mut emitter: EmberSmokeEmitter25D, cookieTexId: int, dt: float): EmberSmokeEmitter25D:
+  let stepDt = clampFloat(dt, 0.001, 0.20)
+  let tNow = emitter.timeAccum + stepDt
+  mut updated: [EmberParticle25D] = []
+
+  // First pass: step all particles and draw alpha-blended smoke puffs
+  setBlendMode(blendModeAlpha())
+  mut i = 0
+  while i < emitter.particles.len:
+    mut p = emitter.particles[i]
+    let nextLife = p.life + stepDt
+    if nextLife >= p.maxLife:
+      p = initEmberParticle(emitter.originWx, emitter.originWy, emitter.originWz, i, tNow)
+      p.life = 0.0
+    else:
+      let swirl = sin(tNow * 3.2 + float(i) * 0.7) * (if p.isSmoke: 4.0 else: 11.0)
+      p.wx = p.wx + (p.vx + swirl * 0.35) * stepDt
+      p.wy = p.wy + (p.vy - swirl * 0.25) * stepDt
+      p.wz = p.wz + p.vz * stepDt
+      p.life = nextLife
+
+    if p.isSmoke and cookieTexId > 0:
+      let u = clampFloat(p.life / maxFloat(p.maxLife, 0.01), 0.0, 1.0)
+      let fade = sin(u * 3.141592653589793)
+      let rad = p.sizePx * (0.85 + u * 1.15) * cam.zoom
+      let proj = project3DToIso(cam, p.wx, p.wy, p.wz)
+      let z = proj.z - 0.004
+      let smokeCol = Color(r = 0.18, g = 0.20, b = 0.24, a = clampFloat(fade * 0.34, 0.0, 0.55))
+      drawQuad3DTextured(
+        cookieTexId,
+        proj.x - rad, proj.y - rad * 0.8, z, 0.0, 0.0,
+        proj.x + rad, proj.y - rad * 0.8, z, 1.0, 0.0,
+        proj.x + rad, proj.y + rad * 0.8, z, 1.0, 1.0,
+        proj.x - rad, proj.y + rad * 0.8, z, 0.0, 1.0,
+        smokeCol, smokeCol, smokeCol, smokeCol
+      )
+    updated.push(p)
+    i += 1
+
+  // Second pass: draw additive glowing ember sparks
+  if cookieTexId > 0:
+    setBlendMode(blendModeAdditive())
+    mut j = 0
+    while j < updated.len:
+      let ep = updated[j]
+      if not ep.isSmoke:
+        let u = clampFloat(ep.life / maxFloat(ep.maxLife, 0.01), 0.0, 1.0)
+        let fade = 1.0 - u * u
+        let rad = maxFloat(ep.sizePx * (1.0 - u * 0.45) * cam.zoom, 2.0)
+        let proj = project3DToIso(cam, ep.wx, ep.wy, ep.wz)
+        let z = -0.982
+        let emberCol = Color(
+          r = 1.0,
+          g = clampFloat(0.82 - u * 0.48, 0.22, 1.0),
+          b = clampFloat(0.32 - u * 0.28, 0.05, 1.0),
+          a = clampFloat(fade * 0.92, 0.0, 1.0)
+        )
+        drawQuad3DTextured(
+          cookieTexId,
+          proj.x - rad, proj.y - rad, z, 0.0, 0.0,
+          proj.x + rad, proj.y - rad, z, 1.0, 0.0,
+          proj.x + rad, proj.y + rad, z, 1.0, 1.0,
+          proj.x - rad, proj.y + rad, z, 0.0, 1.0,
+          emberCol, emberCol, emberCol, emberCol
+        )
+      j += 1
+    setBlendMode(blendModeAlpha())
+
+  emitter.particles = updated
+  emitter.timeAccum = tNow
+  ret emitter
+
+/// Renders dual counter-scrolling UV-mapped atmospheric ground fog layers hugging the terrain around `(centerWx, centerWy, baseWz)`.
+pub fn drawGroundMist25D(cam: Camera25D, mistTexId: int, centerWx: float, centerWy: float, baseWz: float, extent: float, timeSec: float, tintColor: Color): int:
+  if mistTexId <= 0 or extent <= 1.0:
+    ret 0
+  let ext = maxFloat(extent, 16.0)
+  let x0 = centerWx - ext
+  let x1 = centerWx + ext
+  let y0 = centerWy - ext
+  let y1 = centerWy + ext
+
+  setBlendMode(blendModeScreen())
+  let zA = baseWz + 2.5
+  let p00 = project3DToIso(cam, x0, y0, zA)
+  let p10 = project3DToIso(cam, x1, y0, zA)
+  let p11 = project3DToIso(cam, x1, y1, zA)
+  let p01 = project3DToIso(cam, x0, y1, zA)
+
+  let uShiftA = timeSec * 0.045
+  let vShiftA = timeSec * 0.028
+  let colA = Color(r = tintColor.r, g = tintColor.g, b = tintColor.b, a = clampFloat(tintColor.a, 0.0, 0.75))
+  drawQuad3DTextured(
+    mistTexId,
+    p00.x, p00.y, p00.z - 0.0015, uShiftA, vShiftA,
+    p10.x, p10.y, p10.z - 0.0015, uShiftA + 2.0, vShiftA,
+    p11.x, p11.y, p11.z - 0.0015, uShiftA + 2.0, vShiftA + 2.0,
+    p01.x, p01.y, p01.z - 0.0015, uShiftA, vShiftA + 2.0,
+    colA, colA, colA, colA
+  )
+
+  let extB = ext * 0.85
+  let bx0 = centerWx - extB
+  let bx1 = centerWx + extB
+  let by0 = centerWy - extB
+  let by1 = centerWy + extB
+  let zB = baseWz + 5.5
+  let q00 = project3DToIso(cam, bx0, by0, zB)
+  let q10 = project3DToIso(cam, bx1, by0, zB)
+  let q11 = project3DToIso(cam, bx1, by1, zB)
+  let q01 = project3DToIso(cam, bx0, by1, zB)
+
+  let uShiftB = 0.5 - timeSec * 0.032
+  let vShiftB = 0.25 + timeSec * 0.021
+  let colB = Color(r = tintColor.r, g = tintColor.g, b = tintColor.b, a = clampFloat(tintColor.a * 0.72, 0.0, 0.65))
+  drawQuad3DTextured(
+    mistTexId,
+    q00.x, q00.y, q00.z - 0.0020, uShiftB, vShiftB,
+    q10.x, q10.y, q10.z - 0.0020, uShiftB + 1.5, vShiftB,
+    q11.x, q11.y, q11.z - 0.0020, uShiftB + 1.5, vShiftB + 1.5,
+    q01.x, q01.y, q01.z - 0.0020, uShiftB, vShiftB + 1.5,
+    colB, colB, colB, colB
+  )
+  setBlendMode(blendModeAlpha())
+  ret 2

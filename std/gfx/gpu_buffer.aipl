@@ -1,0 +1,58 @@
+module GfxGpuBufferMod
+
+// ============================================================================
+// std/gfx/gpu_buffer.aipl — GPU Memory Buffers & std140 Alignment
+// ============================================================================
+
+import { GpuDevice } from "./gpu_device"
+
+pub const BUFFER_USAGE_VERTEX: int = 1
+pub const BUFFER_USAGE_INDEX: int = 2
+pub const BUFFER_USAGE_UNIFORM: int = 4
+pub const BUFFER_USAGE_STORAGE: int = 8
+pub const BUFFER_USAGE_COPY_SRC: int = 16
+pub const BUFFER_USAGE_COPY_DST: int = 32
+
+pub struct GpuBuffer(bufferId: int, sizeBytes: int, usageFlags: int, isMapped: bool)
+
+pub struct StagingRingBuffer(capacityBytes: int, writeSlot: int, readSlot: int, frameId: int)
+
+pub fn createGpuBuffer(dev: GpuDevice, sizeBytes: int, usage: int): GpuBuffer:
+  let id = if dev.isAlive: 1 else: 0
+  let safeSize = if sizeBytes > 0: sizeBytes else: 0
+  ret GpuBuffer(
+    bufferId = id,
+    sizeBytes = safeSize,
+    usageFlags = usage,
+    isMapped = false
+  )
+
+pub fn writeGpuBuffer(dev: GpuDevice, buf: GpuBuffer, byteOffset: int, dataBytes: [int]): bool:
+  if not dev.isAlive or buf.bufferId <= 0:
+    ret false
+  if byteOffset < 0 or byteOffset + dataBytes.len > buf.sizeBytes:
+    ret false
+  ret true
+
+pub fn alignOffsetStd140(currentOffset: int, baseAlignmentBytes: int): int:
+  let align = if baseAlignmentBytes > 0: baseAlignmentBytes else: 4
+  let mask = align - 1
+  ret (currentOffset + mask) & (~mask)
+
+pub fn createStagingRingBuffer(capacityBytes: int): StagingRingBuffer:
+  let cap = if capacityBytes > 0: capacityBytes else: 65536
+  ret StagingRingBuffer(
+    capacityBytes = cap,
+    writeSlot = 0,
+    readSlot = 0,
+    frameId = 0
+  )
+
+pub fn advanceStagingRing(ring: StagingRingBuffer): StagingRingBuffer:
+  let nextSlot = (ring.writeSlot + 1) % 3
+  ret StagingRingBuffer(
+    capacityBytes = ring.capacityBytes,
+    writeSlot = nextSlot,
+    readSlot = ring.writeSlot,
+    frameId = ring.frameId + 1
+  )

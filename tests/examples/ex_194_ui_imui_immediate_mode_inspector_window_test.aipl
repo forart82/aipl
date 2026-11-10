@@ -1,0 +1,40 @@
+module Ex194UiImuiImmediateModeInspectorWindowTest
+
+import {
+  buildUiImuiInspectorAudit, stepImUiCursorPos
+} from "../../examples/ex_194_ui_imui_immediate_mode_inspector_window"
+import { Vec2 } from "../../std/math/vec_math"
+import { Rect } from "../../std/math/geom2d"
+import { AuraRect } from "../../std/ui/ui_layout"
+import {
+  ImUiContext, beginImUiFrame, imuiButton,
+  auraThemeDark, auraContextNew, auraPointInRect
+} from "../../std/ui/ui_imui"
+
+pub fn test_ui_imui_immediate_mode_inspector(): void:
+  let ctx0 = ImUiContext(hotId = 0, activeId = 1, mousePos = Vec2(x = 0.0, y = 0.0), isMouseDown = false)
+  let ctx = beginImUiFrame(ctx0, Vec2(x = 25.0, y = 25.0), false)
+  let hit = imuiButton(ctx, 1, Rect(x = 10.0, y = 10.0, w = 80.0, h = 30.0), "Inspect")
+  let miss = imuiButton(ctx, 2, Rect(x = 200.0, y = 200.0, w = 80.0, h = 30.0), "Reset")
+  assert(hit and not miss, "imuiButton triggers when mouse lies inside widget rect")
+
+  let th = auraThemeDark()
+  let auraCtx = auraContextNew(th)
+  assert(auraCtx.theme.name == "dark", "auraContextNew initializes dark theme")
+
+  let inBox = auraPointInRect(50.0, 50.0, AuraRect(x = 10.0, y = 10.0, w = 100.0, h = 100.0))
+  assert(inBox, "auraPointInRect detects point inside AuraRect")
+  assert(buildUiImuiInspectorAudit() == 28, "buildUiImuiInspectorAudit returns 25 + 1 + 1 + 1 == 28")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let p0 = stepImUiCursorPos(0)
+  let p1 = stepImUiCursorPos(1)
+  let p20 = stepImUiCursorPos(20)
+  let p100 = stepImUiCursorPos(100)
+  assert(p0.x != p1.x and p1.x != p20.x and p20.x != p100.x, "IMUI cursor X progresses across t=0, 1, 20, 100")
+  assert(p0.y != p1.y and p1.y != p20.y and p20.y != p100.y, "IMUI cursor Y progresses across t=0, 1, 20, 100")
+
+pub fn main(): int:
+  test_ui_imui_immediate_mode_inspector()
+  println("PASS: ex_194_ui_imui_immediate_mode_inspector_window_test")
+  ret 0

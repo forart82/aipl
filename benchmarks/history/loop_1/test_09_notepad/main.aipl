@@ -1,0 +1,46 @@
+struct NotepadDoc(text, cursor, undoStack, redoStack)
+
+fn notepadNew(initial) = NotepadDoc(initial, initial.len, [], [])
+
+fn notepadInsert(mut doc, ins):
+  doc.undoStack.push(doc.text)
+  doc.redoStack = []
+  let c = clamp(doc.cursor, 0, doc.text.len)
+  doc.text = doc.text.slice(0, c) + ins + doc.text.slice(c, doc.text.len)
+  doc.cursor = c + ins.len
+  ret doc
+
+fn notepadReplaceAll(mut doc, target, repl):
+  doc.undoStack.push(doc.text)
+  doc.redoStack = []
+  doc.text = doc.text.replace(target, repl)
+  doc.cursor = doc.text.len
+  ret doc
+
+fn notepadUndo(mut doc):
+  if doc.undoStack.len == 0:
+    ret doc
+  doc.redoStack.push(doc.text)
+  doc.text = doc.undoStack.pop()
+  doc.cursor = doc.text.len
+  ret doc
+
+fn notepadRedo(mut doc):
+  if doc.redoStack.len == 0:
+    ret doc
+  doc.undoStack.push(doc.text)
+  doc.text = doc.redoStack.pop()
+  doc.cursor = doc.text.len
+  ret doc
+
+mut doc = notepadNew("Hello World")
+doc = notepadInsert(doc, " AIPL")
+doc = notepadReplaceAll(doc, "World", "Studio")
+doc = notepadUndo(doc)
+assert(doc.text == "Hello World AIPL")
+doc = notepadRedo(doc)
+let path = "/tmp/bench09_notepad.txt"
+writeFile(path, doc.text)
+let loaded = readFile(path) ?? ""
+assert(loaded == "Hello Studio AIPL")
+println("{loaded}\nBENCH_09_OK")

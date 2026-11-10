@@ -1,0 +1,76 @@
+// ============================================================================
+// Step 21.4: Exhaustive Per-Function Unit Tests for html5_mobile_touch_bundle
+// Target: tests/functions/window/html5_mobile_touch_bundle_test.aipl
+// ============================================================================
+module tests.functions.window.html5_mobile_touch_bundle_test
+
+import {
+  assert,
+  assertEqStr
+} from "std/prelude"
+
+pub fn emitMobileViewportMetaTag(lockZoom: bool, viewportFitCover: bool, initialScalePercent: int = 100): str requires initialScalePercent >= 50 and initialScalePercent <= 200 ensures result.startsWith("<meta name=\"viewport\"") and result.endsWith("\">"):
+  let scaleStr = if initialScalePercent == 100: "1.0" else: str(initialScalePercent / 100) + "." + str((initialScalePercent % 100) / 10)
+  mut parts: [str] = ["width=device-width", "initial-scale=" + scaleStr]
+  if lockZoom:
+    let maxStr = if initialScalePercent == 100: "1.0" else: scaleStr
+    parts.push("maximum-scale=" + maxStr)
+    parts.push("user-scalable=no")
+  if viewportFitCover:
+    parts.push("viewport-fit=cover")
+  ret "<meta name=\"viewport\" content=\"" + parts.join(", ") + "\">"
+
+pub fn emitDomTouchAndPointerBridgeJs(canvasId: str): str requires canvasId.len() >= 0 ensures result.contains("touchstart") and result.contains("touchcancel") and result.contains("PointerEvent"):
+  let cid = if canvasId.len() > 0: canvasId else: "aipl-canvas"
+  ret r"const cv=document.getElementById('" + cid + r"');['touchstart','touchmove','touchend','touchcancel'].forEach(ev=>cv.addEventListener(ev,e=>{e.preventDefault();},{passive:false}));if(window.PointerEvent){cv.addEventListener('pointerdown',e=>__aiplPointer(0,e.pointerId,e.clientX,e.clientY));}"
+
+pub fn upgradeHtml5BundleForAndroidWebView(appTitle: str, compiledJsBody: str): str requires appTitle.len() >= 0 and compiledJsBody.len() >= 0 ensures result.startsWith("<!DOCTYPE html>") and result.endsWith("</html>"):
+  let safeTitle = if appTitle.len() > 0: appTitle else: "AIPL Mobile App"
+  let meta = emitMobileViewportMetaTag(true, true, 100)
+  let css = r"<style>html,body,canvas{margin:0;padding:0;touch-action:none;user-select:none;background:#020306;}</style>"
+  let touchJs = r"['touchstart','touchmove','touchend','touchcancel'].forEach(k=>window.addEventListener(k,e=>e.preventDefault(),{passive:false}));"
+  ret "<!DOCTYPE html><html><head><title>" + safeTitle + "</title>" + meta + css + "</head><body><canvas id=\"aipl-canvas\"></canvas><script>" + touchJs + compiledJsBody + "</script></body></html>"
+
+pub fn test_html5_mobile_touch_bundle_emitMobileViewportMetaTag(): int:
+  let tag = emitMobileViewportMetaTag(true, true)
+  assertEqStr(tag, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover\">", "exact Android WebView viewport meta tag")
+  let minTag = emitMobileViewportMetaTag(false, false)
+  assertEqStr(minTag, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">", "minimal viewport tag when flags false")
+  assert(tag.contains("viewport-fit=cover") == true, "contains viewport-fit=cover")
+  let zoomOnly = emitMobileViewportMetaTag(true, false)
+  assert(zoomOnly.contains("user-scalable=no") == true, "lockZoom=true includes user-scalable=no")
+  let coverOnly = emitMobileViewportMetaTag(false, true)
+  assert(coverOnly.contains("viewport-fit=cover") == true, "viewportFitCover=true includes viewport-fit=cover")
+  assert(minTag.contains("user-scalable=no") == false, "lockZoom=false omits user-scalable=no")
+  let scaledTag = emitMobileViewportMetaTag(false, false, 150)
+  assertEqStr(scaledTag, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.5\">", "scaled viewport tag at 150%")
+  ret 0
+
+pub fn test_html5_mobile_touch_bundle_emitDomTouchAndPointerBridgeJs(): int:
+  let js = emitDomTouchAndPointerBridgeJs("game-surface")
+  assert(js.contains("getElementById('game-surface')") == true, "custom canvasId bound")
+  assert(js.contains("'touchstart','touchmove','touchend','touchcancel'") == true, "all 4 touch lifecycle listeners wired")
+  assert(js.contains(r"{passive:false}") == true, "passive:false prevents browser scroll hijack")
+  assert(js.contains("window.PointerEvent") == true, "PointerEvent listener bridge included")
+  let defJs = emitDomTouchAndPointerBridgeJs("")
+  assert(defJs.contains("getElementById('aipl-canvas')") == true, "empty canvasId falls back to aipl-canvas")
+  ret 0
+
+pub fn test_html5_mobile_touch_bundle_upgradeHtml5BundleForAndroidWebView(): int:
+  let html = upgradeHtml5BundleForAndroidWebView("Neon Grid", "console.log(42);")
+  assert(html.startsWith("<!DOCTYPE html>") == true, "starts with DOCTYPE")
+  assert(html.contains("<title>Neon Grid</title>") == true, "contains title")
+  assert(html.contains("viewport-fit=cover") == true, "contains mobile viewport meta")
+  assert(html.contains("touch-action:none") == true, "contains touch-action:none CSS")
+  assert(html.contains("touchcancel") == true, "contains touchcancel listener")
+  let fallbackHtml = upgradeHtml5BundleForAndroidWebView("", "")
+  assert(fallbackHtml.contains("<title>AIPL Mobile App</title>") == true, "default title on empty string")
+  assert(fallbackHtml.endsWith("</html>") == true, "ends with </html>")
+  ret 0
+
+pub fn main(): int:
+  test_html5_mobile_touch_bundle_emitMobileViewportMetaTag()
+  test_html5_mobile_touch_bundle_emitDomTouchAndPointerBridgeJs()
+  test_html5_mobile_touch_bundle_upgradeHtml5BundleForAndroidWebView()
+  println("PASS: tests/functions/window/html5_mobile_touch_bundle_test.aipl")
+  ret 0

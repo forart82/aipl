@@ -1,0 +1,67 @@
+/// # Module: `std/ecs/entity` (`EntityMod`)
+///
+/// ## Purpose & Domain Scope
+/// Generational entity identifiers (`EntityId(index, generation)`),
+/// free-list recycling pool, and stale reference validation.
+module EntityMod
+
+pub struct EntityId(index: int, generation: int)
+
+pub struct EntityPool(generations: [int], alive: [bool], freeIndices: [int])
+
+pub fn createEntityPool(): EntityPool:
+  mut gens: [int] = []
+  mut alv: [bool] = []
+  mut free: [int] = []
+  ret EntityPool(generations = gens, alive = alv, freeIndices = free)
+
+pub fn allocateEntity(pool: EntityPool): (EntityPool, EntityId):
+  mut gens = pool.generations
+  mut alv = pool.alive
+  mut free = pool.freeIndices
+
+  if free.len > 0:
+    let idx = free[free.len - 1]
+    mut nextFree: [int] = []
+    mut i = 0
+    while i < free.len - 1:
+      nextFree.push(free[i])
+      i = i + 1
+    alv[idx] = true
+    let gen = gens[idx]
+    ret (
+      EntityPool(generations = gens, alive = alv, freeIndices = nextFree),
+      EntityId(index = idx, generation = gen)
+    )
+
+  let newIdx = gens.len
+  gens.push(1)
+  alv.push(true)
+  ret (
+    EntityPool(generations = gens, alive = alv, freeIndices = free),
+    EntityId(index = newIdx, generation = 1)
+  )
+
+pub fn recycleEntity(pool: EntityPool, id: EntityId): EntityPool:
+  if not isEntityAlive(pool, id):
+    ret pool
+  mut gens = pool.generations
+  mut alv = pool.alive
+  mut free = pool.freeIndices
+  alv[id.index] = false
+  gens[id.index] = gens[id.index] + 1
+  free.push(id.index)
+  ret EntityPool(generations = gens, alive = alv, freeIndices = free)
+
+pub fn isEntityAlive(pool: EntityPool, id: EntityId): bool:
+  if id.index < 0 or id.index >= pool.generations.len:
+    ret false
+  ret pool.alive[id.index] and pool.generations[id.index] == id.generation
+
+pub fn packEntityU64(id: EntityId): int:
+  ret (id.generation << 32) | (id.index & 4294967295)
+
+pub fn unpackEntityU64(packed: int): EntityId:
+  let idx = packed & 4294967295
+  let gen = (packed >> 32) & 4294967295
+  ret EntityId(index = idx, generation = gen)

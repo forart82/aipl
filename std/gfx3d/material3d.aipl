@@ -1,0 +1,244 @@
+/// # Module: `std/gfx3d/material3d` (`Material3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Physically-Based Rendering (PBR) materials, Cook-Torrance microfacet BRDF
+/// evaluation (Trowbridge-Reitz GGX, Smith-Schlick geometry, Schlick Fresnel),
+/// Toon shading, and Unlit material definitions.
+module Material3DMod
+
+import { PI, EPSILON, maxFloat, clampInt, clampFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { ColorRgba8, LinearColorF32 } from "std/gfx/color"
+import { lightComputeLambertDiffuseRGB, lightComputeBlinnPhongRGB, lightComputePbrCookTorranceRGB } from "std/gfx3d/light3d"
+
+pub struct Material3D(name: str, shadingModel: int, albedoHex: int, metallic: float, roughness: float, ao: float, specularStrength: float, shininess: float, emissiveHex: int, normalScale: float = 1.0)
+
+pub struct DirectionalLight3D(direction: Vec3, colorHex: int, intensity: float)
+
+pub struct RenderTri3D(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float, depth: float, colorHex: int)
+
+pub struct RenderPass3D(cameraPos: Vec3, lightDir: Vec3, nearClip: float, triangles: [RenderTri3D])
+
+pub struct PbrMaterial3D(baseColorFactor: LinearColorF32, metallicFactor: float, roughnessFactor: float, emissiveFactor: Vec3, alphaCutoff: float, isDoubleSided: bool)
+
+pub struct ToonMaterial3D(baseColor: ColorRgba8, rampSteps: int, outlineWidth: float, outlineColor: ColorRgba8)
+
+pub struct UnlitMaterial3D(color: ColorRgba8)
+
+pub fn createDefaultPbrMaterial(): PbrMaterial3D:
+  ret PbrMaterial3D(
+    baseColorFactor = LinearColorF32(r = 1.0, g = 1.0, b = 1.0, a = 1.0),
+    metallicFactor = 0.0,
+    roughnessFactor = 0.5,
+    emissiveFactor = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    alphaCutoff = 0.5,
+    isDoubleSided = false
+  )
+
+pub fn evaluateGgxDistribution(nDotH: float, roughness: float): float:
+  // Trowbridge-Reitz GGX: D(h) = alpha^2 / (pi * ((nDotH^2 * (alpha^2 - 1) + 1)^2))
+  let a = maxFloat(roughness, 0.001)
+  let a2 = a * a
+  let nh = clampFloat(nDotH, 0.0, 1.0)
+  let nh2 = nh * nh
+  let denom = nh2 * (a2 - 1.0) + 1.0
+  let d = PI * denom * denom
+  if d <= EPSILON:
+    ret 0.0
+  ret a2 / d
+
+fn schlickG1(nDotX: float, k: float): float:
+  let nx = maxFloat(nDotX, 0.0)
+  let denom = nx * (1.0 - k) + k
+  if denom <= EPSILON:
+    ret 0.0
+  ret nx / denom
+
+pub fn evaluateSmithSchlickGeometry(nDotV: float, nDotL: float, roughness: float): float:
+  let r = clampFloat(roughness, 0.0, 1.0) + 1.0
+  let k = (r * r) / 8.0
+  let ggxV = schlickG1(nDotV, k)
+  let ggxL = schlickG1(nDotL, k)
+  ret ggxV * ggxL
+
+pub fn evaluateSchlickFresnel(vDotH: float, f0: Vec3): Vec3:
+  let vh = clampFloat(vDotH, 0.0, 1.0)
+  let m = 1.0 - vh
+  let m2 = m * m
+  let m5 = m2 * m2 * m
+  ret Vec3(
+    x = f0.x + (1.0 - f0.x) * m5,
+    y = f0.y + (1.0 - f0.y) * m5,
+    z = f0.z + (1.0 - f0.z) * m5
+  )
+
+pub fn evaluateCookTorranceBrdf(nDotL: float, nDotV: float, nDotH: float, vDotH: float, albedo: Vec3, metallic: float, roughness: float): Vec3:
+  let nl = maxFloat(nDotL, 0.0)
+  let nv = maxFloat(nDotV, 0.0)
+  if nl <= 0.0 or nv <= 0.0:
+    ret Vec3(x = 0.0, y = 0.0, z = 0.0)
+
+  let m = clampFloat(metallic, 0.0, 1.0)
+  let f0 = Vec3(x = 0.04, y = 0.04, z = 0.04).lerp(albedo, m)
+
+  let dVal = evaluateGgxDistribution(nDotH, roughness)
+  let gVal = evaluateSmithSchlickGeometry(nv, nl, roughness)
+  let fVec = evaluateSchlickFresnel(vDotH, f0)
+
+  let specDenom = maxFloat(4.0 * nv * nl, 0.0001)
+  let specScale = (dVal * gVal) / specDenom
+  let specular = fVec.scale(specScale)
+
+  let kd = Vec3(
+    x = (1.0 - fVec.x) * (1.0 - m),
+    y = (1.0 - fVec.y) * (1.0 - m),
+    z = (1.0 - fVec.z) * (1.0 - m)
+  )
+  let invPi = 1.0 / PI
+  let diffuse = Vec3(
+    x = kd.x * albedo.x * invPi,
+    y = kd.y * albedo.y * invPi,
+    z = kd.z * albedo.z * invPi
+  )
+
+  ret diffuse.add(specular).scale(nl)
+
+pub fn material3DLambert(albedoHex: int, ao: float = 1.0): Material3D:
+  ret Material3D(
+    name = "lambert",
+    shadingModel = 0,
+    albedoHex = albedoHex,
+    metallic = 0.0,
+    roughness = 0.8,
+    ao = clampFloat(ao, 0.0, 1.0),
+    specularStrength = 0.0,
+    shininess = 1.0,
+    emissiveHex = 0,
+    normalScale = 1.0
+  )
+
+pub fn material3DBlinnPhong(albedoHex: int, specularStrength: float, shininess: float): Material3D:
+  ret Material3D(
+    name = "blinn_phong",
+    shadingModel = 1,
+    albedoHex = albedoHex,
+    metallic = 0.0,
+    roughness = 0.5,
+    ao = 1.0,
+    specularStrength = clampFloat(specularStrength, 0.0, 2.0),
+    shininess = maxFloat(1.0, shininess),
+    emissiveHex = 0,
+    normalScale = 1.0
+  )
+
+pub fn material3DPbr(albedoHex: int, metallic: float, roughness: float, ao: float, emissiveHex: int): Material3D:
+  ret Material3D(
+    name = "pbr",
+    shadingModel = 2,
+    albedoHex = albedoHex,
+    metallic = clampFloat(metallic, 0.0, 1.0),
+    roughness = clampFloat(roughness, 0.04, 1.0),
+    ao = clampFloat(ao, 0.0, 1.0),
+    specularStrength = 0.5,
+    shininess = 32.0,
+    emissiveHex = emissiveHex,
+    normalScale = 1.0
+  )
+
+pub fn evaluateMaterial3D(mat: Material3D, normal: Vec3, viewDir: Vec3, lightDir: Vec3): int:
+  let n = normal.norm()
+  let v = viewDir.norm()
+  let l = lightDir.norm()
+  mut litHex = 0
+  if mat.shadingModel == 0:
+    let r = (mat.albedoHex >> 16) & 255
+    let g = (mat.albedoHex >> 8) & 255
+    let b = mat.albedoHex & 255
+    litHex = lightComputeLambertDiffuseRGB(n.x, n.y, n.z, l.x, l.y, l.z, r, g, b, 255, 255, 255, 20)
+  elif mat.shadingModel == 1:
+    litHex = lightComputeBlinnPhongRGB(n.x, n.y, n.z, l.x, l.y, l.z, v.x, v.y, v.z, mat.albedoHex, mat.specularStrength, mat.shininess)
+  else:
+    litHex = lightComputePbrCookTorranceRGB(n.x, n.y, n.z, l.x, l.y, l.z, v.x, v.y, v.z, mat.albedoHex, mat.metallic, mat.roughness, mat.ao)
+  if mat.emissiveHex != 0:
+    let er = clampInt(((litHex >> 16) & 255) + ((mat.emissiveHex >> 16) & 255), 0, 255)
+    let eg = clampInt(((litHex >> 8) & 255) + ((mat.emissiveHex >> 8) & 255), 0, 255)
+    let eb = clampInt((litHex & 255) + (mat.emissiveHex & 255), 0, 255)
+    ret (er << 16) | (eg << 8) | eb
+  ret litHex
+
+pub fn evaluateMaterial3DWithLight(mat: Material3D, normal: Vec3, tangentNormal: Vec3, viewDir: Vec3, light: DirectionalLight3D): int:
+  let perturbed = Vec3(
+    x = normal.x + tangentNormal.x * mat.normalScale,
+    y = normal.y + tangentNormal.y * mat.normalScale,
+    z = normal.z + tangentNormal.z * mat.normalScale
+  )
+  let baseHex = evaluateMaterial3D(mat, perturbed, viewDir, light.direction)
+  let br = float((baseHex >> 16) & 255)
+  let bg = float((baseHex >> 8) & 255)
+  let bb = float(baseHex & 255)
+  let lr = float((light.colorHex >> 16) & 255) / 255.0
+  let lg = float((light.colorHex >> 8) & 255) / 255.0
+  let lb = float(light.colorHex & 255) / 255.0
+  let inten = clampFloat(light.intensity, 0.0, 10.0)
+  let outR = clampInt(int(br * lr * inten + 0.5), 0, 255)
+  let outG = clampInt(int(bg * lg * inten + 0.5), 0, 255)
+  let outB = clampInt(int(bb * lb * inten + 0.5), 0, 255)
+  ret (outR << 16) | (outG << 8) | outB
+
+pub fn createRenderPass3D(cameraPos: Vec3, lightDir: Vec3, nearClip: float): RenderPass3D:
+  let emptyTris: [RenderTri3D] = []
+  ret RenderPass3D(
+    cameraPos = cameraPos,
+    lightDir = lightDir.norm(),
+    nearClip = if nearClip > 0.01: nearClip else: 0.1,
+    triangles = emptyTris
+  )
+
+pub fn submitMesh3D(mut pass: RenderPass3D, positions: [Vec3], normals: [Vec3], indices: [int], mat: Material3D): RenderPass3D:
+  let nVerts = positions.len
+  mut i = 0
+  while i + 2 < indices.len:
+    let i0 = indices[i]
+    let i1 = indices[i + 1]
+    let i2 = indices[i + 2]
+    if i0 >= 0 and i0 < nVerts and i1 >= 0 and i1 < nVerts and i2 >= 0 and i2 < nVerts:
+      let p0 = positions[i0]
+      let p1 = positions[i1]
+      let p2 = positions[i2]
+      let cx = (p0.x + p1.x + p2.x) / 3.0
+      let cy = (p0.y + p1.y + p2.y) / 3.0
+      let cz = (p0.z + p1.z + p2.z) / 3.0
+      let dx = pass.cameraPos.x - cx
+      let dy = pass.cameraPos.y - cy
+      let dz = pass.cameraPos.z - cz
+      let dist = sqrt(dx * dx + dy * dy + dz * dz)
+      if dist >= pass.nearClip:
+        let nVec = if i0 < normals.len: normals[i0] else: Vec3(x = 0.0, y = 1.0, z = 0.0)
+        let viewDir = Vec3(x = dx, y = dy, z = dz)
+        let colHex = evaluateMaterial3D(mat, nVec, viewDir, pass.lightDir)
+        pass.triangles.push(RenderTri3D(
+          x1 = p0.x, y1 = p0.y,
+          x2 = p1.x, y2 = p1.y,
+          x3 = p2.x, y3 = p2.y,
+          depth = dist,
+          colorHex = colHex
+        ))
+    i += 3
+  ret pass
+
+pub fn endRenderPass3D(mut pass: RenderPass3D): [RenderTri3D]:
+  let n = pass.triangles.len
+  mut gap = n / 2
+  while gap > 0:
+    mut j = gap
+    while j < n:
+      let temp = pass.triangles[j]
+      mut k = j
+      while k >= gap and pass.triangles[k - gap].depth < temp.depth:
+        pass.triangles[k] = pass.triangles[k - gap]
+        k -= gap
+      pass.triangles[k] = temp
+      j += 1
+    gap = gap / 2
+  ret pass.triangles

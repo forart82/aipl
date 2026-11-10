@@ -1,0 +1,3519 @@
+module CompilerTypes
+
+import { Span, ExprNode, StmtNode, AstArena, emptySpan, stmtLhsExpr } from "./ast.aipl"
+import { HirModule, HirFunction, HirStruct, HirEnum, resolveTypeName } from "./hir.aipl"
+
+// ============================================================================
+// Step 15.3 (Part 2): Self-Hosted Bidirectional Type Checker & Exhaustiveness
+// ============================================================================
+
+pub const AIPL_E_TYPE_MISMATCH: str = "AIPL_E2002_TYPE_MISMATCH"
+pub const AIPL_E_INFINITE_LOOP_RISK: str = "AIPL_E_INFINITE_LOOP_RISK"
+pub const AIPL_W_SNAKE_CASE_AUTOFIX: str = "AIPL_W1003_SNAKE_CASE_AUTOFIX"
+
+pub struct CompilerDiagnostic:
+  code: str
+  message: str
+  span: Span
+  severity: str = "error"
+  hint: str = ""
+  autofixAvailable: bool = false
+  autofixReplacement: str = ""
+
+pub struct TypecheckResult:
+  valid: bool
+  diagnostics: [CompilerDiagnostic]
+  inferredFnTypes: Map[str, str]
+
+pub fn unwrapRefinementBase(ty: str): str:
+  if ty.startsWith("{") and ty.contains(":") and ty.contains("|"):
+    let colonIdx = ty.indexOf(":")
+    let pipeIdx = ty.indexOf("|")
+    if colonIdx >= 0 and pipeIdx > colonIdx:
+      ret ty.slice(colonIdx + 1, pipeIdx).trim()
+  ret ty
+
+pub fn topLevelCommaIndex(ty: str): int:
+  mut depth = 0
+  mut i = 0
+  while i < ty.len:
+    let c = ty.charCodeAt(i)
+    if c == 91 or c == 40:
+      depth += 1
+    elif c == 93 or c == 41:
+      if depth > 0:
+        depth -= 1
+    elif c == 44 and depth == 0:
+      ret i
+    i += 1
+  ret -1
+
+pub struct TypeTerm:
+  id: int
+  kind: int
+  name: str
+  typeParams: [int] = []
+  returnType: int = -1
+  boundTo: int = -1
+
+pub struct TypeTermArena:
+  terms: [TypeTerm] = []
+
+pub struct TypeEnv:
+  bindings: Map[str, str] = Map.new()
+  diagnostics: [str] = []
+
+pub fn findTypeTermRoot(arena: TypeTermArena, id: int): int:
+  if id < 0 or id >= arena.terms.len:
+    ret id
+  mut curr = id
+  mut depth = 0
+  while depth < 100:
+    let term = arena.terms[curr]
+    if term.boundTo < 0 or term.boundTo == curr:
+      ret curr
+    curr = term.boundTo
+    depth += 1
+  ret curr
+
+pub fn typeTermAlloc(mut arena: TypeTermArena, kind: int, name: str, typeParams: [int] = [], returnType: int = -1): int:
+  let id = arena.terms.len
+  let term = TypeTerm(
+    id = id,
+    kind = kind,
+    name = name,
+    typeParams = typeParams,
+    returnType = returnType,
+    boundTo = -1
+  )
+  arena.terms.push(term)
+  ret id
+
+pub fn typeTermToString(arena: TypeTermArena, id: int): str:
+  let root = findTypeTermRoot(arena, id)
+  if root < 0 or root >= arena.terms.len:
+    ret "unknown"
+  let t = arena.terms[root]
+  if t.kind == 0:
+    ret if t.name != "": t.name else: ("T" + str(t.id))
+  if t.kind == 1:
+    ret t.name
+  if t.kind == 2:
+    mut innerStrs: [str] = []
+    mut i = 0
+    while i < t.typeParams.len:
+      innerStrs.push(typeTermToString(arena, t.typeParams[i]))
+      i += 1
+    ret t.name + "[" + innerStrs.join(", ") + "]"
+  if t.kind == 3:
+    mut pStrs: [str] = []
+    mut i = 0
+    while i < t.typeParams.len:
+      pStrs.push(typeTermToString(arena, t.typeParams[i]))
+      i += 1
+    let rStr = if t.returnType >= 0: typeTermToString(arena, t.returnType) else: "void"
+    ret "fn(" + pStrs.join(", ") + ")->" + rStr
+  ret t.name
+
+pub fn newTypeTermArena(): TypeTermArena:
+  let emptyTerms: [TypeTerm] = []
+  ret TypeTermArena(terms = emptyTerms)
+
+pub fn resolveTypeTermStr(arena: TypeTermArena, id: int): str:
+  ret typeTermToString(arena, id)
+
+pub fn unifyTerms(mut arena: TypeTermArena, t1: int, t2: int): bool:
+  let r1 = findTypeTermRoot(arena, t1)
+  let r2 = findTypeTermRoot(arena, t2)
+  if r1 == r2:
+    ret true
+  if r1 < 0 or r2 < 0 or r1 >= arena.terms.len or r2 >= arena.terms.len:
+    ret false
+
+  let term1 = arena.terms[r1]
+  let term2 = arena.terms[r2]
+
+  if term1.kind == 0:
+    arena.terms[r1] = TypeTerm(
+      id = term1.id,
+      kind = term1.kind,
+      name = term1.name,
+      typeParams = term1.typeParams,
+      returnType = term1.returnType,
+      boundTo = r2
+    )
+    ret true
+
+  if term2.kind == 0:
+    arena.terms[r2] = TypeTerm(
+      id = term2.id,
+      kind = term2.kind,
+      name = term2.name,
+      typeParams = term2.typeParams,
+      returnType = term2.returnType,
+      boundTo = r1
+    )
+    ret true
+
+  if term1.kind == 1 and term2.kind == 1:
+    if term1.name == "any" or term2.name == "any" or term1.name == "unknown" or term2.name == "unknown":
+      ret true
+    ret term1.name == term2.name
+
+  if term1.kind == 2 and term2.kind == 2:
+    if term1.name != term2.name:
+      ret false
+    if term1.typeParams.len != term2.typeParams.len:
+      ret false
+    mut pi = 0
+    while pi < term1.typeParams.len:
+      if not unifyTerms(arena, term1.typeParams[pi], term2.typeParams[pi]):
+        ret false
+      pi += 1
+    ret true
+
+  if term1.kind == 3 and term2.kind == 3:
+    if term1.typeParams.len != term2.typeParams.len:
+      ret false
+    if not unifyTerms(arena, term1.returnType, term2.returnType):
+      ret false
+    mut pi = 0
+    while pi < term1.typeParams.len:
+      if not unifyTerms(arena, term1.typeParams[pi], term2.typeParams[pi]):
+        ret false
+      pi += 1
+    ret true
+
+  ret false
+
+pub fn splitTopLevelComma(s: str): [str]:
+  mut parts: [str] = []
+  mut depth = 0
+  mut startIdx = 0
+  mut i = 0
+  while i < s.len:
+    let c = s.charCodeAt(i)
+    if c == 91 or c == 40 or c == 123:
+      depth += 1
+    elif c == 93 or c == 41 or c == 125:
+      if depth > 0:
+        depth -= 1
+    elif c == 44 and depth == 0:
+      parts.push(s.slice(startIdx, i).trim())
+      startIdx = i + 1
+    i += 1
+  if startIdx < s.len:
+    let last = s.slice(startIdx, s.len).trim()
+    if last != "":
+      parts.push(last)
+  ret parts
+
+pub fn stringToTypeTermWithParams(mut arena: TypeTermArena, typeName: str, typeParams: [str]): int:
+  mut t = typeName.trim()
+  if t.startsWith("mut "):
+    t = t.slice(4, t.len).trim()
+  if t.startsWith("&"):
+    t = t.slice(1, t.len).trim()
+  if t == "" or t == "unknown":
+    ret typeTermAlloc(arena, 1, "unknown")
+  if t == "any":
+    ret typeTermAlloc(arena, 1, "any")
+  mut pi = 0
+  while pi < typeParams.len:
+    if t == typeParams[pi]:
+      ret typeTermAlloc(arena, 0, t)
+    pi += 1
+  if t.startsWith("fn(") and t.contains("->"):
+    let arrowIdx = t.indexOf("->")
+    let rStr = t.slice(arrowIdx + 2, t.len).trim()
+    let rId = stringToTypeTermWithParams(arena, rStr, typeParams)
+    let pInside = t.slice(3, arrowIdx).trim()
+    let pClosed = if pInside.endsWith(")"): pInside.slice(0, pInside.len - 1).trim() else: pInside
+    mut pIds: [int] = []
+    if pClosed != "":
+      let rawParams = splitTopLevelComma(pClosed)
+      mut pii = 0
+      while pii < rawParams.len:
+        pIds.push(stringToTypeTermWithParams(arena, rawParams[pii], typeParams))
+        pii += 1
+    ret typeTermAlloc(arena, 3, "fn", pIds, rId)
+  if t.contains("[") and t.endsWith("]"):
+    let bracketIdx = t.indexOf("[")
+    let baseName = t.slice(0, bracketIdx).trim()
+    let inner = t.slice(bracketIdx + 1, t.len - 1).trim()
+    let rawArgs = splitTopLevelComma(inner)
+    mut argIds: [int] = []
+    mut ai = 0
+    while ai < rawArgs.len:
+      argIds.push(stringToTypeTermWithParams(arena, rawArgs[ai], typeParams))
+      ai += 1
+    ret typeTermAlloc(arena, 2, baseName, argIds)
+  if t.len == 1 and t.charCodeAt(0) >= 65 and t.charCodeAt(0) <= 90:
+    ret typeTermAlloc(arena, 0, t)
+  ret typeTermAlloc(arena, 1, t)
+
+pub fn stringToTypeTerm(mut arena: TypeTermArena, typeName: str): int:
+  let emptyParams: [str] = []
+  ret stringToTypeTermWithParams(arena, typeName, emptyParams)
+
+pub fn unifyAndSubstituteGenericType(t: str, typeParams: [str], typeArgs: [str]): str:
+  if t == "" or typeParams.len == 0 or typeArgs.len == 0:
+    ret t
+  mut arena = newTypeTermArena()
+  let tId = stringToTypeTermWithParams(arena, t, typeParams)
+  mut i = 0
+  while i < typeParams.len and i < typeArgs.len:
+    let pName = typeParams[i]
+    let aName = typeArgs[i]
+    let argId = internTypeStr(arena, aName)
+    mut ti = 0
+    while ti < arena.terms.len:
+      if arena.terms[ti].kind == 0 and arena.terms[ti].name == pName:
+        unifyTerms(arena, ti, argId)
+      ti += 1
+    i += 1
+  let res = resolveTypeTermStr(arena, tId)
+  if res != "" and res != "unknown":
+    ret res
+  ret t
+
+fn isTypeIdentChar(c: int): bool:
+  ret (c >= 97 and c <= 122) or (c >= 65 and c <= 90) or (c >= 48 and c <= 57) or c == 95
+
+pub fn replaceTypeParam(text: str, sym: str, rep: str): str:
+  if text == "" or sym == "":
+    ret text
+  mut parts: [str] = []
+  mut pos = 0
+  let sLen = sym.len
+  while pos < text.len:
+    let idx = text.indexOf(sym, pos)
+    if idx < 0:
+      parts.push(text.slice(pos, text.len))
+      break
+    let beforeOk = if idx == 0: true else: not isTypeIdentChar(text.charCodeAt(idx - 1))
+    let afterIdx = idx + sLen
+    let afterOk = if afterIdx >= text.len: true else: not isTypeIdentChar(text.charCodeAt(afterIdx))
+    if idx > pos:
+      parts.push(text.slice(pos, idx))
+    if beforeOk and afterOk:
+      parts.push(rep)
+    else:
+      parts.push(text.slice(idx, afterIdx))
+    pos = afterIdx
+  ret parts.join("")
+
+pub fn substituteTypeStr(t: str, typeParams: [str], typeArgs: [str]): str:
+  if t == "" or typeParams.len == 0 or typeArgs.len == 0:
+    ret t
+  let unified = unifyAndSubstituteGenericType(t, typeParams, typeArgs)
+  if unified != t and unified != "" and unified != "unknown":
+    ret unified
+
+  mut parts: [str] = []
+  mut spanStart = 0
+  mut i = 0
+  while i < t.len:
+    let c = t.charCodeAt(i)
+    if isTypeIdentChar(c):
+      if i > spanStart:
+        parts.push(t.slice(spanStart, i))
+      let identStart = i
+      while i < t.len and isTypeIdentChar(t.charCodeAt(i)):
+        i += 1
+      let ident = t.slice(identStart, i)
+      mut replaced = false
+      mut k = 0
+      while k < typeParams.len and k < typeArgs.len:
+        if ident == typeParams[k]:
+          parts.push(typeArgs[k])
+          replaced = true
+          break
+        k += 1
+      if not replaced:
+        parts.push(ident)
+      spanStart = i
+    else:
+      i += 1
+  if spanStart < t.len:
+    parts.push(t.slice(spanStart, t.len))
+  ret parts.join("")
+
+pub fn substituteTypeParams(rawType: str, paramNames: [str], concreteArgs: [str]): str:
+  ret substituteTypeStr(rawType, paramNames, concreteArgs)
+
+pub fn mangleMonomorphizedFuncName(baseName: str, typeArgs: [str]): str:
+  if typeArgs.len == 0:
+    ret baseName
+  mut cleanArgs: [str] = []
+  mut i = 0
+  while i < typeArgs.len:
+    let a = typeArgs[i]
+    mut parts: [str] = []
+    mut spanStart = -1
+    mut j = 0
+    while j < a.len:
+      let c = a.charCodeAt(j)
+      let isAlnum = (c >= 97 and c <= 122) or (c >= 65 and c <= 90) or (c >= 48 and c <= 57)
+      if isAlnum:
+        if spanStart == -1:
+          spanStart = j
+      else:
+        if spanStart != -1:
+          parts.push(a.slice(spanStart, j))
+          spanStart = -1
+        if parts.len > 0 and parts[parts.len - 1] != "_":
+          parts.push("_")
+      j += 1
+    if spanStart != -1 and spanStart < a.len:
+      parts.push(a.slice(spanStart, a.len))
+    let joined = parts.join("")
+    let clean = if joined.endsWith("_"): joined.slice(0, joined.len - 1) else: joined
+    if clean != "":
+      cleanArgs.push(clean)
+    else:
+      cleanArgs.push("type")
+    i += 1
+  ret baseName + "__mono_" + cleanArgs.join("_")
+
+pub fn canMonomorphizeGenericCall(typeParams: [str], typeArgs: [str]): bool:
+  if typeParams.len == 0 or typeArgs.len != typeParams.len:
+    ret false
+  mut arena = newTypeTermArena()
+  mut i = 0
+  while i < typeParams.len:
+    let pName = typeParams[i]
+    let aName = typeArgs[i].trim()
+    if aName == "" or aName == "any" or aName == "unknown":
+      ret false
+    if aName.len == 1 and aName.charCodeAt(0) >= 65 and aName.charCodeAt(0) <= 90:
+      ret false
+    let paramId = typeTermAlloc(arena, 0, pName)
+    let argId = internTypeStr(arena, aName)
+    if not unifyTerms(arena, paramId, argId):
+      ret false
+    let root = findTypeTermRoot(arena, paramId)
+    if root < 0 or root >= arena.terms.len:
+      ret false
+    if arena.terms[root].kind == 0:
+      ret false
+    i += 1
+  ret true
+
+pub fn extractTypeArgs(ty: str): [str]:
+  let bracketIdx = ty.indexOf("[")
+  if bracketIdx < 0 or not ty.endsWith("]"):
+    ret []
+  let inner = ty.slice(bracketIdx + 1, ty.len - 1).trim()
+  ret splitTopLevelComma(inner)
+
+pub fn findStruct(hir: HirModule, name: str): Option[HirStruct]:
+  mut baseName = name.trim()
+  let bracketIdx = baseName.indexOf("[")
+  if bracketIdx >= 0:
+    baseName = baseName.slice(0, bracketIdx).trim()
+  mut i = 0
+  while i < hir.structs.len:
+    if hir.structs[i].name == baseName:
+      ret Some(hir.structs[i])
+    i += 1
+  ret None
+
+pub fn findEnum(hir: HirModule, name: str): Option[HirEnum]:
+  mut baseName = name.trim()
+  let bracketIdx = baseName.indexOf("[")
+  if bracketIdx >= 0:
+    baseName = baseName.slice(0, bracketIdx).trim()
+  mut i = 0
+  while i < hir.enums.len:
+    if hir.enums[i].name == baseName:
+      ret Some(hir.enums[i])
+    i += 1
+  ret None
+
+pub fn findFunction(hir: HirModule, name: str): Option[HirFunction]:
+  mut baseName = name.trim()
+  let bracketIdx = baseName.indexOf("[")
+  if bracketIdx >= 0:
+    baseName = baseName.slice(0, bracketIdx).trim()
+  mut i = hir.functions.len - 1
+  while i >= 0:
+    if hir.functions[i].name == baseName or hir.functions[i].name == name:
+      ret Some(hir.functions[i])
+    i -= 1
+  ret None
+
+pub fn cloneEnv(env: Map[str, str]): Map[str, str]:
+  mut res: Map[str, str] = Map.new()
+  let ks = env.keys()
+  mut i = 0
+  while i < ks.len:
+    let k = ks[i]
+    let v = env.get(k)
+    if v.isSome():
+      res.set(k, v.unwrap())
+    i += 1
+  ret res
+
+pub fn strArrayContains(arr: [str], item: str): bool:
+  mut i = 0
+  while i < arr.len:
+    if arr[i] == item:
+      ret true
+    i += 1
+  ret false
+
+pub fn doesTypeImplementTrait(hir: HirModule, ty: str, traitName: str): bool:
+  mut t = ty.trim()
+  if t.startsWith("mut "):
+    t = t.slice(4, t.len).trim()
+  if t.startsWith("&"):
+    t = t.slice(1, t.len).trim()
+  let bracketIdx = t.indexOf("[")
+  let baseName = if bracketIdx >= 0: t.slice(0, bracketIdx).trim() else: t
+
+  let isInt = t == "int" or t == "i8" or t == "i16" or t == "i32" or t == "i64" or t == "u8" or t == "u16" or t == "u32" or t == "u64" or t == "usize" or t == "isize" or t == "byte"
+  let isFloat = t == "float" or t == "f32" or t == "f64"
+  let isPrim = isInt or isFloat or t == "str" or t == "bool"
+
+  if traitName == "Ord":
+    if isInt or isFloat or t == "str" or t == "bool":
+      ret true
+    mut fi = 0
+    while fi < hir.functions.len:
+      let f = hir.functions[fi]
+      if f.name == baseName + "_cmp" or f.name == baseName + ".cmp":
+        ret true
+      if f.name == "cmp" and f.paramTypes.len > 0:
+        let p0 = normalizeTypeName(f.paramTypes[0])
+        if p0 == baseName or p0 == t:
+          ret true
+      fi += 1
+    ret false
+
+  if traitName == "Numeric":
+    ret isInt or isFloat
+
+  if traitName == "Display":
+    if isPrim:
+      ret true
+    mut fi = 0
+    while fi < hir.functions.len:
+      let f = hir.functions[fi]
+      if f.name == baseName + "_toStr" or f.name == baseName + ".toStr" or f.name == baseName + "_toString":
+        ret true
+      if (f.name == "toStr" or f.name == "toString") and f.paramTypes.len > 0:
+        let p0 = normalizeTypeName(f.paramTypes[0])
+        if p0 == baseName or p0 == t:
+          ret true
+      fi += 1
+    ret false
+
+  if traitName == "Eq":
+    ret true
+
+  if traitName.startsWith("Iterable"):
+    if t.startsWith("Array[") or t.startsWith("[") or t == "str" or t.startsWith("Map["):
+      ret true
+    ret false
+
+  ret true
+
+pub fn extractConcreteTypeFromArg(paramTy: str, tParam: str, argTy: str): str:
+  let pt = paramTy.trim()
+  let tp = tParam.trim()
+  let at = argTy.trim()
+  if pt == tp:
+    ret at
+  if pt == "Array[" + tp + "]" or pt == "[" + tp + "]":
+    if at.startsWith("Array[") and at.endsWith("]"):
+      ret at.slice(6, at.len - 1).trim()
+    if at.startsWith("[") and at.endsWith("]"):
+      ret at.slice(1, at.len - 1).trim()
+    ret at
+  if pt.startsWith("mut ") and (pt == "mut " + tp or pt == "mut [" + tp + "]"):
+    let innerPt = pt.slice(4, pt.len).trim()
+    ret extractConcreteTypeFromArg(innerPt, tp, at)
+  if pt.contains("[" + tp + "]"):
+    if at.contains("[") and at.endsWith("]"):
+      let bracketIdx = at.indexOf("[")
+      ret at.slice(bracketIdx + 1, at.len - 1).trim()
+  ret ""
+
+pub fn extractVariantName(pat: str): str:
+  mut s = pat.trim()
+  if s.contains(" if "):
+    let ifIdx = s.indexOf(" if ")
+    s = s.slice(0, ifIdx).trim()
+  if s.contains("?"):
+    let qIdx = s.indexOf("?")
+    s = s.slice(0, qIdx).trim()
+  if s.contains("@"):
+    let atIdx = s.indexOf("@")
+    s = s.slice(0, atIdx).trim()
+  if s.contains("("):
+    let parenIdx = s.indexOf("(")
+    s = s.slice(0, parenIdx).trim()
+  while s.contains("::"):
+    let idx = s.indexOf("::")
+    s = s.slice(idx + 2, s.len).trim()
+  while s.contains("."):
+    let idx = s.indexOf(".")
+    s = s.slice(idx + 1, s.len).trim()
+  ret s.trim()
+
+pub fn isWildcardPattern(pat: str, knownVariants: [str]): bool:
+  mut s = pat.trim()
+  if s.contains(" if ") or s.contains("?"):
+    ret false
+  if s.contains("@"):
+    let atIdx = s.indexOf("@")
+    s = s.slice(0, atIdx).trim()
+  if s == "_" or s == "else" or s == "default":
+    ret true
+  if s.contains("(") or s.contains("::") or s.contains(".") or s.startsWith("\"") or s.startsWith("'"):
+    ret false
+  if s.len > 0:
+    let c0 = s.charCodeAt(0)
+    if c0 >= 97 and c0 <= 122:
+      mut vi = 0
+      while vi < knownVariants.len:
+        if knownVariants[vi] == s:
+          ret false
+        vi += 1
+      ret true
+  ret false
+
+pub fn checkMatchExhaustivenessAndUnreachable(hir: HirModule, env: Map[str, str], scrutExprId: int, armPatterns: [str], armHasGuards: [bool], span: Span, mut diags: [CompilerDiagnostic]): [CompilerDiagnostic]:
+  let scrutTy = unwrapRefinementBase(inferExprType(hir, env, scrutExprId))
+  mut baseEnumName = scrutTy
+  let bracketIdx = baseEnumName.indexOf("[")
+  if bracketIdx >= 0:
+    baseEnumName = baseEnumName.slice(0, bracketIdx).trim()
+
+  mut knownVariants: [str] = []
+  let enumOpt = findEnum(hir, baseEnumName)
+  if enumOpt.isSome():
+    knownVariants = enumOpt.unwrap().variants
+  elif baseEnumName == "Option":
+    knownVariants = ["Some", "None"]
+  elif baseEnumName == "Result":
+    knownVariants = ["Ok", "Err"]
+
+  mut coveredVariants: [str] = []
+  mut hasWildcard = false
+  mut ai = 0
+  while ai < armPatterns.len:
+    let pat = armPatterns[ai].trim()
+    let hasGuard = if ai < armHasGuards.len: armHasGuards[ai] else: pat.contains(" if ")
+    if hasWildcard:
+      diags.push(CompilerDiagnostic(
+        code = "AIPL_E2010_UNREACHABLE_PATTERN",
+        message = "Unreachable pattern arm in match: subsumed by preceding wildcard",
+        span = span
+      ))
+    else:
+      let subPats = if pat.contains("|"): pat.split("|") else: [pat]
+      mut spi = 0
+      while spi < subPats.len:
+        let sp = subPats[spi].trim()
+        if not hasGuard and isWildcardPattern(sp, knownVariants):
+          hasWildcard = true
+        else:
+          let vName = extractVariantName(sp)
+          if vName != "" and vName != "_" and not hasGuard:
+            if strArrayContains(coveredVariants, vName):
+              diags.push(CompilerDiagnostic(
+                code = "AIPL_E2010_UNREACHABLE_PATTERN",
+                message = "Unreachable pattern arm in match: duplicate variant '" + baseEnumName + "." + vName + "'",
+                span = span
+              ))
+            else:
+              coveredVariants.push(vName)
+        spi += 1
+    ai += 1
+
+  if knownVariants.len > 0 and not hasWildcard:
+    mut vi = 0
+    while vi < knownVariants.len:
+      let v = knownVariants[vi]
+      if not strArrayContains(coveredVariants, v):
+        diags.push(CompilerDiagnostic(
+          code = "AIPL_E2008_NON_EXHAUSTIVE_MATCH",
+          message = "Non-exhaustive pattern match: missing variant '" + baseEnumName + "." + v + "'",
+          span = span
+        ))
+      vi += 1
+
+  ret diags
+
+pub fn topLevelBangIndex(ty: str): int:
+  mut depth = 0
+  mut i = 0
+  while i < ty.len:
+    let c = ty.charCodeAt(i)
+    if c == 91 or c == 40 or c == 123:
+      depth += 1
+    elif c == 93 or c == 41 or c == 125:
+      if depth > 0:
+        depth -= 1
+    elif c == 33 and depth == 0:
+      let nextC = if i + 1 < ty.len: ty.charCodeAt(i + 1) else: 0
+      if nextC != 61 and i > 0 and i + 1 < ty.len:
+        ret i
+    i += 1
+  ret -1
+
+pub fn normalizeTypeShorthand(raw: str): str:
+  let s = raw.trim()
+  if s.startsWith("?") and s.len > 1:
+    ret "Option[" + normalizeTypeName(s.slice(1, s.len)) + "]"
+  let bangIdx = topLevelBangIndex(s)
+  if bangIdx > 0:
+    let okPart = normalizeTypeName(s.slice(0, bangIdx))
+    let errPart = normalizeTypeName(s.slice(bangIdx + 1, s.len))
+    ret "Result[" + okPart + ", " + errPart + "]"
+  ret s
+
+pub fn internTypeStr(mut arena: TypeTermArena, raw: str): int:
+  let s = normalizeTypeName(unwrapRefinementBase(raw)).trim()
+  if s.startsWith("[") and s.endsWith("]"):
+    let elemId = internTypeStr(arena, s.slice(1, s.len - 1))
+    ret typeTermAlloc(arena, 2, "Array", [elemId], -1)
+  if s.contains("[") and s.endsWith("]"):
+    let openIdx = s.indexOf("[")
+    let base = s.slice(0, openIdx).trim()
+    let inner = s.slice(openIdx + 1, s.len - 1).trim()
+    mut paramIds: [int] = []
+    mut rest = inner
+    while rest.len > 0:
+      let commaIdx = topLevelCommaIndex(rest)
+      if commaIdx >= 0:
+        paramIds.push(internTypeStr(arena, rest.slice(0, commaIdx)))
+        rest = rest.slice(commaIdx + 1, rest.len).trim()
+      else:
+        paramIds.push(internTypeStr(arena, rest))
+        rest = ""
+    ret typeTermAlloc(arena, 2, base, paramIds, -1)
+  let isTypeVar = s.len == 1 and s.charCodeAt(0) >= 65 and s.charCodeAt(0) <= 90
+  let targetKind = if isTypeVar: 0 else: 1
+  mut existing = 0
+  while existing < arena.terms.len:
+    let t = arena.terms[existing]
+    if t.kind == targetKind and t.name == s and t.typeParams.len == 0:
+      ret existing
+    existing += 1
+  ret typeTermAlloc(arena, targetKind, s, [], -1)
+
+pub fn unifyTypeTerms(mut arena: TypeTermArena, idA: int, idB: int): bool:
+  let rA = findTypeTermRoot(arena, idA)
+  let rB = findTypeTermRoot(arena, idB)
+  if rA == rB:
+    ret true
+  if rA < 0 or rA >= arena.terms.len or rB < 0 or rB >= arena.terms.len:
+    ret false
+  let tA = arena.terms[rA]
+  let tB = arena.terms[rB]
+  if tA.name == "any" or tB.name == "any":
+    ret true
+  if tA.kind == 0:
+    mut upd = tA
+    upd.boundTo = rB
+    arena.terms[rA] = upd
+    ret true
+  if tB.kind == 0:
+    mut upd = tB
+    upd.boundTo = rA
+    arena.terms[rB] = upd
+    ret true
+  if tA.kind != tB.kind or tA.name != tB.name or tA.typeParams.len != tB.typeParams.len:
+    ret false
+  mut i = 0
+  while i < tA.typeParams.len:
+    if not unifyTypeTerms(arena, tA.typeParams[i], tB.typeParams[i]):
+      ret false
+    i += 1
+  ret true
+
+pub fn normalizeTypeName(raw: str): str:
+  mut s = raw.trim()
+  if s.startsWith("&"):
+    s = s.slice(1, s.len).trim()
+  if s.startsWith("?") and s.len > 1:
+    ret "Option[" + normalizeTypeName(s.slice(1, s.len)) + "]"
+  let bangIdx = topLevelBangIndex(s)
+  if bangIdx > 0:
+    let okPart = normalizeTypeName(s.slice(0, bangIdx))
+    let errPart = normalizeTypeName(s.slice(bangIdx + 1, s.len))
+    ret "Result[" + okPart + ", " + errPart + "]"
+  if s == "u8" or s == "u16" or s == "u32" or s == "u64" or s == "i8" or s == "i16" or s == "i32" or s == "i64" or s == "byte" or s == "char" or s == "usize" or s == "isize":
+    ret "int"
+  if s == "f32" or s == "f64":
+    ret "float"
+  if s == "string":
+    ret "str"
+  if s == "canvas.Color" or s == "color.Color" or s == "Color":
+    ret "Color"
+  if s == "canvas.Vec2" or s == "geom2d.Vec2" or s == "Vec2":
+    ret "Vec2"
+  if s == "canvas.Vec3" or s == "geom3d.Vec3" or s == "Vec3":
+    ret "Vec3"
+  if s == "canvas.Rect" or s == "geom2d.Rect" or s == "Rect":
+    ret "Rect"
+  if s == "canvas.KeyEvent" or s == "KeyEvent":
+    ret "KeyEvent"
+  if s == "buffer.ByteBuffer" or s == "ByteBuffer":
+    ret "ByteBuffer"
+  if s == "SmtDbm":
+    ret "DbmState"
+  if s == "Interval":
+    ret "SmtInterval"
+  ret s
+
+pub fn numericRank(raw: str): int:
+  let s = unwrapRefinementBase(raw).trim()
+  if s == "byte" or s == "u8" or s == "i8":
+    ret 1
+  if s == "int" or s == "i16" or s == "u16" or s == "i32" or s == "u32" or s == "i64" or s == "u64" or s == "isize" or s == "usize":
+    ret 2
+  if s == "float" or s == "f32" or s == "f64":
+    ret 3
+  ret 0
+
+pub fn isNumericSubtype(subTy: str, superTy: str): bool:
+  let rSub = numericRank(subTy)
+  let rSup = numericRank(superTy)
+  if rSub > 0 and rSup > 0:
+    ret rSub <= rSup
+  ret false
+
+pub fn isSubtype(subTy: str, superTy: str): bool:
+  let rSub = numericRank(subTy)
+  let rSup = numericRank(superTy)
+  if rSub > 0 and rSup > 0:
+    ret rSub <= rSup
+  let normSub = normalizeTypeName(unwrapRefinementBase(subTy)).trim()
+  let normSup = normalizeTypeName(unwrapRefinementBase(superTy)).trim()
+  if normSub == normSup or normSup == "any" or normSub == "any" or normSup == "unknown":
+    ret true
+  ret typesCompatible(superTy, subTy)
+
+pub fn isScalarType(raw: str): bool:
+  let s = unwrapRefinementBase(raw).trim()
+  if s == "int" or s == "float" or s == "str" or s == "bool" or s == "char":
+    ret true
+  if s == "byte" or s == "u8" or s == "i8" or s == "i16" or s == "u16" or s == "i32" or s == "u32" or s == "i64" or s == "u64" or s == "f32" or s == "f64":
+    ret true
+  if numericRank(s) > 0:
+    ret true
+  ret false
+
+pub fn typesCompatible(expected: str, actual: str): bool:
+  mut e = normalizeTypeName(unwrapRefinementBase(expected)).trim()
+  mut a = normalizeTypeName(unwrapRefinementBase(actual)).trim()
+  if e.startsWith("mut "):
+    e = e.slice(4, e.len).trim()
+  if a.startsWith("mut "):
+    a = a.slice(4, a.len).trim()
+  if e.startsWith("&"):
+    e = e.slice(1, e.len).trim()
+  if a.startsWith("&"):
+    a = a.slice(1, a.len).trim()
+
+  if (e == "Color" and a == "str") or (e == "str" and a == "Color"):
+    ret false
+  if (e == "Color" and a == "int") or (e == "int" and a == "Color"):
+    ret true
+
+  if e == a or e == "any" or a == "any" or e == "unknown" or a == "unknown" or e == "void":
+    ret true
+
+  let isEOpt = e == "Option" or e == "Option[any]" or e.startsWith("Option[")
+  let isAOpt = a == "Option" or a == "Option[any]" or a.startsWith("Option[")
+  let isEOptVal = isEOpt or e == "None" or e == "Some" or e.startsWith("Some[")
+  let isAOptVal = isAOpt or a == "None" or a == "Some" or a.startsWith("Some[")
+  let isERes = e == "Result" or e == "Result[any, any]" or e.startsWith("Result[")
+  let isARes = a == "Result" or a == "Result[any, any]" or a.startsWith("Result[")
+  let isEResVal = isERes or e == "Ok" or e.startsWith("Ok[") or e == "Err" or e.startsWith("Err[")
+  let isAResVal = isARes or a == "Ok" or a.startsWith("Ok[") or a == "Err" or a.startsWith("Err[")
+
+  // Scalar types must never accept Option or Result values without explicit unwrapping
+  if isScalarType(e) and (isAOptVal or isAResVal):
+    ret false
+
+  if (e == "SmtDbm" and a == "DbmState") or (e == "DbmState" and a == "SmtDbm"):
+    ret true
+  if (e == "Interval" and a == "SmtInterval") or (e == "SmtInterval" and a == "Interval"):
+    ret true
+  if (e == "Vec2" and a == "Vector2") or (e == "Vector2" and a == "Vec2"):
+    ret true
+  if (e == "Vec3" and a == "Vector3") or (e == "Vector3" and a == "Vec3"):
+    ret true
+  if (e == "Vec4" and a == "Vector4") or (e == "Vector4" and a == "Vec4"):
+    ret true
+  if (e == "Rect" and a == "Rect2D") or (e == "Rect2D" and a == "Rect"):
+    ret true
+
+  if (e.startsWith("fn") or e == "Function") and (a.startsWith("fn") or a == "Function"):
+    ret true
+
+  if (e.len == 1 and e.charCodeAt(0) >= 65 and e.charCodeAt(0) <= 90) or (a.len == 1 and a.charCodeAt(0) >= 65 and a.charCodeAt(0) <= 90):
+    ret true
+  if e == "T" or e == "U" or e == "K" or e == "V" or e == "A" or e == "B" or e == "E":
+    ret true
+  if a == "T" or a == "U" or a == "K" or a == "V" or a == "A" or a == "B" or a == "E":
+    ret true
+
+  if (e == "int" and a == "float") or (e == "float" and a == "int"):
+    ret true
+  if (e == "Color" and a == "Color") or (e == "Vec2" and a == "Vec2") or (e == "Vec3" and a == "Vec3") or (e == "Rect" and a == "Rect") or (e == "KeyEvent" and a == "KeyEvent") or (e == "ByteBuffer" and a == "ByteBuffer"):
+    ret true
+  if (e == "bytes" and a == "ByteBuffer") or (e == "ByteBuffer" and a == "bytes"):
+    ret true
+
+  if (e.startsWith("Array[") or e.startsWith("[")) and (a.startsWith("Array[") or a.startsWith("[")):
+    let innerE = if e.startsWith("["): e.slice(1, e.len - 1).trim() else: e.slice(6, e.len - 1).trim()
+    let innerA = if a.startsWith("["): a.slice(1, a.len - 1).trim() else: a.slice(6, a.len - 1).trim()
+    if innerE == "any" or innerA == "any" or innerE == "" or innerA == "" or typesCompatible(innerE, innerA):
+      ret true
+    ret false
+
+  if e.contains("[") and a.contains("["):
+    let baseE = e.slice(0, e.indexOf("[")).trim()
+    let baseA = a.slice(0, a.indexOf("[")).trim()
+    if baseE == baseA:
+      let argsE = extractTypeArgs(e)
+      let argsA = extractTypeArgs(a)
+      if argsE.len == argsA.len:
+        mut allOk = true
+        mut ai = 0
+        while ai < argsE.len:
+          if not typesCompatible(argsE[ai], argsA[ai]):
+            allOk = false
+            break
+          ai += 1
+        ret allOk
+    if (baseE == "Option" and baseA == "Some") or (baseE == "Some" and baseA == "Option"):
+      let argsE = extractTypeArgs(e)
+      let argsA = extractTypeArgs(a)
+      if argsE.len == 1 and argsA.len == 1:
+        ret typesCompatible(argsE[0], argsA[0])
+    if baseE == "Result" and baseA == "Ok":
+      let argsE = extractTypeArgs(e)
+      let argsA = extractTypeArgs(a)
+      if argsE.len >= 1 and argsA.len == 1:
+        ret typesCompatible(argsE[0], argsA[0])
+    if baseE == "Result" and baseA == "Err":
+      let argsE = extractTypeArgs(e)
+      let argsA = extractTypeArgs(a)
+      if argsE.len >= 2 and argsA.len == 1:
+        ret typesCompatible(argsE[1], argsA[0])
+
+  if e.contains("["):
+    let baseE = e.slice(0, e.indexOf("[")).trim()
+    if baseE == a:
+      ret true
+  if a.contains("["):
+    let baseA = a.slice(0, a.indexOf("[")).trim()
+    if baseA == e:
+      ret true
+
+  if (isEOpt and isAOptVal) or (isAOpt and isEOptVal):
+    ret true
+  if e.startsWith("Option[") and e.endsWith("]") and not isARes:
+    let innerE = e.slice(7, e.len - 1).trim()
+    if typesCompatible(innerE, a):
+      ret true
+  if (isERes and isAResVal) or (isARes and isEResVal):
+    ret true
+  if e.startsWith("Result[") and e.endsWith("]") and not isAOpt:
+    let endIdx = e.len - 1
+    let inner = e.slice(7, endIdx).trim()
+    let commaIdx = topLevelCommaIndex(inner)
+    if commaIdx >= 0:
+      let okInner = inner.slice(0, commaIdx).trim()
+      if typesCompatible(okInner, a):
+        ret true
+  if (e == "Box" or e == "Box[any]" or e.startsWith("Box[")) and (a == "Box" or a == "Box[any]" or a.startsWith("Box[")):
+    ret true
+  if e.startsWith("(") and (a.startsWith("(") or a.startsWith("Array[")):
+    ret true
+  ret false
+
+pub fn inferExprType(hir: HirModule, env: Map[str, str], exprId: int): str:
+  if exprId < 0 or exprId >= hir.arena.exprs.len:
+    ret "unknown"
+  let e = hir.arena.exprs[exprId]
+
+  if e.kind == "IntLit":
+    ret "int"
+  if e.kind == "FloatLit":
+    ret "float"
+  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING":
+    ret "str"
+  if e.kind == "BoolLit":
+    ret "bool"
+  if e.kind == "NilLit":
+    ret "void"
+  if e.kind == "Array":
+    if e.children.len > 0:
+      mut elemTy = inferExprType(hir, env, e.children[0])
+      mut ci = 1
+      while ci < e.children.len:
+        let nextTy = inferExprType(hir, env, e.children[ci])
+        if nextTy != elemTy and not typesCompatible(elemTy, nextTy):
+          elemTy = "any"
+          break
+        ci += 1
+      ret "Array[" + elemTy + "]"
+    ret "Array[any]"
+  if e.kind == "ArrayRepeat":
+    if e.left >= 0 and e.left < hir.arena.exprs.len:
+      ret "Array[" + inferExprType(hir, env, e.left) + "]"
+    ret "Array[any]"
+  if e.kind == "MapLit":
+    if e.children.len >= 2:
+      mut kType = inferExprType(hir, env, e.children[0])
+      mut vType = inferExprType(hir, env, e.children[1])
+      mut ci = 2
+      while ci + 1 < e.children.len:
+        let nk = inferExprType(hir, env, e.children[ci])
+        let nv = inferExprType(hir, env, e.children[ci + 1])
+        if nk != kType and not typesCompatible(kType, nk):
+          kType = "any"
+        if nv != vType and not typesCompatible(vType, nv):
+          vType = "any"
+        ci += 2
+      ret "Map[" + kType + ", " + vType + "]"
+    ret "Map[any, any]"
+  if e.kind == "StructLit":
+    if e.strVal == "" and e.left >= 0 and e.left < hir.arena.exprs.len:
+      let lnode = hir.arena.exprs[e.left]
+      if lnode.kind == "Ident" and findStruct(hir, lnode.strVal).isSome():
+        ret lnode.strVal
+      ret inferExprType(hir, env, e.left)
+    if e.strVal.contains("["):
+      ret e.strVal
+    let stOpt = findStruct(hir, e.strVal)
+    if stOpt.isSome():
+      let st = stOpt.unwrap()
+      mut tParams: [str] = []
+      if st.typeParams.len > 0:
+        tParams = st.typeParams
+      if tParams.len > 0:
+        mut concreteArgs: [str] = []
+        mut ti = 0
+        while ti < tParams.len:
+          let tp = tParams[ti]
+          mut foundArg = ""
+          mut fi = 0
+          while fi < st.fieldNames.len:
+            let fName = st.fieldNames[fi]
+            let fType = st.fieldTypes[fi]
+            if fType == tp or fType.contains(tp):
+              mut ei = 0
+              while ei < e.names.len:
+                if e.names[ei] == fName and ei < e.children.len:
+                  let actualFldTy = inferExprType(hir, env, e.children[ei])
+                  foundArg = extractConcreteTypeFromArg(fType, tp, actualFldTy)
+                  break
+                ei += 1
+              if foundArg != "":
+                break
+            fi += 1
+          if foundArg == "":
+            foundArg = "any"
+          concreteArgs.push(foundArg)
+          ti += 1
+        if concreteArgs.len > 0 and concreteArgs[0] != "any":
+          ret e.strVal + "[" + concreteArgs.join(", ") + "]"
+    ret e.strVal
+  if e.kind == "StructUpdate":
+    if e.left >= 0:
+      ret inferExprType(hir, env, e.left)
+    ret "any"
+  if e.kind == "Ident":
+    if e.strVal == "None":
+      ret "Option[any]"
+    let fromEnv = env.get(e.strVal)
+    if fromEnv.isSome():
+      ret fromEnv.unwrap()
+    if e.strVal == "pass":
+      ret "nil"
+    mut si = 0
+    while si < hir.symbols.len:
+      if hir.symbols[si].name == e.strVal:
+        ret hir.symbols[si].tyName
+      si += 1
+    mut si2 = 0
+    while si2 < hir.structs.len:
+      if hir.structs[si2].name == e.strVal:
+        ret hir.structs[si2].name
+      si2 += 1
+    mut ei = 0
+    while ei < hir.enums.len:
+      if hir.enums[ei].name == e.strVal:
+        ret hir.enums[ei].name
+      ei += 1
+    if e.strVal == "Color" or e.strVal == "Vec2" or e.strVal == "Vec3" or e.strVal == "Rect" or e.strVal == "KeyEvent" or e.strVal == "ByteBuffer":
+      ret e.strVal
+    ret "unknown"
+  if e.kind == "WideningCast":
+    if e.strVal == "IntToFloat" or e.strVal == "ByteToFloat" or e.strVal == "float":
+      ret "float"
+    if e.strVal == "ByteToInt" or e.strVal == "int":
+      ret "int"
+    ret if e.strVal != "": e.strVal else: "float"
+  if e.kind == "Unary":
+    if e.op == "not" or e.op == "!":
+      ret "bool"
+    if e.op == "await":
+      let innerTy = inferExprType(hir, env, e.left)
+      if innerTy.startsWith("Promise[") and innerTy.endsWith("]"):
+        ret innerTy.slice(8, innerTy.len - 1).trim()
+      ret innerTy
+    ret inferExprType(hir, env, e.left)
+  if e.kind == "Binary":
+    let op = e.op
+    if op == "==" or op == "!=" or op == "<" or op == "<=" or op == ">" or op == ">=" or op == "and" or op == "or" or op == "&&" or op == "||" or op == "in":
+      ret "bool"
+    if op == "??":
+      let rTy = unwrapRefinementBase(inferExprType(hir, env, e.right))
+      if rTy != "unknown" and rTy != "":
+        ret rTy
+      ret "any"
+    if op == "%%" or op == "%" or op == "//":
+      ret "int"
+    let lt = unwrapRefinementBase(inferExprType(hir, env, e.left))
+    let rt = unwrapRefinementBase(inferExprType(hir, env, e.right))
+    let normLt = normalizeTypeName(lt)
+    let normRt = normalizeTypeName(rt)
+    if op == "+" or op == "-" or op == "*" or op == "/" or op == "**":
+      if normLt == "Vec2" or normRt == "Vec2":
+        ret "Vec2"
+      if normLt == "Vec3" or normRt == "Vec3":
+        ret "Vec3"
+      if (normLt == "float" and (normRt == "int" or normRt == "float")) or (normRt == "float" and (normLt == "int" or normLt == "float")):
+        ret "float"
+      if normLt == "int" and normRt == "int":
+        ret "int"
+    if lt == rt and lt != "unknown":
+      ret lt
+    if lt != "unknown":
+      ret lt
+    ret rt
+  if e.kind == "Call":
+    if e.left >= 0 and e.left < hir.arena.exprs.len:
+      let origCallee = hir.arena.exprs[e.left]
+      mut callee = origCallee
+      mut explicitTypeArgs: [str] = []
+      if (callee.kind == "Index" or callee.kind == "Index2D") and callee.left >= 0 and callee.left < hir.arena.exprs.len:
+        if hir.arena.exprs[callee.left].kind == "Ident":
+          if callee.right >= 0 and callee.right < hir.arena.exprs.len and hir.arena.exprs[callee.right].kind == "Ident":
+            explicitTypeArgs.push(hir.arena.exprs[callee.right].strVal)
+          if callee.kind == "Index2D" and callee.cond >= 0 and callee.cond < hir.arena.exprs.len and hir.arena.exprs[callee.cond].kind == "Ident":
+            explicitTypeArgs.push(hir.arena.exprs[callee.cond].strVal)
+          callee = hir.arena.exprs[callee.left]
+      if callee.kind == "Ident":
+        let cname = callee.strVal
+        if cname == "sha256" and e.children.len == 1:
+          let arg0Ty = unwrapRefinementBase(inferExprType(hir, env, e.children[0]))
+          if arg0Ty == "str":
+            ret "str"
+        if cname != "Some" and cname != "None" and cname != "Ok" and cname != "Err" and cname != "Box":
+          let fDecl = findFunction(hir, cname)
+          if fDecl.isSome():
+            let hf = fDecl.unwrap()
+            if hf.typeParams.len == 0 and hf.retType.len > 0 and hf.retType != "unknown":
+              ret hf.retType
+        if cname == "int" or cname == "len" or cname == "crc32" or cname == "nowMs" or cname == "nowUnixMs" or cname == "nowMonoNs" or cname == "sleepMs" or cname == "ord" or cname == "charCode" or cname == "parseInt" or cname == "remEuclid" or cname == "popcnt" or cname == "ctz" or cname == "clz" or cname == "getScreenWidth" or cname == "getScreenHeight" or cname == "getKeyPressed" or cname == "getPixel" or cname == "playSound" or cname == "playSoundEx" or cname == "playPcmBuffer" or cname == "getImageWidth" or cname == "getImageHeight" or cname == "imageWidth" or cname == "imageHeight" or cname == "createImageFromPixels" or cname == "createTextureFromRgba" or cname == "createProceduralTexture" or cname == "createIsometricSpriteSheet" or cname == "getBlendMode" or cname == "blendModeAlpha" or cname == "blendModeAdditive" or cname == "blendModeMultiplied" or cname == "blendModeScreen" or cname == "getCompositionCursor" or cname == "arenaMark" or cname == "hardwareConcurrency" or cname == "fileSize" or cname == "aipl_rt_fileSize":
+          ret "int"
+        if cname == "float" or cname == "sqrt" or cname == "sin" or cname == "cos" or cname == "tan" or cname == "asin" or cname == "acos" or cname == "atan" or cname == "atan2" or cname == "absFloat" or cname == "randomFloat" or cname == "randFloat" or cname == "round" or cname == "roundTo" or cname == "getMouseX" or cname == "getMouseY" or cname == "getFrameTime" or cname == "getScaleFactor" or cname == "getMouseWheelMove" or cname == "mouseWheelX" or cname == "mouseWheelY" or cname == "measureTextWidth" or cname == "measureTextHeight" or cname == "getAudioEnergy" or cname == "getAudioBand" or cname == "audioTime" or cname == "getContentScale" or cname == "measureTextSubstr":
+          ret "float"
+        if cname == "str" or cname == "sha256" or cname == "readFile" or cname == "hexEncode" or cname == "toHex" or cname == "chr" or cname == "charFromCode" or cname == "fromCharCode" or cname == "toString" or cname == "formatFloat" or cname == "canvasBackendName" or cname == "getWindowMode" or cname == "getTextInput" or cname == "getCompositionText" or cname == "getClipboardText" or cname == "getGraphicsBackendName" or cname == "cwd" or cname == "tempDir" or cname == "homeDir" or cname == "readLine" or cname == "readStdin" or cname == "realpath" or cname == "pathJoin" or cname == "pathDirname" or cname == "pathBasename" or cname == "pathNormalize" or cname == "pathExtname" or cname == "pathExtension" or cname == "pathExt" or cname == "pathStem" or cname == "aipl_rt_realpath" or cname == "aipl_rt_pathJoin" or cname == "aipl_rt_pathDirname" or cname == "aipl_rt_pathBasename" or cname == "aipl_rt_pathNormalize" or cname == "aipl_rt_readFile":
+          ret "str"
+        if cname == "bool" or cname == "fileExists" or cname == "writeFile" or cname == "assetExists" or cname == "isKeyJustPressed" or cname == "isAnyKeyPressed" or cname == "isKeyPressed" or cname == "isKeyDown" or cname == "isKeyReleased" or cname == "isKeyHeld" or cname == "isMouseButtonPressed" or cname == "isMouseButtonDown" or cname == "isMouseButtonReleased" or cname == "isMouseRightClicked" or cname == "isMouseDoubleClicked" or cname == "isMouseInRect" or cname == "isRectClicked" or cname == "isHeadlessMode" or cname == "windowShouldClose" or cname == "isWindowResized" or cname == "saveScreenshot" or cname == "startVideoRecording" or cname == "stopVideoRecording" or cname == "isRecordingVideo" or cname == "saveImage" or cname == "saveTextureToPpm" or cname == "isGpuAccelerated" or cname == "isDir" or cname == "isFile" or cname == "pathIsAbsolute" or cname == "aipl_rt_isDir" or cname == "aipl_rt_isFile" or cname == "aipl_rt_fileExists" or cname == "aipl_rt_writeFile" or cname == "aipl_rt_pathIsAbsolute":
+          ret "bool"
+        if cname == "mapNew":
+          ret "Map[any, any]"
+        if cname == "setNew" or cname == "setFromArray":
+          ret "Set[any]"
+        if cname == "bytesNew" or cname == "bytesZeroed" or cname == "bytesFromArray" or cname == "bytesConcat" or cname == "bytesFromHex" or cname == "hexDecode" or cname == "readPixels" or cname == "randomBytes":
+          ret "bytes"
+        if cname == "byteBufferAlloc" or cname == "ByteBuffer":
+          ret "ByteBuffer"
+        if cname == "Color" or cname == "rgb" or cname == "rgba":
+          ret "Color"
+        if cname == "Vec2" or cname == "measureText" or cname == "measureTextFont" or cname == "measureLabel":
+          ret "Vec2"
+        if cname == "Vec3":
+          ret "Vec3"
+        if cname == "Rect":
+          ret "Rect"
+        if cname == "KeyEvent":
+          ret "KeyEvent"
+        if cname == "loadImage" or cname == "loadFont":
+          ret "Result[int, str]"
+        if cname == "loadAsset" or cname == "readBytes" or cname == "aipl_rt_readBytes":
+          ret "Result[bytes, str]"
+        if cname == "saveCanvasSnapshot" or cname == "writeBytes" or cname == "removeFile" or cname == "deleteFile" or cname == "removeDirAll" or cname == "mkdir" or cname == "mkdirAll" or cname == "renameFile" or cname == "copyFile" or cname == "appendFile" or cname == "setFileTimes" or cname == "aipl_rt_writeBytes" or cname == "aipl_rt_removeFile" or cname == "aipl_rt_removeDirAll" or cname == "aipl_rt_mkdir" or cname == "aipl_rt_mkdirAll" or cname == "aipl_rt_renameFile" or cname == "aipl_rt_copyFile" or cname == "aipl_rt_appendFile":
+          ret "Result[bool, str]"
+        if cname == "stat" or cname == "aipl_rt_stat":
+          ret "Result[FileStat, str]"
+        if cname == "readDir" or cname == "walkDir" or cname == "aipl_rt_readDir" or cname == "aipl_rt_walkDir":
+          ret "Result[Array[FileStat], str]"
+        if cname == "execCommand":
+          ret "ProcessOutput"
+        if cname == "execParallel":
+          ret "Array[int]"
+        if cname == "listAssets" or cname == "pollFileDropEvents" or cname == "userArgs" or cname == "args" or cname == "listDir" or cname == "aipl_rt_listDir":
+          ret "Array[str]"
+        if cname == "pollKeyEvents":
+          ret "Array[KeyEvent]"
+        if cname == "getPressedKey" or cname == "getEnv" or cname == "env":
+          ret "Option[str]"
+        if cname == "parseFloat" or cname == "parseFloatPrefix":
+          let pfOpt = findFunction(hir, cname)
+          if pfOpt.isSome():
+            ret pfOpt.unwrap().retType
+          ret "Option[float]"
+        if cname == "drawPolyline" or cname == "drawLineLoop" or cname == "drawLineStrip" or cname == "drawRectGradientH" or cname == "drawRectGradientV" or cname == "drawLinearGradient" or cname == "drawGridTiles" or cname == "drawCellGrid" or cname == "drawRectBatch" or cname == "drawCharGrid" or cname == "withViewport" or cname == "drawTextMiddle" or cname == "drawTextAligned" or cname == "drawImage" or cname == "drawImageScaled" or cname == "drawImageSub" or cname == "playToneEx" or cname == "playTone" or cname == "playToneSweep" or cname == "clearScreen" or cname == "clearBackground" or cname == "drawRect" or cname == "drawCircle" or cname == "drawLine" or cname == "drawText" or cname == "drawTextCentered" or cname == "beginDrawing" or cname == "endDrawing" or cname == "setWindowSize" or cname == "setWindowMinSize" or cname == "setMasterVolume" or cname == "stopAllSounds" or cname == "recordVideoFrame" or cname == "setClipboardText" or cname == "setSoftwareRasterizer" or cname == "setWindowMode" or cname == "begin3D" or cname == "end3D" or cname == "drawTriangleDepth" or cname == "setDepthTest" or cname == "clearDepth" or cname == "beginWorldPass" or cname == "endWorldPass" or cname == "setUiTracking" or cname == "setBlendMode" or cname == "drawTriangleGouraud" or cname == "drawTriangle3DGouraud" or cname == "drawQuad3DGouraud" or cname == "drawTriangle3DTextured" or cname == "drawQuad3DTextured" or cname == "drawCubeMesh" or cname == "renderCube" or cname == "printInline" or cname == "flushStdout" or cname == "eprint" or cname == "eprintln" or cname == "arenaReset" or cname == "setEnv" or cname == "exit" or cname == "panic":
+          ret "void"
+        if cname == "cloneStruct":
+          if e.children.len > 0:
+            ret inferExprType(hir, env, e.children[0])
+          ret "any"
+        if cname == "Some":
+          if e.children.len > 0:
+            ret "Option[" + inferExprType(hir, env, e.children[0]) + "]"
+          ret "Option[any]"
+        if cname == "Ok":
+          if e.children.len > 0:
+            ret "Result[" + inferExprType(hir, env, e.children[0]) + ", any]"
+          ret "Result[any, any]"
+        if cname == "Err":
+          if e.children.len > 0:
+            ret "Result[any, " + inferExprType(hir, env, e.children[0]) + "]"
+          ret "Result[any, any]"
+        if cname == "Box":
+          if e.children.len > 0:
+            ret "Box[" + inferExprType(hir, env, e.children[0]) + "]"
+          ret "Box[any]"
+        let fnOpt = findFunction(hir, cname)
+        if fnOpt.isSome():
+          let f = fnOpt.unwrap()
+          if f.typeParamBounds.len > 0:
+            mut bi = 0
+            while bi < f.typeParamBounds.len:
+              let bound = f.typeParamBounds[bi]
+              let tParam = if bi < f.typeParams.len: f.typeParams[bi] else: ""
+              if bound != "" and tParam != "":
+                mut pi = 0
+                while pi < f.paramTypes.len:
+                  let pt = f.paramTypes[pi]
+                  if pt == tParam or pt.contains(tParam):
+                    if pi < e.children.len:
+                      let argTy = inferExprType(hir, env, e.children[pi])
+                      let concreteTy = extractConcreteTypeFromArg(pt, tParam, argTy)
+                      if concreteTy != "" and concreteTy != "any" and concreteTy != "unknown":
+                        if not doesTypeImplementTrait(hir, concreteTy, bound):
+                          let diagMsg = "Type '" + concreteTy + "' does not implement required trait '" + bound + "'"
+                          let curDiags = env.get("__diagnostics__")
+                          if curDiags.isSome():
+                            env.set("__diagnostics__", curDiags.unwrap() + "\n" + diagMsg)
+                          else:
+                            env.set("__diagnostics__", diagMsg)
+                    break
+                  pi += 1
+              bi += 1
+          mut retTy = f.retType
+          if f.typeParams.len > 0 and (retTy.contains("T") or retTy.contains("U") or retTy.contains("K") or retTy.contains("V") or retTy.contains("A") or retTy.contains("B") or retTy.contains("E")):
+            mut concreteArgs: [str] = []
+            mut bi2 = 0
+            while bi2 < f.typeParams.len:
+              let tp = f.typeParams[bi2]
+              mut foundArg = if bi2 < explicitTypeArgs.len: explicitTypeArgs[bi2] else: ""
+              mut pi = 0
+              while foundArg == "" and pi < f.paramTypes.len:
+                let pt = f.paramTypes[pi]
+                if pt == tp or pt.contains(tp):
+                  if pi < e.children.len:
+                    let aTy = inferExprType(hir, env, e.children[pi])
+                    foundArg = extractConcreteTypeFromArg(pt, tp, aTy)
+                    if foundArg != "":
+                      break
+                pi += 1
+              if foundArg == "":
+                foundArg = "any"
+              concreteArgs.push(foundArg)
+              bi2 += 1
+            retTy = substituteTypeParams(retTy, f.typeParams, concreteArgs)
+          ret retTy
+        let stOpt = findStruct(hir, cname)
+        if stOpt.isSome():
+          ret cname
+        mut syi = 0
+        while syi < hir.symbols.len:
+          if hir.symbols[syi].name == cname:
+            ret hir.symbols[syi].tyName
+          syi += 1
+        let enOpt = findEnum(hir, cname)
+        if enOpt.isSome():
+          ret cname
+        if cname.endsWith(".toJson") or cname.endsWith(".jsonSchema"):
+          ret "str"
+        if cname.endsWith(".fromJson"):
+          let tn = cname.slice(0, cname.len - 9)
+          ret "Result[" + tn + ", str]"
+      elif callee.kind == "Member":
+        let m = callee.strVal
+        let targetTy = unwrapRefinementBase(inferExprType(hir, env, callee.left)).replace("&", "").replace("mut", "").trim()
+        mut calleeLeftIdent = ""
+        if callee.left >= 0 and callee.left < hir.arena.exprs.len:
+          let lnode = hir.arena.exprs[callee.left]
+          if lnode.kind == "Ident":
+            calleeLeftIdent = lnode.strVal
+
+        if targetTy != "" and targetTy != "unknown" and targetTy != "any":
+          let baseTargetTy = if targetTy.contains("["): targetTy.slice(0, targetTy.indexOf("[")) else: targetTy
+          if baseTargetTy != "Option" and baseTargetTy != "Result" and baseTargetTy != "Some" and baseTargetTy != "Ok" and baseTargetTy != "Box":
+            let structFnOpt = findFunction(hir, baseTargetTy + "_" + m)
+            if structFnOpt.isSome():
+              let sfn = structFnOpt.unwrap()
+              if sfn.retType != "" and sfn.retType != "unknown":
+                mut sRetTy = sfn.retType
+                if targetTy.contains("["):
+                  let cArgs = extractTypeArgs(targetTy)
+                  mut tParams: [str] = []
+                  let stOpt = findStruct(hir, baseTargetTy)
+                  if stOpt.isSome() and stOpt.unwrap().typeParams.len > 0:
+                    tParams = stOpt.unwrap().typeParams
+                  elif sfn.typeParams.len > 0:
+                    tParams = sfn.typeParams
+                  elif cArgs.len == 1:
+                    tParams = ["T"]
+                  elif cArgs.len == 2:
+                    tParams = ["K", "V"]
+                  if tParams.len > 0 and cArgs.len > 0:
+                    sRetTy = substituteTypeParams(sRetTy, tParams, cArgs)
+                ret sRetTy
+        if calleeLeftIdent != "":
+          let ctorFnOpt = findFunction(hir, calleeLeftIdent + "_" + m)
+          if ctorFnOpt.isSome():
+            let cfn = ctorFnOpt.unwrap()
+            if cfn.retType != "" and cfn.retType != "unknown":
+              ret cfn.retType
+
+        if m == "toJson" or m == "jsonSchema":
+          ret "str"
+        if m == "fromJson":
+          let resType = if calleeLeftIdent != "": calleeLeftIdent else: (if targetTy != "unknown" and targetTy != "any": targetTy else: "any")
+          ret "Result[" + resType + ", str]"
+
+        if (calleeLeftIdent == "Box" or targetTy == "Box") and m == "new":
+          if e.children.len > 0:
+            ret "Box[" + inferExprType(hir, env, e.children[0]) + "]"
+          ret "Box[any]"
+        if m == "deref" or m == "value":
+          if targetTy.startsWith("Box[") and targetTy.endsWith("]"):
+            ret targetTy.slice(4, targetTy.len - 1).trim()
+          ret "any"
+        if m == "toString" or m == "name":
+          ret "str"
+        if m == "clone":
+          ret targetTy
+        if m == "f":
+          ret "float"
+        if m == "i":
+          ret "int"
+        if m == "isSome" or m == "isNone" or m == "isOk" or m == "isErr":
+          ret "bool"
+        if m == "unwrap" or m == "expect":
+          if targetTy.startsWith("Option[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(7, targetTy.len - 1).trim()
+            if inner != "any" and inner != "":
+              ret inner
+          if targetTy.startsWith("Some[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(5, targetTy.len - 1).trim()
+            if inner != "any" and inner != "":
+              ret inner
+          if targetTy.startsWith("Result["):
+            let endIdx = if targetTy.endsWith("]"): targetTy.len - 1 else: targetTy.len
+            let inner = targetTy.slice(7, endIdx).trim()
+            let commaIdx = topLevelCommaIndex(inner)
+            if commaIdx >= 0:
+              let okInner = inner.slice(0, commaIdx).trim()
+              if okInner != "any" and okInner != "":
+                ret okInner
+          if targetTy.startsWith("Ok[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(3, targetTy.len - 1).trim()
+            if inner != "any" and inner != "":
+              ret inner
+          ret "any"
+        if m == "unwrapOr":
+          if targetTy.startsWith("Option[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(7, targetTy.len - 1).trim()
+            if inner != "any" and inner != "":
+              ret inner
+          if targetTy.startsWith("Some[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(5, targetTy.len - 1).trim()
+            if inner != "any" and inner != "":
+              ret inner
+          if targetTy.startsWith("Result["):
+            let endIdx = if targetTy.endsWith("]"): targetTy.len - 1 else: targetTy.len
+            let inner = targetTy.slice(7, endIdx).trim()
+            let commaIdx = topLevelCommaIndex(inner)
+            if commaIdx >= 0:
+              let okInner = inner.slice(0, commaIdx).trim()
+              if okInner != "any" and okInner != "":
+                ret okInner
+          if targetTy.startsWith("Ok[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(3, targetTy.len - 1).trim()
+            if inner != "any" and inner != "":
+              ret inner
+          if e.children.len > 0:
+            ret inferExprType(hir, env, e.children[0])
+          ret "any"
+        if m == "unwrapErr":
+          if targetTy.startsWith("Result[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(7, targetTy.len - 1).trim()
+            let commaIdx = topLevelCommaIndex(inner)
+            if commaIdx >= 0:
+              let errInner = inner.slice(commaIdx + 1, inner.len).trim()
+              if errInner != "any" and errInner != "":
+                ret errInner
+          ret "any"
+        if m == "map":
+          mut elemTy = "any"
+          mut errInner = "any"
+          if targetTy.startsWith("Array[") and targetTy.endsWith("]"):
+            elemTy = targetTy.slice(6, targetTy.len - 1).trim()
+          elif targetTy.startsWith("[") and targetTy.endsWith("]"):
+            elemTy = targetTy.slice(1, targetTy.len - 1).trim()
+          elif targetTy.startsWith("Option[") and targetTy.endsWith("]"):
+            elemTy = targetTy.slice(7, targetTy.len - 1).trim()
+          elif targetTy.startsWith("Some[") and targetTy.endsWith("]"):
+            elemTy = targetTy.slice(5, targetTy.len - 1).trim()
+          elif targetTy.startsWith("Result["):
+            let endIdx = if targetTy.endsWith("]"): targetTy.len - 1 else: targetTy.len
+            let inner = targetTy.slice(7, endIdx).trim()
+            let commaIdx = topLevelCommaIndex(inner)
+            if commaIdx >= 0:
+              elemTy = inner.slice(0, commaIdx).trim()
+              errInner = inner.slice(commaIdx + 1, inner.len).trim()
+          elif targetTy.startsWith("Ok[") and targetTy.endsWith("]"):
+            elemTy = targetTy.slice(3, targetTy.len - 1).trim()
+          if elemTy == "" or elemTy == "unknown":
+            elemTy = "int"
+
+          if e.children.len > 0:
+            let cbId = e.children[0]
+            if cbId >= 0 and cbId < hir.arena.exprs.len:
+              let cbNode = hir.arena.exprs[cbId]
+              if cbNode.kind == "Lambda":
+                mut tmpEnv = cloneEnv(env)
+                if cbNode.names.len > 0:
+                  tmpEnv.set(cbNode.names[0], elemTy)
+                if cbNode.names.len > 1:
+                  tmpEnv.set(cbNode.names[1], "int")
+                let retTy = inferExprType(hir, tmpEnv, cbNode.left)
+                let finalRet = if retTy != "unknown" and retTy != "" and retTy != "any": retTy else: elemTy
+                if targetTy.startsWith("Option[") or targetTy.startsWith("Some["):
+                  ret "Option[" + finalRet + "]"
+                if targetTy.startsWith("Result[") or targetTy.startsWith("Ok["):
+                  ret "Result[" + finalRet + ", " + errInner + "]"
+                ret "Array[" + finalRet + "]"
+              elif cbNode.kind == "Ident":
+                let cbName = cbNode.strVal
+                let sRetOpt = env.get("__lambda_ret_" + cbName)
+                if sRetOpt.isSome() and sRetOpt.unwrap() != "":
+                  if targetTy.startsWith("Option[") or targetTy.startsWith("Some["):
+                    ret "Option[" + sRetOpt.unwrap() + "]"
+                  if targetTy.startsWith("Result[") or targetTy.startsWith("Ok["):
+                    ret "Result[" + sRetOpt.unwrap() + ", " + errInner + "]"
+                  ret "Array[" + sRetOpt.unwrap() + "]"
+                let sExprOpt = env.get("__lambda_expr_" + cbName)
+                if sExprOpt.isSome():
+                  let lamId = parseInt(sExprOpt.unwrap())
+                  if lamId >= 0 and lamId < hir.arena.exprs.len:
+                    let lam = hir.arena.exprs[lamId]
+                    mut tmpEnv = cloneEnv(env)
+                    if lam.names.len > 0:
+                      tmpEnv.set(lam.names[0], elemTy)
+                    let retTy = inferExprType(hir, tmpEnv, lam.left)
+                    if retTy != "unknown" and retTy != "":
+                      if targetTy.startsWith("Option[") or targetTy.startsWith("Some["):
+                        ret "Option[" + retTy + "]"
+                      if targetTy.startsWith("Result[") or targetTy.startsWith("Ok["):
+                        ret "Result[" + retTy + ", " + errInner + "]"
+                      ret "Array[" + retTy + "]"
+                let cbTyOpt = env.get(cbName)
+                if cbTyOpt.isSome():
+                  let cbTy = cbTyOpt.unwrap()
+                  if cbTy.contains("->"):
+                    let arrowIdx = cbTy.indexOf("->")
+                    let retTy = cbTy.slice(arrowIdx + 2, cbTy.len).trim()
+                    if retTy != "" and retTy != "unknown" and retTy != "any":
+                      if targetTy.startsWith("Option[") or targetTy.startsWith("Some["):
+                        ret "Option[" + retTy + "]"
+                      if targetTy.startsWith("Result[") or targetTy.startsWith("Ok["):
+                        ret "Result[" + retTy + ", " + errInner + "]"
+                      ret "Array[" + retTy + "]"
+                  if cbTy == "fn" or cbTy == "fn(int)->int":
+                    if targetTy.startsWith("Option[") or targetTy.startsWith("Some["):
+                      ret "Option[" + elemTy + "]"
+                    if targetTy.startsWith("Result[") or targetTy.startsWith("Ok["):
+                      ret "Result[" + elemTy + ", " + errInner + "]"
+                    ret "Array[" + elemTy + "]"
+                mut fi = 0
+                while fi < hir.functions.len:
+                  if hir.functions[fi].name == cbName:
+                    let fRet = normalizeTypeName(hir.functions[fi].retType)
+                    if fRet != "" and fRet != "unknown" and fRet != "any":
+                      if targetTy.startsWith("Option[") or targetTy.startsWith("Some["):
+                        ret "Option[" + fRet + "]"
+                      if targetTy.startsWith("Result[") or targetTy.startsWith("Ok["):
+                        ret "Result[" + fRet + ", " + errInner + "]"
+                      ret "Array[" + fRet + "]"
+                  fi += 1
+          if targetTy.startsWith("Option[") or targetTy.startsWith("Some["):
+            ret "Option[" + elemTy + "]"
+          if targetTy.startsWith("Result[") or targetTy.startsWith("Ok["):
+            ret "Result[" + elemTy + ", " + errInner + "]"
+          if targetTy.startsWith("Array[") or targetTy.startsWith("["):
+            ret "Array[" + elemTy + "]"
+          ret "any"
+        if m == "andThen":
+          mut elemTy = "any"
+          mut errInner = "any"
+          if targetTy.startsWith("Option[") and targetTy.endsWith("]"):
+            elemTy = targetTy.slice(7, targetTy.len - 1).trim()
+          elif targetTy.startsWith("Some[") and targetTy.endsWith("]"):
+            elemTy = targetTy.slice(5, targetTy.len - 1).trim()
+          elif targetTy.startsWith("Result["):
+            let endIdx = if targetTy.endsWith("]"): targetTy.len - 1 else: targetTy.len
+            let inner = targetTy.slice(7, endIdx).trim()
+            let commaIdx = topLevelCommaIndex(inner)
+            if commaIdx >= 0:
+              elemTy = inner.slice(0, commaIdx).trim()
+              errInner = inner.slice(commaIdx + 1, inner.len).trim()
+          elif targetTy.startsWith("Ok[") and targetTy.endsWith("]"):
+            elemTy = targetTy.slice(3, targetTy.len - 1).trim()
+
+          if e.children.len > 0:
+            let cbId = e.children[0]
+            if cbId >= 0 and cbId < hir.arena.exprs.len:
+              let cbNode = hir.arena.exprs[cbId]
+              if cbNode.kind == "Lambda":
+                mut tmpEnv = cloneEnv(env)
+                if cbNode.names.len > 0:
+                  tmpEnv.set(cbNode.names[0], elemTy)
+                let retTy = inferExprType(hir, tmpEnv, cbNode.left)
+                if retTy != "unknown" and retTy != "" and retTy != "any":
+                  ret retTy
+              elif cbNode.kind == "Ident":
+                let cbName = cbNode.strVal
+                let sRetOpt = env.get("__lambda_ret_" + cbName)
+                if sRetOpt.isSome() and sRetOpt.unwrap() != "":
+                  ret sRetOpt.unwrap()
+                let cbTyOpt = env.get(cbName)
+                if cbTyOpt.isSome():
+                  let cbTy = cbTyOpt.unwrap()
+                  if cbTy.contains("->"):
+                    let arrowIdx = cbTy.indexOf("->")
+                    let retTy = cbTy.slice(arrowIdx + 2, cbTy.len).trim()
+                    if retTy != "" and retTy != "unknown" and retTy != "any":
+                      ret retTy
+                mut fi2 = 0
+                while fi2 < hir.functions.len:
+                  if hir.functions[fi2].name == cbName:
+                    let fRet = normalizeTypeName(hir.functions[fi2].retType)
+                    if fRet != "" and fRet != "unknown" and fRet != "any":
+                      ret fRet
+                  fi2 += 1
+          if targetTy.startsWith("Option[") or targetTy.startsWith("Some["):
+            ret "Option[any]"
+          if targetTy.startsWith("Result[") or targetTy.startsWith("Ok["):
+            ret "Result[any, " + errInner + "]"
+          ret "any"
+        if m == "fold":
+          ret "any"
+        if m == "filter" or m == "sortBy" or m == "sortDescBy" or m == "sortWith" or m == "sort" or m == "unique" or m == "dedup" or m == "retain" or m == "reversed":
+          if targetTy.startsWith("Array[") or targetTy.startsWith("["):
+            ret targetTy
+          ret "Array[any]"
+        if m == "head" or m == "tail" or m == "reverse" or m == "clone":
+          if targetTy.startsWith("Array[") or targetTy.startsWith("["):
+            ret targetTy
+          if targetTy == "str":
+            ret "str"
+          ret targetTy
+        if m == "chunks" or m == "chunked" or m == "windows":
+          ret "Array[" + targetTy + "]"
+        if m == "pop":
+          if targetTy.startsWith("Array[") and targetTy.endsWith("]"):
+            ret targetTy.slice(6, targetTy.len - 1).trim()
+          ret "any"
+        if m == "get" or m == "first" or m == "last" or m == "peek" or m == "shift" or m == "popFront" or m == "removeAt" or m == "swapRemove" or m == "find":
+          if targetTy.startsWith("Array[") and targetTy.endsWith("]"):
+            ret "Option[" + targetTy.slice(6, targetTy.len - 1).trim() + "]"
+          if targetTy.startsWith("Map[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(4, targetTy.len - 1).trim()
+            let commaIdx = topLevelCommaIndex(inner)
+            if commaIdx >= 0:
+              ret "Option[" + inner.slice(commaIdx + 1, inner.len).trim() + "]"
+            ret "Option[any]"
+          if m == "get" and targetTy == "unknown":
+            ret "any"
+          ret "Option[any]"
+        if m == "getOr" or m == "getOrDefault" or m == "getOrInsert":
+          if targetTy.startsWith("Array[") and targetTy.endsWith("]"):
+            ret targetTy.slice(6, targetTy.len - 1).trim()
+          if targetTy.startsWith("Map[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(4, targetTy.len - 1).trim()
+            let commaIdx = topLevelCommaIndex(inner)
+            if commaIdx >= 0:
+              ret inner.slice(commaIdx + 1, inner.len).trim()
+            ret "any"
+          if e.children.len > 1:
+            ret inferExprType(hir, env, e.children[1])
+          ret "any"
+        if m == "findIndex":
+          ret "Option[int]"
+        if m == "count":
+          ret "int"
+        if m == "groupBy":
+          ret "Map[any, " + targetTy + "]"
+        if m == "keys":
+          if targetTy.startsWith("Map[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(4, targetTy.len - 1).trim()
+            let commaIdx = topLevelCommaIndex(inner)
+            if commaIdx >= 0:
+              ret "Array[" + inner.slice(0, commaIdx).trim() + "]"
+          ret "Array[str]"
+        if m == "values":
+          if targetTy.startsWith("Map[") and targetTy.endsWith("]"):
+            let inner = targetTy.slice(4, targetTy.len - 1).trim()
+            let commaIdx = topLevelCommaIndex(inner)
+            if commaIdx >= 0:
+              ret "Array[" + inner.slice(commaIdx + 1, inner.len).trim() + "]"
+          ret "Array[any]"
+        if m == "bytes" or m == "ints":
+          ret "Array[int]"
+        if m == "floats":
+          ret "Array[float]"
+        if m == "sum" or m == "min" or m == "max":
+          if targetTy == "Array[float]":
+            ret "float"
+          ret "int"
+        if m == "chars" or m == "lines" or m == "words" or m == "splitWhitespace" or m == "splitAny":
+          ret "Array[str]"
+        if m == "skipFields" or m == "stripPrefix" or m == "removePrefixes" or m == "stripSuffix" or m == "between" or m == "sliceBetween" or m == "replaceFirst" or m == "replaceNth" or m == "truncate" or m == "padStart" or m == "padLeft" or m == "padEnd" or m == "padRight" or m == "repeat":
+          ret "str"
+        if m == "parseFloatPrefix":
+          ret "Option[float]"
+        if m == "splitOnce":
+          ret "Option[Array[str]]"
+        if m == "any" or m == "all" or m == "isEmpty" or m == "equalsIgnoreCase" or m == "containsIgnoreCase" or m == "isDigit" or m == "isHexDigit" or m == "isAlpha" or m == "isAlphanumeric" or m == "isIdentChar" or m == "isWhitespace" or m == "containsKey" or m == "remove" or m == "delete":
+          ret "bool"
+        if m == "indexOfIgnoreCase" or m == "lastIndexOf":
+          ret "int"
+        if m == "push" or m == "unshift" or m == "insert" or m == "insertAt" or m == "update" or m == "truncate" or m == "copyWithin" or m == "extend" or m == "concat" or m == "set" or m == "add":
+          ret "void"
+        if m == "toInt":
+          ret "Option[int]"
+        if m == "toFloat":
+          ret "Option[float]"
+        if (calleeLeftIdent == "int" or targetTy == "int") and m == "parse":
+          ret "Result[int, str]"
+        if (calleeLeftIdent == "float" or targetTy == "float") and m == "parse":
+          ret "Result[float, str]"
+        mut ei = 0
+        while ei < hir.enums.len:
+          let en = hir.enums[ei]
+          if en.name == targetTy or calleeLeftIdent == en.name:
+            mut vi = 0
+            while vi < en.variants.len:
+              if en.variants[vi] == m:
+                ret en.name
+              vi += 1
+          ei += 1
+        if targetTy != "" and targetTy != "unknown":
+          let structFnOpt = findFunction(hir, targetTy + "_" + m)
+          if structFnOpt.isSome():
+            let sfn = structFnOpt.unwrap()
+            if sfn.retType != "" and sfn.retType != "unknown":
+              ret sfn.retType
+        if calleeLeftIdent != "":
+          let ctorFnOpt = findFunction(hir, calleeLeftIdent + "_" + m)
+          if ctorFnOpt.isSome():
+            let cfn = ctorFnOpt.unwrap()
+            if cfn.retType != "" and cfn.retType != "unknown":
+              ret cfn.retType
+        if m == "len" or m == "indexOf" or m == "charCodeAt" or m == "length" or m == "indexOfByte" or m == "indexOfBytes" or m == "readU16BE" or m == "readU16LE" or m == "readU32BE" or m == "readU32LE":
+          ret "int"
+        if m == "startsWith" or m == "endsWith" or m == "contains" or m == "has":
+          ret "bool"
+        if m == "toBytes" or m == "freeze":
+          ret "bytes"
+        if m == "slice":
+          if targetTy == "bytes":
+            ret "bytes"
+          if targetTy.startsWith("Array[") or targetTy.startsWith("["):
+            ret targetTy
+          ret "str"
+        if m == "trim" or m == "replace" or m == "toLower" or m == "toUpper" or m == "join" or m == "toHex" or m == "hexEncode" or m == "toStringLossy":
+          ret "str"
+        if m == "hexToBytes":
+          ret "Result[bytes, str]"
+        if m == "toStringUtf8":
+          ret "Result[str, str]"
+        if m == "toArray" or m == "toInts":
+          if targetTy.startsWith("Set[") and targetTy.endsWith("]"):
+            ret "Array[" + targetTy.slice(4, targetTy.len - 1).trim() + "]"
+          ret "Array[int]"
+        if m == "splitByte":
+          ret "Array[bytes]"
+        if m == "writeU8" or m == "writeU16BE" or m == "writeU16LE" or m == "writeU32BE" or m == "writeU32LE" or m == "writeBytes" or m == "setByte" or m == "copyFrom":
+          ret "void"
+        let freeFnOpt = findFunction(hir, m)
+        if freeFnOpt.isSome():
+          let ffn = freeFnOpt.unwrap()
+          if ffn.retType != "" and ffn.retType != "unknown":
+            ret ffn.retType
+    ret "unknown"
+  if e.kind == "Member":
+    let m = e.strVal
+    if m == "len" or m == "length":
+      ret "int"
+    let targetTy = unwrapRefinementBase(inferExprType(hir, env, e.left))
+    let normTargetTy = normalizeTypeName(targetTy)
+    if m == "f" and (targetTy == "int" or targetTy == "float" or targetTy == "byte" or targetTy == "u8" or targetTy == "i64" or targetTy == "i32" or normTargetTy == "int" or normTargetTy == "float"):
+      ret "float"
+    if (m == "i" or m == "round" or m == "floor" or m == "ceil") and (targetTy == "float" or targetTy == "int" or targetTy == "byte" or targetTy == "u8" or targetTy == "i64" or targetTy == "i32" or targetTy == "bool" or normTargetTy == "float" or normTargetTy == "int" or normTargetTy == "bool"):
+      ret "int"
+    if m == "isSome" or m == "isNone" or m == "isOk" or m == "isErr":
+      ret "bool"
+    if m == "unwrap":
+      if targetTy.startsWith("Option[") and targetTy.endsWith("]"):
+        let inner = targetTy.slice(7, targetTy.len - 1).trim()
+        if inner != "any" and inner != "":
+          ret inner
+      if targetTy.startsWith("Some[") and targetTy.endsWith("]"):
+        let inner = targetTy.slice(5, targetTy.len - 1).trim()
+        if inner != "any" and inner != "":
+          ret inner
+      if targetTy.startsWith("Result["):
+        let endIdx = if targetTy.endsWith("]"): targetTy.len - 1 else: targetTy.len
+        let inner = targetTy.slice(7, endIdx).trim()
+        let commaIdx = topLevelCommaIndex(inner)
+        if commaIdx >= 0:
+          let okInner = inner.slice(0, commaIdx).trim()
+          if okInner != "any" and okInner != "":
+            ret okInner
+      if targetTy.startsWith("Ok[") and targetTy.endsWith("]"):
+        let inner = targetTy.slice(3, targetTy.len - 1).trim()
+        if inner != "any" and inner != "":
+          ret inner
+      ret "any"
+    if m == "unwrapOr":
+      if targetTy.startsWith("Option[") and targetTy.endsWith("]"):
+        let inner = targetTy.slice(7, targetTy.len - 1).trim()
+        if inner != "any" and inner != "":
+          ret inner
+      if targetTy.startsWith("Some[") and targetTy.endsWith("]"):
+        let inner = targetTy.slice(5, targetTy.len - 1).trim()
+        if inner != "any" and inner != "":
+          ret inner
+      if targetTy.startsWith("Result["):
+        let endIdx = if targetTy.endsWith("]"): targetTy.len - 1 else: targetTy.len
+        let inner = targetTy.slice(7, endIdx).trim()
+        let commaIdx = topLevelCommaIndex(inner)
+        if commaIdx >= 0:
+          let okInner = inner.slice(0, commaIdx).trim()
+          if okInner != "any" and okInner != "":
+            ret okInner
+      if targetTy.startsWith("Ok[") and targetTy.endsWith("]"):
+        let inner = targetTy.slice(3, targetTy.len - 1).trim()
+        if inner != "any" and inner != "":
+          ret inner
+      ret "any"
+    mut leftIdent = ""
+    if e.left >= 0 and e.left < hir.arena.exprs.len:
+      let lnode = hir.arena.exprs[e.left]
+      if lnode.kind == "Ident":
+        leftIdent = lnode.strVal
+
+    if targetTy == "Vec2":
+      if m == "x" or m == "y":
+        ret "float"
+    if targetTy == "Vec3":
+      if m == "x" or m == "y" or m == "z":
+        ret "float"
+    if targetTy == "Rect":
+      if m == "x" or m == "y" or m == "w" or m == "h" or m == "width" or m == "height":
+        ret "float"
+    if targetTy == "Color":
+      if m == "r" or m == "g" or m == "b" or m == "a":
+        ret "int"
+    if targetTy == "KeyEvent":
+      if m == "key":
+        ret "str"
+      if m == "code":
+        ret "int"
+      if m == "pressed" or m == "alt" or m == "ctrl" or m == "shift":
+        ret "bool"
+    if targetTy == "ByteBuffer":
+      if m == "len" or m == "cap":
+        ret "int"
+
+    mut ei = 0
+    while ei < hir.enums.len:
+      let en = hir.enums[ei]
+      if en.name == targetTy or en.name == leftIdent:
+        mut vi = 0
+        while vi < en.variants.len:
+          if en.variants[vi] == m:
+            ret en.name
+          vi += 1
+      ei += 1
+
+    if m == "value" or m == "deref":
+      if targetTy.startsWith("Box[") and targetTy.endsWith("]"):
+        ret targetTy.slice(4, targetTy.len - 1).trim()
+      ret "any"
+    if m == "last" or m == "first" or m == "peek":
+      if targetTy.startsWith("Array[") and targetTy.endsWith("]"):
+        ret targetTy.slice(6, targetTy.len - 1).trim()
+      ret "any"
+    if m == "sum" or m == "min" or m == "max":
+      if targetTy == "Array[float]":
+        ret "float"
+      ret "int"
+
+    let cleanTargetTy = targetTy.replace("&", "").replace("mut", "").trim()
+    let stOpt = findStruct(hir, cleanTargetTy)
+    if stOpt.isSome():
+      let st = stOpt.unwrap()
+      mut fk = 0
+      while fk < st.fieldNames.len:
+        if st.fieldNames[fk] == m:
+          let rawFld = st.fieldTypes[fk]
+          if targetTy.contains("["):
+            let cArgs = extractTypeArgs(targetTy)
+            mut tParams: [str] = []
+            if st.typeParams.len > 0:
+              tParams = st.typeParams
+            elif cArgs.len == 1:
+              tParams = ["T"]
+            elif cArgs.len == 2:
+              tParams = ["K", "V"]
+            ret substituteTypeParams(rawFld, tParams, cArgs)
+          ret rawFld
+        fk += 1
+
+    if m == "toString" or m == "name" or m == "toJson" or m == "jsonSchema":
+      ret "str"
+    if m == "clone":
+      ret targetTy
+
+    ret "unknown"
+  if e.kind == "Index":
+    mut tTy = unwrapRefinementBase(inferExprType(hir, env, e.left)).replace("&", "").replace("mut", "").trim()
+    if tTy.startsWith("Array[") and tTy.endsWith("]"):
+      ret tTy.slice(6, tTy.len - 1).trim()
+    if tTy.startsWith("[") and tTy.endsWith("]"):
+      ret tTy.slice(1, tTy.len - 1).trim()
+    if tTy.startsWith("Map[") and tTy.endsWith("]"):
+      let inner = tTy.slice(4, tTy.len - 1).trim()
+      let commaIdx = topLevelCommaIndex(inner)
+      if commaIdx >= 0:
+        ret inner.slice(commaIdx + 1, inner.len).trim()
+      ret "any"
+    if tTy == "bytes":
+      ret "int"
+    if tTy == "str":
+      ret "str"
+    ret "unknown"
+  if e.kind == "Index2D":
+    ret "any"
+  if e.kind == "Try" or e.kind == "Unwrap":
+    let innerTy = unwrapRefinementBase(inferExprType(hir, env, e.left))
+    if innerTy.startsWith("Result["):
+      let endIdx = if innerTy.endsWith("]"): innerTy.len - 1 else: innerTy.len
+      let inner = innerTy.slice(7, endIdx).trim()
+      let commaIdx = topLevelCommaIndex(inner)
+      if commaIdx >= 0:
+        if e.op == "Err":
+          ret inner.slice(commaIdx + 1, inner.len).trim()
+        ret inner.slice(0, commaIdx).trim()
+    if innerTy.startsWith("Option[") and innerTy.endsWith("]"):
+      ret innerTy.slice(7, innerTy.len - 1).trim()
+    ret "any"
+  if e.kind == "Tuple":
+    mut elemTypes: [str] = []
+    mut i = 0
+    while i < e.children.len:
+      elemTypes.push(inferExprType(hir, env, e.children[i]))
+      i += 1
+    ret "(" + elemTypes.join(", ") + ")"
+  if e.kind == "BlockIfExpr":
+    if e.children.len > 0:
+      let lastId = e.children[e.children.len - 1]
+      if lastId >= 0 and lastId < hir.arena.stmts.len:
+        let st = hir.arena.stmts[lastId]
+        if st.exprId >= 0 and st.exprId < hir.arena.exprs.len:
+          let thenTy = inferExprType(hir, env, st.exprId)
+          if thenTy != "unknown":
+            ret thenTy
+      elif lastId >= 0 and lastId < hir.arena.exprs.len:
+        let thenTy = inferExprType(hir, env, lastId)
+        if thenTy != "unknown":
+          ret thenTy
+    if e.right >= 0 and e.right < hir.arena.exprs.len:
+      let elseTy = inferExprType(hir, env, e.right)
+      if elseTy != "unknown":
+        ret elseTy
+    ret "any"
+  if e.kind == "IfExpr":
+    let thenTy = if e.left >= 0: inferExprType(hir, env, e.left) else: "unknown"
+    let elseTy = if e.right >= 0: inferExprType(hir, env, e.right) else: "unknown"
+    if thenTy != "unknown" and thenTy != "any":
+      ret thenTy
+    if elseTy != "unknown" and elseTy != "any":
+      ret elseTy
+    if thenTy != "unknown":
+      ret thenTy
+    ret elseTy
+  if e.kind == "ReturnExpr":
+    ret "any"
+  if e.kind == "IsPattern":
+    ret "bool"
+  if e.kind == "Cast":
+    ret normalizeTypeName(e.strVal)
+  if e.kind == "Match" or e.kind == "MatchExpr":
+    mut mi = 0
+    while mi < e.children.len:
+      let cId = e.children[mi]
+      if cId >= 0 and cId < hir.arena.exprs.len:
+        let armTy = inferExprType(hir, env, cId)
+        if armTy != "unknown" and armTy != "any" and armTy != "void":
+          ret armTy
+      mi += 1
+    ret "any"
+  if e.kind == "DoBlock":
+    if e.children.len > 0:
+      let lastId = e.children[e.children.len - 1]
+      if lastId >= 0 and lastId < hir.arena.stmts.len:
+        let st = hir.arena.stmts[lastId]
+        if st.exprId >= 0 and st.exprId < hir.arena.exprs.len:
+          ret inferExprType(hir, env, st.exprId)
+      elif lastId >= 0 and lastId < hir.arena.exprs.len:
+        ret inferExprType(hir, env, lastId)
+    ret "any"
+  if e.kind == "Lambda":
+    mut lamEnv = cloneEnv(env)
+    mut pi = 0
+    while pi < e.names.len:
+      lamEnv.set(e.names[pi], "int")
+      pi += 1
+    let lRet = inferExprType(hir, lamEnv, e.left)
+    let retTy = if lRet != "unknown" and lRet != "" and lRet != "any": lRet else: "int"
+    mut pTypes: [str] = []
+    mut pi2 = 0
+    while pi2 < e.names.len:
+      pTypes.push("int")
+      pi2 += 1
+    ret "fn(" + pTypes.join(", ") + ")->" + retTy
+  ret "unknown"
+
+pub fn levenshteinDistMax2(a: str, b: str): int:
+  let la = a.len
+  let lb = b.len
+  let diff = if la > lb: la - lb else: lb - la
+  if diff > 2:
+    ret 999
+  if a == b:
+    ret 0
+  if la == 0:
+    ret lb
+  if lb == 0:
+    ret la
+
+  mut prev: [int] = []
+  mut j = 0
+  while j <= lb:
+    prev.push(j)
+    j += 1
+
+  mut i = 1
+  while i <= la:
+    mut curr: [int] = [i]
+    mut j2 = 1
+    while j2 <= lb:
+      let cost = if a.charCodeAt(i - 1) == b.charCodeAt(j2 - 1): 0 else: 1
+      let deletion = prev[j2] + 1
+      let insertion = curr[j2 - 1] + 1
+      let substitution = prev[j2 - 1] + cost
+      mut minVal = if deletion < insertion: deletion else: insertion
+      if substitution < minVal:
+        minVal = substitution
+      curr.push(minVal)
+      j2 += 1
+    prev = curr
+    i += 1
+
+  ret prev[lb]
+
+pub fn suggestClosestStructField(fieldNames: [str], target: str): str:
+  mut bestField = ""
+  mut bestDist = 999
+  mut i = 0
+  while i < fieldNames.len:
+    let fnName = fieldNames[i]
+    let d = levenshteinDistMax2(fnName, target)
+    if d <= 2 and d < bestDist:
+      bestDist = d
+      bestField = fnName
+    i += 1
+  ret bestField
+
+pub fn validateStructFieldAccess(st: HirStruct, fieldName: str): str:
+  if fieldName == "" or fieldName == "toJson" or fieldName == "fromJson" or fieldName == "jsonSchema" or fieldName == "len" or fieldName == "length" or fieldName == "clone" or fieldName == "toString" or fieldName == "name" or fieldName == "value" or fieldName == "deref" or fieldName == "f" or fieldName == "i":
+    ret ""
+  mut fk = 0
+  while fk < st.fieldNames.len:
+    if st.fieldNames[fk] == fieldName:
+      ret ""
+    fk += 1
+  let closest = suggestClosestStructField(st.fieldNames, fieldName)
+  mut hint = ""
+  if closest != "":
+    hint = "; did you mean '" + closest + "'?"
+  ret "AIPL_E2014: Struct '" + st.name + "' has no field '" + fieldName + "'" + hint
+
+pub fn checkExprAndCollectDiags(hir: HirModule, env: Map[str, str], exprId: int, mut diags: [CompilerDiagnostic]): [CompilerDiagnostic]:
+  if exprId < 0 or exprId >= hir.arena.exprs.len:
+    ret diags
+  let e = hir.arena.exprs[exprId]
+
+  if e.kind == "Binary":
+    diags = checkExprAndCollectDiags(hir, env, e.left, diags)
+    diags = checkExprAndCollectDiags(hir, env, e.right, diags)
+    let lt = unwrapRefinementBase(inferExprType(hir, env, e.left))
+    let rt = unwrapRefinementBase(inferExprType(hir, env, e.right))
+    if e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/" or e.op == "**":
+      if lt != "unknown" and rt != "unknown" and lt != "any" and rt != "any":
+        let nLt = normalizeTypeName(lt)
+        let nRt = normalizeTypeName(rt)
+        if (nLt == "str" and nRt != "str") or (nLt != "str" and nRt == "str"):
+          diags.push(CompilerDiagnostic(
+            code = "AIPL_E2004_COERCION_FORBIDDEN",
+            message = "Implicit string concatenation coercion forbidden between '" + lt + "' and '" + rt + "'",
+            span = e.span
+          ))
+  elif e.kind == "Call":
+    diags = checkExprAndCollectDiags(hir, env, e.left, diags)
+    mut ci = 0
+    while ci < e.children.len:
+      diags = checkExprAndCollectDiags(hir, env, e.children[ci], diags)
+      ci += 1
+    mut calleeName = ""
+    if e.left >= 0 and e.left < hir.arena.exprs.len:
+      let callee = hir.arena.exprs[e.left]
+      if callee.kind == "Ident":
+        calleeName = callee.strVal
+      elif callee.kind == "Member":
+        if callee.left >= 0 and callee.left < hir.arena.exprs.len and hir.arena.exprs[callee.left].kind == "Ident":
+          calleeName = hir.arena.exprs[callee.left].strVal + "." + callee.strVal
+        else:
+          calleeName = callee.strVal
+    if calleeName == "" and e.strVal != "":
+      calleeName = e.strVal
+    mut fnOpt = findFunction(hir, calleeName)
+    if fnOpt.isNone() and calleeName.contains("."):
+      let underName = calleeName.replace(".", "_")
+      fnOpt = findFunction(hir, underName)
+    if fnOpt.isNone() and calleeName.contains("."):
+      let dotIdx = calleeName.indexOf(".")
+      let shortName = calleeName.slice(dotIdx + 1, calleeName.len)
+      fnOpt = findFunction(hir, shortName)
+    if fnOpt.isSome():
+      let f = fnOpt.unwrap()
+      mut pi = 0
+      while pi < f.paramTypes.len and pi < e.children.len:
+        let pTy = normalizeTypeName(f.paramTypes[pi])
+        let aTy = normalizeTypeName(inferExprType(hir, env, e.children[pi]))
+        if (pTy == "Color" and aTy == "str") or (pTy == "str" and aTy == "Color"):
+          diags.push(CompilerDiagnostic(
+            code = AIPL_E_TYPE_MISMATCH,
+            message = "Type mismatch in argument " + str(pi + 1) + " of '" + calleeName + "': expected '" + pTy + "', found '" + aTy + "'",
+            span = e.span
+          ))
+        pi += 1
+      if f.typeParams.len > 0:
+        mut concreteArgs: [str] = []
+        mut bi2 = 0
+        while bi2 < f.typeParams.len:
+          let tp = f.typeParams[bi2]
+          mut foundArg = ""
+          mut pi = 0
+          while pi < f.paramTypes.len:
+            let pt = f.paramTypes[pi]
+            if pt == tp or pt.contains(tp):
+              if pi < e.children.len:
+                let aTy = inferExprType(hir, env, e.children[pi])
+                foundArg = extractConcreteTypeFromArg(pt, tp, aTy)
+                if foundArg != "":
+                  break
+            pi += 1
+          if foundArg == "":
+            foundArg = "any"
+          concreteArgs.push(foundArg)
+          bi2 += 1
+        let canMono = canMonomorphizeGenericCall(f.typeParams, concreteArgs)
+        if canMono:
+          let monoName = mangleMonomorphizedFuncName(f.name, concreteArgs)
+          if monoName != f.name:
+            mut alreadyMono = false
+            mut mi = 0
+            while mi < hir.monomorphizedInstances.len:
+              if hir.monomorphizedInstances[mi] == monoName:
+                alreadyMono = true
+                break
+              mi += 1
+            if not alreadyMono:
+              hir.monomorphizedInstances.push(monoName)
+      if f.typeParamBounds.len > 0:
+        mut bi = 0
+        while bi < f.typeParamBounds.len:
+          let bound = f.typeParamBounds[bi]
+          let tParam = if bi < f.typeParams.len: f.typeParams[bi] else: ""
+          if bound != "" and tParam != "":
+            mut pi = 0
+            while pi < f.paramTypes.len:
+              let pt = f.paramTypes[pi]
+              if pt == tParam or pt.contains(tParam):
+                if pi < e.children.len:
+                  let argTy = inferExprType(hir, env, e.children[pi])
+                  let concreteTy = extractConcreteTypeFromArg(pt, tParam, argTy)
+                  if concreteTy != "" and concreteTy != "any" and concreteTy != "unknown":
+                    if not doesTypeImplementTrait(hir, concreteTy, bound):
+                      diags.push(CompilerDiagnostic(
+                        code = "AIPL_E2009_TRAIT_BOUND_NOT_SATISFIED",
+                        message = "Type '" + concreteTy + "' does not implement required trait '" + bound + "'",
+                        span = e.span
+                      ))
+                break
+              pi += 1
+          bi += 1
+    if calleeName == "drawText" or calleeName == "drawTextCentered" or calleeName == "drawTextBox" or calleeName == "canvas.drawText" or calleeName == "canvas.drawTextCentered":
+      if e.children.len >= 5:
+        let colorArgTy = normalizeTypeName(inferExprType(hir, env, e.children[4]))
+        if colorArgTy == "str":
+          diags.push(CompilerDiagnostic(
+            code = AIPL_E_TYPE_MISMATCH,
+            message = "Type mismatch in argument 5 of '" + calleeName + "': expected 'Color', found 'str'",
+            span = e.span
+          ))
+  elif e.kind == "MatchExpr":
+    diags = checkExprAndCollectDiags(hir, env, e.left, diags)
+    mut armGuards: [bool] = []
+    mut ci = 0
+    while ci < e.names.len:
+      armGuards.push(e.names[ci].contains(" if ") or e.names[ci].contains("?"))
+      ci += 1
+    diags = checkMatchExhaustivenessAndUnreachable(hir, env, e.left, e.names, armGuards, e.span, diags)
+    mut ci2 = 0
+    while ci2 < e.children.len:
+      diags = checkExprAndCollectDiags(hir, env, e.children[ci2], diags)
+      ci2 += 1
+  elif e.kind == "Member":
+    diags = checkExprAndCollectDiags(hir, env, e.left, diags)
+    let m = e.strVal
+    if (m == "isOk" or m == "isErr" or m == "unwrapErr") and findFunction(hir, m).isNone():
+      // Result-only accessors on a receiver statically known to be a plain primitive are always a
+      // bug: the runtime treats any non-Err value as Ok, so `parseInt(s).isOk()` silently returned
+      // true for garbage input. Use `int.parse(s)` / `float.parse(s)` for fallible parsing.
+      let recvTy = normalizeTypeName(unwrapRefinementBase(inferExprType(hir, env, e.left)))
+      if recvTy == "int" or recvTy == "float" or recvTy == "str" or recvTy == "bool" or recvTy == "byte" or recvTy == "u8" or recvTy == "i32" or recvTy == "i64":
+        diags.push(CompilerDiagnostic(
+          code = "AIPL_E2015_RESULT_METHOD_ON_NON_RESULT",
+          message = "'." + m + "()' requires a Result, but the receiver has type '" + recvTy + "'",
+          span = e.span,
+          hint = "this value can never be Err; for fallible parsing use int.parse(s) / float.parse(s), which return Result"
+        ))
+    if m != "" and m != "len" and m != "length" and m != "toString" and m != "name" and m != "value" and m != "deref" and m != "toJson" and m != "fromJson" and m != "jsonSchema" and m != "clone" and m != "f" and m != "i" and m != "isSome" and m != "isNone" and m != "unwrap" and m != "unwrapOr" and m != "unwrapErr" and m != "expect" and m != "isOk" and m != "isErr" and m != "map" and m != "andThen":
+      let targetTy = unwrapRefinementBase(inferExprType(hir, env, e.left))
+      let cleanTargetTy = targetTy.replace("&", "").replace("mut", "").trim()
+      let stOpt = findStruct(hir, cleanTargetTy)
+      if stOpt.isSome():
+        let st = stOpt.unwrap()
+        if st.fieldNames.len > 0:
+          mut hasField = false
+          mut si = 0
+          while si < hir.structs.len:
+            if hir.structs[si].name == st.name:
+              mut fk = 0
+              while fk < hir.structs[si].fieldNames.len:
+                if hir.structs[si].fieldNames[fk] == m:
+                  hasField = true
+                fk += 1
+            si += 1
+          if not hasField and findFunction(hir, m).isNone() and findFunction(hir, st.name + "_" + m).isNone() and findFunction(hir, targetTy + "_" + m).isNone():
+            let closest = suggestClosestStructField(st.fieldNames, m)
+            mut hint = ""
+            if closest != "":
+              hint = "; did you mean '" + closest + "'?"
+            diags.push(CompilerDiagnostic(
+              code = "AIPL_E2014_UNKNOWN_STRUCT_FIELD",
+              message = "Struct '" + targetTy + "' has no field '" + m + "'" + hint,
+              span = e.span,
+              hint = if closest != "": "did you mean '" + closest + "'?" else: ""
+            ))
+  elif e.kind == "StructLit":
+    if e.left >= 0:
+      diags = checkExprAndCollectDiags(hir, env, e.left, diags)
+    mut sci = 0
+    while sci < e.children.len:
+      diags = checkExprAndCollectDiags(hir, env, e.children[sci], diags)
+      sci += 1
+    mut targetStructName = e.strVal
+    if targetStructName == "" and e.left >= 0:
+      targetStructName = inferExprType(hir, env, e.left)
+    if targetStructName != "":
+      let stOpt = findStruct(hir, targetStructName)
+      if stOpt.isSome():
+        let st = stOpt.unwrap()
+        mut fldIdx = 0
+        while fldIdx < e.names.len and fldIdx < e.children.len:
+          let fName = e.names[fldIdx]
+          let fValExprId = e.children[fldIdx]
+          mut sf = 0
+          while sf < st.fieldNames.len:
+            if st.fieldNames[sf] == fName:
+              let rawFldTy = st.fieldTypes[sf]
+              mut expectedFldTy = normalizeTypeName(rawFldTy)
+              if targetStructName.contains("["):
+                let cArgs = extractTypeArgs(targetStructName)
+                mut tParams: [str] = []
+                if st.typeParams.len > 0:
+                  tParams = st.typeParams
+                elif cArgs.len == 1:
+                  tParams = ["T"]
+                elif cArgs.len == 2:
+                  tParams = ["K", "V"]
+                expectedFldTy = normalizeTypeName(substituteTypeParams(rawFldTy, tParams, cArgs))
+              let actualFldTy = normalizeTypeName(inferExprType(hir, env, fValExprId))
+              if not strArrayContains(st.typeParams, expectedFldTy):
+                if expectedFldTy != "unknown" and expectedFldTy != "any" and actualFldTy != "unknown" and actualFldTy != "any":
+                  if not typesCompatible(expectedFldTy, actualFldTy):
+                    let fSpan = if fValExprId >= 0 and fValExprId < hir.arena.exprs.len: hir.arena.exprs[fValExprId].span else: e.span
+                    diags.push(CompilerDiagnostic(
+                      code = AIPL_E_TYPE_MISMATCH,
+                      message = "Type mismatch in field '" + fName + "' of struct '" + st.name + "': expected '" + expectedFldTy + "', found '" + actualFldTy + "'",
+                      span = fSpan
+                    ))
+              break
+            sf += 1
+          fldIdx += 1
+  elif e.kind == "Index":
+    diags = checkExprAndCollectDiags(hir, env, e.left, diags)
+    diags = checkExprAndCollectDiags(hir, env, e.right, diags)
+  elif e.kind == "Unary":
+    diags = checkExprAndCollectDiags(hir, env, e.left, diags)
+  ret diags
+
+pub fn checkEnumShadowWarnings(hir: HirModule): [str]:
+  mut warnings: [str] = []
+  mut ei = 0
+  while ei < hir.enums.len:
+    let en = hir.enums[ei]
+    mut vi = 0
+    while vi < en.variants.len:
+      let v = en.variants[vi]
+      if v == "None" or v == "Some" or v == "Ok" or v == "Err":
+        warnings.push("AIPL_W_KEYWORD_SHADOW: enum '" + en.name + "' defines variant '" + v + "' which shadows prelude symbol")
+      vi += 1
+    ei += 1
+  ret warnings
+
+pub fn stripPatternPrefix(pat: str): str:
+  mut s = pat
+  while s.contains("::"):
+    let idx = s.indexOf("::")
+    s = s.slice(idx + 2, s.len)
+  while s.contains("."):
+    let idx = s.indexOf(".")
+    s = s.slice(idx + 1, s.len)
+  ret s
+
+pub fn checkMatchExhaustiveness(hir: HirModule, env: Map[str, str], stmt: StmtNode, mut diags: [CompilerDiagnostic]): [CompilerDiagnostic]:
+  mut armPatterns: [str] = []
+  mut armGuards: [bool] = []
+  mut ai = 0
+  while ai < stmt.matchArms.len:
+    let armId = stmt.matchArms[ai]
+    if armId >= 0 and armId < hir.arena.stmts.len:
+      let armStmt = hir.arena.stmts[armId]
+      armPatterns.push(armStmt.name)
+      armGuards.push(armStmt.exprId >= 0 or armStmt.condExpr >= 0 or armStmt.name.contains(" if ") or armStmt.name.contains("?"))
+    ai += 1
+  ret checkMatchExhaustivenessAndUnreachable(hir, env, stmt.exprId, armPatterns, armGuards, stmt.span, diags)
+
+pub fn collectVarsFromExpr(arena: AstArena, exprId: int, mut out: [str]): [str]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret out
+  let e = arena.exprs[exprId]
+  if e.kind == "Ident":
+    let name = e.strVal
+    if name != "true" and name != "false" and name != "nil" and name != "null":
+      mut found = false
+      mut i = 0
+      while i < out.len:
+        if out[i] == name:
+          found = true
+          break
+        i += 1
+      if not found:
+        out.push(name)
+  if e.left >= 0:
+    out = collectVarsFromExpr(arena, e.left, out)
+  if e.right >= 0:
+    out = collectVarsFromExpr(arena, e.right, out)
+  if e.cond >= 0:
+    out = collectVarsFromExpr(arena, e.cond, out)
+  mut ci = 0
+  while ci < e.children.len:
+    out = collectVarsFromExpr(arena, e.children[ci], out)
+    ci += 1
+  ret out
+
+pub fn stmtMutatesVar(arena: AstArena, stmt: StmtNode, varName: str): bool:
+  if stmt.kind == "Assign":
+    let lhs = stmtLhsExpr(stmt)
+    if lhs >= 0 and lhs < arena.exprs.len and arena.exprs[lhs].kind == "Ident":
+      if arena.exprs[lhs].strVal == varName:
+        ret true
+    if stmt.name == varName:
+      ret true
+  ret false
+
+pub fn stmtsMutateVar(arena: AstArena, stmtIds: [int], varName: str): bool:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if stmtMutatesVar(arena, st, varName):
+        ret true
+      if st.bodyStmts.len > 0 and stmtsMutateVar(arena, st.bodyStmts, varName):
+        ret true
+      if st.elseStmts.len > 0 and stmtsMutateVar(arena, st.elseStmts, varName):
+        ret true
+      if st.matchArms.len > 0 and stmtsMutateVar(arena, st.matchArms, varName):
+        ret true
+    i += 1
+  ret false
+
+pub fn hasTopLevelMutation(arena: AstArena, stmtIds: [int], varName: str): bool:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if stmtMutatesVar(arena, st, varName):
+        ret true
+    i += 1
+  ret false
+
+pub fn stmtListHasBreakOrReturn(arena: AstArena, stmtIds: [int]): bool:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Break" or st.kind == "Return":
+        ret true
+      if st.kind == "Expr" or st.kind == "ExprStmt":
+        if st.exprId >= 0 and st.exprId < arena.exprs.len:
+          let e = arena.exprs[st.exprId]
+          if e.kind == "Call" and e.left >= 0 and e.left < arena.exprs.len:
+            let ce = arena.exprs[e.left]
+            if ce.kind == "Ident" and (ce.strVal == "panic" or ce.strVal == "exit"):
+              ret true
+      if st.bodyStmts.len > 0 and stmtListHasBreakOrReturn(arena, st.bodyStmts):
+        ret true
+      if st.elseStmts.len > 0 and stmtListHasBreakOrReturn(arena, st.elseStmts):
+        ret true
+      if st.matchArms.len > 0 and stmtListHasBreakOrReturn(arena, st.matchArms):
+        ret true
+    i += 1
+  ret false
+
+pub fn hasTopLevelExit(arena: AstArena, stmtIds: [int]): bool:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Break" or st.kind == "Return":
+        ret true
+      if st.kind == "Expr" or st.kind == "ExprStmt":
+        if st.exprId >= 0 and st.exprId < arena.exprs.len:
+          let e = arena.exprs[st.exprId]
+          if e.kind == "Call" and e.left >= 0 and e.left < arena.exprs.len:
+            let ce = arena.exprs[e.left]
+            if ce.kind == "Ident" and (ce.strVal == "panic" or ce.strVal == "exit"):
+              ret true
+    i += 1
+  ret false
+
+pub fn checkInfiniteLoopRisk(arena: AstArena, condId: int, bodyStmts: [int]): bool:
+  if condId < 0 or bodyStmts.len == 0:
+    ret false
+  mut emptyVars: [str] = []
+  let condVars = collectVarsFromExpr(arena, condId, emptyVars)
+  if condVars.len == 0:
+    ret false
+
+  if hasTopLevelExit(arena, bodyStmts):
+    ret false
+
+  mut vi = 0
+  while vi < condVars.len:
+    let v = condVars[vi]
+    if stmtsMutateVar(arena, bodyStmts, v):
+      if not hasTopLevelMutation(arena, bodyStmts, v):
+        mut allMutationsInIfWithoutElse = true
+        mut foundIfWithoutElse = false
+        mut si = 0
+        while si < bodyStmts.len:
+          let sid = bodyStmts[si]
+          if sid >= 0 and sid < arena.stmts.len:
+            let st = arena.stmts[sid]
+            let mutatesV = stmtMutatesVar(arena, st, v) or (st.bodyStmts.len > 0 and stmtsMutateVar(arena, st.bodyStmts, v)) or (st.elseStmts.len > 0 and stmtsMutateVar(arena, st.elseStmts, v)) or (st.matchArms.len > 0 and stmtsMutateVar(arena, st.matchArms, v))
+            if mutatesV:
+              if st.kind == "If" and st.elseStmts.len == 0 and not stmtListHasBreakOrReturn(arena, st.bodyStmts):
+                foundIfWithoutElse = true
+              else:
+                allMutationsInIfWithoutElse = false
+                break
+          si += 1
+        if foundIfWithoutElse and allMutationsInIfWithoutElse:
+          ret true
+    vi += 1
+
+  ret false
+
+pub fn checkStmtInfiniteLoopRisk(arena: AstArena, stmtId: int, mut diags: [CompilerDiagnostic]): [CompilerDiagnostic]:
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret diags
+  let st = arena.stmts[stmtId]
+  if st.kind == "While" and st.condExpr >= 0:
+    if checkInfiniteLoopRisk(arena, st.condExpr, st.bodyStmts):
+      diags.push(CompilerDiagnostic(
+        code = AIPL_E_INFINITE_LOOP_RISK,
+        message = "Indentation-induced infinite loop risk: loop variable mutated only inside conditional 'if' branch without 'else'",
+        span = st.span
+      ))
+  mut bi = 0
+  while bi < st.bodyStmts.len:
+    diags = checkStmtInfiniteLoopRisk(arena, st.bodyStmts[bi], diags)
+    bi += 1
+  mut ei = 0
+  while ei < st.elseStmts.len:
+    diags = checkStmtInfiniteLoopRisk(arena, st.elseStmts[ei], diags)
+    ei += 1
+  mut mi = 0
+  while mi < st.matchArms.len:
+    diags = checkStmtInfiniteLoopRisk(arena, st.matchArms[mi], diags)
+    mi += 1
+  ret diags
+
+pub fn checkFunctionInfiniteLoopRisks(arena: AstArena, f: HirFunction): [CompilerDiagnostic]:
+  mut diags: [CompilerDiagnostic] = []
+  mut si = 0
+  while si < f.bodyStmts.len:
+    diags = checkStmtInfiniteLoopRisk(arena, f.bodyStmts[si], diags)
+    si += 1
+  ret diags
+
+pub fn checkModuleInfiniteLoopRisks(hir: HirModule): [CompilerDiagnostic]:
+  mut diags: [CompilerDiagnostic] = []
+  mut fi = 0
+  while fi < hir.functions.len:
+    let fDiags = checkFunctionInfiniteLoopRisks(hir.arena, hir.functions[fi])
+    mut di = 0
+    while di < fDiags.len:
+      diags.push(fDiags[di])
+      di += 1
+    fi += 1
+  ret diags
+
+pub fn isDirectFloatExpr(arena: AstArena, exprId: int): bool:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret false
+  let e = arena.exprs[exprId]
+  if e.kind == "FloatLit":
+    ret true
+  if e.kind == "Unary" and e.op == "-" and e.left >= 0 and e.left < arena.exprs.len:
+    ret isDirectFloatExpr(arena, e.left)
+  if e.kind == "Binary" and (e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/"):
+    ret isDirectFloatExpr(arena, e.left) or isDirectFloatExpr(arena, e.right)
+  ret false
+
+pub struct StmtCheckState:
+  env: Map[str, str]
+  diags: [CompilerDiagnostic]
+
+pub fn checkStmtList(hir: HirModule, mut env: Map[str, str], fnRetType: str, stmtIds: [int], mut diags: [CompilerDiagnostic]): StmtCheckState:
+  mut i = 0
+  while i < stmtIds.len:
+    let sid = stmtIds[i]
+    if sid >= 0 and sid < hir.arena.stmts.len:
+      let st = hir.arena.stmts[sid]
+      if st.kind == "VarDecl":
+        diags = checkExprAndCollectDiags(hir, env, st.exprId, diags)
+        let initTy = inferExprType(hir, env, st.exprId)
+        mut declTy = initTy
+        if st.typeId < 0 and isDirectFloatExpr(hir.arena, st.exprId):
+          env.set("__raw_type_" + st.name, "float")
+        if st.typeId >= 0:
+          let rawDeclTy = unwrapRefinementBase(resolveTypeName(hir.arena, st.typeId)).trim()
+          declTy = normalizeTypeName(rawDeclTy)
+          env.set("__raw_type_" + st.name, rawDeclTy)
+          mut narrowedFix = ""
+          if st.exprId >= 0 and st.exprId < hir.arena.exprs.len:
+            let ie = hir.arena.exprs[st.exprId]
+            if (declTy == "int" or rawDeclTy == "byte" or rawDeclTy == "u8") and ie.kind == "FloatLit":
+              let litText = if ie.strVal != "": ie.strVal else: str(ie.floatVal)
+              narrowedFix = litText + ".i"
+            elif (declTy == "int" or rawDeclTy == "byte" or rawDeclTy == "u8") and ie.kind == "Unary" and ie.op == "-" and ie.left >= 0 and ie.left < hir.arena.exprs.len and hir.arena.exprs[ie.left].kind == "FloatLit":
+              let childFe = hir.arena.exprs[ie.left]
+              let litText = "-" + (if childFe.strVal != "": childFe.strVal else: str(childFe.floatVal))
+              narrowedFix = "(" + litText + ").i"
+            elif ie.kind == "Ident":
+              let rhsRawOpt = env.get("__raw_type_" + ie.strVal)
+              if rhsRawOpt.isSome():
+                let rhsRaw = rhsRawOpt.unwrap()
+                if not isNumericSubtype(rhsRaw, rawDeclTy) and numericRank(rhsRaw) > 0 and numericRank(rawDeclTy) > 0:
+                  narrowedFix = ie.strVal + ".i"
+            elif (declTy == "int" or rawDeclTy == "byte" or rawDeclTy == "u8") and isDirectFloatExpr(hir.arena, st.exprId):
+              narrowedFix = "(expr).i"
+          if narrowedFix != "":
+            diags.push(CompilerDiagnostic(
+              code = "AIPL_E2002_TYPE_MISMATCH",
+              message = "Lossy numeric narrowing in '" + st.name + "': cannot implicitly truncate '" + initTy + "' to '" + rawDeclTy + "' (use '" + narrowedFix + "' or '.round')",
+              span = st.span,
+              severity = "error",
+              hint = "Use '" + narrowedFix + "' for truncation or '.round' for nearest integer",
+              autofixAvailable = true,
+              autofixReplacement = narrowedFix
+            ))
+          elif initTy != "unknown" and not typesCompatible(declTy, initTy):
+            diags.push(CompilerDiagnostic(
+              code = "AIPL_E2002_TYPE_MISMATCH",
+              message = "Type mismatch in '" + st.name + "': expected '" + declTy + "', found '" + initTy + "'",
+              span = st.span
+            ))
+        if st.exprId >= 0 and st.exprId < hir.arena.exprs.len:
+          let initExpr = hir.arena.exprs[st.exprId]
+          if initExpr.kind == "Lambda":
+            env.set("__lambda_expr_" + st.name, str(st.exprId))
+            mut lamEnv = cloneEnv(env)
+            mut pi = 0
+            while pi < initExpr.names.len:
+              lamEnv.set(initExpr.names[pi], "int")
+              pi += 1
+            let lamRet = inferExprType(hir, lamEnv, initExpr.left)
+            let inferredRet = if lamRet != "unknown" and lamRet != "" and lamRet != "any": lamRet else: "int"
+            env.set("__lambda_ret_" + st.name, inferredRet)
+            if declTy == "fn" or declTy == "unknown" or declTy == "any":
+              mut pTypes: [str] = []
+              mut pi2 = 0
+              while pi2 < initExpr.names.len:
+                pTypes.push("int")
+                pi2 += 1
+              declTy = "fn(" + pTypes.join(", ") + ")->" + inferredRet
+        env.set(st.name, declTy)
+      elif st.kind == "TupleVarDecl":
+        diags = checkExprAndCollectDiags(hir, env, st.exprId, diags)
+        let rawNames = st.name.split(",")
+        mut ti = 0
+        while ti < rawNames.len:
+          mut vn = rawNames[ti].trim()
+          if vn.contains(":"):
+            let p = vn.split(":")
+            vn = p[0].trim()
+          if vn.startsWith("("):
+            vn = vn.slice(1, vn.len).trim()
+          if vn.endsWith(")"):
+            vn = vn.slice(0, vn.len - 1).trim()
+          if vn.len > 0 and vn != "_":
+            env.set(vn, "any")
+          ti += 1
+      elif st.kind == "Return":
+        if st.exprId >= 0:
+          diags = checkExprAndCollectDiags(hir, env, st.exprId, diags)
+          let rTy = inferExprType(hir, env, st.exprId)
+          let isFlexible = fnRetType == "void" or fnRetType == "any" or fnRetType == "" or fnRetType == "unknown"
+          let isNumeric = (fnRetType == "int" or fnRetType == "float" or fnRetType == "any") and (rTy == "int" or rTy == "float" or rTy == "any")
+          if not isFlexible and not isNumeric and rTy != "unknown" and not typesCompatible(fnRetType, rTy):
+            diags.push(CompilerDiagnostic(
+              code = "AIPL_E2002_TYPE_MISMATCH",
+              message = "Return type mismatch: expected '" + fnRetType + "', found '" + rTy + "'",
+              span = st.span
+            ))
+      elif st.kind == "If" or st.kind == "Elif" or st.kind == "While":
+        diags = checkExprAndCollectDiags(hir, env, st.condExpr, diags)
+        let cTy = unwrapRefinementBase(inferExprType(hir, env, st.condExpr))
+        if not typesCompatible("bool", cTy):
+          diags.push(CompilerDiagnostic(
+            code = "AIPL_E2003_NON_BOOL_CONDITION",
+            message = "Condition must be of type 'bool', found '" + cTy + "'",
+            span = st.span
+          ))
+        if st.kind == "While" and (env.get("__strict_loop_audit__").isSome() or env.get("@verify_loops").isSome() or env.get("verify_loops").isSome()):
+          if checkInfiniteLoopRisk(hir.arena, st.condExpr, st.bodyStmts):
+            diags.push(CompilerDiagnostic(
+              code = AIPL_E_INFINITE_LOOP_RISK,
+              message = "Indentation-induced infinite loop risk: loop variable mutated only inside conditional 'if' branch without 'else'",
+              span = st.span
+            ))
+        let bodyState = checkStmtList(hir, env, fnRetType, st.bodyStmts, diags)
+        env = bodyState.env
+        diags = bodyState.diags
+        let elseState = checkStmtList(hir, env, fnRetType, st.elseStmts, diags)
+        env = elseState.env
+        diags = elseState.diags
+      elif st.kind == "For":
+        if st.name.contains(","):
+          let rawNames = st.name.split(",")
+          mut ti = 0
+          while ti < rawNames.len:
+            mut vn = rawNames[ti].trim()
+            if vn.contains(":"):
+              let p = vn.split(":")
+              vn = p[0].trim()
+            if vn.startsWith("("):
+              vn = vn.slice(1, vn.len).trim()
+            if vn.endsWith(")"):
+              vn = vn.slice(0, vn.len - 1).trim()
+            if vn.len > 0 and vn != "_":
+              env.set(vn, "any")
+            ti += 1
+        else:
+          env.set(st.name, "any")
+        let bodyState = checkStmtList(hir, env, fnRetType, st.bodyStmts, diags)
+        env = bodyState.env
+        diags = bodyState.diags
+      elif st.kind == "Block":
+        let blockState = checkStmtList(hir, env, fnRetType, st.bodyStmts, diags)
+        env = blockState.env
+        diags = blockState.diags
+      elif st.kind == "Match":
+        diags = checkMatchExhaustiveness(hir, env, st, diags)
+        mut mi = 0
+        while mi < st.matchArms.len:
+          let armId = st.matchArms[mi]
+          if armId >= 0 and armId < hir.arena.stmts.len:
+            let armState = checkStmtList(hir, env, fnRetType, hir.arena.stmts[armId].bodyStmts, diags)
+            diags = armState.diags
+          mi += 1
+      elif st.kind == "Ensure" or st.kind == "Ensures":
+        if env.get("ret").isNone():
+          env.set("ret", fnRetType)
+        if env.get("result").isNone():
+          env.set("result", fnRetType)
+        if st.exprId >= 0:
+          diags = checkExprAndCollectDiags(hir, env, st.exprId, diags)
+      elif st.kind == "Assign":
+        if st.condExpr >= 0:
+          diags = checkExprAndCollectDiags(hir, env, st.condExpr, diags)
+        if st.exprId >= 0:
+          diags = checkExprAndCollectDiags(hir, env, st.exprId, diags)
+        if st.condExpr >= 0 and st.exprId >= 0:
+          let lhsTy = unwrapRefinementBase(inferExprType(hir, env, st.condExpr))
+          let rhsTy = unwrapRefinementBase(inferExprType(hir, env, st.exprId))
+          if lhsTy != "unknown" and lhsTy != "any" and rhsTy != "unknown" and rhsTy != "any":
+            let isBoolInc = (st.name == "+=" or st.name == "-=") and lhsTy == "int" and rhsTy == "bool"
+            if not isBoolInc and not typesCompatible(lhsTy, rhsTy):
+              diags.push(CompilerDiagnostic(
+                code = AIPL_E_TYPE_MISMATCH,
+                message = "Type mismatch in assignment: expected '" + lhsTy + "', found '" + rhsTy + "'",
+                span = st.span
+              ))
+      elif st.kind == "ExprStmt" or st.kind == "Discard" or st.kind == "Require" or st.kind == "Requires" or st.kind == "Invariant" or st.kind == "Decreases" or st.kind == "Decrease":
+        if st.exprId >= 0:
+          diags = checkExprAndCollectDiags(hir, env, st.exprId, diags)
+    i += 1
+  ret StmtCheckState(env = env, diags = diags)
+
+pub fn typecheckFuncBody(hir: HirModule, f: HirFunction, fnTypes: Map[str, str], mut diags: [CompilerDiagnostic]): [CompilerDiagnostic]:
+  if f.bodyStmts.len == 0 and f.requiresExprs.len == 0 and f.ensuresExprs.len == 0:
+    ret diags
+
+  mut effRetType = normalizeTypeName(f.retType)
+  if effRetType == "" or effRetType == "unknown":
+    effRetType = "any"
+
+  mut env: Map[str, str] = Map.new()
+  mut pi = 0
+  while pi < f.paramNames.len:
+    mut pTy = "any"
+    if pi < f.paramTypes.len:
+      let rawPTy = unwrapRefinementBase(f.paramTypes[pi]).trim()
+      env.set("__raw_type_" + f.paramNames[pi], rawPTy)
+      pTy = normalizeTypeName(f.paramTypes[pi])
+    env.set(f.paramNames[pi], pTy)
+    pi += 1
+  env.set("ret", effRetType)
+  env.set("result", effRetType)
+  if strArrayContains(f.capabilities, "verify_loops") or strArrayContains(f.capabilities, "@verify_loops") or f.docComment.contains("@verify_loops"):
+    env.set("@verify_loops", "true")
+
+  mut ri = 0
+  while ri < f.requiresExprs.len:
+    let reqId = f.requiresExprs[ri]
+    if reqId >= 0:
+      diags = checkExprAndCollectDiags(hir, env, reqId, diags)
+    ri += 1
+
+  let stRes = checkStmtList(hir, env, effRetType, f.bodyStmts, diags)
+  diags = stRes.diags
+
+  mut ei = 0
+  while ei < f.ensuresExprs.len:
+    let ensId = f.ensuresExprs[ei]
+    if ensId >= 0:
+      diags = checkExprAndCollectDiags(hir, env, ensId, diags)
+    ei += 1
+
+  ret diags
+
+pub fn typecheckHirStride(hir: HirModule, fnTypes: Map[str, str], startIdx: int, stride: int): [CompilerDiagnostic]:
+  mut diags: [CompilerDiagnostic] = []
+  mut fi = startIdx
+  let step = if stride > 0: stride else: 1
+  while fi < hir.functions.len:
+    diags = typecheckFuncBody(hir, hir.functions[fi], fnTypes, diags)
+    fi += step
+  ret diags
+
+pub fn typecheckHirBatch(hir: HirModule, funcs: [HirFunction], fnTypes: Map[str, str], mut diags: [CompilerDiagnostic]): [CompilerDiagnostic]:
+  mut fi = 0
+  while fi < funcs.len:
+    diags = typecheckFuncBody(hir, funcs[fi], fnTypes, diags)
+    fi += 1
+  ret diags
+
+pub fn typecheckHir(hir: HirModule): TypecheckResult:
+  mut diags: [CompilerDiagnostic] = []
+  mut fnTypes: Map[str, str] = Map.new()
+
+  // Pass 1: Function signature registration
+  mut fi = 0
+  while fi < hir.functions.len:
+    let f = hir.functions[fi]
+    mut effRetType = normalizeTypeName(f.retType)
+    if effRetType == "" or effRetType == "unknown":
+      effRetType = "any"
+    fnTypes.set(f.name, effRetType)
+    fi += 1
+
+  // Pass 2: Per-function body verification (modular batch processing)
+  diags = typecheckHirBatch(hir, hir.functions, fnTypes, diags)
+
+  ret TypecheckResult(
+    valid = diags.len == 0,
+    diagnostics = diags,
+    inferredFnTypes = fnTypes
+  )
+
+fn escapeJsonString(raw: str): str:
+  ret raw.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
+pub fn formatDiagnosticsJson(filePath: str, diags: [CompilerDiagnostic]): str:
+  mut items: [str] = []
+  mut errorCount = 0
+  mut i = 0
+  while i < diags.len:
+    let d = diags[i]
+    mut sev = d.severity
+    if sev == "":
+      if d.code.startsWith("AIPL_W") or d.code.startsWith("W_") or d.code.startsWith("LINT"):
+        sev = "warning"
+      else:
+        sev = "error"
+    if sev == "error":
+      errorCount += 1
+
+    let autoAvail = if d.autofixAvailable or d.autofixReplacement.len > 0: "true" else: "false"
+    let autoObj = "{\"available\":" + autoAvail + ",\"replacement\":\"" + escapeJsonString(d.autofixReplacement) + "\"}"
+
+    let item = "{\"code\":\"" + escapeJsonString(d.code) + "\",\"severity\":\"" + escapeJsonString(sev) + "\",\"message\":\"" + escapeJsonString(d.message) + "\",\"line\":" + str(d.span.line) + ",\"column\":" + str(d.span.column) + ",\"hint\":\"" + escapeJsonString(d.hint) + "\",\"autofix\":" + autoObj + "}"
+    items.push(item)
+    i += 1
+
+  mut status = "ok"
+  if errorCount > 0:
+    status = "error"
+  elif diags.len > 0:
+    status = "warning"
+
+  ret "{\"schema_version\":\"1.0\",\"status\":\"" + status + "\",\"file\":\"" + escapeJsonString(filePath) + "\",\"error_count\":" + str(errorCount) + ",\"diagnostics\":[" + items.join(",") + "]}"
+
+pub fn formatTypecheckResultJson(filePath: str, res: TypecheckResult): str:
+  ret formatDiagnosticsJson(filePath, res.diagnostics)
+
+pub fn checkMatchScrutineeDiagnostic(scrutineeType: str, patternName: str): str:
+  let isBadScrutinee = scrutineeType == "bool" or scrutineeType == "int"
+  let isResOptPat = patternName == "Ok" or patternName == "Err" or patternName == "Some" or patternName == "None"
+  if isBadScrutinee and isResOptPat:
+    ret "AIPL_E2002: Type mismatch in match scrutinee: expected Result/Option for pattern '" + patternName + "', found " + scrutineeType
+  ret ""
+
+pub fn checkSingleQuoteDiagnostic(lexeme: str): str:
+  if lexeme.startsWith("'"):
+    ret "AIPL_E1015: Single-quoted strings are not supported; use double quotes \"...\""
+  ret ""
+
+pub fn checkUnparameterizedMapWarnings(hir: HirModule): [str]:
+  mut warnings: [str] = []
+  mut si = 0
+  while si < hir.structs.len:
+    let s = hir.structs[si]
+    mut fi = 0
+    while fi < s.fieldNames.len:
+      let fName = s.fieldNames[fi]
+      let fType = s.fieldTypes[fi].trim()
+      if (fType == "Map" or fType == "Set") or ((fType.startsWith("Map") or fType.startsWith("Set")) and not fType.contains("[")):
+        warnings.push("AIPL_W1001_UNPARAMETRIZED_MAP: struct '" + s.name + "' field '" + fName + "' uses unparameterized " + fType + "; prefer Map[K, V] or Set[T]")
+      fi += 1
+    si += 1
+  ret warnings
+
+pub fn checkComplexInterpolationWarnings(src: str): [str]:
+  mut warnings: [str] = []
+  let trimmed = src.trim()
+  if trimmed.startsWith("{") and trimmed.endsWith("}") and not src.contains("import "):
+    let inside = trimmed.slice(1, trimmed.len - 1)
+    if inside.len > 60 or inside.contains("\"") or inside.contains("'"):
+      warnings.push("AIPL_W0201: complex expression inside string interpolation")
+      ret warnings
+  mut i = 0
+  let n = src.len
+  while i < n:
+    let ch = src.slice(i, i + 1)
+    if ch == "\"":
+      i += 1
+      while i < n:
+        let c = src.slice(i, i + 1)
+        if c == "\\":
+          i += 2
+        elif c == "\"":
+          i += 1
+          break
+        elif c == "{":
+          let startInterp = i + 1
+          mut depth = 1
+          mut j = startInterp
+          mut hasNestedQuotes = false
+          while j < n and depth > 0:
+            let cj = src.slice(j, j + 1)
+            if cj == "\\":
+              let nextC = if j + 1 < n: src.slice(j + 1, j + 2) else: ""
+              if nextC == "\"" or nextC == "'":
+                hasNestedQuotes = true
+              j += 2
+            elif cj == "\"" or cj == "'":
+              hasNestedQuotes = true
+              j += 1
+            elif cj == "{":
+              depth += 1
+              j += 1
+            elif cj == "}":
+              depth -= 1
+              if depth == 0:
+                break
+              j += 1
+            else:
+              j += 1
+          let exprContent = src.slice(startInterp, j)
+          if exprContent.len > 60 or hasNestedQuotes or exprContent.contains("\"") or exprContent.contains("'"):
+            warnings.push("AIPL_W0201: complex expression inside string interpolation")
+          if j < n and src.slice(j, j + 1) == "}":
+            i = j + 1
+          else:
+            i = j
+        else:
+          i += 1
+    else:
+      i += 1
+  ret warnings
+
+fn isIdentChar(ch: str): bool:
+  if ch.len != 1:
+    ret false
+  let c = ch
+  ret (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9") or c == "_"
+
+fn symbolUsedInText(sym: str, text: str): bool:
+  if sym == "" or text == "":
+    ret false
+  mut pos = 0
+  while pos < text.len:
+    let idx = text.indexOf(sym, pos)
+    if idx < 0:
+      ret false
+    let beforeOk = if idx == 0: true else: not isIdentChar(text.slice(idx - 1, idx))
+    let afterIdx = idx + sym.len
+    let afterOk = if afterIdx >= text.len: true else: not isIdentChar(text.slice(afterIdx, afterIdx + 1))
+    if beforeOk and afterOk:
+      ret true
+    pos = idx + 1
+  ret false
+
+pub fn findUnusedImports(src: str): [str]:
+  let lines = src.split("\n")
+  mut unused: [str] = []
+  mut li = 0
+  while li < lines.len:
+    let l = lines[li]
+    let t = l.trim()
+    if t.startsWith("import {") and t.contains("} from"):
+      let openB = l.indexOf("{")
+      let closeB = l.indexOf("}")
+      if openB >= 0 and closeB > openB:
+        let inside = l.slice(openB + 1, closeB)
+        let parts = inside.split(",")
+        mut remLines: [str] = []
+        mut rli = li + 1
+        while rli < lines.len:
+          remLines.push(lines[rli])
+          rli += 1
+        let remainder = remLines.join("\n")
+        mut pi = 0
+        while pi < parts.len:
+          let sym = parts[pi].trim()
+          if sym.len > 0:
+            if not symbolUsedInText(sym, remainder):
+              unused.push(sym)
+          pi += 1
+    li += 1
+  ret unused
+
+pub fn fixUnusedImports(src: str): str:
+  let lines = src.split("\n")
+  mut outLines: [str] = []
+  mut li = 0
+  while li < lines.len:
+    let l = lines[li]
+    let t = l.trim()
+    if t.startsWith("import {") and t.contains("} from"):
+      let openB = l.indexOf("{")
+      let closeB = l.indexOf("}")
+      if openB >= 0 and closeB > openB:
+        let inside = l.slice(openB + 1, closeB)
+        let parts = inside.split(",")
+        mut remLines: [str] = []
+        mut rli = li + 1
+        while rli < lines.len:
+          remLines.push(lines[rli])
+          rli += 1
+        let remainder = remLines.join("\n")
+        mut kept: [str] = []
+        mut pi = 0
+        while pi < parts.len:
+          let sym = parts[pi].trim()
+          if sym.len > 0:
+            if symbolUsedInText(sym, remainder):
+              kept.push(sym)
+          pi += 1
+        if kept.len > 0:
+          let prefix = l.slice(0, openB + 1) + " "
+          let suffix = " " + l.slice(closeB, l.len)
+          outLines.push(prefix + kept.join(", ") + suffix)
+      else:
+        outLines.push(l)
+    else:
+      outLines.push(l)
+    li += 1
+  ret outLines.join("\n")
+
+pub fn aiplTypeToJsonSchema(rawTy: str): str:
+  let ty = unwrapRefinementBase(rawTy).trim()
+  if ty == "int" or ty == "i64" or ty == "i32" or ty == "u32" or ty == "u64" or ty == "usize" or ty == "isize" or ty == "i16" or ty == "u16" or ty == "i8" or ty == "u8" or ty == "byte":
+    ret "{\"type\":\"integer\"}"
+  if ty == "float" or ty == "f64" or ty == "f32":
+    ret "{\"type\":\"number\"}"
+  if ty == "bool" or ty == "boolean":
+    ret "{\"type\":\"boolean\"}"
+  if ty == "str" or ty == "string":
+    ret "{\"type\":\"string\"}"
+  if ty == "[int]" or ty == "Array[int]" or ty == "[i64]" or ty == "Array[i64]" or ty == "[i32]" or ty == "Array[i32]":
+    ret "{\"type\":\"array\",\"items\":{\"type\":\"integer\"}}"
+  if ty == "[float]" or ty == "Array[float]" or ty == "[f64]" or ty == "Array[f64]" or ty == "[f32]" or ty == "Array[f32]":
+    ret "{\"type\":\"array\",\"items\":{\"type\":\"number\"}}"
+  if ty == "[str]" or ty == "Array[str]" or ty == "[string]" or ty == "Array[string]":
+    ret "{\"type\":\"array\",\"items\":{\"type\":\"string\"}}"
+  if ty == "[bool]" or ty == "Array[bool]":
+    ret "{\"type\":\"array\",\"items\":{\"type\":\"boolean\"}}"
+  if (ty.startsWith("[") and ty.endsWith("]")) or (ty.startsWith("Array[") and ty.endsWith("]")):
+    let inner = if ty.startsWith("["): ty.slice(1, ty.len - 1).trim() else: ty.slice(6, ty.len - 1).trim()
+    ret "{\"type\":\"array\",\"items\":" + aiplTypeToJsonSchema(inner) + "}"
+  ret "{\"type\":\"string\"}"
+
+pub fn generateStructJsonSchema(s: HirStruct): str:
+  mut props: [str] = []
+  mut reqs: [str] = []
+  mut i = 0
+  while i < s.fieldNames.len:
+    let fnName = s.fieldNames[i]
+    let fType = if i < s.fieldTypes.len: s.fieldTypes[i] else: "str"
+    props.push("\"" + fnName + "\":" + aiplTypeToJsonSchema(fType))
+    reqs.push("\"" + fnName + "\"")
+    i += 1
+  ret "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"title\":\"" + s.name + "\",\"type\":\"object\",\"properties\":{" + props.join(",") + "},\"required\":[" + reqs.join(",") + "],\"additionalProperties\":false}"
+
+pub fn generateEnumJsonSchema(e: HirEnum): str:
+  mut vars: [str] = []
+  mut i = 0
+  while i < e.variants.len:
+    vars.push("\"" + e.variants[i] + "\"")
+    i += 1
+  ret "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"title\":\"" + e.name + "\",\"type\":\"string\",\"enum\":[" + vars.join(",") + "]}"
+
+pub fn allocWideningCastExpr(mut arena: AstArena, childId: int, castKind: str): int:
+  let newId = arena.exprs.len
+  let sp = if childId >= 0 and childId < arena.exprs.len: arena.exprs[childId].span else: emptySpan()
+  let emptyChildren: [int] = []
+  let emptyNames: [str] = []
+  arena.exprs.push(ExprNode(
+    id = newId,
+    kind = "WideningCast",
+    kindTag = 0,
+    op = "",
+    intVal = 0,
+    floatVal = 0.0,
+    strVal = castKind,
+    boolVal = false,
+    left = childId,
+    right = -1,
+    cond = -1,
+    children = emptyChildren,
+    names = emptyNames,
+    typeId = -1,
+    span = sp
+  ))
+  ret newId
+
+pub fn insertWideningCasts(mut hir: HirModule): HirModule:
+  let emptyEnv: Map[str, str] = Map.new()
+  let origLen = hir.arena.exprs.len
+  mut ei = 0
+  while ei < origLen:
+    let e = hir.arena.exprs[ei]
+    if e.kind == "Binary" and (e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/"):
+      let lt = normalizeTypeName(unwrapRefinementBase(inferExprType(hir, emptyEnv, e.left)))
+      let rt = normalizeTypeName(unwrapRefinementBase(inferExprType(hir, emptyEnv, e.right)))
+      if lt == "int" and rt == "float":
+        let wId = allocWideningCastExpr(hir.arena, e.left, "IntToFloat")
+        mut updated = hir.arena.exprs[ei]
+        updated.left = wId
+        hir.arena.exprs[ei] = updated
+      elif lt == "float" and rt == "int":
+        let wId = allocWideningCastExpr(hir.arena, e.right, "IntToFloat")
+        mut updated = hir.arena.exprs[ei]
+        updated.right = wId
+        hir.arena.exprs[ei] = updated
+    ei += 1
+  ret hir
+
+pub fn isUpperSnakeCaseIdent(ident: str): bool:
+  if ident.len == 0:
+    ret false
+  mut hasUpper = false
+  mut i = 0
+  while i < ident.len:
+    let c = ident.slice(i, i + 1)
+    if c >= "A" and c <= "Z":
+      hasUpper = true
+    elif (c >= "0" and c <= "9") or c == "_":
+      let _ok = 0
+    else:
+      ret false
+    i += 1
+  ret hasUpper
+
+pub fn isExemptSnakeCaseIdent(ident: str, lineText: str): bool:
+  if not ident.contains("_"):
+    ret true
+  if ident == "_" or ident.startsWith("_") or ident.endsWith("_"):
+    ret true
+  if isUpperSnakeCaseIdent(ident):
+    ret true
+  if ident.startsWith("test_") or ident.startsWith("aipl_") or ident.startsWith("reg_vm_") or ident.startsWith("rt_") or ident.startsWith("gl_") or ident.startsWith("vk_") or ident.startsWith("arg_") or ident.startsWith("edge_") or ident.startsWith("recv_") or ident.startsWith("n_t") or ident.startsWith("e_t") or ident.startsWith("s_") or ident.startsWith("d_len_"):
+    ret true
+  mut k = 0
+  while k < ident.len:
+    let ch = ident.slice(k, k + 1)
+    if ch >= "A" and ch <= "Z":
+      ret true
+    if ch == "_" and k > 0:
+      let prevCh = ident.slice(k - 1, k)
+      if prevCh >= "0" and prevCh <= "9":
+        ret true
+    k += 1
+  let trimmed = lineText.trim()
+  if trimmed.startsWith("@extern") or trimmed.startsWith("extern ") or trimmed.contains("@extern") or trimmed.startsWith("module "):
+    ret true
+  if (trimmed.startsWith("import ") or trimmed.startsWith("pub import ") or trimmed.startsWith("from ")) and not trimmed.contains("{") and not trimmed.contains("\""):
+    ret true
+  ret false
+
+pub fn snakeToCamelIdent(ident: str, isTypeName: bool): str:
+  if not ident.contains("_") or ident == "_":
+    ret ident
+  let parts = ident.split("_")
+  mut out = ""
+  mut partIdx = 0
+  mut emittedCount = 0
+  while partIdx < parts.len:
+    let p = parts[partIdx]
+    if p.len > 0:
+      let firstCh = p.slice(0, 1)
+      let rest = if p.len > 1: p.slice(1, p.len).toLower() else: ""
+      if emittedCount == 0 and not isTypeName:
+        out = out + firstCh.toLower() + rest
+      else:
+        out = out + firstCh.toUpper() + rest
+      emittedCount += 1
+    partIdx += 1
+  ret if out != "": out else: ident
+
+fn isKeywordIdent(w: str): bool:
+  ret w == "module" or w == "import" or w == "from" or w == "as" or w == "pub" or w == "fn" or w == "struct" or w == "enum" or w == "type" or w == "const" or w == "let" or w == "mut" or w == "if" or w == "elif" or w == "else" or w == "while" or w == "for" or w == "in" or w == "match" or w == "ret" or w == "return" or w == "break" or w == "continue" or w == "pass" or w == "and" or w == "or" or w == "not" or w == "is" or w == "true" or w == "false" or w == "nil" or w == "requires" or w == "ensures" or w == "invariant" or w == "decreases" or w == "assert"
+
+fn isValidLineInterpAt(line: str, pos: int): bool:
+  mut k = pos + 1
+  while k < line.len and (line.charCodeAt(k) == 32 or line.charCodeAt(k) == 9):
+    k += 1
+  if k >= line.len:
+    ret false
+  let firstCh = line.slice(k, k + 1)
+  if firstCh == "}" or firstCh == "\"" or firstCh == ";":
+    ret false
+  mut depth = 1
+  while k < line.len:
+    let ch = line.slice(k, k + 1)
+    if ch == "\\" and k + 1 < line.len:
+      k += 2
+    elif ch == "\"" or ch == ";":
+      ret false
+    elif ch == "{":
+      depth += 1
+      k += 1
+    elif ch == "}":
+      depth -= 1
+      if depth == 0:
+        ret true
+      k += 1
+    else:
+      k += 1
+  ret false
+
+pub fn isLineFloorDivAt(line: str, col: int, n: int): bool:
+  if col + 2 >= n:
+    ret false
+  if line.charCodeAt(col + 2) == 47:
+    ret false
+  let prefix = line.slice(0, col).trim()
+  mut openParens = 0
+  mut pi = 0
+  mut inQuotes = false
+  while pi < col:
+    let pch = line.charCodeAt(pi)
+    if inQuotes:
+      if pch == 92 and pi + 1 < col:
+        pi += 2
+        continue
+      if pch == 34:
+        inQuotes = false
+    else:
+      if pch == 34:
+        inQuotes = true
+      elif pch == 40 or pch == 91:
+        openParens += 1
+      elif pch == 41 or pch == 93:
+        openParens -= 1
+    pi += 1
+  let tailAfter = line.slice(col + 2, n)
+  let inCallOrIndex = openParens > 0 and not prefix.contains("wasmPush") and not prefix.contains("bitStreamWrite") and (tailAfter.contains(")") or tailAfter.contains("]"))
+  let hasExprCtx = inCallOrIndex or prefix.contains("=") or prefix.startsWith("ret ") or prefix.startsWith("return ") or prefix.startsWith("if ") or prefix.startsWith("elif ") or prefix.startsWith("else if ") or prefix.startsWith("while ") or prefix.startsWith("for ") or prefix.startsWith("match ") or prefix.startsWith("assert(")
+  if not hasExprCtx:
+    ret false
+  mut p = col - 1
+  while p >= 0 and (line.charCodeAt(p) == 32 or line.charCodeAt(p) == 9):
+    p -= 1
+  if p < 0:
+    ret false
+  let pc = line.charCodeAt(p)
+  let prevOk = (pc >= 48 and pc <= 57) or (pc >= 65 and pc <= 90) or (pc >= 97 and pc <= 122) or pc == 95 or pc == 41 or pc == 93
+  if not prevOk:
+    ret false
+  mut r = col + 2
+  while r < n and (line.charCodeAt(r) == 32 or line.charCodeAt(r) == 9):
+    r += 1
+  if r >= n:
+    ret false
+  let rc = line.charCodeAt(r)
+  if rc == 48 and r + 1 < n:
+    let nextAfterZero = line.charCodeAt(r + 1)
+    if (nextAfterZero >= 48 and nextAfterZero <= 57) or (nextAfterZero >= 65 and nextAfterZero <= 90) or (nextAfterZero >= 97 and nextAfterZero <= 122):
+      ret false
+  if rc >= 65 and rc <= 90 and r + 1 < n:
+    let nextAfterCap = line.charCodeAt(r + 1)
+    if nextAfterCap >= 97 and nextAfterCap <= 122:
+      ret false
+  let rhs = line.slice(r, n).trim()
+  if rhs.contains("i32.") or rhs.contains("i64.") or rhs.contains("f32.") or rhs.contains("f64.") or rhs.contains("local.") or rhs.contains("global.") or rhs.contains(" - ") or rhs.contains(": "):
+    ret false
+  let nextOk = (rc >= 48 and rc <= 57) or (rc >= 65 and rc <= 90) or (rc >= 97 and rc <= 122) or rc == 95 or rc == 40 or rc == 45 or rc == 91
+  ret nextOk
+
+fn extractDeclaredIdentAfterKeyword(trimmed: str, kw: str): str:
+  mut rest = ""
+  if trimmed.startsWith(kw + " "):
+    rest = trimmed.slice(kw.len + 1, trimmed.len).trim()
+  elif trimmed.startsWith("pub " + kw + " "):
+    rest = trimmed.slice(kw.len + 5, trimmed.len).trim()
+  elif trimmed.contains(" " + kw + " "):
+    let idx = trimmed.indexOf(" " + kw + " ")
+    rest = trimmed.slice(idx + kw.len + 2, trimmed.len).trim()
+  if rest == "":
+    ret ""
+  mut i = 0
+  while i < rest.len and isIdentChar(rest.slice(i, i + 1)):
+    i += 1
+  ret if i > 0: rest.slice(0, i) else: ""
+
+pub fn checkSnakeCaseDiagnostics(hir: HirModule, src: str): [CompilerDiagnostic]:
+  ret checkSnakeCaseAutofixDiagnostics(src, 0)
+
+pub fn checkSnakeCaseAutofixDiagnostics(src: str, fileId: int): [CompilerDiagnostic]:
+  mut diags: [CompilerDiagnostic] = []
+  let lines = src.split("\n")
+  mut externMap: Map[str, bool] = Map.new()
+  mut typeMap: Map[str, bool] = Map.new()
+  mut prevWasExtern = false
+  mut scanIdx = 0
+  while scanIdx < lines.len:
+    let t = lines[scanIdx].trim()
+    if t.startsWith("@extern") or t.startsWith("extern ") or t.contains("@extern") or prevWasExtern:
+      let fnName = extractDeclaredIdentAfterKeyword(t, "fn")
+      if fnName != "":
+        externMap.set(fnName, true)
+    let stName = extractDeclaredIdentAfterKeyword(t, "struct")
+    if stName != "":
+      typeMap.set(stName, true)
+    let enName = extractDeclaredIdentAfterKeyword(t, "enum")
+    if enName != "":
+      typeMap.set(enName, true)
+    let tyName = extractDeclaredIdentAfterKeyword(t, "type")
+    if tyName != "":
+      typeMap.set(tyName, true)
+    prevWasExtern = (t == "@extern" or (t.startsWith("@extern") and not t.contains("fn ")))
+    scanIdx += 1
+
+  mut lineIdx = 0
+  mut byteOffset = 0
+  prevWasExtern = false
+  mut inMultiline = false
+  mut multilineClose = ""
+  while lineIdx < lines.len:
+    let line = lines[lineIdx]
+    let trimmed = line.trim()
+    if inMultiline:
+      let closePos = line.indexOf(multilineClose)
+      if closePos < 0:
+        byteOffset += line.len + 1
+        lineIdx += 1
+        continue
+      inMultiline = false
+      multilineClose = ""
+    let isExternLine = trimmed.startsWith("@extern") or trimmed.startsWith("extern ") or trimmed.contains("@extern") or prevWasExtern
+    prevWasExtern = (trimmed == "@extern" or (trimmed.startsWith("@extern") and not trimmed.contains("fn ")))
+    let isImportLine = trimmed.startsWith("import ") or trimmed.startsWith("pub import ") or trimmed.startsWith("from ")
+    if not (trimmed.startsWith("//") or trimmed.startsWith("#") or isExternLine or trimmed.startsWith("module ")):
+      mut col = 0
+      mut inStr = false
+      mut interpDepth = 0
+      mut importBraceDepth = 0
+      mut prevWord = ""
+      while col < line.len:
+        let ch = line.slice(col, col + 1)
+        if inStr:
+          if ch == "\\" and col + 1 < line.len:
+            col += 2
+          elif ch == "{" and isValidLineInterpAt(line, col):
+            inStr = false
+            interpDepth = 1
+            col += 1
+          else:
+            if ch == "\"":
+              inStr = false
+            col += 1
+        elif interpDepth > 0 and ch == "{":
+          interpDepth += 1
+          col += 1
+        elif interpDepth > 0 and ch == "}":
+          interpDepth -= 1
+          if interpDepth == 0:
+            inStr = true
+          col += 1
+        elif ch == "/" and col + 1 < line.len and line.slice(col + 1, col + 2) == "/":
+          if not isLineFloorDivAt(line, col, line.len):
+            col = line.len
+          else:
+            col += 2
+        elif col + 3 <= line.len and line.slice(col, col + 3) == "\"\"\"":
+          let closeIdx = line.slice(col + 3, line.len).indexOf("\"\"\"")
+          if closeIdx >= 0:
+            col = col + 3 + closeIdx + 3
+          else:
+            inMultiline = true
+            multilineClose = "\"\"\""
+            col = line.len
+        elif ch == "r" and col + 4 <= line.len and line.slice(col, col + 4) == "r##\"" and (col == 0 or not isIdentChar(line.slice(col - 1, col))):
+          let closeIdx = line.slice(col + 4, line.len).indexOf("\"##")
+          if closeIdx >= 0:
+            col = col + 4 + closeIdx + 3
+          else:
+            inMultiline = true
+            multilineClose = "\"##"
+            col = line.len
+        elif ch == "r" and col + 3 <= line.len and line.slice(col, col + 3) == "r#\"" and (col == 0 or not isIdentChar(line.slice(col - 1, col))):
+          let closeIdx = line.slice(col + 3, line.len).indexOf("\"#")
+          if closeIdx >= 0:
+            col = col + 3 + closeIdx + 2
+          else:
+            inMultiline = true
+            multilineClose = "\"#"
+            col = line.len
+        elif ch == "r" and col + 1 < line.len and line.slice(col, col + 2) == "r\"" and (col == 0 or not isIdentChar(line.slice(col - 1, col))):
+          mut rEnd = col + 2
+          while rEnd < line.len and line.slice(rEnd, rEnd + 1) != "\"":
+            if line.slice(rEnd, rEnd + 1) == "\\" and rEnd + 1 < line.len:
+              rEnd += 2
+            else:
+              rEnd += 1
+          col = if rEnd < line.len: rEnd + 1 else: line.len
+        elif ch == "\"":
+          inStr = true
+          col += 1
+        elif ch == "{":
+          importBraceDepth += 1
+          col += 1
+        elif ch == "}":
+          importBraceDepth -= 1
+          col += 1
+        elif (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or ch == "_":
+          let startCol = col
+          while col < line.len and isIdentChar(line.slice(col, col + 1)):
+            col += 1
+          let word = line.slice(startCol, col)
+          let allowOnLine = not isImportLine or importBraceDepth > 0 or prevWord == "as"
+          if allowOnLine and not isKeywordIdent(word) and not isExemptSnakeCaseIdent(word, line) and not externMap.get(word).isSome():
+            let firstChar = word.slice(0, 1)
+            let isType = prevWord == "struct" or prevWord == "enum" or prevWord == "type" or (firstChar >= "A" and firstChar <= "Z") or typeMap.get(word).isSome()
+            let replacement = snakeToCamelIdent(word, isType)
+            if replacement != word:
+              let sp = Span(
+                fileId = fileId,
+                start = byteOffset + startCol,
+                end = byteOffset + col,
+                line = lineIdx + 1,
+                column = startCol + 1
+              )
+              diags.push(CompilerDiagnostic(
+                code = AIPL_W_SNAKE_CASE_AUTOFIX,
+                message = "Identifier '" + word + "' uses snake_case; prefer '" + replacement + "'",
+                span = sp,
+                severity = "warning",
+                hint = "Replace '" + word + "' with '" + replacement + "' (or run 'aipl fmt' / 'aipl fix')",
+                autofixAvailable = true,
+                autofixReplacement = replacement
+              ))
+          prevWord = word
+        else:
+          col += 1
+    byteOffset += line.len + 1
+    lineIdx += 1
+  ret diags
+
+pub fn normalizeSnakeCaseSource(src: str): str:
+  let lines = src.split("\n")
+  mut externMap: Map[str, bool] = Map.new()
+  mut typeMap: Map[str, bool] = Map.new()
+  mut prevWasExtern = false
+  mut scanIdx = 0
+  while scanIdx < lines.len:
+    let t = lines[scanIdx].trim()
+    if t.startsWith("@extern") or t.startsWith("extern ") or t.contains("@extern") or prevWasExtern:
+      let fnName = extractDeclaredIdentAfterKeyword(t, "fn")
+      if fnName != "":
+        externMap.set(fnName, true)
+    let stName = extractDeclaredIdentAfterKeyword(t, "struct")
+    if stName != "":
+      typeMap.set(stName, true)
+    let enName = extractDeclaredIdentAfterKeyword(t, "enum")
+    if enName != "":
+      typeMap.set(enName, true)
+    let tyName = extractDeclaredIdentAfterKeyword(t, "type")
+    if tyName != "":
+      typeMap.set(tyName, true)
+    prevWasExtern = (t == "@extern" or (t.startsWith("@extern") and not t.contains("fn ")))
+    scanIdx += 1
+
+  mut outLines: [str] = []
+  mut lineIdx = 0
+  prevWasExtern = false
+  mut inMultiline = false
+  mut multilineClose = ""
+  while lineIdx < lines.len:
+    let line = lines[lineIdx]
+    let trimmed = line.trim()
+    if inMultiline:
+      let closePos = line.indexOf(multilineClose)
+      if closePos < 0:
+        outLines.push(line)
+        lineIdx += 1
+        continue
+      let closeEnd = closePos + multilineClose.len
+      inMultiline = false
+      multilineClose = ""
+      outLines.push(line.slice(0, closeEnd) + normalizeSnakeCaseSource(line.slice(closeEnd, line.len)))
+      lineIdx += 1
+      continue
+    let isExternLine = trimmed.startsWith("@extern") or trimmed.startsWith("extern ") or trimmed.contains("@extern") or prevWasExtern
+    prevWasExtern = (trimmed == "@extern" or (trimmed.startsWith("@extern") and not trimmed.contains("fn ")))
+    let isImportLine = trimmed.startsWith("import ") or trimmed.startsWith("pub import ") or trimmed.startsWith("from ")
+    if trimmed.startsWith("//") or trimmed.startsWith("#") or isExternLine or trimmed.startsWith("module "):
+      outLines.push(line)
+    else:
+      mut rebuilt = ""
+      mut col = 0
+      mut inStr = false
+      mut interpDepth = 0
+      mut importBraceDepth = 0
+      mut prevWord = ""
+      while col < line.len:
+        let ch = line.slice(col, col + 1)
+        if inStr:
+          if ch == "\\" and col + 1 < line.len:
+            rebuilt = rebuilt + line.slice(col, col + 2)
+            col += 2
+          elif ch == "{" and isValidLineInterpAt(line, col):
+            inStr = false
+            interpDepth = 1
+            rebuilt = rebuilt + ch
+            col += 1
+          else:
+            if ch == "\"":
+              inStr = false
+            rebuilt = rebuilt + ch
+            col += 1
+        elif interpDepth > 0 and ch == "{":
+          interpDepth += 1
+          rebuilt = rebuilt + ch
+          col += 1
+        elif interpDepth > 0 and ch == "}":
+          interpDepth -= 1
+          if interpDepth == 0:
+            inStr = true
+          rebuilt = rebuilt + ch
+          col += 1
+        elif ch == "/" and col + 1 < line.len and line.slice(col + 1, col + 2) == "/":
+          if not isLineFloorDivAt(line, col, line.len):
+            rebuilt = rebuilt + line.slice(col, line.len)
+            col = line.len
+          else:
+            rebuilt = rebuilt + "//"
+            col += 2
+        elif col + 3 <= line.len and line.slice(col, col + 3) == "\"\"\"":
+          let closeIdx = line.slice(col + 3, line.len).indexOf("\"\"\"")
+          if closeIdx >= 0:
+            let endPos = col + 3 + closeIdx + 3
+            rebuilt = rebuilt + line.slice(col, endPos)
+            col = endPos
+          else:
+            inMultiline = true
+            multilineClose = "\"\"\""
+            rebuilt = rebuilt + line.slice(col, line.len)
+            col = line.len
+        elif ch == "r" and col + 4 <= line.len and line.slice(col, col + 4) == "r##\"" and (col == 0 or not isIdentChar(line.slice(col - 1, col))):
+          let closeIdx = line.slice(col + 4, line.len).indexOf("\"##")
+          if closeIdx >= 0:
+            let endPos = col + 4 + closeIdx + 3
+            rebuilt = rebuilt + line.slice(col, endPos)
+            col = endPos
+          else:
+            inMultiline = true
+            multilineClose = "\"##"
+            rebuilt = rebuilt + line.slice(col, line.len)
+            col = line.len
+        elif ch == "r" and col + 3 <= line.len and line.slice(col, col + 3) == "r#\"" and (col == 0 or not isIdentChar(line.slice(col - 1, col))):
+          let closeIdx = line.slice(col + 3, line.len).indexOf("\"#")
+          if closeIdx >= 0:
+            let endPos = col + 3 + closeIdx + 2
+            rebuilt = rebuilt + line.slice(col, endPos)
+            col = endPos
+          else:
+            inMultiline = true
+            multilineClose = "\"#"
+            rebuilt = rebuilt + line.slice(col, line.len)
+            col = line.len
+        elif ch == "r" and col + 1 < line.len and line.slice(col, col + 2) == "r\"" and (col == 0 or not isIdentChar(line.slice(col - 1, col))):
+          mut rEnd = col + 2
+          while rEnd < line.len and line.slice(rEnd, rEnd + 1) != "\"":
+            if line.slice(rEnd, rEnd + 1) == "\\" and rEnd + 1 < line.len:
+              rEnd += 2
+            else:
+              rEnd += 1
+          let endPos = if rEnd < line.len: rEnd + 1 else: line.len
+          rebuilt = rebuilt + line.slice(col, endPos)
+          col = endPos
+        elif ch == "\"":
+          inStr = true
+          rebuilt = rebuilt + ch
+          col += 1
+        elif ch == "{":
+          importBraceDepth += 1
+          rebuilt = rebuilt + ch
+          col += 1
+        elif ch == "}":
+          importBraceDepth -= 1
+          rebuilt = rebuilt + ch
+          col += 1
+        elif (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or ch == "_":
+          let startCol = col
+          while col < line.len and isIdentChar(line.slice(col, col + 1)):
+            col += 1
+          let word = line.slice(startCol, col)
+          let allowOnLine = not isImportLine or importBraceDepth > 0 or prevWord == "as"
+          if allowOnLine and not isKeywordIdent(word) and not isExemptSnakeCaseIdent(word, line) and not externMap.get(word).isSome():
+            let firstChar = word.slice(0, 1)
+            let isType = prevWord == "struct" or prevWord == "enum" or prevWord == "type" or (firstChar >= "A" and firstChar <= "Z") or typeMap.get(word).isSome()
+            let replacement = snakeToCamelIdent(word, isType)
+            rebuilt = rebuilt + replacement
+          else:
+            rebuilt = rebuilt + word
+          prevWord = word
+        else:
+          rebuilt = rebuilt + ch
+          col += 1
+      outLines.push(rebuilt)
+    lineIdx += 1
+  ret outLines.join("\n")

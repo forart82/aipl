@@ -1,0 +1,31 @@
+// ============================================================================
+// Twin Test Suite 149: Audio DSP Biquad Filter EQ & Dynamics Rack (WINDOW)
+// Verifies examples/ex_149_audio_dsp_biquad_filter_eq_window.aipl
+// ============================================================================
+module Ex149AudioDspBiquadFilterEqWindowTest
+
+import {
+  verifyBiquadFilterReverbAndCompressor,
+  computeCompressorGainReductionDb,
+  describeBiquadFilterTopology,
+  renderFrameStep
+} from "../../examples/ex_149_audio_dsp_biquad_filter_eq_window.aipl"
+
+pub fn test_audio_dsp_biquad_filter_eq_window(): int:
+  assert(verifyBiquadFilterReverbAndCompressor() == 1004, "DC unity gain(1000 permille) + 4 Schroeder reverb samples == 1004")
+  assert(computeCompressorGainReductionDb(12, 4) == 9, "12dB over threshold at 4:1 ratio reduces gain by 9dB")
+  assert(describeBiquadFilterTopology(500) == "DSP:BIQUAD_LPF_500HZ_BUTTERWORTH", "500Hz Butterworth LPF label")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  let f100 = renderFrameStep(100, 0.016)
+  assert(f0 > 1004, "frame 0 evaluates live biquad filter coefficients and compressor attenuation")
+  assert(f0 != f1, "biquad filter cutoff response advances between frame 0 and frame 1")
+  assert(f1 != f20, "biquad filter cutoff response advances between frame 1 and frame 20")
+  assert(f20 != f100, "biquad filter cutoff response advances between frame 20 and frame 100")
+  ret 0
+
+pub fn main(): int:
+  test_audio_dsp_biquad_filter_eq_window()
+  println("PASS: ex_149_audio_dsp_biquad_filter_eq_window_test")
+  ret 0

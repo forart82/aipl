@@ -1,0 +1,193 @@
+/// # Module: `std/compress/tar_archive` (`TarArchiveMod`)
+///
+/// ## Purpose & Domain Scope
+/// POSIX UStar 512-byte block-aligned `.tar` archive packer and unpacker.
+module TarArchiveMod
+
+pub struct TarEntry:
+  path: str
+  mode: int
+  size: int
+  mtime: int
+  isDir: bool
+  data: bytes
+
+pub struct TarArchive:
+  mut entries: [TarEntry] = []
+
+fn writeOctalField(mut blk: [int], offset: int, width: int, val: int): [int]:
+  mut v = if val < 0: 0 else: val
+  let digits = width - 1
+  mut idx = offset + digits - 1
+  while idx >= offset:
+    blk[idx] = 48 + (v & 7)
+    v = v >> 3
+    idx = idx - 1
+  blk[offset + digits] = 0
+  ret blk
+
+fn parseOctalField(data: bytes, offset: int, width: int): int:
+  mut acc = 0
+  mut i = 0
+  while i < width:
+    let b = data[offset + i] & 255
+    if b == 0:
+      break
+    if b >= 48 and b <= 55:
+      acc = (acc << 3) + (b - 48)
+    i = i + 1
+  ret acc
+
+fn readNullTermStr(data: bytes, offset: int, maxLen: int): str:
+  mut chars: [int] = []
+  mut i = 0
+  while i < maxLen:
+    let b = data[offset + i] & 255
+    if b == 0:
+      break
+    chars.push(b)
+    i = i + 1
+  ret bytesFromArray(chars).toStringLossy()
+
+pub fn tarPack(entries: [TarEntry]): bytes:
+  mut out: [int] = []
+  mut ei = 0
+  while ei < entries.len:
+    let ent = entries[ei]
+    mut hdr: [int] = []
+    mut k = 0
+    while k < 512:
+      hdr.push(0)
+      k = k + 1
+    // Path (0..99)
+    let pb = ent.path.toBytes()
+    let pLen = if pb.len() > 99: 99 else: pb.len()
+    mut pi = 0
+    while pi < pLen:
+      hdr[pi] = pb[pi] & 255
+      pi = pi + 1
+    let dataSize = if ent.isDir: 0 else: ent.data.len()
+    // Mode (100..107), UID (108..115), GID (116..123), Size (124..135), Mtime (136..147)
+    hdr = writeOctalField(hdr, 100, 8, ent.mode)
+    hdr = writeOctalField(hdr, 108, 8, 0)
+    hdr = writeOctalField(hdr, 116, 8, 0)
+    hdr = writeOctalField(hdr, 124, 12, dataSize)
+    hdr = writeOctalField(hdr, 136, 12, ent.mtime)
+    // Checksum placeholder spaces (148..155)
+    mut ci = 148
+    while ci < 156:
+      hdr[ci] = 32
+      ci = ci + 1
+    // Typeflag (156): '5' (53) for directory, '0' (48) for regular file
+    hdr[156] = if ent.isDir: 53 else: 48
+    // UStar indicator "ustar\0" at 257..262 and version "00" at 263..264
+    hdr[257] = 117
+    hdr[258] = 115
+    hdr[259] = 116
+    hdr[260] = 97
+    hdr[261] = 114
+    hdr[262] = 0
+    hdr[263] = 48
+    hdr[264] = 48
+    // Compute header checksum
+    mut chksum = 0
+    k = 0
+    while k < 512:
+      chksum = chksum + hdr[k]
+      k = k + 1
+    hdr = writeOctalField(hdr, 148, 7, chksum)
+    hdr[155] = 32
+    // Append 512-byte header
+    k = 0
+    while k < 512:
+      out.push(hdr[k])
+      k = k + 1
+    // Append data + 512-byte alignment padding
+    if dataSize > 0:
+      mut di = 0
+      while di < dataSize:
+        out.push(ent.data[di] & 255)
+        di = di + 1
+      let rem = dataSize % 512
+      if rem > 0:
+        mut pad = 512 - rem
+        while pad > 0:
+          out.push(0)
+          pad = pad - 1
+    ei = ei + 1
+  // Append two 512-byte zero blocks (1024 bytes) for end-of-archive marker
+  mut z = 0
+  while z < 1024:
+    out.push(0)
+    z = z + 1
+  ret bytesFromArray(out)
+
+pub fn tarUnpack(archiveBytes: bytes): Result[[TarEntry], str]:
+  let n = archiveBytes.len()
+  if (n % 512) != 0:
+    ret Err("tarUnpack: archive size is not a multiple of 512 bytes")
+  mut entries: [TarEntry] = []
+  mut offset = 0
+  while offset + 512 <= n:
+    // Check if block is all zeros
+    mut allZero = true
+    mut k = 0
+    while k < 512:
+      if (archiveBytes[offset + k] & 255) != 0:
+        allZero = false
+        break
+      k = k + 1
+    if allZero:
+      break
+    let path = readNullTermStr(archiveBytes, offset, 100)
+    let mode = parseOctalField(archiveBytes, offset + 100, 8)
+    let size = parseOctalField(archiveBytes, offset + 124, 12)
+    let mtime = parseOctalField(archiveBytes, offset + 136, 12)
+    let typeFlag = archiveBytes[offset + 156] & 255
+    let isDir = typeFlag == 53
+    offset = offset + 512
+    if offset + size > n:
+      ret Err("tarUnpack: entry payload exceeds archive bounds for " + path)
+    let fileData = if size > 0: archiveBytes.slice(offset, offset + size) else: bytesNew(0)
+    entries.push(TarEntry(
+      path = path,
+      mode = mode,
+      size = size,
+      mtime = mtime,
+      isDir = isDir,
+      data = fileData
+    ))
+    let blocks = (size + 511) / 512
+    offset = offset + blocks * 512
+  ret Ok(entries)
+
+pub fn (self: TarArchive) getEntry(path: str): Option[TarEntry]:
+  mut i = 0
+  while i < self.entries.len:
+    if self.entries[i].path == path:
+      ret Some(self.entries[i])
+    i = i + 1
+  ret None
+
+pub fn (mut self: TarArchive) addFile(path: str, data: bytes, mode: int = 420): void:
+  self.entries.push(TarEntry(
+    path = path,
+    mode = mode,
+    size = data.len(),
+    mtime = 1700000000,
+    isDir = false,
+    data = data
+  ))
+
+pub fn (mut self: TarArchive) addDirectory(path: str, mode: int = 493): void:
+  self.entries.push(TarEntry(
+    path = path,
+    mode = mode,
+    size = 0,
+    mtime = 1700000000,
+    isDir = true,
+    data = bytesNew(0)
+  ))
+
+pub fn (self: TarArchive) toBytes(): bytes:
+  ret tarPack(self.entries)

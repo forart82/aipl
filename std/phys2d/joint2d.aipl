@@ -1,0 +1,125 @@
+/// # Module: `std/phys2d/joint2d` (`Joint2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 2D physics constraints (Distance, Revolute, Prismatic, Rope, Spring)
+/// solved via sequential impulses and positional Baumgarte stabilization.
+module Joint2DMod
+
+import { sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { RigidBody2D, MassProperties2D } from "std/phys2d/rigid_body2d"
+
+pub enum JointType2D:
+  Distance
+  Revolute
+  Prismatic
+  Rope
+  Spring
+
+pub struct Joint2D(id: int, jointType: JointType2D, bodyIdA: int, bodyIdB: int, localAnchorA: Vec2, localAnchorB: Vec2, targetDistance: float, springStiffness: float, springDamping: float, minLimit: float, maxLimit: float, enableLimits: bool)
+
+pub fn distanceJointNew(bodyIdA: int, bodyIdB: int, anchorA: Vec2, anchorB: Vec2, distance: float): Joint2D:
+  ret Joint2D(
+    id = 0,
+    jointType = JointType2D.Distance,
+    bodyIdA = bodyIdA,
+    bodyIdB = bodyIdB,
+    localAnchorA = anchorA,
+    localAnchorB = anchorB,
+    targetDistance = distance,
+    springStiffness = 0.0,
+    springDamping = 0.0,
+    minLimit = distance,
+    maxLimit = distance,
+    enableLimits = false
+  )
+
+pub fn springJointNew(bodyIdA: int, bodyIdB: int, anchorA: Vec2, anchorB: Vec2, restLength: float, stiffness: float, damping: float): Joint2D:
+  ret Joint2D(
+    id = 0,
+    jointType = JointType2D.Spring,
+    bodyIdA = bodyIdA,
+    bodyIdB = bodyIdB,
+    localAnchorA = anchorA,
+    localAnchorB = anchorB,
+    targetDistance = restLength,
+    springStiffness = stiffness,
+    springDamping = damping,
+    minLimit = 0.0,
+    maxLimit = restLength * 2.0,
+    enableLimits = false
+  )
+
+pub fn revoluteJointNew(bodyIdA: int, bodyIdB: int, worldAnchor: Vec2): Joint2D:
+  ret Joint2D(
+    id = 0,
+    jointType = JointType2D.Revolute,
+    bodyIdA = bodyIdA,
+    bodyIdB = bodyIdB,
+    localAnchorA = worldAnchor,
+    localAnchorB = worldAnchor,
+    targetDistance = 0.0,
+    springStiffness = 0.0,
+    springDamping = 0.0,
+    minLimit = 0.0,
+    maxLimit = 0.0,
+    enableLimits = false
+  )
+
+pub fn jointSolveVelocity(joint: Joint2D, mut bodyA: RigidBody2D, mut bodyB: RigidBody2D, dt: float): void:
+  let mpA: MassProperties2D = bodyA.massProps
+  let mpB: MassProperties2D = bodyB.massProps
+  let invMassSum = mpA.invMass + mpB.invMass
+  if invMassSum <= 0.000001:
+    ret
+
+  let pa: Vec2 = bodyA.position.add(joint.localAnchorA)
+  let pb: Vec2 = bodyB.position.add(joint.localAnchorB)
+  let dx = pb.x - pa.x
+  let dy = pb.y - pa.y
+  let dist = sqrt(dx * dx + dy * dy)
+  let nx = if dist > 0.000001: dx / dist else: 1.0
+  let ny = if dist > 0.000001: dy / dist else: 0.0
+
+  let va: Vec2 = bodyA.linearVelocity
+  let vb: Vec2 = bodyB.linearVelocity
+  let relVel = (vb.x - va.x) * nx + (vb.y - va.y) * ny
+
+  mut impulseMag = 0.0
+  if joint.jointType == JointType2D.Spring:
+    let stretch = dist - joint.targetDistance
+    let force = stretch * joint.springStiffness + relVel * joint.springDamping
+    impulseMag = -force * dt
+  else:
+    impulseMag = -relVel / invMassSum
+
+  let ix = nx * impulseMag
+  let iy = ny * impulseMag
+  bodyA.linearVelocity = Vec2(x = va.x - ix * mpA.invMass, y = va.y - iy * mpA.invMass)
+  bodyB.linearVelocity = Vec2(x = vb.x + ix * mpB.invMass, y = vb.y + iy * mpB.invMass)
+
+pub fn jointSolvePosition(joint: Joint2D, mut bodyA: RigidBody2D, mut bodyB: RigidBody2D): void:
+  if joint.jointType == JointType2D.Spring:
+    ret
+  let mpA: MassProperties2D = bodyA.massProps
+  let mpB: MassProperties2D = bodyB.massProps
+  let invMassSum = mpA.invMass + mpB.invMass
+  if invMassSum <= 0.000001:
+    ret
+
+  let pa: Vec2 = bodyA.position.add(joint.localAnchorA)
+  let pb: Vec2 = bodyB.position.add(joint.localAnchorB)
+  let dx = pb.x - pa.x
+  let dy = pb.y - pa.y
+  let dist = sqrt(dx * dx + dy * dy)
+  if dist <= 0.000001:
+    ret
+
+  let err = dist - joint.targetDistance
+  let corr = (err * 0.2) / invMassSum
+  let nx = dx / dist
+  let ny = dy / dist
+  let posA: Vec2 = bodyA.position
+  let posB: Vec2 = bodyB.position
+  bodyA.position = Vec2(x = posA.x + nx * corr * mpA.invMass, y = posA.y + ny * corr * mpA.invMass)
+  bodyB.position = Vec2(x = posB.x - nx * corr * mpB.invMass, y = posB.y - ny * corr * mpB.invMass)

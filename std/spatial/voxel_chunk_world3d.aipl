@@ -1,0 +1,236 @@
+/// # Module: `std/spatial/voxel_chunk_world3d` (`VoxelChunkWorld3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Volumetric 3D block chunk world with sparse chunk allocation,
+/// Amanatides-Woo 3D DDA voxel raycasting, and greedy quad face extraction.
+module VoxelChunkWorld3DMod
+
+import { absFloat } from "std/math/consts"
+import { floor, sqrt } from "std/math/trig"
+import { Vec3, IVec3 } from "std/math/vec_math"
+
+pub struct VoxelBlock(blockId: int, metadata: int, lightLevel: int)
+
+pub struct VoxelChunk16(coord: IVec3, chunkSize: int, blocks: [VoxelBlock], isDirty: bool)
+
+pub struct VoxelRayHit(coord: IVec3, normal: IVec3, distance: float, blockId: int)
+
+pub struct QuadFace3D(axis: int, normalSign: int, sliceCoord: int, u0: int, v0: int, width: int, height: int, blockId: int)
+
+pub struct VoxelChunkWorld3D(chunkSize: int, chunks: [VoxelChunk16])
+
+pub fn voxelChunkWorldNew(chunkSize: int): VoxelChunkWorld3D:
+  let cs = if chunkSize > 0: chunkSize else: 16
+  mut ch: [VoxelChunk16] = []
+  ret VoxelChunkWorld3D(chunkSize = cs, chunks = ch)
+
+fn floorDivInt(a: int, b: int): int:
+  let q = a / b
+  let r = a % b
+  if r != 0 and ((r < 0) != (b < 0)):
+    ret q - 1
+  ret q
+
+fn posModInt(a: int, b: int): int:
+  ret ((a % b) + b) % b
+
+pub fn voxelGetBlock(world: VoxelChunkWorld3D, gx: int, gy: int, gz: int): Option[VoxelBlock]:
+  let cs = world.chunkSize
+  let cx = floorDivInt(gx, cs)
+  let cy = floorDivInt(gy, cs)
+  let cz = floorDivInt(gz, cs)
+  let lx = posModInt(gx, cs)
+  let ly = posModInt(gy, cs)
+  let lz = posModInt(gz, cs)
+  let idx = (lz * cs + ly) * cs + lx
+
+  mut i = 0
+  while i < world.chunks.len:
+    let ch: VoxelChunk16 = world.chunks[i]
+    let cc: IVec3 = ch.coord
+    if cc.x == cx and cc.y == cy and cc.z == cz:
+      ret Some(ch.blocks[idx])
+    i = i + 1
+  ret None
+
+pub fn voxelSetBlock(mut world: VoxelChunkWorld3D, gx: int, gy: int, gz: int, block: VoxelBlock): bool:
+  let cs = world.chunkSize
+  let cx = floorDivInt(gx, cs)
+  let cy = floorDivInt(gy, cs)
+  let cz = floorDivInt(gz, cs)
+  let lx = posModInt(gx, cs)
+  let ly = posModInt(gy, cs)
+  let lz = posModInt(gz, cs)
+  let idx = (lz * cs + ly) * cs + lx
+
+  mut chunks = world.chunks
+  mut i = 0
+  while i < chunks.len:
+    let ch: VoxelChunk16 = chunks[i]
+    let cc: IVec3 = ch.coord
+    if cc.x == cx and cc.y == cy and cc.z == cz:
+      mut blks = ch.blocks
+      blks[idx] = block
+      chunks[i] = VoxelChunk16(coord = cc, chunkSize = cs, blocks = blks, isDirty = true)
+      world.chunks = chunks
+      ret true
+    i = i + 1
+
+  let total = cs * cs * cs
+  mut newBlks: [VoxelBlock] = []
+  let emptyBlk = VoxelBlock(blockId = 0, metadata = 0, lightLevel = 0)
+  mut k = 0
+  while k < total:
+    newBlks.push(emptyBlk)
+    k = k + 1
+  newBlks[idx] = block
+  chunks.push(VoxelChunk16(
+    coord = IVec3(x = cx, y = cy, z = cz),
+    chunkSize = cs,
+    blocks = newBlks,
+    isDirty = true
+  ))
+  world.chunks = chunks
+  ret true
+
+pub fn voxelRaycastDDA(world: VoxelChunkWorld3D, origin: Vec3, dir: Vec3, maxDistance: float): Option[VoxelRayHit]:
+  let lenDir = sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z)
+  if lenDir <= 0.000001 or maxDistance <= 0.0:
+    ret None
+  let dx = dir.x / lenDir
+  let dy = dir.y / lenDir
+  let dz = dir.z / lenDir
+
+  mut vx = int(floor(origin.x))
+  mut vy = int(floor(origin.y))
+  mut vz = int(floor(origin.z))
+
+  let stepX = if dx >= 0.0: 1 else: -1
+  let stepY = if dy >= 0.0: 1 else: -1
+  let stepZ = if dz >= 0.0: 1 else: -1
+
+  let nextX = if stepX > 0: float(vx + 1) else: float(vx)
+  let nextY = if stepY > 0: float(vy + 1) else: float(vy)
+  let nextZ = if stepZ > 0: float(vz + 1) else: float(vz)
+
+  mut tMaxX = if absFloat(dx) > 0.000001: (nextX - origin.x) / dx else: 1000000000.0
+  mut tMaxY = if absFloat(dy) > 0.000001: (nextY - origin.y) / dy else: 1000000000.0
+  mut tMaxZ = if absFloat(dz) > 0.000001: (nextZ - origin.z) / dz else: 1000000000.0
+
+  let tDeltaX = if absFloat(dx) > 0.000001: 1.0 / absFloat(dx) else: 1000000000.0
+  let tDeltaY = if absFloat(dy) > 0.000001: 1.0 / absFloat(dy) else: 1000000000.0
+  let tDeltaZ = if absFloat(dz) > 0.000001: 1.0 / absFloat(dz) else: 1000000000.0
+
+  mut t = 0.0
+  mut normX = 0
+  mut normY = 0
+  mut normZ = 0
+
+  while t <= maxDistance:
+    let opt = voxelGetBlock(world, vx, vy, vz)
+    if opt.isSome():
+      let blk: VoxelBlock = opt.unwrap()
+      if blk.blockId != 0:
+        ret Some(VoxelRayHit(
+          coord = IVec3(x = vx, y = vy, z = vz),
+          normal = IVec3(x = normX, y = normY, z = normZ),
+          distance = t,
+          blockId = blk.blockId
+        ))
+    if tMaxX < tMaxY:
+      if tMaxX < tMaxZ:
+        t = tMaxX
+        tMaxX = tMaxX + tDeltaX
+        vx = vx + stepX
+        normX = -stepX
+        normY = 0
+        normZ = 0
+      else:
+        t = tMaxZ
+        tMaxZ = tMaxZ + tDeltaZ
+        vz = vz + stepZ
+        normX = 0
+        normY = 0
+        normZ = -stepZ
+    else:
+      if tMaxY < tMaxZ:
+        t = tMaxY
+        tMaxY = tMaxY + tDeltaY
+        vy = vy + stepY
+        normX = 0
+        normY = -stepY
+        normZ = 0
+      else:
+        t = tMaxZ
+        tMaxZ = tMaxZ + tDeltaZ
+        vz = vz + stepZ
+        normX = 0
+        normY = 0
+        normZ = -stepZ
+  ret None
+
+pub fn voxelExtractGreedyFaces(chunk: VoxelChunk16): [QuadFace3D]:
+  let cs = chunk.chunkSize
+  mut faces: [QuadFace3D] = []
+
+  mut z = 0
+  while z < cs:
+    mut mask: [int] = []
+    mut mIdx = 0
+    while mIdx < cs * cs:
+      mask.push(0)
+      mIdx = mIdx + 1
+
+    mut y = 0
+    while y < cs:
+      mut x = 0
+      while x < cs:
+        let cur: VoxelBlock = chunk.blocks[(z * cs + y) * cs + x]
+        let nextId = if z + 1 < cs: chunk.blocks[((z + 1) * cs + y) * cs + x].blockId else: 0
+        if cur.blockId != 0 and nextId == 0:
+          mask[y * cs + x] = cur.blockId
+        x = x + 1
+      y = y + 1
+
+    mut r = 0
+    while r < cs:
+      mut c = 0
+      while c < cs:
+        let bid = mask[r * cs + c]
+        if bid != 0:
+          mut w = 1
+          while c + w < cs and mask[r * cs + c + w] == bid:
+            w = w + 1
+          mut h = 1
+          mut doneH = false
+          while r + h < cs and (not doneH):
+            mut k = 0
+            while k < w:
+              if mask[(r + h) * cs + c + k] != bid:
+                doneH = true
+              k = k + 1
+            if not doneH:
+              h = h + 1
+          faces.push(QuadFace3D(
+            axis = 2,
+            normalSign = 1,
+            sliceCoord = z + 1,
+            u0 = c,
+            v0 = r,
+            width = w,
+            height = h,
+            blockId = bid
+          ))
+          mut dr = 0
+          while dr < h:
+            mut dc = 0
+            while dc < w:
+              mask[(r + dr) * cs + c + dc] = 0
+              dc = dc + 1
+            dr = dr + 1
+          c = c + w
+        else:
+          c = c + 1
+      r = r + 1
+    z = z + 1
+  ret faces

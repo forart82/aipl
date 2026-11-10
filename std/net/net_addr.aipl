@@ -1,0 +1,301 @@
+/// # Module: `std/net/net_addr` (`NetAddr`)
+///
+/// ## Purpose & Domain Scope
+/// Canonical IPv4/IPv6 addressing (`Ipv4Addr`, `Ipv6Addr`, `IpAddr`), socket endpoints
+/// (`SocketAddr`), CIDR subnet matching (`CidrBlock`), and RFC 3986 URI parsing (`Url`).
+module NetAddr
+
+pub struct Ipv4Addr:
+  o1: int
+  o2: int
+  o3: int
+  o4: int
+
+pub struct Ipv6Addr:
+  s1: int
+  s2: int
+  s3: int
+  s4: int
+  s5: int
+  s6: int
+  s7: int
+  s8: int
+
+pub struct IpAddr:
+  isIpv6: bool
+  v4: Ipv4Addr
+  v6: Ipv6Addr
+
+pub struct SocketAddr:
+  ip: IpAddr
+  port: int
+
+pub struct CidrBlock:
+  network: IpAddr
+  prefixLen: int
+
+pub struct Url:
+  scheme: str
+  user: str
+  host: str
+  port: int
+  path: str
+  query: Map[str, str]
+  fragment: str
+
+fn emptyIpv6(): Ipv6Addr:
+  ret Ipv6Addr(s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0, s8: 0)
+
+fn emptyIpv4(): Ipv4Addr:
+  ret Ipv4Addr(o1: 0, o2: 0, o3: 0, o4: 0)
+
+pub fn parseIpv4(s: str): Option[Ipv4Addr]:
+  let parts = s.trim().split(".")
+  if parts.len() != 4:
+    ret None
+  mut octs: [int] = []
+  mut i = 0
+  while i < 4:
+    let p = parts[i].trim()
+    if p.len() == 0:
+      ret None
+    let vOpt = p.toInt()
+    if vOpt.isNone():
+      ret None
+    let v = vOpt.unwrap()
+    if v < 0 or v > 255:
+      ret None
+    octs.push(v)
+    i = i + 1
+  ret Some(Ipv4Addr(o1: octs[0], o2: octs[1], o3: octs[2], o4: octs[3]))
+
+pub fn formatIpv4(ip: Ipv4Addr): str:
+  ret str(ip.o1) + "." + str(ip.o2) + "." + str(ip.o3) + "." + str(ip.o4)
+
+fn parseHex16(s: str): Option[int]:
+  let t = s.trim().toLower()
+  if t.len() == 0 or t.len() > 4:
+    ret None
+  mut acc = 0
+  mut i = 0
+  while i < t.len():
+    let code = t.charCodeAt(i)
+    mut d = -1
+    if code >= 48 and code <= 57:
+      d = code - 48
+    elif code >= 97 and code <= 102:
+      d = code - 97 + 10
+    if d < 0:
+      ret None
+    acc = (acc << 4) | d
+    i = i + 1
+  ret Some(acc)
+
+pub fn parseIpv6(s: str): Option[Ipv6Addr]:
+  let clean = s.trim()
+  if clean == "::":
+    ret Some(emptyIpv6())
+  if clean == "::1":
+    ret Some(Ipv6Addr(s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0, s8: 1))
+  let parts = clean.split(":")
+  if parts.len() != 8:
+    ret None
+  mut segs: [int] = []
+  mut i = 0
+  while i < 8:
+    let vOpt = parseHex16(parts[i])
+    if vOpt.isNone():
+      ret None
+    segs.push(vOpt.unwrap())
+    i = i + 1
+  ret Some(Ipv6Addr(
+    s1: segs[0], s2: segs[1], s3: segs[2], s4: segs[3],
+    s5: segs[4], s6: segs[5], s7: segs[6], s8: segs[7]
+  ))
+
+fn hexWord(v: int): str:
+  let digits = "0123456789abcdef"
+  mut n = v & 65535
+  if n == 0:
+    ret "0"
+  mut out = ""
+  while n > 0:
+    let rem = n & 15
+    out = digits.slice(rem, rem + 1) + out
+    n = n >> 4
+  ret out
+
+pub fn formatIpv6(ip: Ipv6Addr): str:
+  let words = [
+    hexWord(ip.s1), hexWord(ip.s2), hexWord(ip.s3), hexWord(ip.s4),
+    hexWord(ip.s5), hexWord(ip.s6), hexWord(ip.s7), hexWord(ip.s8)
+  ]
+  ret words.join(":")
+
+pub fn parseSocketAddr(s: str): Option[SocketAddr]:
+  let clean = s.trim()
+  let colonIdx = clean.lastIndexOf(":")
+  if colonIdx <= 0:
+    ret None
+  let hostPart = clean.slice(0, colonIdx)
+  let portPart = clean.slice(colonIdx + 1, clean.len())
+  let portOpt = portPart.toInt()
+  if portOpt.isNone():
+    ret None
+  let port = portOpt.unwrap()
+  if port < 0 or port > 65535:
+    ret None
+  let v4Opt = parseIpv4(hostPart)
+  if v4Opt.isSome():
+    ret Some(SocketAddr(
+      ip: IpAddr(isIpv6: false, v4: v4Opt.unwrap(), v6: emptyIpv6()),
+      port: port
+    ))
+  mut v6Host = hostPart
+  if v6Host.startsWith("[") and v6Host.endsWith("]"):
+    v6Host = v6Host.slice(1, v6Host.len() - 1)
+  let v6Opt = parseIpv6(v6Host)
+  if v6Opt.isSome():
+    ret Some(SocketAddr(
+      ip: IpAddr(isIpv6: true, v4: emptyIpv4(), v6: v6Opt.unwrap()),
+      port: port
+    ))
+  ret None
+
+pub fn formatSocketAddr(sa: SocketAddr): str:
+  if sa.ip.isIpv6:
+    ret "[" + formatIpv6(sa.ip.v6) + "]:" + str(sa.port)
+  ret formatIpv4(sa.ip.v4) + ":" + str(sa.port)
+
+pub fn parseCidr(s: str): Option[CidrBlock]:
+  let slashIdx = s.indexOf("/")
+  if slashIdx <= 0:
+    ret None
+  let ipStr = s.slice(0, slashIdx)
+  let pfxStr = s.slice(slashIdx + 1, s.len())
+  let pfxOpt = pfxStr.toInt()
+  if pfxOpt.isNone():
+    ret None
+  let pfx = pfxOpt.unwrap()
+  let v4Opt = parseIpv4(ipStr)
+  if v4Opt.isSome():
+    if pfx < 0 or pfx > 32:
+      ret None
+    ret Some(CidrBlock(
+      network: IpAddr(isIpv6: false, v4: v4Opt.unwrap(), v6: emptyIpv6()),
+      prefixLen: pfx
+    ))
+  ret None
+
+fn ipv4ToU32(ip: Ipv4Addr): int:
+  ret ((ip.o1 & 255) << 24) | ((ip.o2 & 255) << 16) | ((ip.o3 & 255) << 8) | (ip.o4 & 255)
+
+pub fn cidrContains(cidr: CidrBlock, ip: Ipv4Addr): bool:
+  if cidr.prefixLen <= 0:
+    ret true
+  let netVal = ipv4ToU32(cidr.network.v4)
+  let ipVal = ipv4ToU32(ip)
+  let shift = 32 - cidr.prefixLen
+  ret (netVal >> shift) == (ipVal >> shift)
+
+pub fn decodeQueryString(qs: str): Map[str, str]:
+  mut m = mapNew()
+  mut clean = qs.trim()
+  if clean.startsWith("?"):
+    clean = clean.slice(1, clean.len())
+  if clean.len() == 0:
+    ret m
+  let pairs = clean.split("&")
+  mut i = 0
+  while i < pairs.len():
+    let p = pairs[i]
+    let eqIdx = p.indexOf("=")
+    if eqIdx >= 0:
+      let k = p.slice(0, eqIdx)
+      let v = p.slice(eqIdx + 1, p.len())
+      m.set(k, v)
+    elif p.len() > 0:
+      m.set(p, "")
+    i = i + 1
+  ret m
+
+pub fn encodeQueryString(params: Map[str, str]): str:
+  let ks = params.keys()
+  mut parts: [str] = []
+  mut i = 0
+  while i < ks.len():
+    let k = ks[i]
+    let vOpt = params.get(k)
+    let v = if vOpt.isSome(): vOpt.unwrap() else: ""
+    parts.push(k + "=" + v)
+    i = i + 1
+  ret parts.join("&")
+
+pub fn parseUrl(rawUrl: str): Option[Url]:
+  let clean = rawUrl.trim()
+  let schemeIdx = clean.indexOf("://")
+  if schemeIdx <= 0:
+    ret None
+  let scheme = clean.slice(0, schemeIdx).toLower()
+  mut rest = clean.slice(schemeIdx + 3, clean.len())
+
+  mut fragment = ""
+  let hashIdx = rest.indexOf("#")
+  if hashIdx >= 0:
+    fragment = rest.slice(hashIdx + 1, rest.len())
+    rest = rest.slice(0, hashIdx)
+
+  mut queryStr = ""
+  let qIdx = rest.indexOf("?")
+  if qIdx >= 0:
+    queryStr = rest.slice(qIdx + 1, rest.len())
+    rest = rest.slice(0, qIdx)
+
+  mut path = "/"
+  mut authority = rest
+  let slashIdx = rest.indexOf("/")
+  if slashIdx >= 0:
+    authority = rest.slice(0, slashIdx)
+    path = rest.slice(slashIdx, rest.len())
+
+  mut user = ""
+  let atIdx = authority.indexOf("@")
+  if atIdx >= 0:
+    user = authority.slice(0, atIdx)
+    authority = authority.slice(atIdx + 1, authority.len())
+
+  mut host = authority
+  mut port = if scheme == "https" or scheme == "wss": 443 else: 80
+  let colonIdx = authority.lastIndexOf(":")
+  if colonIdx > 0:
+    host = authority.slice(0, colonIdx)
+    let pOpt = authority.slice(colonIdx + 1, authority.len()).toInt()
+    if pOpt.isSome():
+      port = pOpt.unwrap()
+
+  let qMap = decodeQueryString(queryStr)
+  ret Some(Url(
+    scheme: scheme,
+    user: user,
+    host: host,
+    port: port,
+    path: path,
+    query: qMap,
+    fragment: fragment
+  ))
+
+pub fn formatUrl(u: Url): str:
+  mut out = u.scheme + "://"
+  if u.user.len() > 0:
+    out = out + u.user + "@"
+  out = out + u.host
+  let defaultPort = if u.scheme == "https" or u.scheme == "wss": 443 else: 80
+  if u.port > 0 and u.port != defaultPort:
+    out = out + ":" + str(u.port)
+  out = out + u.path
+  let qs = encodeQueryString(u.query)
+  if qs.len() > 0:
+    out = out + "?" + qs
+  if u.fragment.len() > 0:
+    out = out + "#" + u.fragment
+  ret out

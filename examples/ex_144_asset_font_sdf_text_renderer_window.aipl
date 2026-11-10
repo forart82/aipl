@@ -1,0 +1,167 @@
+// ============================================================================
+// Canonical Example 144: Signed Distance Field (SDF) Font & Text Renderer (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/asset
+// ============================================================================
+module Ex144AssetFontSdfTextRendererWindow
+
+import {
+  GlyphMetric,
+  FontSdfAtlas,
+  parseTtfTables,
+  computeSignedDistance,
+  generateSdfGlyph,
+  sampleSdfAtlas
+} from "../std/asset/asset_mod.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub fn verifyTtfSdfGenerationAndSampling(): int:
+  let ttfBytes = [0, 1, 0, 0, 0, 4, 0, 64, 0, 2, 0, 0]
+  assert(parseTtfTables(ttfBytes), "TrueType 1.0 header valid")
+  let curves = [0.0, 0.0, 4.0, 0.0]
+  assert(computeSignedDistance(2.0, 3.0, curves) > 2.9, "signed distance > 2.9")
+  let sdfBytes = generateSdfGlyph(curves, 4, 4, 4.0)
+  mut glyphMap: Map[int, GlyphMetric] = Map.new()
+  glyphMap.set(65, GlyphMetric(
+    codepoint = 65,
+    advanceX = 10.0,
+    bearingX = 1.0,
+    bearingY = 8.0,
+    width = 8.0,
+    height = 10.0,
+    uvMinX = 0.0,
+    uvMinY = 0.0,
+    uvMaxX = 0.5,
+    uvMaxY = 0.5
+  ))
+  let atlas = FontSdfAtlas(
+    textureWidth = 64,
+    textureHeight = 64,
+    sdfRadiusPx = 4.0,
+    glyphs = glyphMap,
+    distanceFieldBytes = sdfBytes
+  )
+  let gm = sampleSdfAtlas(atlas, 65).unwrap()
+  ret sdfBytes.len() + int(gm.advanceX + 0.5)
+
+pub fn computeSdfEdgeThresholdByte(permille: int): int:
+  let p = clampInt(permille, 0, 1000)
+  ret (p * 255) / 1000
+
+pub fn describeSdfAntiAliasingMode(spreadPx: int): str:
+  let s = clampInt(spreadPx, 1, 16)
+  ret "SDF:SPREAD_" + str(s) + "PX_SMOOTHSTEP"
+
+pub fn buildLiveFontSdfAtlas(): FontSdfAtlas:
+  let curves = [1.5, 1.5, 6.5, 1.5, 6.5, 6.5, 1.5, 6.5, 1.5, 1.5]
+  let sdfField = generateSdfGlyph(curves, 8, 8, 4.0)
+  mut glyphMap: Map[int, GlyphMetric] = Map.new()
+  glyphMap.set(65, GlyphMetric(codepoint = 65, advanceX = 12.0, bearingX = 1.0, bearingY = 10.0, width = 10.0, height = 12.0, uvMinX = 0.0, uvMinY = 0.0, uvMaxX = 0.25, uvMaxY = 0.25))
+  glyphMap.set(73, GlyphMetric(codepoint = 73, advanceX = 7.0, bearingX = 1.5, bearingY = 10.0, width = 4.0, height = 12.0, uvMinX = 0.25, uvMinY = 0.0, uvMaxX = 0.5, uvMaxY = 0.25))
+  glyphMap.set(80, GlyphMetric(codepoint = 80, advanceX = 11.0, bearingX = 1.0, bearingY = 10.0, width = 9.0, height = 12.0, uvMinX = 0.5, uvMinY = 0.0, uvMaxX = 0.75, uvMaxY = 0.25))
+  glyphMap.set(76, GlyphMetric(codepoint = 76, advanceX = 10.0, bearingX = 1.0, bearingY = 10.0, width = 8.0, height = 12.0, uvMinX = 0.75, uvMinY = 0.0, uvMaxX = 1.0, uvMaxY = 0.25))
+  ret FontSdfAtlas(
+    textureWidth = 8,
+    textureHeight = 8,
+    sdfRadiusPx = 4.0,
+    glyphs = glyphMap,
+    distanceFieldBytes = sdfField
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let atlas = buildLiveFontSdfAtlas()
+  let thresholdPm = 350 + ((frameIndex * 7) % 373)
+  let thresholdByte = computeSdfEdgeThresholdByte(thresholdPm)
+  mut insideCount = 0
+  mut i = 0
+  while i < atlas.distanceFieldBytes.len:
+    if atlas.distanceFieldBytes[i] <= thresholdByte:
+      insideCount = insideCount + 1
+    i = i + 1
+  ret verifyTtfSdfGenerationAndSampling() + thresholdByte + insideCount * 10 + int(dt * 0.0)
+
+pub fn renderSdfFontAtlasScene(frameIndex: int): void:
+  let atlas = buildLiveFontSdfAtlas()
+  let thresholdPm = 350 + ((frameIndex * 7) % 373)
+  let thresholdByte = computeSdfEdgeThresholdByte(thresholdPm)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_144 // SIGNED DISTANCE FIELD (SDF) FONT ATLAS & ISO-CONTOUR RENDERER", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Left: 8x8 SDF Distance Field Heatmap & Iso-Contour Thresholding from FontSdfAtlas
+  let gx0 = 64.0
+  let gy0 = 104.0
+  let cell = 64.0
+  mut y = 0
+  while y < atlas.textureHeight:
+    mut x = 0
+    while x < atlas.textureWidth:
+      let val = atlas.distanceFieldBytes[y * atlas.textureWidth + x]
+      let cx = gx0 + float(x) * cell
+      let cy = gy0 + float(y) * cell
+      let isInside = val <= thresholdByte
+      let col = if isInside: rgb(56, 189, 248) else: rgb(val / 3, val / 3 + 15, val / 3 + 35)
+      drawRect(cx, cy, cell - 4.0, cell - 4.0, col)
+      drawText(str(val), cx + 14.0, cy + 24.0, 13.0, rgb(241, 245, 249))
+      x = x + 1
+    y = y + 1
+
+  // Right: Multi-Scale Crisp Typography Showcase & Sampled GlyphMetric Layout
+  let rx = 620.0
+  drawRect(rx, 104.0, 604.0, 508.0, rgb(16, 24, 42))
+  drawRectOutline(rx, 104.0, 604.0, 508.0, 2.0, rgb(71, 85, 105))
+  drawText("SDF MULTI-SCALE TYPOGRAPHY", rx + 24.0, 136.0, 18.0, rgb(56, 189, 248))
+  drawText(describeSdfAntiAliasingMode(int(atlas.sdfRadiusPx)), rx + 24.0, 172.0, 15.0, rgb(74, 222, 128))
+  drawText("Iso-Contour Threshold: " + str(thresholdByte) + " / 255 (" + str(thresholdPm) + " pm)", rx + 24.0, 208.0, 15.0, rgb(250, 204, 21))
+
+  // Sample 'A', 'I', 'P', 'L' GlyphMetric entries via sampleSdfAtlas and render glyph metric boxes
+  let codepoints = [65, 73, 80, 76]
+  let labels = ["A", "I", "P", "L"]
+  let glyphScale = 4.0 + float((frameIndex / 7) % 5) * 0.5
+  mut penX = rx + 36.0
+  let baseY = 330.0
+  mut gi = 0
+  while gi < codepoints.len:
+    let gm = sampleSdfAtlas(atlas, codepoints[gi]).unwrap()
+    let boxX = penX + gm.bearingX * glyphScale
+    let boxY = baseY - gm.bearingY * glyphScale
+    let boxW = gm.width * glyphScale
+    let boxH = gm.height * glyphScale
+    drawRect(boxX, boxY, boxW, boxH, rgb(22, 38, 68))
+    drawRectOutline(boxX, boxY, boxW, boxH, 2.0, rgb(56, 189, 248))
+    drawText(labels[gi], boxX + 8.0, boxY + 8.0, 18.0, rgb(240, 249, 255))
+    penX = penX + gm.advanceX * glyphScale
+    gi = gi + 1
+
+  drawText("Sampled Glyph Run 'AIPL' Pen End X=" + str(int(penX)) + " px", rx + 24.0, 386.0, 15.0, rgb(134, 239, 172))
+
+  // Iso-Contour Slider Bar
+  drawRect(rx + 24.0, 456.0, 540.0, 24.0, rgb(30, 41, 59))
+  drawRect(rx + 24.0, 456.0, float((thresholdByte * 540) / 255), 24.0, rgb(56, 189, 248))
+  drawRectOutline(rx + 24.0, 456.0, 540.0, 24.0, 1.5, rgb(148, 163, 184))
+
+pub fn main(): int:
+  let m = verifyTtfSdfGenerationAndSampling()
+  assert(m == 26, "SDF metric 26")
+  initWindow(1280, 720, "AIPL ex_144 - Signed Distance Field (SDF) Font & Text Renderer")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderSdfFontAtlasScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

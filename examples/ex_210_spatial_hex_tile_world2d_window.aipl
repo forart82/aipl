@@ -1,0 +1,107 @@
+module Ex210SpatialHexTileWorld2dWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import {
+  HexOrientation, HexCubeCoord, HexAxialCoord,
+  hexCubeNew, hexCubeToAxial, hexDistance,
+  hexRing, hexSpiral, hexToPixel, hexLine
+} from "../std/spatial/hex_tile_world2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawRegularPolygon,
+  drawCircle, drawCircleOutline, drawLine, drawText, Color, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepOuterRingTargetIdx(frame: int, ringLen: int): int:
+  if ringLen <= 0:
+    ret 0
+  ret (frame / 4) % ringLen
+
+pub fn stepHexPulseT(frame: int): float:
+  ret float((frame * 5) % 37) / 37.0
+
+fn drawPointyHexOutline(cx: float, cy: float, r: float, col: Color, thick: float): void:
+  mut k = 0
+  while k < 6:
+    let a0 = float(k) * 1.0471975 + 0.5235988
+    let a1 = float(k + 1) * 1.0471975 + 0.5235988
+    drawLine(cx + cos(a0) * r, cy + sin(a0) * r, cx + cos(a1) * r, cy + sin(a1) * r, col, thick)
+    k = k + 1
+
+pub fn buildSpatialHexTileAudit(): int:
+  let cubeA = hexCubeNew(1, -3, 2)
+  let cubeB = hexCubeNew(4, -4, 0)
+  let dist = hexDistance(cubeA, cubeB)
+  let ring = hexRing(hexCubeNew(0, 0, 0), 2)
+  let spiral = hexSpiral(hexCubeNew(0, 0, 0), 2)
+  let line = hexLine(cubeA, cubeB)
+  ret dist + ring.len() + spiral.len() + line.len()
+
+pub fn main(): int:
+  let auditScore = buildSpatialHexTileAudit()
+  let spiral = hexSpiral(hexCubeNew(0, 0, 0), 3)
+  let outerRing = hexRing(hexCubeNew(0, 0, 0), 3)
+  let hexSize = 36.0
+
+  initWindow(1280, 720, "AIPL ex_210: Spatial Hexagonal Tile World (Axial/Cube Rings, Spiral & Line)")
+  mut frame = 0
+  while not windowShouldClose():
+    let tIdx = stepOuterRingTargetIdx(frame, outerRing.len())
+    let targetHex = outerRing[tIdx]
+    let pathLine = hexLine(hexCubeNew(-2, 2, 0), targetHex)
+    let pulseT = stepHexPulseT(frame)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_210: HEXAGONAL 2D TILE WORLD (CUBE/AXIAL SPIRAL, RINGS & HEX LINE)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("spiralRadius=3 (cells=" + str(spiral.len()) + ", ring=" + str(outerRing.len()) + ") | targetIdx=" + str(tIdx) + " | hexLineSteps=" + str(pathLine.len()) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    let cx0 = 640.0
+    let cy0 = 390.0
+
+    mut i = 0
+    while i < spiral.len():
+      let c: HexCubeCoord = spiral[i]
+      let ax: HexAxialCoord = hexCubeToAxial(c)
+      let px: Vec2 = hexToPixel(ax, HexOrientation.PointyTop, hexSize)
+      let d = hexDistance(hexCubeNew(0, 0, 0), c)
+      let col = if d == 0: rgb(250, 204, 21) else: (if d == 1: rgb(30, 88, 138) else: (if d == 2: rgb(38, 52, 108) else: rgb(22, 32, 50)))
+      let rimCol = if d == 0: rgb(254, 240, 138) else: (if d == 1: rgb(56, 189, 248) else: (if d == 2: rgb(129, 140, 248) else: rgb(71, 85, 105)))
+      drawRegularPolygon(cx0 + px.x, cy0 + px.y, hexSize - 5.0, 6, col)
+      drawPointyHexOutline(cx0 + px.x, cy0 + px.y, hexSize - 2.0, rimCol, 1.8)
+      drawText(str(ax.q) + "," + str(ax.r), cx0 + px.x - 14.0, cy0 + px.y - 6.0, 13.0, if d == 0: rgb(15, 23, 42) else: rgb(248, 250, 252))
+      i = i + 1
+
+    mut p = 0
+    while p < pathLine.len():
+      let pc: HexCubeCoord = pathLine[p]
+      let pax: HexAxialCoord = hexCubeToAxial(pc)
+      let ppx: Vec2 = hexToPixel(pax, HexOrientation.PointyTop, hexSize)
+      drawPointyHexOutline(cx0 + ppx.x, cy0 + ppx.y, hexSize - 2.0, rgb(52, 211, 153), 3.0)
+      drawCircle(cx0 + ppx.x, cy0 + ppx.y, 7.5, rgb(52, 211, 153))
+      if p + 1 < pathLine.len():
+        let nc: HexCubeCoord = pathLine[p + 1]
+        let nax: HexAxialCoord = hexCubeToAxial(nc)
+        let npx: Vec2 = hexToPixel(nax, HexOrientation.PointyTop, hexSize)
+        drawLine(cx0 + ppx.x, cy0 + ppx.y, cx0 + npx.x, cy0 + npx.y, rgb(52, 211, 153), 3.5)
+      p = p + 1
+
+    if pathLine.len() >= 2:
+      let sAx = hexCubeToAxial(pathLine[0])
+      let eAx = hexCubeToAxial(pathLine[pathLine.len() - 1])
+      let sPx = hexToPixel(sAx, HexOrientation.PointyTop, hexSize)
+      let ePx = hexToPixel(eAx, HexOrientation.PointyTop, hexSize)
+      let curX = cx0 + sPx.x + (ePx.x - sPx.x) * pulseT
+      let curY = cy0 + sPx.y + (ePx.y - sPx.y) * pulseT
+      drawCircle(curX, curY, 6.0, rgb(250, 204, 21))
+      drawCircleOutline(curX, curY, 10.0, 2.0, rgb(250, 204, 21))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

@@ -1,0 +1,63 @@
+/// # Module: `std/ui/ui_a11y` (`UiA11yMod`)
+///
+/// ## Purpose & Domain Scope
+/// Accessible semantic accessibility tree (`A11yNode`) and pre-order depth-first
+/// keyboard focus traversal.
+module UiA11yMod
+
+import { Rect } from "std/math/geom2d"
+
+pub let A11Y_ROLE_BUTTON: int = 1
+pub let A11Y_ROLE_CHECKBOX: int = 2
+pub let A11Y_ROLE_SLIDER: int = 3
+pub let A11Y_ROLE_TEXT_INPUT: int = 4
+
+pub struct A11yNode(nodeId: int, role: int, label: str, valueText: str, bounds: Rect, isFocusable: bool, isFocused: bool, children: [A11yNode])
+
+pub fn createA11yNode(id: int, role: int, label: str, bounds: Rect): A11yNode:
+  mut emptyChildren: [A11yNode] = []
+  ret A11yNode(
+    nodeId = id,
+    role = role,
+    label = label,
+    valueText = "",
+    bounds = bounds,
+    isFocusable = true,
+    isFocused = false,
+    children = emptyChildren
+  )
+
+fn collectFocusableIds(node: A11yNode, acc: [int]): [int]:
+  mut out = acc
+  if node.isFocusable:
+    out.push(node.nodeId)
+  mut i = 0
+  while i < node.children.len:
+    let ch: A11yNode = node.children[i]
+    out = collectFocusableIds(ch, out)
+    i = i + 1
+  ret out
+
+pub fn findNextFocusableNode(root: A11yNode, currentId: int): int:
+  mut emptyIds: [int] = []
+  let ids = collectFocusableIds(root, emptyIds)
+  if ids.len == 0:
+    ret -1
+  mut i = 0
+  while i < ids.len:
+    if ids[i] == currentId:
+      ret ids[(i + 1) % ids.len]
+    i = i + 1
+  ret ids[0]
+
+pub fn wcagContrastRatioLuma(luma1: float, luma2: float): float:
+  let lighter = if luma1 > luma2: luma1 else: luma2
+  let darker = if luma1 > luma2: luma2 else: luma1
+  ret (lighter + 0.05) / (darker + 0.05)
+
+pub fn cycleFocusIndex(currentIdx: int, count: int, reverse: bool): int:
+  if count <= 0:
+    ret 0
+  if reverse:
+    ret (currentIdx - 1 + count) % count
+  ret (currentIdx + 1) % count

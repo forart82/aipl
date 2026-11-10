@@ -1,0 +1,59 @@
+module Ex224Phys3dRigidBodyInertiaTensorsWindowTest
+
+import {
+  BodyType3D, InertiaTensor3x3, RigidBody3D, rigidBody3dNew,
+  rigidBody3dSetBoxInertia, rigidBody3dSetSphereInertia,
+  rigidBody3dApplyForceAtPoint, rigidBody3dApplyLinearImpulse,
+  rigidBody3dApplyAngularImpulse, rigidBody3dIntegrate
+} from "../../std/phys3d/rigid_body3d"
+import { Vec3 } from "../../std/math/vec_math"
+import { Quat } from "../../std/math/quat"
+import {
+  InertiaTensorScene, createInertiaTensorScene, stepScene, auditRigidBody3dInertiaTensors
+} from "../../examples/ex_224_phys3d_rigid_body_inertia_tensors_window"
+
+pub fn test_phys3d_rigid_body_inertia_tensors(): void:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut b = rigidBody3dNew(1, BodyType3D.Dynamic, Vec3(x = 0.0, y = 0.0, z = 0.0), idRot)
+  rigidBody3dSetBoxInertia(b, 12.0, Vec3(x = 2.0, y = 2.0, z = 2.0))
+  let itBox: InertiaTensor3x3 = b.localInertia
+  assert(itBox.ixx == 8.0, "Box inertia ixx == 8.0")
+  rigidBody3dSetSphereInertia(b, 5.0, 2.0)
+  assert(b.mass == 5.0 and b.invMass == 0.2, "Sphere mass & invMass")
+  rigidBody3dApplyLinearImpulse(b, Vec3(x = 0.0, y = 15.0, z = 0.0))
+  rigidBody3dApplyAngularImpulse(b, Vec3(x = 0.0, y = 8.0, z = 0.0))
+  rigidBody3dApplyForceAtPoint(b, Vec3(x = 5.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 1.0, z = 0.0))
+  rigidBody3dIntegrate(b, Vec3(x = 0.0, y = 0.0, z = 0.0), 1.0)
+  assert(b.position.y == 3.0, "rigidBody3dIntegrate position")
+
+  mut scene: InertiaTensorScene = createInertiaTensorScene()
+  let y0 = scene.sphBody.position.y
+  let rz0 = scene.boxBody.rotation.z
+  stepScene(scene, 0, 0.05)
+  let y1 = scene.sphBody.position.y
+  let rz1 = scene.boxBody.rotation.z
+  assert(y1 != y0 and rz1 != rz0, "t=0 -> t=1 integrates 3D linear position and quaternion orientation")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let y20 = scene.sphBody.position.y
+  let rz20 = scene.boxBody.rotation.z
+  assert(y20 != y1 and rz20 != rz1, "t=1 -> t=20 progresses 3D rigid body states")
+
+  while f <= 100:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let y100 = scene.sphBody.position.y
+  let rz100 = scene.boxBody.rotation.z
+  assert(y100 != y20 or rz100 != rz20, "t=20 -> t=100 continues perpetual 3D rotation and bounce")
+  assert(scene.sphBody.position.x >= -4.0 and scene.sphBody.position.x <= 4.0 and scene.sphBody.position.y >= -3.0, "sphere stays within 3D arena bounds at t=100")
+
+  let audit = auditRigidBody3dInertiaTensors()
+  assert(audit == 11, "3D rigid body inertia tensor audit")
+
+pub fn main(): int:
+  test_phys3d_rigid_body_inertia_tensors()
+  println("PASS: ex_224_phys3d_rigid_body_inertia_tensors_window_test")
+  ret 0

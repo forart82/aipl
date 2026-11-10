@@ -1,0 +1,76 @@
+module tests.functions.phys3d.narrowphase3d_test
+
+import * from "std/phys3d/narrowphase3d"
+import { absFloat, minFloat, clampFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { Quat } from "std/math/quat"
+import { AABB3D } from "std/math/geom3d"
+import { Transform3D } from "std/spatial/continuous_world3d"
+import { Collider3D, ColliderShapeType3D, collider3dComputeAABB } from "std/phys3d/collider3d"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_narrowphase3d_testSphereSphere3D_1(): int:
+  let arg_posA = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_posA = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_radA = 1.0
+  let edge_radA = 0.5
+  let arg_posB = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_posB = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_radB = 1.0
+  let edge_radB = 0.5
+  let resNom = testSphereSphere3D(arg_posA, arg_radA, arg_posB, arg_radB)
+  let resEdge = testSphereSphere3D(edge_posA, edge_radA, edge_posB, edge_radB)
+  assert(resNom.isSome() == true, "testSphereSphere3D nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "testSphereSphere3D boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_narrowphase3d_testSphereBox3D_2(): int:
+  let arg_spherePos = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_spherePos = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let arg_boxPos = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_boxPos = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_boxRot = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0)
+  let edge_boxRot = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0)
+  let arg_boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = testSphereBox3D(arg_spherePos, arg_radius, arg_boxPos, arg_boxRot, arg_boxHalfExtents)
+  let resEdge = testSphereBox3D(edge_spherePos, edge_radius, edge_boxPos, edge_boxRot, edge_boxHalfExtents)
+  assert(resNom.isSome() == true, "testSphereBox3D nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "testSphereBox3D boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_narrowphase3d_testGjkEpa3D_3(): int:
+  let arg_colliderA = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0)), sphereRadius = 2.0, boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0), capsuleRadius = 2.0, capsuleHeight = 2.0, cylinderRadius = 2.0, cylinderHeight = 2.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)
+  let edge_colliderA = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5)), sphereRadius = 1.0, boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5), capsuleRadius = 1.0, capsuleHeight = 1.0, cylinderRadius = 1.0, cylinderHeight = 1.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5), isSensor = false, collisionLayer = 1, collisionMask = 1)
+  let arg_transformA = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let edge_transformA = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5))
+  let arg_colliderB = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0)), sphereRadius = 2.0, boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0), capsuleRadius = 2.0, capsuleHeight = 2.0, cylinderRadius = 2.0, cylinderHeight = 2.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)
+  let edge_colliderB = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5)), sphereRadius = 1.0, boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5), capsuleRadius = 1.0, capsuleHeight = 1.0, cylinderRadius = 1.0, cylinderHeight = 1.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5), isSensor = false, collisionLayer = 1, collisionMask = 1)
+  let arg_transformB = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let edge_transformB = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5))
+  let resNom = testGjkEpa3D(arg_colliderA, arg_transformA, arg_colliderB, arg_transformB)
+  let resEdge = testGjkEpa3D(edge_colliderA, edge_transformA, edge_colliderB, edge_transformB)
+  assert(resNom.isSome() == true, "testGjkEpa3D nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "testGjkEpa3D boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_narrowphase3d_contactManifold3dCache_4(): int:
+  let arg_existing = ContactManifold3D(bodyIdA = 4, bodyIdB = 4, points = [], isColliding = true)
+  let edge_existing = ContactManifold3D(bodyIdA = 1, bodyIdB = 1, points = [], isColliding = false)
+  let arg_newManifold = ContactManifold3D(bodyIdA = 4, bodyIdB = 4, points = [], isColliding = true)
+  let edge_newManifold = ContactManifold3D(bodyIdA = 1, bodyIdB = 1, points = [], isColliding = false)
+  contactManifold3dCache(arg_existing, arg_newManifold)
+  contactManifold3dCache(edge_existing, edge_newManifold)
+  assertEqInt(arg_existing.bodyIdA, 4, "contactManifold3dCache nominal arg_existing.bodyIdA == 4")
+  assertEqInt(edge_existing.bodyIdA, 1, "contactManifold3dCache boundary edge_existing.bodyIdA == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_narrowphase3d_testSphereSphere3D_1(), 0, "test_narrowphase3d_testSphereSphere3D_1")
+  assertEqInt(test_narrowphase3d_testSphereBox3D_2(), 0, "test_narrowphase3d_testSphereBox3D_2")
+  assertEqInt(test_narrowphase3d_testGjkEpa3D_3(), 0, "test_narrowphase3d_testGjkEpa3D_3")
+  assertEqInt(test_narrowphase3d_contactManifold3dCache_4(), 0, "test_narrowphase3d_contactManifold3dCache_4")
+  ret 0

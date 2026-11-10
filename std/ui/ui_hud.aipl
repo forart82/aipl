@@ -1,0 +1,31 @@
+/// # Module: `std/ui/ui_hud` (`UiHudMod`)
+///
+/// ## Purpose & Domain Scope
+/// Generic, 100% lore-free simulation and game HUD components: radial gauges,
+/// segmented status bars, cooldown action slots, entity tether cards, save slots,
+/// and resource rate badges.
+module UiHudMod
+
+import { EPSILON, clampFloat } from "std/math/consts"
+import { ColorRgba8 } from "std/gfx/color"
+
+pub struct RadialGaugeWidget(currentValue: float, maxValue: float, startAngleRad: float, sweepAngleRad: float, innerRadius: float, outerRadius: float, fillColor: ColorRgba8)
+
+pub struct SegmentedBarWidget(totalSegments: int, filledSegments: int, segmentSpacing: float, filledColor: ColorRgba8, emptyColor: ColorRgba8)
+
+pub struct CooldownActionSlot(slotId: int, iconTextureId: int, cooldownPct: float, remainingSeconds: float, isUsable: bool)
+
+pub struct EntityTetherCard(entityName: str, distanceUnits: float, maxLeashUnits: float, isTetherStrained: bool)
+
+pub struct SaveSlotCard(slotIndex: int, title: str, timestampStr: str, playTimeSec: int, isOccupied: bool)
+
+pub struct ResourceRateBadge(resourceName: str, currentAmount: int, netRatePerSec: float)
+
+pub fn computeRadialGaugeSweep(gauge: RadialGaugeWidget): float:
+  if gauge.maxValue <= EPSILON:
+    ret gauge.startAngleRad
+  let ratio = clampFloat(gauge.currentValue / gauge.maxValue, 0.0, 1.0)
+  ret gauge.startAngleRad + ratio * gauge.sweepAngleRad
+
+pub fn evaluateActionSlotUsability(slot: CooldownActionSlot): bool:
+  ret slot.isUsable and slot.cooldownPct <= 0.0 and slot.remainingSeconds <= 0.0

@@ -1,0 +1,57 @@
+// ============================================================================
+// Example 045: HashMap Word Frequency, HashSet & LRU Eviction (CLI)
+// Demonstrates: hashMapNew, hashMapWithCapacity, .insert(), .get(),
+//               .containsKey(), hashSetNew, .add(), lruCacheNew, .put(),
+//               and setFromArray from std/collections/hash_map.
+// ============================================================================
+module Ex045CollectionsHashMapWordFreqCli
+
+import {
+  hashMapNew,
+  hashMapWithCapacity,
+  hashSetNew,
+  lruCacheNew,
+  setFromArray,
+  setContains
+} from "../std/collections/hash_map"
+
+pub fn countWordFrequencyAndUniqueSet(): int:
+  mut freq = hashMapNew[str, int]()
+  let _ = hashMapWithCapacity[str, int](16)
+  mut uniq = hashSetNew[str]()
+  let tokens = ["aipl", "fast", "aipl", "safe", "aipl"]
+  for i in 0..tokens.len:
+    let w = tokens[i]
+    let _ = uniq.add(w)
+    if freq.containsKey(w):
+      let prev = freq.get(w).unwrap()
+      freq.insert(w, prev + 1)
+    else:
+      freq.insert(w, 1)
+  let sArr = setFromArray(["aipl", "fast"])
+  if setContains(sArr, "aipl"):
+    ret freq.get("aipl").unwrap() + uniq.len()
+  ret -1
+
+pub fn verifyLruCacheEvictionPolicy(): int:
+  mut lru = lruCacheNew[str, int](2)
+  lru.put("a", 100)
+  lru.put("b", 200)
+  // Touch "a" so "b" becomes least recently used
+  let aVal = lru.get("a").unwrap()
+  lru.put("c", 3)
+  if lru.get("b").isNone():
+    ret aVal + lru.get("c").unwrap()
+  ret -1
+
+pub fn describeHashTableCollisionPolicy(policyId: int): str:
+  if policyId == 0:
+    ret "HASHMAP:ROBIN_HOOD_OPEN_ADDRESSING"
+  ret "HASHMAP:SEPARATE_CHAINING"
+
+pub fn main(): int:
+  let wfMetric = countWordFrequencyAndUniqueSet()
+  let lruSum = verifyLruCacheEvictionPolicy()
+  println("Word Frequency ('aipl') + Unique Set Count: " + str(wfMetric))
+  println("LRU Cache Eviction Retained Sum: " + str(lruSum) + " (" + describeHashTableCollisionPolicy(0) + ")")
+  ret 0

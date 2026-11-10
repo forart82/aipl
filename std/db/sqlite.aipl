@@ -1,0 +1,791 @@
+/// # Module: `std/db/sqlite` (`DbSqlite`)
+///
+/// ## Purpose & Domain Scope
+/// Embedded relational SQL engine with prepared statements, parameterized queries,
+/// ACID transactions (`BEGIN`, `COMMIT`, `ROLLBACK`), nested savepoints, schema
+/// introspection, and versioned migrations.
+module DbSqlite
+
+pub struct SqliteValue:
+  kind: int = 0
+  intVal: int = 0
+  floatVal: float = 0.0
+  strVal: str = ""
+  isNull: bool = false
+  blobVal: [int] = []
+
+pub struct SqliteRow:
+  columns: [str]
+  values: [SqliteValue]
+
+pub struct SqliteTable:
+  name: str
+  mut columns: [str]
+  mut rows: [SqliteRow]
+
+pub struct SqliteStmt:
+  dbPath: str
+  sql: str
+  mut boundParams: [SqliteValue]
+  mut rows: [SqliteRow]
+  mut cursorIdx: int
+  mut finalized: bool
+  mut tablesRef: [SqliteTable] = []
+
+pub struct SqliteConfig:
+  busyTimeoutMs: int = 5000
+  readOnly: bool = false
+  journalMode: str = "WAL"
+  cacheSize: int = 2000
+
+pub struct SqliteDb:
+  path: str
+  inMemory: bool
+  config: SqliteConfig
+  mut tables: [SqliteTable]
+  mut inTransaction: bool
+  mut savepoints: [str]
+  mut isOpen: bool
+  mut txSnapshot: [SqliteTable] = []
+  mut spSnapshots: [[SqliteTable]] = []
+
+pub struct SqlMigration:
+  version: int
+  name: str
+  upSql: str
+  downSql: str
+
+pub struct SqlMigrationPlan:
+  migrations: [SqlMigration]
+  currentVersion: int
+  targetVersion: int
+
+fn sqlValNull(): SqliteValue:
+  ret SqliteValue(kind: 0, intVal: 0, floatVal: 0.0, strVal: "", isNull: true, blobVal: [])
+
+fn sqlValInt(v: int): SqliteValue:
+  ret SqliteValue(kind: 1, intVal: v, floatVal: float(v), strVal: str(v), isNull: false, blobVal: [])
+
+fn sqlValFloat(v: float): SqliteValue:
+  ret SqliteValue(kind: 2, intVal: int(v), floatVal: v, strVal: str(v), isNull: false, blobVal: [])
+
+fn sqlValStr(v: str): SqliteValue:
+  ret SqliteValue(kind: 3, intVal: parseInt(v), floatVal: 0.0, strVal: v, isNull: false, blobVal: [])
+
+fn sqlValBlob(b: [int]): SqliteValue:
+  ret SqliteValue(kind: 4, intVal: 0, floatVal: 0.0, strVal: "", isNull: false, blobVal: b)
+
+fn cloneSqliteValue(v: SqliteValue): SqliteValue:
+  mut bCopy: [int] = []
+  mut i = 0
+  while i < v.blobVal.len():
+    bCopy.push(v.blobVal[i])
+    i = i + 1
+  ret SqliteValue(kind: v.kind, intVal: v.intVal, floatVal: v.floatVal, strVal: v.strVal, isNull: v.isNull, blobVal: bCopy)
+
+fn cloneTablesList(tables: [SqliteTable]): [SqliteTable]:
+  mut out: [SqliteTable] = []
+  mut t = 0
+  while t < tables.len():
+    let tbl = tables[t]
+    mut cols: [str] = []
+    mut c = 0
+    while c < tbl.columns.len():
+      cols.push(tbl.columns[c])
+      c = c + 1
+    mut rowsCopy: [SqliteRow] = []
+    mut r = 0
+    while r < tbl.rows.len():
+      let row = tbl.rows[r]
+      mut rCols: [str] = []
+      mut rc = 0
+      while rc < row.columns.len():
+        rCols.push(row.columns[rc])
+        rc = rc + 1
+      mut rVals: [SqliteValue] = []
+      mut rv = 0
+      while rv < row.values.len():
+        rVals.push(cloneSqliteValue(row.values[rv]))
+        rv = rv + 1
+      rowsCopy.push(SqliteRow(columns: rCols, values: rVals))
+      r = r + 1
+    out.push(SqliteTable(name: tbl.name, columns: cols, rows: rowsCopy))
+    t = t + 1
+  ret out
+
+fn replaceTablesInPlace(mut target: [SqliteTable], src: [SqliteTable]): void:
+  while target.len() > 0:
+    target.pop()
+  let cloned = cloneTablesList(src)
+  mut i = 0
+  while i < cloned.len():
+    target.push(cloned[i])
+    i = i + 1
+
+fn findTableIdx(tables: [SqliteTable], name: str): int:
+  let clean = name.trim()
+  mut i = 0
+  while i < tables.len():
+    if tables[i].name.equalsIgnoreCase(clean):
+      ret i
+    i = i + 1
+  ret -1
+
+fn findColIdx(cols: [str], colName: str): int:
+  let clean = colName.trim()
+  mut i = 0
+  while i < cols.len():
+    if cols[i].equalsIgnoreCase(clean):
+      ret i
+    i = i + 1
+  ret -1
+
+fn parseSqlLiteralOrParam(raw: str, params: [SqliteValue], mut paramCursor: [int]): SqliteValue:
+  let t = raw.trim()
+  if t == "?":
+    let idx = paramCursor[0]
+    paramCursor[0] = idx + 1
+    if idx < params.len():
+      ret cloneSqliteValue(params[idx])
+    ret sqlValNull()
+  if t.equalsIgnoreCase("NULL"):
+    ret sqlValNull()
+  if (t.startsWith("'") and t.endsWith("'")) or (t.startsWith("\"") and t.endsWith("\"")):
+    ret sqlValStr(t.slice(1, t.len() - 1))
+  if t.contains("."):
+    let fOpt = t.toFloat()
+    if fOpt.isSome():
+      ret sqlValFloat(fOpt.unwrap())
+  let iOpt = t.toInt()
+  if iOpt.isSome():
+    ret sqlValInt(iOpt.unwrap())
+  ret sqlValStr(t)
+
+fn sqlValueMatches(a: SqliteValue, b: SqliteValue): bool:
+  if a.isNull and b.isNull:
+    ret true
+  if a.isNull or b.isNull:
+    ret false
+  if a.kind == 1 and b.kind == 1:
+    ret a.intVal == b.intVal
+  if a.kind == 2 or b.kind == 2:
+    ret a.floatVal == b.floatVal
+  ret a.strVal == b.strVal
+
+fn execOnTables(mut tables: [SqliteTable], sql: str, params: [SqliteValue]): Result[(int, SqliteTable), str]:
+  let trimmed = sql.trim()
+  let upper = trimmed.toUpper()
+  mut paramCursor: [int] = [0]
+
+  if upper.startsWith("CREATE TABLE"):
+    let openParen = trimmed.indexOf("(")
+    let closeParen = trimmed.lastIndexOf(")")
+    if openParen < 0 or closeParen < openParen:
+      ret Err("sqlite: malformed CREATE TABLE statement")
+    mut header = trimmed.slice(12, openParen).trim()
+    if header.toUpper().startsWith("IF NOT EXISTS"):
+      header = header.slice(13, header.len()).trim()
+    let tableName = header.trim()
+    let existingIdx = findTableIdx(tables, tableName)
+    if existingIdx >= 0:
+      ret Ok((0, tables[existingIdx]))
+    let colDefsStr = trimmed.slice(openParen + 1, closeParen)
+    let rawDefs = colDefsStr.split(",")
+    mut cols: [str] = []
+    mut i = 0
+    while i < rawDefs.len():
+      let words = rawDefs[i].trim().words()
+      if words.len() > 0:
+        cols.push(words[0].trim())
+      i = i + 1
+    let newTbl = SqliteTable(name: tableName, columns: cols, rows: [])
+    tables.push(newTbl)
+    ret Ok((0, newTbl))
+
+  if upper.startsWith("DROP TABLE"):
+    mut rest = trimmed.slice(10, trimmed.len()).trim()
+    if rest.toUpper().startsWith("IF EXISTS"):
+      rest = rest.slice(9, rest.len()).trim()
+    let idx = findTableIdx(tables, rest)
+    if idx >= 0:
+      mut k = idx
+      while k + 1 < tables.len():
+        tables[k] = tables[k + 1]
+        k = k + 1
+      let _ = tables.pop()
+    ret Ok((0, SqliteTable(name: rest, columns: [], rows: [])))
+
+  if upper.startsWith("ALTER TABLE"):
+    let words = trimmed.words()
+    if words.len() < 5:
+      ret Err("sqlite: malformed ALTER TABLE statement")
+    let tableName = words[2]
+    let tIdx = findTableIdx(tables, tableName)
+    if tIdx < 0:
+      ret Err("sqlite: table not found: " + tableName)
+    mut tbl = tables[tIdx]
+    let action = words[3].toUpper()
+    mut colWordIdx = 4
+    if words[4].toUpper() == "COLUMN" and words.len() > 5:
+      colWordIdx = 5
+    let colName = words[colWordIdx]
+    if action == "ADD":
+      tbl.columns.push(colName)
+      mut r = 0
+      while r < tbl.rows.len():
+        tbl.rows[r].columns.push(colName)
+        tbl.rows[r].values.push(sqlValNull())
+        r = r + 1
+      tables[tIdx] = tbl
+      ret Ok((0, tbl))
+    if action == "DROP":
+      let cIdx = findColIdx(tbl.columns, colName)
+      if cIdx >= 0:
+        mut kc = cIdx
+        while kc + 1 < tbl.columns.len():
+          tbl.columns[kc] = tbl.columns[kc + 1]
+          kc = kc + 1
+        let _ = tbl.columns.pop()
+        mut r = 0
+        while r < tbl.rows.len():
+          mut kr = cIdx
+          while kr + 1 < tbl.rows[r].columns.len():
+            tbl.rows[r].columns[kr] = tbl.rows[r].columns[kr + 1]
+            tbl.rows[r].values[kr] = tbl.rows[r].values[kr + 1]
+            kr = kr + 1
+          let _ = tbl.rows[r].columns.pop()
+          let _ = tbl.rows[r].values.pop()
+          r = r + 1
+        tables[tIdx] = tbl
+      ret Ok((0, tbl))
+
+  if upper.startsWith("INSERT INTO"):
+    let valuesIdx = upper.indexOf("VALUES")
+    if valuesIdx < 0:
+      ret Err("sqlite: INSERT missing VALUES clause")
+    let targetPart = trimmed.slice(11, valuesIdx).trim()
+    let valPart = trimmed.slice(valuesIdx + 6, trimmed.len()).trim()
+    mut tableName = targetPart
+    mut targetCols: [str] = []
+    let pOpen = targetPart.indexOf("(")
+    let pClose = targetPart.lastIndexOf(")")
+    if pOpen >= 0 and pClose > pOpen:
+      tableName = targetPart.slice(0, pOpen).trim()
+      let rawCols = targetPart.slice(pOpen + 1, pClose).split(",")
+      mut c = 0
+      while c < rawCols.len():
+        targetCols.push(rawCols[c].trim())
+        c = c + 1
+    let tIdx = findTableIdx(tables, tableName)
+    if tIdx < 0:
+      ret Err("sqlite: table not found: " + tableName)
+    mut tbl = tables[tIdx]
+    if targetCols.len() == 0:
+      mut c = 0
+      while c < tbl.columns.len():
+        targetCols.push(tbl.columns[c])
+        c = c + 1
+    let vOpen = valPart.indexOf("(")
+    let vClose = valPart.lastIndexOf(")")
+    if vOpen < 0 or vClose < vOpen:
+      ret Err("sqlite: malformed VALUES tuple")
+    let rawVals = valPart.slice(vOpen + 1, vClose).split(",")
+    mut rowVals: [SqliteValue] = []
+    mut c = 0
+    while c < tbl.columns.len():
+      let colName = tbl.columns[c]
+      let specIdx = findColIdx(targetCols, colName)
+      if specIdx >= 0 and specIdx < rawVals.len():
+        rowVals.push(parseSqlLiteralOrParam(rawVals[specIdx], params, paramCursor))
+      else:
+        rowVals.push(sqlValNull())
+      c = c + 1
+    mut rowCols: [str] = []
+    c = 0
+    while c < tbl.columns.len():
+      rowCols.push(tbl.columns[c])
+      c = c + 1
+    tbl.rows.push(SqliteRow(columns: rowCols, values: rowVals))
+    tables[tIdx] = tbl
+    ret Ok((1, tbl))
+
+  if upper.startsWith("UPDATE "):
+    let setIdx = upper.indexOf(" SET ")
+    if setIdx < 0:
+      ret Err("sqlite: UPDATE missing SET clause")
+    let tableName = trimmed.slice(7, setIdx).trim()
+    let tIdx = findTableIdx(tables, tableName)
+    if tIdx < 0:
+      ret Err("sqlite: table not found: " + tableName)
+    mut tbl = tables[tIdx]
+    let whereIdx = upper.indexOf(" WHERE ")
+    mut setClause = ""
+    mut whereClause = ""
+    if whereIdx >= 0:
+      setClause = trimmed.slice(setIdx + 5, whereIdx).trim()
+      whereClause = trimmed.slice(whereIdx + 7, trimmed.len()).trim()
+    else:
+      setClause = trimmed.slice(setIdx + 5, trimmed.len()).trim()
+    let eqIdx = setClause.indexOf("=")
+    if eqIdx < 0:
+      ret Err("sqlite: malformed SET assignment")
+    let setCol = setClause.slice(0, eqIdx).trim()
+    let setVal = parseSqlLiteralOrParam(setClause.slice(eqIdx + 1, setClause.len()), params, paramCursor)
+    let setColIdx = findColIdx(tbl.columns, setCol)
+    if setColIdx < 0:
+      ret Err("sqlite: unknown column in SET: " + setCol)
+    mut wColIdx = -1
+    mut wVal = sqlValNull()
+    if whereClause.len() > 0:
+      let wEq = whereClause.indexOf("=")
+      if wEq >= 0:
+        let wCol = whereClause.slice(0, wEq).trim()
+        wColIdx = findColIdx(tbl.columns, wCol)
+        wVal = parseSqlLiteralOrParam(whereClause.slice(wEq + 1, whereClause.len()), params, paramCursor)
+    mut updated = 0
+    mut r = 0
+    while r < tbl.rows.len():
+      mut matches = true
+      if wColIdx >= 0:
+        matches = sqlValueMatches(tbl.rows[r].values[wColIdx], wVal)
+      if matches:
+        tbl.rows[r].values[setColIdx] = cloneSqliteValue(setVal)
+        updated = updated + 1
+      r = r + 1
+    tables[tIdx] = tbl
+    ret Ok((updated, tbl))
+
+  if upper.startsWith("DELETE FROM"):
+    let whereIdx = upper.indexOf(" WHERE ")
+    mut tableName = ""
+    mut whereClause = ""
+    if whereIdx >= 0:
+      tableName = trimmed.slice(11, whereIdx).trim()
+      whereClause = trimmed.slice(whereIdx + 7, trimmed.len()).trim()
+    else:
+      tableName = trimmed.slice(11, trimmed.len()).trim()
+    let tIdx = findTableIdx(tables, tableName)
+    if tIdx < 0:
+      ret Err("sqlite: table not found: " + tableName)
+    mut tbl = tables[tIdx]
+    mut wColIdx = -1
+    mut wVal = sqlValNull()
+    if whereClause.len() > 0:
+      let wEq = whereClause.indexOf("=")
+      if wEq >= 0:
+        let wCol = whereClause.slice(0, wEq).trim()
+        wColIdx = findColIdx(tbl.columns, wCol)
+        wVal = parseSqlLiteralOrParam(whereClause.slice(wEq + 1, whereClause.len()), params, paramCursor)
+    mut kept: [SqliteRow] = []
+    mut deleted = 0
+    mut r = 0
+    while r < tbl.rows.len():
+      mut matches = true
+      if wColIdx >= 0:
+        matches = sqlValueMatches(tbl.rows[r].values[wColIdx], wVal)
+      if matches:
+        deleted = deleted + 1
+      else:
+        kept.push(tbl.rows[r])
+      r = r + 1
+    tbl.rows = kept
+    tables[tIdx] = tbl
+    ret Ok((deleted, tbl))
+
+  if upper.startsWith("SELECT "):
+    let fromIdx = upper.indexOf(" FROM ")
+    if fromIdx < 0:
+      ret Err("sqlite: SELECT missing FROM clause")
+    let projStr = trimmed.slice(7, fromIdx).trim()
+    let whereIdx = upper.indexOf(" WHERE ")
+    mut tableName = ""
+    mut whereClause = ""
+    if whereIdx >= 0:
+      tableName = trimmed.slice(fromIdx + 6, whereIdx).trim()
+      whereClause = trimmed.slice(whereIdx + 7, trimmed.len()).trim()
+    else:
+      tableName = trimmed.slice(fromIdx + 6, trimmed.len()).trim()
+    let tIdx = findTableIdx(tables, tableName)
+    if tIdx < 0:
+      ret Err("sqlite: table not found: " + tableName)
+    let tbl = tables[tIdx]
+    mut projCols: [str] = []
+    if projStr == "*":
+      mut c = 0
+      while c < tbl.columns.len():
+        projCols.push(tbl.columns[c])
+        c = c + 1
+    else:
+      let rawProj = projStr.split(",")
+      mut c = 0
+      while c < rawProj.len():
+        projCols.push(rawProj[c].trim())
+        c = c + 1
+    mut wColIdx = -1
+    mut wVal = sqlValNull()
+    if whereClause.len() > 0:
+      let wEq = whereClause.indexOf("=")
+      if wEq >= 0:
+        let wCol = whereClause.slice(0, wEq).trim()
+        wColIdx = findColIdx(tbl.columns, wCol)
+        wVal = parseSqlLiteralOrParam(whereClause.slice(wEq + 1, whereClause.len()), params, paramCursor)
+    mut outRows: [SqliteRow] = []
+    mut r = 0
+    while r < tbl.rows.len():
+      mut matches = true
+      if wColIdx >= 0:
+        matches = sqlValueMatches(tbl.rows[r].values[wColIdx], wVal)
+      if matches:
+        mut pVals: [SqliteValue] = []
+        mut pCols: [str] = []
+        mut p = 0
+        while p < projCols.len():
+          let cIdx = findColIdx(tbl.columns, projCols[p])
+          pCols.push(projCols[p])
+          if cIdx >= 0:
+            pVals.push(cloneSqliteValue(tbl.rows[r].values[cIdx]))
+          else:
+            pVals.push(sqlValNull())
+          p = p + 1
+        outRows.push(SqliteRow(columns: pCols, values: pVals))
+      r = r + 1
+    let resTbl = SqliteTable(name: tableName, columns: projCols, rows: outRows)
+    ret Ok((outRows.len(), resTbl))
+
+  ret Err("sqlite: unsupported SQL statement: " + trimmed)
+
+pub fn sqliteOpen(path: str, config: SqliteConfig): Result[SqliteDb, str]:
+  if path.trim().len() == 0:
+    ret Err("sqliteOpen: empty path")
+  let inMem = path == ":memory:"
+  ret Ok(SqliteDb(
+    path: path,
+    inMemory: inMem,
+    config: config,
+    tables: [],
+    inTransaction: false,
+    savepoints: [],
+    isOpen: true,
+    txSnapshot: [],
+    spSnapshots: []
+  ))
+
+pub fn sqliteOpenInMemory(): SqliteDb:
+  let cfg = SqliteConfig(busyTimeoutMs: 5000, readOnly: false, journalMode: "MEMORY", cacheSize: 2000)
+  ret SqliteDb(
+    path: ":memory:",
+    inMemory: true,
+    config: cfg,
+    tables: [],
+    inTransaction: false,
+    savepoints: [],
+    isOpen: true,
+    txSnapshot: [],
+    spSnapshots: []
+  )
+
+pub fn sqliteClose(mut db: SqliteDb): bool:
+  if not db.isOpen:
+    ret false
+  db.isOpen = false
+  db.inTransaction = false
+  ret true
+
+pub fn sqliteExec(mut db: SqliteDb, sql: str): Result[int, str]:
+  if not db.isOpen:
+    ret Err("sqliteExec: database is closed")
+  let res = execOnTables(db.tables, sql, [])
+  if res.isOk():
+    let pair = res.unwrap()
+    ret Ok(pair[0])
+  ret Err(res.unwrapErr())
+
+pub fn sqliteQuery(mut db: SqliteDb, sql: str): Result[SqliteTable, str]:
+  if not db.isOpen:
+    ret Err("sqliteQuery: database is closed")
+  let res = execOnTables(db.tables, sql, [])
+  if res.isOk():
+    let pair = res.unwrap()
+    ret Ok(pair[1])
+  ret Err(res.unwrapErr())
+
+pub fn sqlitePrepare(db: SqliteDb, sql: str): Result[SqliteStmt, str]:
+  if not db.isOpen:
+    ret Err("sqlitePrepare: database is closed")
+  if sql.trim().len() == 0:
+    ret Err("sqlitePrepare: empty SQL query")
+  ret Ok(SqliteStmt(
+    dbPath: db.path,
+    sql: sql,
+    boundParams: [],
+    rows: [],
+    cursorIdx: -1,
+    finalized: false,
+    tablesRef: db.tables
+  ))
+
+fn ensureParamSlot(mut stmt: SqliteStmt, idx: int): void:
+  while stmt.boundParams.len() < idx:
+    stmt.boundParams.push(sqlValNull())
+
+pub fn stmtBindInt(mut stmt: SqliteStmt, idx: int, val: int): SqliteStmt:
+  if idx >= 1:
+    ensureParamSlot(stmt, idx)
+    stmt.boundParams[idx - 1] = sqlValInt(val)
+  ret stmt
+
+pub fn stmtBindFloat(mut stmt: SqliteStmt, idx: int, val: float): SqliteStmt:
+  if idx >= 1:
+    ensureParamSlot(stmt, idx)
+    stmt.boundParams[idx - 1] = sqlValFloat(val)
+  ret stmt
+
+pub fn stmtBindStr(mut stmt: SqliteStmt, idx: int, val: str): SqliteStmt:
+  if idx >= 1:
+    ensureParamSlot(stmt, idx)
+    stmt.boundParams[idx - 1] = sqlValStr(val)
+  ret stmt
+
+pub fn stmtBindBlob(mut stmt: SqliteStmt, idx: int, b: [int]): SqliteStmt:
+  if idx >= 1:
+    ensureParamSlot(stmt, idx)
+    stmt.boundParams[idx - 1] = sqlValBlob(b)
+  ret stmt
+
+pub fn stmtBindNull(mut stmt: SqliteStmt, idx: int): SqliteStmt:
+  if idx >= 1:
+    ensureParamSlot(stmt, idx)
+    stmt.boundParams[idx - 1] = sqlValNull()
+  ret stmt
+
+pub fn stmtStep(mut stmt: SqliteStmt): bool:
+  if stmt.finalized:
+    ret false
+  let upper = stmt.sql.trim().toUpper()
+  if not upper.startsWith("SELECT "):
+    if stmt.cursorIdx < 0:
+      stmt.cursorIdx = 0
+      let _ = execOnTables(stmt.tablesRef, stmt.sql, stmt.boundParams)
+    ret false
+  if stmt.cursorIdx < 0:
+    let res = execOnTables(stmt.tablesRef, stmt.sql, stmt.boundParams)
+    if res.isOk():
+      let pair = res.unwrap()
+      let tbl = pair[1]
+      stmt.rows = tbl.rows
+      stmt.cursorIdx = 0
+    else:
+      stmt.rows = []
+      stmt.cursorIdx = 0
+  else:
+    stmt.cursorIdx = stmt.cursorIdx + 1
+  ret stmt.cursorIdx >= 0 and stmt.cursorIdx < stmt.rows.len()
+
+pub fn stmtColInt(stmt: SqliteStmt, colIdx: int): int:
+  if stmt.cursorIdx >= 0 and stmt.cursorIdx < stmt.rows.len():
+    let r = stmt.rows[stmt.cursorIdx]
+    if colIdx >= 0 and colIdx < r.values.len():
+      ret r.values[colIdx].intVal
+  ret 0
+
+pub fn stmtColFloat(stmt: SqliteStmt, colIdx: int): float:
+  if stmt.cursorIdx >= 0 and stmt.cursorIdx < stmt.rows.len():
+    let r = stmt.rows[stmt.cursorIdx]
+    if colIdx >= 0 and colIdx < r.values.len():
+      ret r.values[colIdx].floatVal
+  ret 0.0
+
+pub fn stmtColStr(stmt: SqliteStmt, colIdx: int): str:
+  if stmt.cursorIdx >= 0 and stmt.cursorIdx < stmt.rows.len():
+    let r = stmt.rows[stmt.cursorIdx]
+    if colIdx >= 0 and colIdx < r.values.len():
+      ret r.values[colIdx].strVal
+  ret ""
+
+pub fn stmtColBytes(stmt: SqliteStmt, colIdx: int): [int]:
+  if stmt.cursorIdx >= 0 and stmt.cursorIdx < stmt.rows.len():
+    let r = stmt.rows[stmt.cursorIdx]
+    if colIdx >= 0 and colIdx < r.values.len():
+      ret r.values[colIdx].blobVal
+  ret []
+
+pub fn stmtColIsNull(stmt: SqliteStmt, colIdx: int): bool:
+  if stmt.cursorIdx >= 0 and stmt.cursorIdx < stmt.rows.len():
+    let r = stmt.rows[stmt.cursorIdx]
+    if colIdx >= 0 and colIdx < r.values.len():
+      ret r.values[colIdx].isNull
+  ret true
+
+pub fn stmtColName(stmt: SqliteStmt, colIdx: int): str:
+  if stmt.cursorIdx >= 0 and stmt.cursorIdx < stmt.rows.len():
+    let r = stmt.rows[stmt.cursorIdx]
+    if colIdx >= 0 and colIdx < r.columns.len():
+      ret r.columns[colIdx]
+  ret ""
+
+pub fn stmtColCount(stmt: SqliteStmt): int:
+  if stmt.cursorIdx >= 0 and stmt.cursorIdx < stmt.rows.len():
+    ret stmt.rows[stmt.cursorIdx].columns.len()
+  ret 0
+
+pub fn stmtReset(mut stmt: SqliteStmt): SqliteStmt:
+  stmt.cursorIdx = -1
+  stmt.rows = []
+  ret stmt
+
+pub fn stmtFinalize(mut stmt: SqliteStmt): bool:
+  if stmt.finalized:
+    ret false
+  stmt.finalized = true
+  stmt.rows = []
+  stmt.boundParams = []
+  ret true
+
+pub fn sqliteBegin(mut db: SqliteDb): Result[bool, str]:
+  if db.inTransaction:
+    ret Err("sqliteBegin: transaction already active")
+  db.inTransaction = true
+  db.txSnapshot = cloneTablesList(db.tables)
+  db.savepoints = []
+  db.spSnapshots = []
+  ret Ok(true)
+
+pub fn sqliteCommit(mut db: SqliteDb): Result[bool, str]:
+  if not db.inTransaction:
+    ret Err("sqliteCommit: no active transaction")
+  db.inTransaction = false
+  db.txSnapshot = []
+  db.savepoints = []
+  db.spSnapshots = []
+  ret Ok(true)
+
+pub fn sqliteRollback(mut db: SqliteDb): Result[bool, str]:
+  if not db.inTransaction:
+    ret Err("sqliteRollback: no active transaction")
+  replaceTablesInPlace(db.tables, db.txSnapshot)
+  db.inTransaction = false
+  db.txSnapshot = []
+  db.savepoints = []
+  db.spSnapshots = []
+  ret Ok(true)
+
+pub fn sqliteSavepoint(mut db: SqliteDb, name: str): Result[bool, str]:
+  if not db.inTransaction:
+    let _ = sqliteBegin(db)
+  db.savepoints.push(name)
+  db.spSnapshots.push(cloneTablesList(db.tables))
+  ret Ok(true)
+
+pub fn sqliteRollbackTo(mut db: SqliteDb, name: str): Result[bool, str]:
+  mut idx = db.savepoints.len() - 1
+  while idx >= 0:
+    if db.savepoints[idx] == name:
+      replaceTablesInPlace(db.tables, db.spSnapshots[idx])
+      while db.savepoints.len() > idx + 1:
+        db.savepoints.pop()
+        db.spSnapshots.pop()
+      ret Ok(true)
+    idx = idx - 1
+  ret Err("sqliteRollbackTo: savepoint not found: " + name)
+
+pub fn sqliteReleaseSavepoint(mut db: SqliteDb, name: str): Result[bool, str]:
+  mut idx = db.savepoints.len() - 1
+  while idx >= 0:
+    if db.savepoints[idx] == name:
+      while db.savepoints.len() > idx:
+        db.savepoints.pop()
+        db.spSnapshots.pop()
+      ret Ok(true)
+    idx = idx - 1
+  ret Err("sqliteReleaseSavepoint: savepoint not found: " + name)
+
+pub fn sqliteTableExists(db: SqliteDb, tableName: str): bool:
+  ret findTableIdx(db.tables, tableName) >= 0
+
+pub fn sqliteGetSchema(db: SqliteDb, tableName: str): [str]:
+  let idx = findTableIdx(db.tables, tableName)
+  if idx < 0:
+    ret []
+  ret db.tables[idx].columns
+
+pub fn sqliteCreateMigrationPlan(migrations: [SqlMigration], currentVer: int, targetVer: int): SqlMigrationPlan:
+  mut selected: [SqlMigration] = []
+  if targetVer >= currentVer:
+    mut v = currentVer + 1
+    while v <= targetVer:
+      mut i = 0
+      while i < migrations.len():
+        if migrations[i].version == v:
+          selected.push(migrations[i])
+        i = i + 1
+      v = v + 1
+  else:
+    mut v = currentVer
+    while v > targetVer:
+      mut i = 0
+      while i < migrations.len():
+        if migrations[i].version == v:
+          selected.push(migrations[i])
+        i = i + 1
+      v = v - 1
+  ret SqlMigrationPlan(migrations: selected, currentVersion: currentVer, targetVersion: targetVer)
+
+pub fn sqliteApplyMigrations(mut db: SqliteDb, plan: SqlMigrationPlan): Result[int, str]:
+  let _ = sqliteBegin(db)
+  mut applied = 0
+  let forward = plan.targetVersion >= plan.currentVersion
+  mut i = 0
+  while i < plan.migrations.len():
+    let m = plan.migrations[i]
+    let sql = if forward: m.upSql else: m.downSql
+    let execRes = sqliteExec(db, sql)
+    if execRes.isOk():
+      applied = applied + 1
+    else:
+      let _ = sqliteRollback(db)
+      ret Err(execRes.unwrapErr())
+    i = i + 1
+  let _ = sqliteCommit(db)
+  ret Ok(applied)
+
+pub fn sqlRowGet(row: SqliteRow, colName: str): SqliteValue:
+  let idx = findColIdx(row.columns, colName)
+  if idx >= 0 and idx < row.values.len():
+    ret row.values[idx]
+  ret sqlValNull()
+
+pub fn sqlRowCount(tbl: SqliteTable): int:
+  ret tbl.rows.len()
+
+pub fn sqlTableNew(name: str, cols: [str]): SqliteTable:
+  ret SqliteTable(name: name, columns: cols, rows: [])
+
+pub fn sqlTableFilter(tbl: SqliteTable, colName: str, expectedVal: str): SqliteTable:
+  let cIdx = findColIdx(tbl.columns, colName)
+  if cIdx < 0:
+    ret SqliteTable(name: tbl.name, columns: tbl.columns, rows: [])
+  mut outRows: [SqliteRow] = []
+  mut r = 0
+  while r < tbl.rows.len():
+    if tbl.rows[r].values[cIdx].strVal == expectedVal:
+      outRows.push(tbl.rows[r])
+    r = r + 1
+  ret SqliteTable(name: tbl.name, columns: tbl.columns, rows: outRows)
+
+pub fn sqlTableProject(tbl: SqliteTable, cols: [str]): SqliteTable:
+  mut outRows: [SqliteRow] = []
+  mut r = 0
+  while r < tbl.rows.len():
+    let row = tbl.rows[r]
+    mut pVals: [SqliteValue] = []
+    mut c = 0
+    while c < cols.len():
+      let idx = findColIdx(row.columns, cols[c])
+      if idx >= 0 and idx < row.values.len():
+        pVals.push(row.values[idx])
+      else:
+        pVals.push(sqlValNull())
+      c = c + 1
+    outRows.push(SqliteRow(columns: cols, values: pVals))
+    r = r + 1
+  ret SqliteTable(name: tbl.name, columns: cols, rows: outRows)

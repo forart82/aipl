@@ -1,0 +1,149 @@
+module Ex179Gfx3dRigging3dSkeletalSkinningWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import { Mat4 } from "../std/math/mat"
+import { Quat } from "../std/math/quat"
+import {
+  Bone3D, Skeleton3D, updateSkeletonHierarchy,
+  computeLinearSkinningPalette, matrixToDualQuat, blendDualQuaternions
+} from "../std/gfx3d/rigging3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawEllipse, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepRigging3dSway(frame: int): float:
+  ret sin(float(frame) * 0.059) * 1.15
+
+pub fn buildRigging3dSkinningAudit(): int:
+  let idMat = Mat4.identity()
+  let bRoot = Bone3D(
+    name = "pelvis",
+    parentIdx = -1,
+    localPos = Vec3(x = 0.0, y = 2.0, z = 0.0),
+    localRot = Quat.identity(),
+    localScale = Vec3(x = 1.0, y = 1.0, z = 1.0),
+    invBindMatrix = idMat,
+    worldMatrix = idMat
+  )
+  let bSpine = Bone3D(
+    name = "spine",
+    parentIdx = 0,
+    localPos = Vec3(x = 0.0, y = 3.0, z = 0.0),
+    localRot = Quat.identity(),
+    localScale = Vec3(x = 1.0, y = 1.0, z = 1.0),
+    invBindMatrix = idMat,
+    worldMatrix = idMat
+  )
+  let skel = updateSkeletonHierarchy(Skeleton3D(bones = [bRoot, bSpine]))
+  let palette = computeLinearSkinningPalette(skel)
+  let dq0 = matrixToDualQuat(Mat4.translation(0.0, 0.0, 0.0))
+  let dq1 = matrixToDualQuat(Mat4.translation(0.0, 4.0, 0.0))
+  let dqMid = blendDualQuaternions(dq0, dq1, 0.5)
+  ret palette.len() + int(palette[1].m13) + int(dqMid.realQuat.w * 100.0 + 0.5)
+
+pub fn main(): int:
+  let idMat = Mat4.identity()
+  let bPelvis = Bone3D(name = "pelvis", parentIdx = -1, localPos = Vec3(x = 0.0, y = 1.6, z = 0.0), localRot = Quat.identity(), localScale = Vec3(x = 1.0, y = 1.0, z = 1.0), invBindMatrix = idMat, worldMatrix = idMat)
+  let audit = buildRigging3dSkinningAudit()
+
+  initWindow(1280, 720, "AIPL ex_179: 3D Skeletal Rigging, Skinning Palette & Dual Quaternions")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let swayM = stepRigging3dSway(frame)
+    let bSpine = Bone3D(name = "spine", parentIdx = 0, localPos = Vec3(x = swayM * 0.9, y = 2.4, z = 0.0), localRot = Quat.identity(), localScale = Vec3(x = 1.0, y = 1.0, z = 1.0), invBindMatrix = idMat, worldMatrix = idMat)
+    let bNeck = Bone3D(name = "neck", parentIdx = 1, localPos = Vec3(x = swayM * 1.1, y = 2.1, z = 0.0), localRot = Quat.identity(), localScale = Vec3(x = 1.0, y = 1.0, z = 1.0), invBindMatrix = idMat, worldMatrix = idMat)
+    let bHead = Bone3D(name = "head", parentIdx = 2, localPos = Vec3(x = swayM * 0.8, y = 1.5, z = 0.0), localRot = Quat.identity(), localScale = Vec3(x = 1.0, y = 1.0, z = 1.0), invBindMatrix = idMat, worldMatrix = idMat)
+    let skel = updateSkeletonHierarchy(Skeleton3D(bones = [bPelvis, bSpine, bNeck, bHead]))
+    let palette = computeLinearSkinningPalette(skel)
+
+    let twistPhase = 0.5 + 0.48 * sin(float(frame) * 0.053)
+    let twistDeg = int(twistPhase * 176.0)
+    let lbsMidRadius = 42.0 * (1.0 - twistPhase * 0.85)
+    let dq0 = matrixToDualQuat(palette[0])
+    let dq2 = matrixToDualQuat(palette[2])
+    let dqMid = blendDualQuaternions(dq0, dq2, twistPhase)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_179: 3D SKELETAL RIGGING, SKINNING PALETTE & DUAL QUATERNION BLENDING", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/rigging3d: updateSkeletonHierarchy | computeLinearSkinningPalette | blendDualQuaternions | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Hierarchical Bone Chain (Pelvis -> Spine -> Neck -> Head) + Skinned Envelope
+    drawRect(40.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 580.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("3D SKELETON HIERARCHY & SKINNED ENVELOPE (" + str(palette.len()) + " Bones)", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    let px0 = 260.0 + palette[0].m03 * 26.0
+    let py0 = 515.0 - palette[0].m13 * 42.0
+    let px1 = 260.0 + palette[1].m03 * 26.0
+    let py1 = 515.0 - palette[1].m13 * 42.0
+    let px2 = 260.0 + palette[2].m03 * 26.0
+    let py2 = 515.0 - palette[2].m13 * 42.0
+    let px3 = 260.0 + palette[3].m03 * 26.0
+    let py3 = 515.0 - palette[3].m13 * 42.0
+
+    // Skinned mesh boundary hull ribs around the 4-bone chain
+    drawLine(px0 - 28.0, py0, px1 - 24.0, py1, rgb(71, 85, 105), 2.0)
+    drawLine(px1 - 24.0, py1, px2 - 20.0, py2, rgb(71, 85, 105), 2.0)
+    drawLine(px2 - 20.0, py2, px3 - 14.0, py3, rgb(71, 85, 105), 2.0)
+    drawLine(px0 + 28.0, py0, px1 + 24.0, py1, rgb(71, 85, 105), 2.0)
+    drawLine(px1 + 24.0, py1, px2 + 20.0, py2, rgb(71, 85, 105), 2.0)
+    drawLine(px2 + 20.0, py2, px3 + 14.0, py3, rgb(71, 85, 105), 2.0)
+    drawLine(px0 - 28.0, py0, px0 + 28.0, py0, rgb(51, 65, 85), 1.5)
+    drawLine(px1 - 24.0, py1, px1 + 24.0, py1, rgb(51, 65, 85), 1.5)
+    drawLine(px2 - 20.0, py2, px2 + 20.0, py2, rgb(51, 65, 85), 1.5)
+    drawLine(px3 - 14.0, py3, px3 + 14.0, py3, rgb(51, 65, 85), 1.5)
+
+    drawLine(px0, py0, px1, py1, rgb(56, 189, 248), 6.0)
+    drawLine(px1, py1, px2, py2, rgb(34, 197, 94), 5.0)
+    drawLine(px2, py2, px3, py3, rgb(168, 85, 247), 4.5)
+    drawCircle(px0, py0, 11.0, rgb(250, 204, 21))
+    drawCircle(px1, py1, 10.0, rgb(56, 189, 248))
+    drawCircle(px2, py2, 9.0, rgb(34, 197, 94))
+    drawCircle(px3, py3, 8.0, rgb(244, 63, 94))
+
+    drawText("Bone[0] pelvis (X=" + str(int(palette[0].m03 * 10.0)) + "dm, Y=" + str(palette[0].m13) + "m)", px0 + 34.0, py0 - 8.0, 14.0, rgb(253, 224, 71))
+    drawText("Bone[1] spine  (X=" + str(int(palette[1].m03 * 10.0)) + "dm, Y=" + str(palette[1].m13) + "m)", px1 + 30.0, py1 - 8.0, 14.0, rgb(125, 211, 252))
+    drawText("Bone[2] neck   (X=" + str(int(palette[2].m03 * 10.0)) + "dm, Y=" + str(palette[2].m13) + "m)", px2 + 26.0, py2 - 8.0, 14.0, rgb(134, 239, 172))
+    drawText("Bone[3] head   (X=" + str(int(palette[3].m03 * 10.0)) + "dm, Y=" + str(palette[3].m13) + "m)", px3 + 22.0, py3 - 8.0, 14.0, rgb(253, 164, 175))
+
+    // Right Panel: Linear Blend Skinning (Candy-Wrapper Collapse) vs Dual Quaternion Skinning
+    drawRect(640.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(640.0, 96.0, 600.0, 410.0, 2.0, rgb(34, 197, 94))
+    drawText("LBS (CANDY-WRAPPER COLLAPSE) VS DQS (Twist=" + str(twistDeg) + " deg)", 660.0, 118.0, 16.0, rgb(134, 239, 172))
+
+    // LBS Cylinder Pinch Diagram (Animated Midpoint Collapse)
+    drawText("1. Linear Blend Skinning (Midpoint Radius=" + str(int(lbsMidRadius)) + " px - Collapses!):", 665.0, 162.0, 14.0, rgb(253, 164, 175))
+    drawEllipse(740.0, 235.0, 18.0, 42.0, rgb(244, 63, 94))
+    drawEllipse(930.0, 235.0, 12.0, lbsMidRadius, rgb(250, 204, 21))
+    drawEllipse(1120.0, 235.0, 18.0, 42.0, rgb(244, 63, 94))
+    drawLine(740.0, 193.0, 930.0, 235.0 - lbsMidRadius, rgb(244, 63, 94), 2.5)
+    drawLine(930.0, 235.0 - lbsMidRadius, 1120.0, 193.0, rgb(244, 63, 94), 2.5)
+    drawLine(740.0, 277.0, 930.0, 235.0 + lbsMidRadius, rgb(244, 63, 94), 2.5)
+    drawLine(930.0, 235.0 + lbsMidRadius, 1120.0, 277.0, rgb(244, 63, 94), 2.5)
+
+    // DQS Volume Preserving Cylinder
+    let dqsMidX = 740.0 + twistPhase * 380.0
+    drawText("2. Dual Quaternion Skinning (Antipodal Shortest-Path Volume=42 px):", 665.0, 322.0, 14.0, rgb(134, 239, 172))
+    drawEllipse(740.0, 395.0, 18.0, 42.0, rgb(34, 197, 94))
+    drawEllipse(dqsMidX, 395.0, 18.0, 42.0, rgb(56, 189, 248))
+    drawEllipse(1120.0, 395.0, 18.0, 42.0, rgb(34, 197, 94))
+    drawLine(740.0, 353.0, 1120.0, 353.0, rgb(34, 197, 94), 2.5)
+    drawLine(740.0, 437.0, 1120.0, 437.0, rgb(34, 197, 94), 2.5)
+    drawText("DQS Blend w=" + str(twistPhase), dqsMidX - 45.0, 448.0, 13.0, rgb(125, 211, 252))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("RIGGING & SKINNING PALETTE TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Skinning Formula: M_skin[i] = M_world[i] * M_invBind[i] | Accumulated Neck Height = " + str(palette[2].m13) + " m", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("DualQuaternion Real Part Normalized w=" + str(dqMid.realQuat.w) + " | dual.x=" + str(dqMid.dualQuat.x) + " | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

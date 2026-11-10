@@ -1,0 +1,54 @@
+// ============================================================================
+// Example 102: Inode Stat Metadata, Octal Permissions & Disk Usage (CLI)
+// Demonstrates: fsPermsFromOctal, fsPermsToOctal, fsPermsIsReadOnly,
+//               fsMetaNewFile, fsMetaNewDir, fsMetaNewSymlink, fsMetaIsFile,
+//               fsMetaIsDir, and fsMetaIsSymlink from std/fs.
+// ============================================================================
+module Ex102FsMetadataStatDuCli
+
+import {
+  fsPermsFromOctal,
+  fsPermsToOctal,
+  fsPermsIsReadOnly,
+  fsMetaNewFile,
+  fsMetaNewDir,
+  fsMetaNewSymlink,
+  fsMetaIsFile,
+  fsMetaIsDir,
+  fsMetaIsSymlink
+} from "../std/fs"
+
+// Decodes 0o644 (420) octal permissions and inspects a file's stat metadata byte size.
+pub fn evaluateOctalPermsAndFileSizeSum(): int:
+  let p644 = fsPermsFromOctal(420)
+  assert(p644.readable and p644.writable and not p644.executable, "0o644 is rw-")
+  let octalRoundTrip = fsPermsToOctal(p644)
+
+  let fMeta = fsMetaNewFile("/app/config.json", 2048, 1700000000000)
+  assert(fsMetaIsFile(fMeta) and not fsMetaIsDir(fMeta), "config.json is a regular file")
+  ret octalRoundTrip + fMeta.sizeBytes
+
+// Verifies read-only 0o444 (292) permissions and directory/symlink stat metadata predicates.
+pub fn verifyMetadataNodeTypesAndReadOnly(): int:
+  let p644 = fsPermsFromOctal(420)
+  let p444 = fsPermsFromOctal(292)
+  let roCheck = not fsPermsIsReadOnly(p644) and fsPermsIsReadOnly(p444)
+
+  let dMeta = fsMetaNewDir("/app", 1700000000000)
+  let sMeta = fsMetaNewSymlink("/app/current", "/app/releases/v1", 1700000000000)
+  if roCheck and fsMetaIsDir(dMeta) and fsMetaIsSymlink(sMeta):
+    ret 1
+  ret 0
+
+// Returns a canonical label for a POSIX octal permission mask.
+pub fn describeOctalPermissionMask(octalMode: int): str:
+  if octalMode == 292:
+    ret "STAT:MODE_0444_IMMUTABLE_RO"
+  ret "STAT:MODE_0644_READ_WRITE"
+
+pub fn main(): int:
+  let statMetric = evaluateOctalPermsAndFileSizeSum()
+  let metaOk = verifyMetadataNodeTypesAndReadOnly()
+  let mask = describeOctalPermissionMask(292)
+  println("ex_102_fs_metadata_stat_du_cli: statMetric=" + str(statMetric) + " metaOk=" + str(metaOk) + " mask=" + mask)
+  ret 0

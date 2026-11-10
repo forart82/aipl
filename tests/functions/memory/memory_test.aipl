@@ -1,0 +1,57 @@
+// ============================================================================
+// Step 4.7: Memory Scope Verification & Allocation Invariants Test
+// Target: tests/functions/memory/memory_test.aipl
+// ============================================================================
+module MemoryTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  sysPageAlloc,
+  sysPageFree,
+  sysPtrAlloc,
+  sysPtrFree,
+  sysPtrSet,
+  sysPtrReadU8
+} from "../../../std/sys/sys_mem.aipl"
+
+import {
+  gpaInit,
+  gpaAlloc,
+  gpaFree,
+  gpaValidatePtr,
+  gpaReportLeaks
+} from "../../../std/alloc/gpa.aipl"
+
+import {
+  pageAlignUp,
+  pageCountForBytes
+} from "../../../std/alloc/page_alloc.aipl"
+
+pub fn test_memory_page_alignment_and_canaries(): int:
+  assertEqInt(pageAlignUp(1), 4096, "4096 alignment")
+  assertEqInt(pageCountForBytes(8192), 2, "2 pages for 8192")
+
+  let page = sysPageAlloc(4096)
+  assert(page > 0, "page allocated")
+  assertEqInt(sysPageFree(page, 4096), 0, "page freed")
+
+  gpaInit()
+  let block = gpaAlloc(32, 7)
+  assert(block > 0, "gpa block > 0")
+  assert(gpaValidatePtr(block) == true, "block valid")
+
+  sysPtrSet(block, 0xAA, 32)
+  assertEqInt(sysPtrReadU8(block), 0xAA, "written pattern preserved")
+
+  assert(gpaFree(block) == true, "block freed")
+  assertEqInt(gpaReportLeaks(), 0, "0 leaks")
+  ret 0
+
+pub fn main(): int:
+  test_memory_page_alignment_and_canaries()
+  println("PASS: memory_test")
+  ret 0

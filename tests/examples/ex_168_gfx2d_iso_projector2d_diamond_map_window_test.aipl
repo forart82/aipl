@@ -1,0 +1,43 @@
+module Ex168Gfx2dIsoProjector2dDiamondMapWindowTest
+
+import {
+  buildIsoProjectorDiamondAudit,
+  stepIsoActiveTile
+} from "../../examples/ex_168_gfx2d_iso_projector2d_diamond_map_window"
+import {
+  IsoTileCoord, PainterSortItem, createIsoProjector2D,
+  isoGridToScreen, screenToIsoGrid, computeTopologicalDepthSortKey,
+  sortEntitiesByTopologicalDepth
+} from "../../std/gfx2d/iso_projector2d"
+
+pub fn test_gfx2d_iso_projector2d_diamond_map(): void:
+  let proj = createIsoProjector2D(64.0, 32.0, 16.0)
+  let tile = IsoTileCoord(col = 3, row = 2, elevation = 0.0)
+  let scr = isoGridToScreen(proj, tile)
+  assert(scr.x == 32.0 and scr.y == 80.0, "isoGridToScreen(3,2,0) == (32, 80)")
+
+  let inv = screenToIsoGrid(proj, scr)
+  assert(inv.col == 3 and inv.row == 2, "screenToIsoGrid inverts (32, 80) back to (3, 2)")
+
+  let kNear = computeTopologicalDepthSortKey(1, 1, 0.0)
+  let kFar = computeTopologicalDepthSortKey(4, 3, 1.0)
+  assert(kNear < kFar, "Topological depth sort key orders back-to-front")
+
+  let sorted = sortEntitiesByTopologicalDepth([
+    PainterSortItem(entityId = 10, sortKey = 9.0, drawOrder = 0),
+    PainterSortItem(entityId = 20, sortKey = 2.0, drawOrder = 0),
+    PainterSortItem(entityId = 30, sortKey = 5.0, drawOrder = 0)
+  ])
+  assert(sorted[0].entityId == 20 and sorted[2].entityId == 10, "Painter sort orders ascending sortKey")
+
+  let t0 = stepIsoActiveTile(0)
+  let t1 = stepIsoActiveTile(1)
+  let t20 = stepIsoActiveTile(20)
+  let t100 = stepIsoActiveTile(100)
+  assert(t0.col != t1.col and t1.col != t20.col and t20.col != t100.col, "stepIsoActiveTile progresses across t=0, t=1, t=20, t=100")
+  assert(buildIsoProjectorDiamondAudit() == 135, "buildIsoProjectorDiamondAudit returns 32 + 80 + 3 + 20 == 135")
+
+pub fn main(): int:
+  test_gfx2d_iso_projector2d_diamond_map()
+  println("PASS: ex_168_gfx2d_iso_projector2d_diamond_map_window_test")
+  ret 0

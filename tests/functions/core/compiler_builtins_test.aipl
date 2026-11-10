@@ -1,0 +1,192 @@
+// ============================================================================
+// Step 2.1: Exhaustive Per-Function Unit Tests for Compiler Built-ins (32)
+// Target: tests/functions/core/compiler_builtins_test.aipl
+// ============================================================================
+module CompilerBuiltinsTest
+
+import {
+  assert,
+  assertEqInt,
+  assertEqStr,
+  assertApproxEq
+} from "../../../std/prelude.aipl"
+
+pub fn test_int_conversion(): int:
+  assertEqInt(int(3.99), 3, "int(3.99) truncates to 3")
+  assertEqInt(int(-3.99), -3, "int(-3.99) truncates to -3")
+  assertEqInt(int("42"), 42, "int('42') parses to 42")
+  assertEqInt(int("-1024"), -1024, "int('-1024') parses to -1024")
+  assertEqInt(int(true), 1, "int(true) is 1")
+  assertEqInt(int(false), 0, "int(false) is 0")
+  ret 0
+
+pub fn test_float_conversion(): int:
+  assertApproxEq(float(42), 42.0, 0.00001, "float(42) == 42.0")
+  assertApproxEq(float(-7), -7.0, 0.00001, "float(-7) == -7.0")
+  assertApproxEq(float(0), 0.0, 0.00001, "float(0) == 0.0")
+  assertApproxEq(float("3.1415"), 3.1415, 0.0001, "float('3.1415')")
+  ret 0
+
+pub fn test_str_conversion(): int:
+  assertEqStr(str(0), "0", "str(0)")
+  assertEqStr(str(-999), "-999", "str(-999)")
+  assert(str(2.5).startsWith("2.5"), "str(2.5)")
+  assertEqStr(str(true), "true", "str(true)")
+  assertEqStr(str(false), "false", "str(false)")
+  ret 0
+
+pub fn test_bool_conversion(): int:
+  assert(bool(1) == true, "bool(1) == true")
+  assert(bool(0) == false, "bool(0) == false")
+  assert(bool(-5) == true, "bool(-5) == true")
+  ret 0
+
+pub fn test_len(): int:
+  assertEqInt("".len(), 0, "empty str len")
+  assertEqInt("aipl".len(), 4, "str len 4")
+  let emptyArr: [int] = []
+  assertEqInt(emptyArr.len(), 0, "empty array len")
+  let arr: [int] = [10, 20, 30]
+  assertEqInt(arr.len(), 3, "array len 3")
+  ret 0
+
+pub fn test_push_and_pop(): int:
+  mut arr: [int] = [1, 2]
+  arr.push(3)
+  assertEqInt(arr.len(), 3, "len after push")
+  assertEqInt(arr[2], 3, "element pushed")
+  let popped = arr.pop()
+  assertEqInt(popped, 3, "popped value")
+  assertEqInt(arr.len(), 2, "len after pop")
+  ret 0
+
+pub fn test_slice(): int:
+  let s = "hello world"
+  assertEqStr(s.slice(0, 5), "hello", "str slice 0..5")
+  assertEqStr(s.slice(6, 11), "world", "str slice 6..11")
+  let arr: [int] = [10, 20, 30, 40]
+  let sl = arr.slice(1, 3)
+  assertEqInt(sl.len(), 2, "array slice len")
+  assertEqInt(sl[0], 20, "array slice elem 0")
+  assertEqInt(sl[1], 30, "array slice elem 1")
+  ret 0
+
+pub fn test_contains(): int:
+  assert("aipl_stdlib".contains("stdlib") == true, "contains substring")
+  assert("aipl_stdlib".contains("xyz") == false, "does not contain xyz")
+  assert("aipl".contains("ai") == true, "contains prefix as substring")
+  assert("aipl".contains("") == true, "contains empty string is true")
+  assert("".contains("") == true, "empty string contains empty string")
+  ret 0
+
+pub fn test_split(): int:
+  let parts = "a,b,c".split(",")
+  assertEqInt(parts.len(), 3, "split 3 parts")
+  assertEqStr(parts[0], "a", "split 0")
+  assertEqStr(parts[1], "b", "split 1")
+  assertEqStr(parts[2], "c", "split 2")
+  ret 0
+
+pub fn test_trim(): int:
+  assertEqStr("  aipl  ".trim(), "aipl", "trim spaces")
+  assertEqStr("   ".trim(), "", "trim all whitespace")
+  ret 0
+
+pub fn test_replace(): int:
+  assertEqStr("foo_bar_foo".replace("foo", "baz"), "baz_bar_baz", "replace all")
+  assertEqStr("unmodified".replace("xyz", "abc"), "unmodified", "replace no match")
+  ret 0
+
+pub fn test_starts_and_ends_with(): int:
+  assert("std/math/vec".startsWith("std/") == true, "startsWith true")
+  assert("std/math".startsWith("gfx") == false, "startsWith false")
+  assert("ex_001.aipl".endsWith(".aipl") == true, "endsWith true")
+  assert("ex_001.aipl".endsWith(".c") == false, "endsWith false")
+  ret 0
+
+pub fn test_to_upper_and_lower(): int:
+  assertEqStr("AiPl_123".toUpper(), "AIPL_123", "toUpper")
+  assertEqStr("AiPl_123".toLower(), "aipl_123", "toLower")
+  ret 0
+
+pub fn test_char_at_and_index_of(): int:
+  assertEqStr("hello".charAt(0), "h", "charAt 0")
+  assertEqStr("hello".charAt(4), "o", "charAt 4")
+  assertEqInt("hello world".indexOf("world"), 6, "indexOf world")
+  assertEqInt("hello world".indexOf("xyz"), -1, "indexOf missing")
+  assertEqInt("hello world".indexOf(""), 0, "indexOf empty string is 0")
+  ret 0
+
+pub fn test_map_operations(): int:
+  mut m: Map[str, int] = Map()
+  assertEqInt(m.keys().len(), 0, "empty map has 0 keys")
+  assert(m.has("a") == false, "has a before set")
+  m.set("a", 10)
+  m.set("b", 20)
+  assertEqInt(m.keys().len(), 2, "map has 2 keys")
+  assert(m.has("a") == true, "has a after set")
+  assertEqInt(m.get("a").unwrap(), 10, "get a unwrap")
+  m.set("a", 99)
+  assertEqInt(m.keys().len(), 2, "keys len unchanged on overwrite")
+  assertEqInt(m.get("a").unwrap(), 99, "overwritten value")
+  m.delete("b")
+  assert(m.has("b") == false, "has b after delete")
+  assertEqInt(m.keys().len(), 1, "keys len after delete")
+  ret 0
+
+pub fn test_math_builtins(): int:
+  assertEqInt(abs(-42), 42, "abs(-42) int")
+  assertEqInt(abs(42), 42, "abs(42) int")
+  assertApproxEq(abs(-3.5), 3.5, 0.00001, "abs(-3.5) float")
+  assertApproxEq(sqrt(0.0), 0.0, 0.00001, "sqrt(0)")
+  assertApproxEq(sqrt(144.0), 12.0, 0.00001, "sqrt(144)")
+  assertApproxEq(sin(0.0), 0.0, 0.00001, "sin(0)")
+  assertApproxEq(cos(0.0), 1.0, 0.00001, "cos(0)")
+  let angle = 0.785398
+  let pyth = sin(angle) * sin(angle) + cos(angle) * cos(angle)
+  assertApproxEq(pyth, 1.0, 0.00001, "Pythagorean identity")
+  assertApproxEq(floor(2.9), 2.0, 0.00001, "floor(2.9)")
+  assertApproxEq(ceil(2.1), 3.0, 0.00001, "ceil(2.1)")
+  assertApproxEq(pow(2.0, 10.0), 1024.0, 0.00001, "pow(2, 10)")
+  assertApproxEq(pow(5.0, 0.0), 1.0, 0.00001, "pow(5, 0)")
+  ret 0
+
+pub fn test_rgb(): int:
+  let c = rgb(255, 0, 128)
+  assertEqInt(c & 0xFF, 255, "red channel 255")
+  assertEqInt((c >> 8) & 0xFF, 0, "green channel 0")
+  assertEqInt((c >> 16) & 0xFF, 128, "blue channel 128")
+  assertEqInt((c >> 24) & 0xFF, 255, "alpha channel 255")
+  ret 0
+
+pub fn test_io_and_assert(): int:
+  print("")
+  println("compiler_builtins_test: testing io primitives")
+  assert(true, "assert pass")
+  if false:
+    panic("builtins panic guard")
+  if false:
+    todo("builtins todo guard")
+  ret 0
+
+pub fn main(): int:
+  test_int_conversion()
+  test_float_conversion()
+  test_str_conversion()
+  test_bool_conversion()
+  test_len()
+  test_push_and_pop()
+  test_slice()
+  test_contains()
+  test_split()
+  test_trim()
+  test_replace()
+  test_starts_and_ends_with()
+  test_to_upper_and_lower()
+  test_char_at_and_index_of()
+  test_map_operations()
+  test_math_builtins()
+  test_rgb()
+  test_io_and_assert()
+  println("PASS: compiler_builtins_test")
+  ret 0

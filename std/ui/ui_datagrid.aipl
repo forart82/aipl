@@ -1,0 +1,93 @@
+/// # Module: `std/ui/ui_datagrid` (`UiDataGridMod`)
+///
+/// ## Purpose & Domain Scope
+/// Virtualized 100k-row sortable DataGrid widget and viewport row windowing.
+module UiDataGridMod
+
+import { EPSILON, minInt, maxInt } from "std/math/consts"
+import { colorHex, drawRect, drawRoundedRect, drawRoundedRectOutline, drawLine, drawText, truncateText, measureTextWidth } from "../gfx2d/shape2d"
+import { AuraRect, AuraTableResult, AuraKanbanAction } from "./ui_layout"
+import { AuraTheme, AuraContext, auraIsHovered, auraIsClicked } from "./ui_imui"
+import { floor, ceil } from "std/math/trig"
+
+pub struct DataGridColumn(id: str, headerTitle: str, width: float, isSortable: bool)
+
+pub struct VirtualWindow(firstVisibleRow: int, lastVisibleRow: int, totalRowCount: int, rowHeight: float, offsetY: float)
+
+pub struct DataGridWidget(columns: [DataGridColumn], totalRowCount: int, rowHeight: float, scrollOffsetY: float, viewportHeight: float)
+
+pub fn computeVirtualWindow(grid: DataGridWidget): VirtualWindow:
+  let rowH = if grid.rowHeight > EPSILON: grid.rowHeight else: 20.0
+  let total = maxInt(0, grid.totalRowCount)
+  let first = maxInt(0, int(floor(grid.scrollOffsetY / rowH)))
+  let rawLast = int(ceil((grid.scrollOffsetY + grid.viewportHeight) / rowH))
+  let last = if total > 0: minInt(total - 1, maxInt(first, rawLast)) else: 0
+  ret VirtualWindow(
+    firstVisibleRow = first,
+    lastVisibleRow = last,
+    totalRowCount = total,
+    rowHeight = rowH,
+    offsetY = float(first) * rowH
+  )
+
+pub fn sortDataGridRows(columnId: str, ascending: bool, rowData: [str]): [str]:
+  mut out: [str] = []
+  mut i = 0
+  while i < rowData.len:
+    out.push(rowData[i])
+    i = i + 1
+
+  let n = out.len
+  mut a = 0
+  while a + 1 < n:
+    mut b = a + 1
+    while b < n:
+      let swapNeeded = if ascending: out[a] > out[b] else: out[a] < out[b]
+      if swapNeeded and columnId.len >= 0:
+        let tmp = out[a]
+        out[a] = out[b]
+        out[b] = tmp
+      b = b + 1
+    a = a + 1
+  ret out
+
+pub fn auraDataTable(rect: AuraRect, headers: [str], rows: [[str]], theme: AuraTheme):
+  let _th = theme.name
+  drawRoundedRect(rect.x, rect.y, rect.w, rect.h, theme.radiusSm, colorHex(theme.surface0))
+  drawRoundedRectOutline(rect.x, rect.y, rect.w, rect.h, theme.radiusSm, 1.0, colorHex(theme.outlineVariant))
+  let headerH = 32.0
+  drawRoundedRect(rect.x, rect.y, rect.w, headerH, theme.radiusSm, colorHex(theme.surface2))
+  drawLine(rect.x, rect.y + headerH, rect.x + rect.w, rect.y + headerH, colorHex(theme.outlineVariant), 1.0)
+  mut colCount = headers.len
+  if colCount < 1:
+    colCount = 1
+  let colW = rect.w / float(colCount)
+  let cellPad = 10.0
+  let maxCellW = if colW > cellPad * 2.0: colW - cellPad * 2.0 else: 12.0
+  mut c = 0
+  while c < headers.len:
+    mut hFit = truncateText(headers[c], maxCellW, 0.85)
+    if measureTextWidth(hFit, 0.85) > maxCellW and maxCellW > 14.0:
+      let ellW = measureTextWidth("...", 0.85)
+      mut slen = hFit.len
+      while slen > 1 and (measureTextWidth(hFit.slice(0, slen), 0.85) + ellW) > maxCellW:
+        slen = slen - 1
+      hFit = hFit.slice(0, slen) + "..."
+    drawText(hFit, rect.x + float(c) * colW + cellPad, rect.y + 9.0, 0.85, colorHex(theme.textPrimary))
+    c = c + 1
+  let rowH = 28.0
+  mut r = 0
+  while r < rows.len:
+    let ry = rect.y + headerH + float(r) * rowH
+    if ry + rowH <= rect.y + rect.h:
+      let bgCol = if r % 2 == 1: theme.surface1 else: theme.surface0
+      drawRect(rect.x + 1.0, ry, rect.w - 2.0, rowH, colorHex(bgCol))
+      drawLine(rect.x, ry + rowH, rect.x + rect.w, ry + rowH, colorHex(theme.outlineVariant), 0.5)
+      let cells = rows[r]
+      mut j = 0
+      while j < cells.len and j < colCount:
+        let cText = truncateText(cells[j], maxCellW, 0.85)
+        drawText(cText, rect.x + float(j) * colW + cellPad, ry + 8.0, 0.85, colorHex(theme.textSecondary))
+        j = j + 1
+    r = r + 1
+  ret

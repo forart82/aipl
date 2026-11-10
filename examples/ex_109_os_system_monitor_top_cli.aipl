@@ -1,0 +1,53 @@
+// ============================================================================
+// Example 109: System Telemetry Monitor (CPU, RAM, Processes & Top) (CLI)
+// Demonstrates: osPlatform, osArch, osCpuCount, osHostname, osUptimeSec,
+//               isLinux, listProcesses, getMemoryInfo, osPlatformInfo,
+//               renderBarChart, and renderBox from std/os.
+// ============================================================================
+module Ex109OsSystemMonitorTopCli
+
+import {
+  osPlatform,
+  osArch,
+  osCpuCount,
+  osHostname,
+  osUptimeSec,
+  isLinux,
+  listProcesses,
+  getMemoryInfo,
+  osPlatformInfo,
+  renderBarChart,
+  renderBox
+} from "../std/os"
+
+// Queries the active kernel platform and CPU architecture and returns "<platform>:<arch>".
+pub fn evaluateHostPlatformAndArchSummary(): str:
+  let plat = osPlatform()
+  let arch = osArch()
+  assert(isLinux() and osHostname().len > 0 and osUptimeSec() >= 1, "host kernel telemetry active")
+  ret plat + ":" + arch
+
+// Verifies logical CPU core counts, physical RAM metrics, process list enumeration, and TUI top charts.
+pub fn verifySystemMemoryProcessesAndTopWidgets(): int:
+  let cores = osCpuCount()
+  let pInfo = osPlatformInfo()
+  let mem = getMemoryInfo()
+  let procs = listProcesses()
+  let chart = renderBarChart(["CPU0", "RAM"], [42, 68], 20)
+  let box = renderBox("System Top", ["Load: OK"], 24)
+  if cores >= 1 and pInfo.cpuCount >= 1 and mem.totalBytes > 0 and procs.len() >= 1 and chart.contains("42") and box.contains("System Top"):
+    ret 1
+  ret 0
+
+// Classifies system utilization percentage into an operational health posture.
+pub fn describeSystemLoadPosture(loadPct: int): str:
+  if loadPct < 75:
+    ret "SYS_TOP:NOMINAL_LOAD_GREEN"
+  ret "SYS_TOP:HIGH_SATURATION_ALERT"
+
+pub fn main(): int:
+  let host = evaluateHostPlatformAndArchSummary()
+  let topOk = verifySystemMemoryProcessesAndTopWidgets()
+  let posture = describeSystemLoadPosture(42)
+  println("ex_109_os_system_monitor_top_cli: host=" + host + " topOk=" + str(topOk) + " posture=" + posture)
+  ret 0

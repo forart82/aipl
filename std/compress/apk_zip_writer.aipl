@@ -1,0 +1,40 @@
+module std.compress.apk_zip_writer
+
+import { crc32 } from "std/crypto/hash"
+
+pub const ZIP_LOCAL_FILE_HEADER_FIXED_LEN: int = 30
+pub const ZIP_CD_HEADER_FIXED_LEN: int = 46
+pub const ZIP_EOCD_FIXED_LEN: int = 22
+
+pub struct ApkArchiveBuilder(currentOffset: int, entryCount: int, dosTimestamp: int, entries: [str])
+
+pub fn createApkArchiveBuilder(templateSizeBytes: int): ApkArchiveBuilder requires templateSizeBytes >= 0 ensures result.dosTimestamp == 0 and result.entryCount == 0:
+  mut e: [str] = []
+  ret ApkArchiveBuilder(currentOffset = templateSizeBytes, entryCount = 0, dosTimestamp = 0, entries = e)
+
+pub fn apkAlignUncompressed4Byte(localHeaderEndOffset: int, fileName: str): (int, int) requires localHeaderEndOffset >= 0 ensures result[0] >= 0 and result[1] >= localHeaderEndOffset:
+  let align = if fileName.endsWith(".so"): 4096 else: 4
+  let rem = localHeaderEndOffset % align
+  let pad = if rem == 0: 0 else: align - rem
+  ret (pad, localHeaderEndOffset + pad)
+
+pub fn apkInjectAssetEntry(currentOffset: int, entryName: str, payload: str): (int, int, int) requires currentOffset >= 0 ensures result[0] >= currentOffset and result[1] >= result[0]:
+  if entryName.len() == 0:
+    ret (currentOffset, currentOffset, 0)
+  let rawEnd = currentOffset + ZIP_LOCAL_FILE_HEADER_FIXED_LEN + entryName.len()
+  let rem = rawEnd % 4
+  let pad = if rem == 0: 0 else: 4 - rem
+  let dataStart = rawEnd + pad
+  let nextOff = dataStart + payload.len()
+  let c = crc32(payload.toBytes())
+  ret (dataStart, nextOff, c)
+
+pub fn finalizeApkCentralDirectory(cdStartOffset: int, entryNames: [str]): (int, int, int) requires cdStartOffset >= 0 ensures result[0] >= 0 and result[1] >= cdStartOffset and result[2] >= result[1]:
+  mut cdSize = 0
+  mut i = 0
+  while i < entryNames.len():
+    cdSize = cdSize + ZIP_CD_HEADER_FIXED_LEN + entryNames[i].len()
+    i = i + 1
+  let eocdOffset = cdStartOffset + cdSize
+  let totalSize = eocdOffset + ZIP_EOCD_FIXED_LEN
+  ret (cdSize, eocdOffset, totalSize)

@@ -1,0 +1,398 @@
+// ============================================================================
+// Module: std/fmt/num_parse
+// Layer 1: Standard Formatting, Text Manipulation & Unicode
+// High-performance integer, hexadecimal, binary, and IEEE 754 floating-point
+// string parsing and formatting.
+// ============================================================================
+module FmtNumParse
+
+pub struct ParseIntOptions:
+  radix: int
+  strict: bool
+  allowLeadingSign: bool
+  allowUnderscores: bool
+
+pub struct ParseFloatOptions:
+  allowNan: bool
+  allowInf: bool
+  allowHexFloat: bool
+
+pub struct FloatFormatOptions:
+  precision: int
+  format: str
+  trimTrailingZeros: bool
+
+fn isSpaceChar(ch: str): bool:
+  ret ch == " " or ch == "\t" or ch == "\n" or ch == "\r"
+
+fn trimNumeric(s: str): str:
+  let n = s.len
+  mut start = 0
+  while start < n and isSpaceChar(s.charAt(start)):
+    start += 1
+  mut endIdx = n
+  while endIdx > start and isSpaceChar(s.charAt(endIdx - 1)):
+    endIdx -= 1
+  ret s.slice(start, endIdx)
+
+fn charToDigit(ch: str): int:
+  if ch.len == 0:
+    ret -1
+  let c = ch.charCodeAt(0)
+  if c >= 48 and c <= 57:
+    ret c - 48
+  if c >= 97 and c <= 122:
+    ret 10 + (c - 97)
+  if c >= 65 and c <= 90:
+    ret 10 + (c - 65)
+  ret -1
+
+pub fn parseIntEx(s: str, opts: ParseIntOptions): Result[int, str]:
+  let radix = opts.radix
+  if radix < 2 or radix > 36:
+    ret Err("invalid radix: must be between 2 and 36")
+  let cleaned = if opts.strict: s else: trimNumeric(s)
+  let n = cleaned.len
+  if n == 0:
+    ret Err("empty string")
+  mut sign = 1
+  mut idx = 0
+  let first = cleaned.charAt(0)
+  if first == "-" or first == "+":
+    if not opts.allowLeadingSign:
+      ret Err("leading sign not allowed")
+    if first == "-":
+      sign = -1
+    idx = 1
+  if idx + 1 < n and cleaned.charAt(idx) == "0":
+    let prefixCh = cleaned.charAt(idx + 1)
+    if radix == 16 and (prefixCh == "x" or prefixCh == "X"):
+      idx += 2
+    elif radix == 2 and (prefixCh == "b" or prefixCh == "B"):
+      idx += 2
+    elif radix == 8 and (prefixCh == "o" or prefixCh == "O"):
+      idx += 2
+  if idx >= n:
+    ret Err("no digits found")
+  mut acc = 0
+  mut digitCount = 0
+  while idx < n:
+    let ch = cleaned.charAt(idx)
+    if ch == "_" and opts.allowUnderscores:
+      idx += 1
+      continue
+    let d = charToDigit(ch)
+    if d < 0 or d >= radix:
+      ret Err("invalid digit '" + ch + "' for radix " + str(radix))
+    acc = (acc * radix) + d
+    digitCount += 1
+    idx += 1
+  if digitCount == 0:
+    ret Err("no digits found")
+  ret Ok(acc * sign)
+
+pub fn parseInt(s: str, radix: int = 10): Result[int, str]:
+  let opts = ParseIntOptions(
+    radix = radix,
+    strict = false,
+    allowLeadingSign = true,
+    allowUnderscores = true
+  )
+  ret parseIntEx(s, opts)
+
+pub fn parseIntRadix(s: str, radix: int): Result[int, str]:
+  ret parseInt(s, radix)
+
+pub fn parseHexByte(s: str, offset: int = 0): Result[int, str]:
+  if offset < 0 or offset + 2 > s.len:
+    ret Err("hex byte slice out of bounds")
+  let d0 = charToDigit(s.charAt(offset))
+  let d1 = charToDigit(s.charAt(offset + 1))
+  if d0 < 0 or d0 >= 16 or d1 < 0 or d1 >= 16:
+    ret Err("invalid hex byte characters")
+  ret Ok((d0 * 16) + d1)
+
+pub fn parseFloatEx(s: str, opts: ParseFloatOptions): Result[float, str]:
+  let cleaned = trimNumeric(s)
+  let n = cleaned.len
+  if n == 0:
+    ret Err("empty float string")
+  let lower = cleaned.toLowerCase()
+  if lower == "nan" or lower == "+nan" or lower == "-nan":
+    if opts.allowNan:
+      ret Ok(sqrt(-1.0))
+    ret Err("NaN not allowed")
+  if lower == "inf" or lower == "+inf" or lower == "infinity" or lower == "+infinity":
+    if opts.allowInf:
+      ret Ok(1.0e308 * 10.0)
+    ret Err("Infinity not allowed")
+  if lower == "-inf" or lower == "-infinity":
+    if opts.allowInf:
+      ret Ok(-1.0e308 * 10.0)
+    ret Err("-Infinity not allowed")
+
+  mut idx = 0
+  mut sign = 1.0
+  if cleaned.charAt(0) == "-":
+    sign = -1.0
+    idx = 1
+  elif cleaned.charAt(0) == "+":
+    idx = 1
+
+  mut intPart = 0.0
+  mut fracPart = 0.0
+  mut fracDiv = 1.0
+  mut hasDigits = false
+  mut inFrac = false
+
+  while idx < n:
+    let ch = cleaned.charAt(idx)
+    if ch == "_":
+      idx += 1
+      continue
+    if ch == ".":
+      if inFrac:
+        ret Err("multiple decimal points in float")
+      inFrac = true
+      idx += 1
+      continue
+    if ch == "e" or ch == "E":
+      idx += 1
+      break
+    let d = charToDigit(ch)
+    if d < 0 or d >= 10:
+      ret Err("invalid float character: " + ch)
+    hasDigits = true
+    if not inFrac:
+      intPart = (intPart * 10.0) + float(d)
+    else:
+      fracDiv = fracDiv * 10.0
+      fracPart = fracPart + (float(d) / fracDiv)
+    idx += 1
+
+  if not hasDigits:
+    ret Err("no digits in float literal")
+
+  mut expSign = 1
+  mut expVal = 0
+  if idx < n:
+    let ech = cleaned.charAt(idx)
+    if ech == "-":
+      expSign = -1
+      idx += 1
+    elif ech == "+":
+      idx += 1
+    if idx >= n:
+      ret Err("missing exponent digits")
+    while idx < n:
+      let d = charToDigit(cleaned.charAt(idx))
+      if d < 0 or d >= 10:
+        ret Err("invalid exponent digit")
+      expVal = (expVal * 10) + d
+      idx += 1
+
+  mut baseVal = (intPart + fracPart) * sign
+  if expVal > 0:
+    mut e = 0
+    mut pow10 = 1.0
+    while e < expVal:
+      pow10 = pow10 * 10.0
+      e += 1
+    if expSign > 0:
+      baseVal = baseVal * pow10
+    else:
+      baseVal = baseVal / pow10
+  ret Ok(baseVal)
+
+pub fn parseFloat(s: str): Result[float, str]:
+  let opts = ParseFloatOptions(allowNan = true, allowInf = true, allowHexFloat = false)
+  ret parseFloatEx(s, opts)
+
+pub fn parseFloatPrefix(s: str): Option[float]:
+  let n = s.len
+  if n == 0:
+    ret None
+  mut i = 0
+  while i < n and isSpaceChar(s.charAt(i)):
+    i += 1
+  let start = i
+  if i < n and (s.charAt(i) == "+" or s.charAt(i) == "-"):
+    i += 1
+  mut hasDigits = false
+  while i < n and s.charAt(i) >= "0" and s.charAt(i) <= "9":
+    hasDigits = true
+    i += 1
+  if i < n and s.charAt(i) == ".":
+    i += 1
+    while i < n and s.charAt(i) >= "0" and s.charAt(i) <= "9":
+      hasDigits = true
+      i += 1
+  if hasDigits and i < n and (s.charAt(i) == "e" or s.charAt(i) == "E"):
+    mut expI = i + 1
+    if expI < n and (s.charAt(expI) == "+" or s.charAt(expI) == "-"):
+      expI += 1
+    if expI < n and s.charAt(expI) >= "0" and s.charAt(expI) <= "9":
+      i = expI
+      while i < n and s.charAt(i) >= "0" and s.charAt(i) <= "9":
+        i += 1
+  if hasDigits:
+    let sub = s.slice(start, i)
+    let res = parseFloat(sub)
+    if res.isOk():
+      ret Some(res.unwrap())
+  ret None
+
+pub fn formatInt(val: int, radix: int = 10): str:
+  mut r = radix
+  if r < 2 or r > 36:
+    r = 10
+  if val == 0:
+    ret "0"
+  mut num = val
+  mut isNeg = false
+  if num < 0:
+    isNeg = true
+    num = -num
+  let digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+  mut out = ""
+  while num > 0:
+    let d = num % r
+    out = digits.charAt(d) + out
+    num = num / r
+  if isNeg:
+    ret "-" + out
+  ret out
+
+pub fn formatIntPadded(val: int, width: int, padChar: str = "0", radix: int = 10): str:
+  let raw = formatInt(val, radix)
+  let p = if padChar.len > 0: padChar.charAt(0) else: "0"
+  if raw.len >= width:
+    ret raw
+  mut isNeg = false
+  mut body = raw
+  if raw.startsWith("-") and p == "0":
+    isNeg = true
+    body = raw.slice(1, raw.len)
+  let needed = width - raw.len
+  mut padStr = ""
+  mut i = 0
+  while i < needed:
+    padStr = padStr + p
+    i += 1
+  if isNeg:
+    ret "-" + padStr + body
+  ret padStr + body
+
+pub fn formatHex(val: int, uppercase: bool = false, prefix: bool = false): str:
+  mut num = val
+  mut isNeg = false
+  if num < 0:
+    isNeg = true
+    num = -num
+  let raw = formatInt(num, 16)
+  let cased = if uppercase: raw.toUpperCase() else: raw
+  let pfx = if prefix: (if uppercase: "0X" else: "0x") else: ""
+  if isNeg:
+    ret "-" + pfx + cased
+  ret pfx + cased
+
+pub fn formatBinary(val: int, prefix: bool = false, minDigits: int = 0): str:
+  mut num = val
+  mut isNeg = false
+  if num < 0:
+    isNeg = true
+    num = -num
+  mut raw = formatInt(num, 2)
+  while raw.len < minDigits:
+    raw = "0" + raw
+  let pfx = if prefix: "0b" else: ""
+  if isNeg:
+    ret "-" + pfx + raw
+  ret pfx + raw
+
+pub fn formatOctal(val: int, prefix: bool = false): str:
+  mut num = val
+  mut isNeg = false
+  if num < 0:
+    isNeg = true
+    num = -num
+  let raw = formatInt(num, 8)
+  let pfx = if prefix: "0o" else: ""
+  if isNeg:
+    ret "-" + pfx + raw
+  ret pfx + raw
+
+pub fn intToHex(n: int, minWidth: int = 0): str:
+  ret formatIntPadded(n, minWidth, "0", 16)
+
+pub fn intToOctal(n: int, minWidth: int = 0): str:
+  ret formatIntPadded(n, minWidth, "0", 8)
+
+pub fn formatFloatFixed(val: float, decimals: int = 2): str:
+  mut decs = decimals
+  if decs < 0:
+    decs = 0
+  mut v = val
+  mut isNeg = false
+  if v < 0.0:
+    isNeg = true
+    v = -v
+  mut factor = 1.0
+  mut d = 0
+  while d < decs:
+    factor = factor * 10.0
+    d += 1
+  let scaled = int((v * factor) + 0.5)
+  let factorInt = int(factor)
+  if decs == 0 or factorInt <= 1:
+    let s = str(scaled)
+    ret if isNeg and scaled > 0: "-" + s else: s
+  let intPart = scaled / factorInt
+  let fracPart = scaled % factorInt
+  mut fracStr = str(fracPart)
+  while fracStr.len < decs:
+    fracStr = "0" + fracStr
+  let res = str(intPart) + "." + fracStr
+  ret if isNeg: "-" + res else: res
+
+pub fn formatFloat(val: float, decimals: int): str:
+  ret formatFloatFixed(val, decimals)
+
+pub fn formatFloatDragonbox(val: float, precision: int = -1): str:
+  if precision >= 0:
+    ret formatFloatFixed(val, precision)
+  // Round-trip shortest representation trimming redundant trailing zeros
+  let fixed6 = formatFloatFixed(val, 6)
+  if not fixed6.contains("."):
+    ret fixed6
+  mut endIdx = fixed6.len
+  while endIdx > 0 and fixed6.charAt(endIdx - 1) == "0":
+    endIdx -= 1
+  if endIdx > 0 and fixed6.charAt(endIdx - 1) == ".":
+    ret fixed6.slice(0, endIdx) + "0"
+  ret fixed6.slice(0, endIdx)
+
+pub fn formatFloatScientific(val: float, precision: int = 6): str:
+  mut prec = precision
+  if prec < 1:
+    prec = 1
+  if val == 0.0:
+    ret formatFloatFixed(0.0, prec) + "e+00"
+  mut v = val
+  mut isNeg = false
+  if v < 0.0:
+    isNeg = true
+    v = -v
+  mut exp10 = 0
+  while v >= 10.0:
+    v = v / 10.0
+    exp10 += 1
+  while v > 0.0 and v < 1.0:
+    v = v * 10.0
+    exp10 -= 1
+  let mantissa = formatFloatFixed(v, prec)
+  let signStr = if isNeg: "-" else: ""
+  let expSign = if exp10 >= 0: "+" else: "-"
+  let absExp = if exp10 >= 0: exp10 else: -exp10
+  let expStr = formatIntPadded(absExp, 2, "0", 10)
+  ret signStr + mantissa + "e" + expSign + expStr

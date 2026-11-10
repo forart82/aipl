@@ -1,0 +1,116 @@
+module tests.functions.compress.tar_archive_test
+
+import * from "std/compress/tar_archive"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_tar_archive_writeOctalField_1(): int:
+  let arg_blk = [4]
+  let edge_blk = []
+  let arg_offset = 1
+  let edge_offset = 0
+  let arg_width = 4
+  let edge_width = 1
+  let arg_val = 2
+  let edge_val = 0
+  let resNom = writeOctalField(arg_blk, arg_offset, arg_width, arg_val)
+  let resEdge = writeOctalField(edge_blk, edge_offset, edge_width, edge_val)
+  assertEqInt(resNom.len(), 1, "writeOctalField nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "writeOctalField boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_tar_archive_parseOctalField_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_offset = 1
+  let edge_offset = 0
+  let arg_width = 4
+  let edge_width = 1
+  let resNom = parseOctalField(arg_data, arg_offset, arg_width)
+  let resEdge = parseOctalField(edge_data, edge_offset, edge_width)
+  assertEqInt(resNom, 0, "parseOctalField nominal resNom == 0")
+  assertEqInt(resEdge, 0, "parseOctalField boundary resEdge == 0")
+  ret 0
+
+pub fn test_tar_archive_readNullTermStr_3(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_offset = 1
+  let edge_offset = 0
+  let arg_maxLen = 4
+  let edge_maxLen = 1
+  let resNom = readNullTermStr(arg_data, arg_offset, arg_maxLen)
+  let resEdge = readNullTermStr(edge_data, edge_offset, edge_maxLen)
+  assertEqStr(resNom, "IPL", "readNullTermStr nominal string matches")
+  assertEqStr(resEdge, "A", "readNullTermStr boundary string matches")
+  ret 0
+
+pub fn test_tar_archive_tarPack_4(): int:
+  let arg_entries = [TarEntry(path = "/tmp/aipl_test_path", mode = 4, size = 0, mtime = 4, isDir = true, data = [65, 73, 80, 76])]
+  let edge_entries = []
+  let resNom = tarPack(arg_entries)
+  let resEdge = tarPack(edge_entries)
+  assertEqInt(resNom.len(), 1536, "tarPack nominal resNom.len() == 1536")
+  assertEqInt(resEdge.len(), 1024, "tarPack boundary resEdge.len() == 1024")
+  ret 0
+
+pub fn test_tar_archive_tarUnpack_5(): int:
+  let fileData = bytesFromArray([65, 73, 80, 76])
+  let entries = [TarEntry(path = "test.txt", mode = 420, size = 4, mtime = 1000, isDir = false, data = fileData)]
+  let packed = tarPack(entries)
+  let resOk = tarUnpack(packed)
+  assert(resOk.isOk() == true, "tarUnpack valid archive returns Ok")
+  let unpackedEntries = resOk.unwrap()
+  assertEqInt(unpackedEntries.len(), 1, "tarUnpack unpacked 1 entry")
+  assertEqStr(unpackedEntries[0].path, "test.txt", "unpacked entry path matches")
+  let resBad = tarUnpack(fileData)
+  assert(resBad.isOk() == false, "tarUnpack corrupt/truncated archive returns Err")
+  ret 0
+
+pub fn test_tar_archive_TarArchive_getEntry_6(): int:
+  let fileData = bytesFromArray([65, 73, 80, 76])
+  let entry = TarEntry(path = "docs/readme.txt", mode = 420, size = 4, mtime = 1000, isDir = false, data = fileData)
+  let archive = TarArchive(entries = [entry])
+  let resHit = archive.getEntry("docs/readme.txt")
+  assert(resHit.isSome() == true, "getEntry finds existing path")
+  assertEqStr(resHit.unwrap().path, "docs/readme.txt", "found entry path matches")
+  let resMiss = archive.getEntry("missing.txt")
+  assert(resMiss.isSome() == false, "getEntry returns None for missing path")
+  ret 0
+
+pub fn test_tar_archive_TarArchive_addFile_7(): int:
+  let mut recv_self = TarArchive(entries = [])
+  let mut edge_self = TarArchive(entries = [])
+  let arg_path = "/tmp/aipl_test_path"
+  let edge_path = "/tmp/aipl_test_path"
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_mode = 4
+  let edge_mode = 1
+  recv_self.addFile(arg_path, arg_data, arg_mode)
+  edge_self.addFile(edge_path, edge_data, edge_mode)
+  assertEqInt(recv_self.entries.len(), 1, "addFile nominal recv_self.entries.len() == 1")
+  assertEqInt(edge_self.entries.len(), 1, "addFile boundary edge_self.entries.len() == 1")
+  ret 0
+
+pub fn test_tar_archive_TarArchive_addDirectory_8(): int:
+  let mut recv_self = TarArchive(entries = [])
+  let mut edge_self = TarArchive(entries = [])
+  let arg_path = "/tmp/aipl_test_path"
+  let edge_path = "/tmp/aipl_test_path"
+  let arg_mode = 4
+  let edge_mode = 1
+  recv_self.addDirectory(arg_path, arg_mode)
+  edge_self.addDirectory(edge_path, edge_mode)
+  assertEqInt(recv_self.entries.len(), 1, "addDirectory nominal recv_self.entries.len() == 1")
+  assertEqInt(edge_self.entries.len(), 1, "addDirectory boundary edge_self.entries.len() == 1")
+  ret 0
+
+pub fn test_tar_archive_TarArchive_toBytes_9(): int:
+  let recv_self = TarArchive(entries = [])
+  let edge_self = TarArchive(entries = [])
+  let resNom = recv_self.toBytes()
+  let resEdge = edge_self.toBytes()
+  assertEqInt(resNom.len(), 1024, "toBytes nominal resNom.len() == 1024")
+  assertEqInt(resEdge.len(), 1024, "toBytes boundary resEdge.len() == 1024")
+  ret 0

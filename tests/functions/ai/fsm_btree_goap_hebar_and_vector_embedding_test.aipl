@@ -1,0 +1,809 @@
+module tests.functions.ai.fsm_btree_goap_hebar_and_vector_embedding_test
+
+import * from "std/ai/btree_ai"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import * from "std/ai/fsm"
+import * from "std/ai/goap"
+import { popcnt, clampFloat } from "std/math/consts"
+import { exp, sqrt, lnFloat } from "std/math/trig"
+import * from "std/ai/hebar_referee"
+import { Vec2 } from "std/math/vec_math"
+import * from "std/ai/vector_embedding"
+import { minInt } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { tensorMatmul, tensorCosineSimilarity } from "std/math/simd"
+import { jsonQuery, escapeJsonString } from "std/encoding/json"
+import { Map } from "std/collections/hash_map"
+
+pub fn test_btree_ai_blackboardNew_1(): int:
+  let resNom = blackboardNew()
+  let resEdge = blackboardNew()
+  assertEqInt(resNom.entries.len(), 0, "blackboardNew nominal resNom.entries.len() == 0")
+  assertEqInt(resEdge.entries.len(), 0, "blackboardNew boundary resEdge.entries.len() == 0")
+  ret 0
+
+pub fn test_btree_ai_blackboardSet_2(): int:
+  let arg_bb = Blackboard(entries = [])
+  let edge_bb = Blackboard(entries = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let arg_val = 2
+  let edge_val = 0
+  blackboardSet(arg_bb, arg_key, arg_val)
+  blackboardSet(edge_bb, edge_key, edge_val)
+  assertEqInt(arg_bb.entries.len(), 1, "blackboardSet nominal arg_bb.entries.len() == 1")
+  assertEqInt(edge_bb.entries.len(), 1, "blackboardSet boundary edge_bb.entries.len() == 1")
+  ret 0
+
+pub fn test_btree_ai_blackboardGet_3(): int:
+  let arg_bb = Blackboard(entries = [])
+  let edge_bb = Blackboard(entries = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = blackboardGet(arg_bb, arg_key)
+  let resEdge = blackboardGet(edge_bb, edge_key)
+  assert(resNom.isSome() == false, "blackboardGet nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "blackboardGet boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_btree_ai_btreeTickNode_4(): int:
+  let arg_node = BehaviorTreeNode(id = 1, nodeType = BTreeNodeType.Sequence, children = [], cooldownSeconds = 2.0, actionName = "test")
+  let edge_node = BehaviorTreeNode(id = 0, nodeType = BTreeNodeType.Sequence, children = [], cooldownSeconds = 1.0, actionName = "a")
+  let arg_allNodes = [BehaviorTreeNode(id = 1, nodeType = BTreeNodeType.Sequence, children = [], cooldownSeconds = 2.0, actionName = "test")]
+  let edge_allNodes = []
+  let arg_bb = Blackboard(entries = [])
+  let edge_bb = Blackboard(entries = [])
+  let resNom = btreeTickNode(arg_node, arg_allNodes, arg_bb)
+  let resEdge = btreeTickNode(edge_node, edge_allNodes, edge_bb)
+  assert(resNom == BTreeNodeStatus.Success, "btreeTickNode nominal resNom == BTreeNodeStatus.Success")
+  assert(resEdge == BTreeNodeStatus.Success, "btreeTickNode boundary resEdge == BTreeNodeStatus.Success")
+  ret 0
+
+pub fn test_btree_ai_blackboardHasKey_5(): int:
+  let arg_bb = Blackboard(entries = [])
+  let edge_bb = Blackboard(entries = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = blackboardHasKey(arg_bb, arg_key)
+  let resEdge = blackboardHasKey(edge_bb, edge_key)
+  assert(resNom == false, "blackboardHasKey nominal resNom == false")
+  assert(resEdge == false, "blackboardHasKey boundary resEdge == false")
+  ret 0
+
+pub fn test_btree_ai_blackboardClear_6(): int:
+  let arg_bb = Blackboard(entries = [])
+  let edge_bb = Blackboard(entries = [])
+  let resNom = blackboardClear(arg_bb)
+  let resEdge = blackboardClear(edge_bb)
+  assertEqInt(resNom.entries.len(), 0, "blackboardClear nominal resNom.entries.len() == 0")
+  assertEqInt(resEdge.entries.len(), 0, "blackboardClear boundary resEdge.entries.len() == 0")
+  ret 0
+
+pub fn test_btree_ai_btreeCreateSequence_7(): int:
+  let arg_id = 1
+  let edge_id = 0
+  let arg_children = [4]
+  let edge_children = []
+  let resNom = btreeCreateSequence(arg_id, arg_children)
+  let resEdge = btreeCreateSequence(edge_id, edge_children)
+  assertEqInt(resNom.id, 1, "btreeCreateSequence nominal resNom.id == 1")
+  assertEqInt(resEdge.id, 0, "btreeCreateSequence boundary resEdge.id == 0")
+  ret 0
+
+pub fn test_btree_ai_btreeCreateSelector_8(): int:
+  let arg_id = 1
+  let edge_id = 0
+  let arg_children = [4]
+  let edge_children = []
+  let resNom = btreeCreateSelector(arg_id, arg_children)
+  let resEdge = btreeCreateSelector(edge_id, edge_children)
+  assertEqInt(resNom.id, 1, "btreeCreateSelector nominal resNom.id == 1")
+  assertEqInt(resEdge.id, 0, "btreeCreateSelector boundary resEdge.id == 0")
+  ret 0
+
+pub fn test_btree_ai_btreeCreateAction_9(): int:
+  let arg_id = 1
+  let edge_id = 0
+  let arg_actionName = "test"
+  let edge_actionName = "a"
+  let resNom = btreeCreateAction(arg_id, arg_actionName)
+  let resEdge = btreeCreateAction(edge_id, edge_actionName)
+  assertEqInt(resNom.id, 1, "btreeCreateAction nominal resNom.id == 1")
+  assertEqInt(resEdge.id, 0, "btreeCreateAction boundary resEdge.id == 0")
+  ret 0
+
+pub fn test_btree_ai_btSuccess_10(): int:
+  let resNom = btSuccess()
+  let resEdge = btSuccess()
+  assertEqInt(resNom, 1, "btSuccess nominal resNom == 1")
+  assertEqInt(resEdge, 1, "btSuccess boundary resEdge == 1")
+  ret 0
+
+pub fn test_btree_ai_btFailure_11(): int:
+  let resNom = btFailure()
+  let resEdge = btFailure()
+  assertEqInt(resNom, 0, "btFailure nominal resNom == 0")
+  assertEqInt(resEdge, 0, "btFailure boundary resEdge == 0")
+  ret 0
+
+pub fn test_btree_ai_btRunning_12(): int:
+  let resNom = btRunning()
+  let resEdge = btRunning()
+  assertEqInt(resNom, 2, "btRunning nominal resNom == 2")
+  assertEqInt(resEdge, 2, "btRunning boundary resEdge == 2")
+  ret 0
+
+pub fn test_btree_ai_btInvert_13(): int:
+  let arg_status = 2
+  let edge_status = 0
+  let resNom = btInvert(arg_status)
+  let resEdge = btInvert(edge_status)
+  assertEqInt(resNom, 2, "btInvert nominal resNom == 2")
+  assertEqInt(resEdge, 1, "btInvert boundary resEdge == 1")
+  ret 0
+
+pub fn test_btree_ai_btSequence_14(): int:
+  let arg_statuses = [2]
+  let edge_statuses = []
+  let resNom = btSequence(arg_statuses)
+  let resEdge = btSequence(edge_statuses)
+  assertEqInt(resNom, 2, "btSequence nominal resNom == 2")
+  assertEqInt(resEdge, 1, "btSequence boundary resEdge == 1")
+  ret 0
+
+pub fn test_btree_ai_btSelector_15(): int:
+  let arg_statuses = [2]
+  let edge_statuses = []
+  let resNom = btSelector(arg_statuses)
+  let resEdge = btSelector(edge_statuses)
+  assertEqInt(resNom, 2, "btSelector nominal resNom == 2")
+  assertEqInt(resEdge, 0, "btSelector boundary resEdge == 0")
+  ret 0
+
+pub fn test_fsm_fsmNew_1(): int:
+  let arg_initialStateId = 4
+  let edge_initialStateId = 1
+  let resNom = fsmNew(arg_initialStateId)
+  let resEdge = fsmNew(edge_initialStateId)
+  assertEqInt(resNom.currentStateId, 4, "fsmNew nominal resNom.currentStateId == 4")
+  assertEqInt(resEdge.currentStateId, 1, "fsmNew boundary resEdge.currentStateId == 1")
+  ret 0
+
+pub fn test_fsm_fsmAddState_2(): int:
+  let arg_fsm = HierarchicalStateMachine(currentStateId = 4, states = [], transitions = [])
+  let edge_fsm = HierarchicalStateMachine(currentStateId = 1, states = [], transitions = [])
+  let arg_id = 1
+  let edge_id = 0
+  let arg_name = "test"
+  let edge_name = "a"
+  fsmAddState(arg_fsm, arg_id, arg_name)
+  fsmAddState(edge_fsm, edge_id, edge_name)
+  assertEqInt(arg_fsm.states.len(), 1, "fsmAddState nominal arg_fsm.states.len() == 1")
+  assertEqInt(edge_fsm.states.len(), 1, "fsmAddState boundary edge_fsm.states.len() == 1")
+  ret 0
+
+pub fn test_fsm_fsmAddTransition_3(): int:
+  let arg_fsm = HierarchicalStateMachine(currentStateId = 4, states = [], transitions = [])
+  let edge_fsm = HierarchicalStateMachine(currentStateId = 1, states = [], transitions = [])
+  let arg_fromId = 4
+  let edge_fromId = 1
+  let arg_toId = 1
+  let edge_toId = 0
+  let arg_event = "test"
+  let edge_event = "a"
+  fsmAddTransition(arg_fsm, arg_fromId, arg_toId, arg_event)
+  fsmAddTransition(edge_fsm, edge_fromId, edge_toId, edge_event)
+  assertEqInt(arg_fsm.transitions.len(), 1, "fsmAddTransition nominal arg_fsm.transitions.len() == 1")
+  assertEqInt(edge_fsm.transitions.len(), 1, "fsmAddTransition boundary edge_fsm.transitions.len() == 1")
+  ret 0
+
+pub fn test_fsm_fsmTriggerEvent_4(): int:
+  let arg_fsm = HierarchicalStateMachine(currentStateId = 4, states = [], transitions = [])
+  let edge_fsm = HierarchicalStateMachine(currentStateId = 1, states = [], transitions = [])
+  let arg_event = "test"
+  let edge_event = "a"
+  let resNom = fsmTriggerEvent(arg_fsm, arg_event)
+  let resEdge = fsmTriggerEvent(edge_fsm, edge_event)
+  assert(resNom == false, "fsmTriggerEvent nominal resNom == false")
+  assert(resEdge == false, "fsmTriggerEvent boundary resEdge == false")
+  ret 0
+
+pub fn test_fsm_fsmCurrentStateId_5(): int:
+  let arg_fsm = HierarchicalStateMachine(currentStateId = 4, states = [], transitions = [])
+  let edge_fsm = HierarchicalStateMachine(currentStateId = 1, states = [], transitions = [])
+  let resNom = fsmCurrentStateId(arg_fsm)
+  let resEdge = fsmCurrentStateId(edge_fsm)
+  assertEqInt(resNom, 4, "fsmCurrentStateId nominal resNom == 4")
+  assertEqInt(resEdge, 1, "fsmCurrentStateId boundary resEdge == 1")
+  ret 0
+
+pub fn test_fsm_fsmCurrentStateName_6(): int:
+  let arg_fsm = HierarchicalStateMachine(currentStateId = 4, states = [], transitions = [])
+  let edge_fsm = HierarchicalStateMachine(currentStateId = 1, states = [], transitions = [])
+  let resNom = fsmCurrentStateName(arg_fsm)
+  let resEdge = fsmCurrentStateName(edge_fsm)
+  assertEqStr(resNom, "", "fsmCurrentStateName nominal string matches")
+  assertEqStr(resEdge, "", "fsmCurrentStateName boundary string matches")
+  ret 0
+
+pub fn test_fsm_fsmHasState_7(): int:
+  let arg_fsm = HierarchicalStateMachine(currentStateId = 4, states = [], transitions = [])
+  let edge_fsm = HierarchicalStateMachine(currentStateId = 1, states = [], transitions = [])
+  let arg_stateId = 1
+  let edge_stateId = 0
+  let resNom = fsmHasState(arg_fsm, arg_stateId)
+  let resEdge = fsmHasState(edge_fsm, edge_stateId)
+  assert(resNom == false, "fsmHasState nominal resNom == false")
+  assert(resEdge == false, "fsmHasState boundary resEdge == false")
+  ret 0
+
+pub fn test_fsm_fsmReset_8(): int:
+  let arg_fsm = HierarchicalStateMachine(currentStateId = 4, states = [], transitions = [])
+  let edge_fsm = HierarchicalStateMachine(currentStateId = 1, states = [], transitions = [])
+  let arg_stateId = 1
+  let edge_stateId = 0
+  let resNom = fsmReset(arg_fsm, arg_stateId)
+  let resEdge = fsmReset(edge_fsm, edge_stateId)
+  assertEqInt(resNom.currentStateId, 1, "fsmReset nominal resNom.currentStateId == 1")
+  assertEqInt(resEdge.currentStateId, 0, "fsmReset boundary resEdge.currentStateId == 0")
+  ret 0
+
+pub fn test_fsm_fsmGetValidEvents_9(): int:
+  let arg_fsm = HierarchicalStateMachine(currentStateId = 4, states = [], transitions = [])
+  let edge_fsm = HierarchicalStateMachine(currentStateId = 1, states = [], transitions = [])
+  let resNom = fsmGetValidEvents(arg_fsm)
+  let resEdge = fsmGetValidEvents(edge_fsm)
+  assertEqInt(resNom.len(), 0, "fsmGetValidEvents nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "fsmGetValidEvents boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_goap_goapPlannerNew_1(): int:
+  let resNom = goapPlannerNew()
+  let resEdge = goapPlannerNew()
+  assertEqInt(resNom.actions.len(), 0, "goapPlannerNew nominal resNom.actions.len() == 0")
+  assertEqInt(resEdge.actions.len(), 0, "goapPlannerNew boundary resEdge.actions.len() == 0")
+  ret 0
+
+pub fn test_goap_goapAddAction_2(): int:
+  let arg_planner = GoapPlanner(actions = [])
+  let edge_planner = GoapPlanner(actions = [])
+  let arg_action = GoapAction(name = "test", cost = 1.0, preconditionMask = 4, preconditionCareMask = 4, effectSetMask = 4, effectClearMask = 4)
+  let edge_action = GoapAction(name = "a", cost = 0.5, preconditionMask = 1, preconditionCareMask = 1, effectSetMask = 1, effectClearMask = 1)
+  goapAddAction(arg_planner, arg_action)
+  goapAddAction(edge_planner, edge_action)
+  assertEqInt(arg_planner.actions.len(), 1, "goapAddAction nominal arg_planner.actions.len() == 1")
+  assertEqInt(edge_planner.actions.len(), 1, "goapAddAction boundary edge_planner.actions.len() == 1")
+  ret 0
+
+pub fn test_goap_satisfiesGoal_3(): int:
+  let arg_stateMask = 4
+  let edge_stateMask = 1
+  let arg_goal = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_goal = GoapWorldState(stateMask = 1, careMask = 1)
+  let resNom = satisfiesGoal(arg_stateMask, arg_goal)
+  let resEdge = satisfiesGoal(edge_stateMask, edge_goal)
+  assert(resNom == true, "satisfiesGoal nominal resNom == true")
+  assert(resEdge == true, "satisfiesGoal boundary resEdge == true")
+  ret 0
+
+pub fn test_goap_goapHasGoalSatisfied_4(): int:
+  let arg_currentState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_currentState = GoapWorldState(stateMask = 1, careMask = 1)
+  let arg_goalState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_goalState = GoapWorldState(stateMask = 1, careMask = 1)
+  let resNom = goapHasGoalSatisfied(arg_currentState, arg_goalState)
+  let resEdge = goapHasGoalSatisfied(edge_currentState, edge_goalState)
+  assert(resNom == true, "goapHasGoalSatisfied nominal resNom == true")
+  assert(resEdge == true, "goapHasGoalSatisfied boundary resEdge == true")
+  ret 0
+
+pub fn test_goap_goapHeuristicDistance_5(): int:
+  let arg_currentState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_currentState = GoapWorldState(stateMask = 1, careMask = 1)
+  let arg_goalState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_goalState = GoapWorldState(stateMask = 1, careMask = 1)
+  let resNom = goapHeuristicDistance(arg_currentState, arg_goalState)
+  let resEdge = goapHeuristicDistance(edge_currentState, edge_goalState)
+  assertEqInt(resNom, 0, "goapHeuristicDistance nominal resNom == 0")
+  assertEqInt(resEdge, 0, "goapHeuristicDistance boundary resEdge == 0")
+  ret 0
+
+pub fn test_goap_actionApplicable_6(): int:
+  let arg_stateMask = 4
+  let edge_stateMask = 1
+  let arg_act = GoapAction(name = "test", cost = 1.0, preconditionMask = 4, preconditionCareMask = 4, effectSetMask = 4, effectClearMask = 4)
+  let edge_act = GoapAction(name = "a", cost = 0.5, preconditionMask = 1, preconditionCareMask = 1, effectSetMask = 1, effectClearMask = 1)
+  let resNom = actionApplicable(arg_stateMask, arg_act)
+  let resEdge = actionApplicable(edge_stateMask, edge_act)
+  assert(resNom == true, "actionApplicable nominal resNom == true")
+  assert(resEdge == true, "actionApplicable boundary resEdge == true")
+  ret 0
+
+pub fn test_goap_applyActionEffects_7(): int:
+  let arg_stateMask = 4
+  let edge_stateMask = 1
+  let arg_act = GoapAction(name = "test", cost = 1.0, preconditionMask = 4, preconditionCareMask = 4, effectSetMask = 4, effectClearMask = 4)
+  let edge_act = GoapAction(name = "a", cost = 0.5, preconditionMask = 1, preconditionCareMask = 1, effectSetMask = 1, effectClearMask = 1)
+  let resNom = applyActionEffects(arg_stateMask, arg_act)
+  let resEdge = applyActionEffects(edge_stateMask, edge_act)
+  assertEqInt(resNom, 0, "applyActionEffects nominal resNom == 0")
+  assertEqInt(resEdge, 0, "applyActionEffects boundary resEdge == 0")
+  ret 0
+
+pub fn test_goap_goapPlanAStar_8(): int:
+  let arg_planner = GoapPlanner(actions = [])
+  let edge_planner = GoapPlanner(actions = [])
+  let arg_currentState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_currentState = GoapWorldState(stateMask = 1, careMask = 1)
+  let arg_goalState = GoapWorldState(stateMask = 4, careMask = 4)
+  let edge_goalState = GoapWorldState(stateMask = 1, careMask = 1)
+  let resNom = goapPlanAStar(arg_planner, arg_currentState, arg_goalState)
+  let resEdge = goapPlanAStar(edge_planner, edge_currentState, edge_goalState)
+  assert(resNom.isSome() == true, "goapPlanAStar nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "goapPlanAStar boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_goap_utilityResponseCurveLogistic_9(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_midpoint = 1.0
+  let edge_midpoint = 0.5
+  let arg_steepness = 1.0
+  let edge_steepness = 0.5
+  let resNom = utilityResponseCurveLogistic(arg_x, arg_midpoint, arg_steepness)
+  let resEdge = utilityResponseCurveLogistic(edge_x, edge_midpoint, edge_steepness)
+  assertApproxEq(resNom, 0.5, 0.001, "utilityResponseCurveLogistic nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.5, 0.001, "utilityResponseCurveLogistic boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_goap_utilityLinear_10(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_minVal = 0.0
+  let edge_minVal = 0.0
+  let arg_maxVal = 2.0
+  let edge_maxVal = 1.0
+  let resNom = utilityLinear(arg_val, arg_minVal, arg_maxVal)
+  let resEdge = utilityLinear(edge_val, edge_minVal, edge_maxVal)
+  assertApproxEq(resNom, 0.5, 0.001, "utilityLinear nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.5, 0.001, "utilityLinear boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_goap_utilityQuadratic_11(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_minVal = 0.0
+  let edge_minVal = 0.0
+  let arg_maxVal = 2.0
+  let edge_maxVal = 1.0
+  let arg_exponent = 1.0
+  let edge_exponent = 0.5
+  let resNom = utilityQuadratic(arg_val, arg_minVal, arg_maxVal, arg_exponent)
+  let resEdge = utilityQuadratic(edge_val, edge_minVal, edge_maxVal, edge_exponent)
+  assertApproxEq(resNom, 0.5, 0.001, "utilityQuadratic nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.707107, 0.001, "utilityQuadratic boundary resEdge ~= 0.707107")
+  ret 0
+
+pub fn test_goap_utilityExponential_12(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_growthRate = 2.0
+  let edge_growthRate = 1.0
+  let resNom = utilityExponential(arg_val, arg_growthRate)
+  let resEdge = utilityExponential(edge_val, edge_growthRate)
+  assertApproxEq(resNom, 0.864665, 0.001, "utilityExponential nominal resNom ~= 0.864665")
+  assertApproxEq(resEdge, 0.393469, 0.001, "utilityExponential boundary resEdge ~= 0.393469")
+  ret 0
+
+pub fn test_goap_utilityGaussian_13(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_center = 1.0
+  let edge_center = 0.5
+  let arg_sigma = 1.0
+  let edge_sigma = 0.5
+  let resNom = utilityGaussian(arg_val, arg_center, arg_sigma)
+  let resEdge = utilityGaussian(edge_val, edge_center, edge_sigma)
+  assertApproxEq(resNom, 1.0, 0.001, "utilityGaussian nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "utilityGaussian boundary resEdge ~= 1.0")
+  ret 0
+
+pub fn test_goap_utilitySelectBest_14(): int:
+  let arg_scores = [1.0]
+  let edge_scores = []
+  let resNom = utilitySelectBest(arg_scores)
+  let resEdge = utilitySelectBest(edge_scores)
+  assertEqInt(resNom, 0, "utilitySelectBest nominal resNom == 0")
+  assertEqInt(resEdge, -1, "utilitySelectBest boundary resEdge == -1")
+  ret 0
+
+pub fn test_hebar_referee_hebarRefereeNew_1(): int:
+  let arg_minDelayMs = 4
+  let edge_minDelayMs = 1
+  let arg_maxDelayMs = 4
+  let edge_maxDelayMs = 1
+  let arg_maxApm = 4
+  let edge_maxApm = 1
+  let resNom = hebarRefereeNew(arg_minDelayMs, arg_maxDelayMs, arg_maxApm)
+  let resEdge = hebarRefereeNew(edge_minDelayMs, edge_maxDelayMs, edge_maxApm)
+  assertEqInt(resNom.minReactionDelayMs, 4, "hebarRefereeNew nominal resNom.minReactionDelayMs == 4")
+  assertEqInt(resEdge.minReactionDelayMs, 1, "hebarRefereeNew boundary resEdge.minReactionDelayMs == 1")
+  ret 0
+
+pub fn test_hebar_referee_hebarEnqueueAction_2(): int:
+  let arg_referee = HebarReferee(minReactionDelayMs = 4, maxReactionDelayMs = 4, maxActionsPerMinute = 4, actionHistory = [], lastPopTimestampMs = 4)
+  let edge_referee = HebarReferee(minReactionDelayMs = 1, maxReactionDelayMs = 1, maxActionsPerMinute = 1, actionHistory = [], lastPopTimestampMs = 1)
+  let arg_action = HebarActionRecord(timestampMs = 4, actionTag = "test", targetPos = Vec2(x = 1.0, y = 1.0))
+  let edge_action = HebarActionRecord(timestampMs = 1, actionTag = "a", targetPos = Vec2(x = 0.5, y = 0.5))
+  let arg_currentTimestampMs = 4
+  let edge_currentTimestampMs = 1
+  let resNom = hebarEnqueueAction(arg_referee, arg_action, arg_currentTimestampMs)
+  let resEdge = hebarEnqueueAction(edge_referee, edge_action, edge_currentTimestampMs)
+  assert(resNom == true, "hebarEnqueueAction nominal resNom == true")
+  assert(resEdge == true, "hebarEnqueueAction boundary resEdge == true")
+  ret 0
+
+pub fn test_hebar_referee_hebarPopReadyActions_3(): int:
+  let arg_referee = HebarReferee(minReactionDelayMs = 4, maxReactionDelayMs = 4, maxActionsPerMinute = 4, actionHistory = [], lastPopTimestampMs = 4)
+  let edge_referee = HebarReferee(minReactionDelayMs = 1, maxReactionDelayMs = 1, maxActionsPerMinute = 1, actionHistory = [], lastPopTimestampMs = 1)
+  let arg_currentTimestampMs = 4
+  let edge_currentTimestampMs = 1
+  let resNom = hebarPopReadyActions(arg_referee, arg_currentTimestampMs)
+  let resEdge = hebarPopReadyActions(edge_referee, edge_currentTimestampMs)
+  assertEqInt(resNom.len(), 0, "hebarPopReadyActions nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "hebarPopReadyActions boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_hebar_referee_hebarIsWithinApmLimit_4(): int:
+  let arg_actionsInWindow = 4
+  let edge_actionsInWindow = 1
+  let arg_windowDurationMs = 4
+  let edge_windowDurationMs = 1
+  let arg_maxApm = 4
+  let edge_maxApm = 1
+  let resNom = hebarIsWithinApmLimit(arg_actionsInWindow, arg_windowDurationMs, arg_maxApm)
+  let resEdge = hebarIsWithinApmLimit(edge_actionsInWindow, edge_windowDurationMs, edge_maxApm)
+  assert(resNom == false, "hebarIsWithinApmLimit nominal resNom == false")
+  assert(resEdge == false, "hebarIsWithinApmLimit boundary resEdge == false")
+  ret 0
+
+pub fn test_hebar_referee_hebarClampReactionDelayMs_5(): int:
+  let arg_delayMs = 4
+  let edge_delayMs = 1
+  let arg_minMs = 4
+  let edge_minMs = 1
+  let arg_maxMs = 4
+  let edge_maxMs = 1
+  let resNom = hebarClampReactionDelayMs(arg_delayMs, arg_minMs, arg_maxMs)
+  let resEdge = hebarClampReactionDelayMs(edge_delayMs, edge_minMs, edge_maxMs)
+  assertEqInt(resNom, 4, "hebarClampReactionDelayMs nominal resNom == 4")
+  assertEqInt(resEdge, 1, "hebarClampReactionDelayMs boundary resEdge == 1")
+  ret 0
+
+pub fn test_hebar_referee_hebarQuantizeFloat_6(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let resNom = hebarQuantizeFloat(arg_val)
+  let resEdge = hebarQuantizeFloat(edge_val)
+  assertEqInt(resNom, 1000, "hebarQuantizeFloat nominal resNom == 1000")
+  assertEqInt(resEdge, 500, "hebarQuantizeFloat boundary resEdge == 500")
+  ret 0
+
+pub fn test_hebar_referee_hebarHashInt_7(): int:
+  let arg_hashState = 1
+  let edge_hashState = 0
+  let arg_value = 2
+  let edge_value = 0
+  let resNom = hebarHashInt(arg_hashState, arg_value)
+  let resEdge = hebarHashInt(edge_hashState, edge_value)
+  assertEqInt(resNom, 1887747379, "hebarHashInt nominal resNom == 1887747379")
+  assertEqInt(resEdge, 1268118805, "hebarHashInt boundary resEdge == 1268118805")
+  ret 0
+
+pub fn test_hebar_referee_hebarHashFloat_8(): int:
+  let arg_hashState = 1
+  let edge_hashState = 0
+  let arg_value = 1.0
+  let edge_value = 0.5
+  let resNom = hebarHashFloat(arg_hashState, arg_value)
+  let resEdge = hebarHashFloat(edge_hashState, edge_value)
+  assertEqInt(resNom, 999378072, "hebarHashFloat nominal resNom == 999378072")
+  assertEqInt(resEdge, 857394166, "hebarHashFloat boundary resEdge == 857394166")
+  ret 0
+
+pub fn test_hebar_referee_hebarVerifyDeterminism_9(): int:
+  let arg_hashesA = [2]
+  let edge_hashesA = []
+  let arg_hashesB = [4]
+  let edge_hashesB = []
+  let resNom = hebarVerifyDeterminism(arg_hashesA, arg_hashesB)
+  let resEdge = hebarVerifyDeterminism(edge_hashesA, edge_hashesB)
+  assert(resNom == false, "hebarVerifyDeterminism nominal resNom == false")
+  assert(resEdge == true, "hebarVerifyDeterminism boundary resEdge == true")
+  ret 0
+
+pub fn test_hebar_referee_hebarStepDamageTrail_10(): int:
+  let arg_trailHp = 2.0
+  let edge_trailHp = 1.0
+  let arg_currentHp = 2.0
+  let edge_currentHp = 1.0
+  let arg_drainSpeed = 1.0
+  let edge_drainSpeed = 0.5
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = hebarStepDamageTrail(arg_trailHp, arg_currentHp, arg_drainSpeed, arg_dt)
+  let resEdge = hebarStepDamageTrail(edge_trailHp, edge_currentHp, edge_drainSpeed, edge_dt)
+  assertApproxEq(resNom, 2.0, 0.001, "hebarStepDamageTrail nominal resNom ~= 2.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "hebarStepDamageTrail boundary resEdge ~= 1.0")
+  ret 0
+
+pub fn test_vector_embedding_cosineSimilarity_1(): int:
+  let arg_v1 = VectorEmbedding(dims = 4, values = [])
+  let edge_v1 = VectorEmbedding(dims = 1, values = [])
+  let arg_v2 = VectorEmbedding(dims = 4, values = [])
+  let edge_v2 = VectorEmbedding(dims = 1, values = [])
+  let resNom = cosineSimilarity(arg_v1, arg_v2)
+  let resEdge = cosineSimilarity(edge_v1, edge_v2)
+  assertApproxEq(resNom, 0.0, 0.001, "cosineSimilarity nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "cosineSimilarity boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_vector_embedding_l2Distance_2(): int:
+  let arg_v1 = VectorEmbedding(dims = 4, values = [])
+  let edge_v1 = VectorEmbedding(dims = 1, values = [])
+  let arg_v2 = VectorEmbedding(dims = 4, values = [])
+  let edge_v2 = VectorEmbedding(dims = 1, values = [])
+  let resNom = l2Distance(arg_v1, arg_v2)
+  let resEdge = l2Distance(edge_v1, edge_v2)
+  assertApproxEq(resNom, 0.0, 0.001, "l2Distance nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "l2Distance boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_vector_embedding_knnLinearSearch_3(): int:
+  let arg_query = VectorEmbedding(dims = 4, values = [])
+  let edge_query = VectorEmbedding(dims = 1, values = [])
+  let arg_dataset = [VectorEmbedding(dims = 4, values = [])]
+  let edge_dataset = []
+  let arg_topK = 4
+  let edge_topK = 1
+  let resNom = knnLinearSearch(arg_query, arg_dataset, arg_topK)
+  let resEdge = knnLinearSearch(edge_query, edge_dataset, edge_topK)
+  assertEqInt(resNom.len(), 1, "knnLinearSearch nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "knnLinearSearch boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_vector_embedding_buildGeminiRequest_4(): int:
+  let arg_model = "[s]\nk=v"
+  let edge_model = "[s]\nk=v"
+  let arg_systemPrompt = "[s]\nk=v"
+  let edge_systemPrompt = "[s]\nk=v"
+  let arg_userPrompt = "[s]\nk=v"
+  let edge_userPrompt = "[s]\nk=v"
+  let arg_responseSchemaJson = "{\"a\":1}"
+  let edge_responseSchemaJson = "{}"
+  let resNom = buildGeminiRequest(arg_model, arg_systemPrompt, arg_userPrompt, arg_responseSchemaJson)
+  let resEdge = buildGeminiRequest(edge_model, edge_systemPrompt, edge_userPrompt, edge_responseSchemaJson)
+  assertEqInt(resNom.len(), 215, "buildGeminiRequest nominal string length == 215")
+  assertEqInt(resEdge.len(), 210, "buildGeminiRequest boundary string length == 210")
+  ret 0
+
+pub fn test_vector_embedding_buildOpenAiRequest_5(): int:
+  let arg_model = "test"
+  let edge_model = "a"
+  let arg_messages = [AiMessage(role = "test", content = "test")]
+  let edge_messages = []
+  let arg_responseSchemaJson = "{\"a\":1}"
+  let edge_responseSchemaJson = "{}"
+  let resNom = buildOpenAiRequest(arg_model, arg_messages, arg_responseSchemaJson)
+  let resEdge = buildOpenAiRequest(edge_model, edge_messages, edge_responseSchemaJson)
+  assertEqInt(resNom.len(), 174, "buildOpenAiRequest nominal string length == 174")
+  assertEqInt(resEdge.len(), 134, "buildOpenAiRequest boundary string length == 134")
+  ret 0
+
+pub fn test_vector_embedding_buildAnthropicRequest_6(): int:
+  let arg_model = "test"
+  let edge_model = "a"
+  let arg_systemPrompt = "test"
+  let edge_systemPrompt = "a"
+  let arg_messages = [AiMessage(role = "test", content = "test")]
+  let edge_messages = []
+  let arg_maxTokens = 4
+  let edge_maxTokens = 1
+  let resNom = buildAnthropicRequest(arg_model, arg_systemPrompt, arg_messages, arg_maxTokens)
+  let resEdge = buildAnthropicRequest(edge_model, edge_systemPrompt, edge_messages, edge_maxTokens)
+  assertEqInt(resNom.len(), 93, "buildAnthropicRequest nominal string length == 93")
+  assertEqInt(resEdge.len(), 55, "buildAnthropicRequest boundary string length == 55")
+  ret 0
+
+pub fn test_vector_embedding_buildOllamaRequest_7(): int:
+  let arg_model = "test"
+  let edge_model = "a"
+  let arg_prompt = "test"
+  let edge_prompt = "a"
+  let arg_formatSchemaJson = "{\"a\":1}"
+  let edge_formatSchemaJson = "{}"
+  let resNom = buildOllamaRequest(arg_model, arg_prompt, arg_formatSchemaJson)
+  let resEdge = buildOllamaRequest(edge_model, edge_prompt, edge_formatSchemaJson)
+  assertEqInt(resNom.len(), 64, "buildOllamaRequest nominal string length == 64")
+  assertEqInt(resEdge.len(), 53, "buildOllamaRequest boundary string length == 53")
+  ret 0
+
+pub fn test_vector_embedding_tryExtractToolCallPair_8(): int:
+  let arg_responseJson = "{\"a\":1}"
+  let edge_responseJson = "{}"
+  let arg_namePath = "/tmp/aipl_test_path"
+  let edge_namePath = "/tmp/aipl_test_path"
+  let arg_argsPath1 = "/tmp/aipl_test_path"
+  let edge_argsPath1 = "/tmp/aipl_test_path"
+  let arg_argsPath2 = "/tmp/aipl_test_path"
+  let edge_argsPath2 = "/tmp/aipl_test_path"
+  let resNom = tryExtractToolCallPair(arg_responseJson, arg_namePath, arg_argsPath1, arg_argsPath2)
+  let resEdge = tryExtractToolCallPair(edge_responseJson, edge_namePath, edge_argsPath1, edge_argsPath2)
+  assert(resNom.isSome() == false, "tryExtractToolCallPair nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "tryExtractToolCallPair boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_vector_embedding_parseAiToolCall_9(): int:
+  let arg_responseJson = "{\"a\":1}"
+  let edge_responseJson = "{}"
+  let resNom = parseAiToolCall(arg_responseJson)
+  let resEdge = parseAiToolCall(edge_responseJson)
+  assert(resNom.isOk() == false, "parseAiToolCall nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "parseAiToolCall boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_vector_embedding_hasJsonKey_10(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let resNom = hasJsonKey(arg_jsonStr, arg_key)
+  let resEdge = hasJsonKey(edge_jsonStr, edge_key)
+  assert(resNom == false, "hasJsonKey nominal resNom == false")
+  assert(resEdge == false, "hasJsonKey boundary resEdge == false")
+  ret 0
+
+pub fn test_vector_embedding_extractStringArrayElements_11(): int:
+  let arg_arrJson = "{\"a\":1}"
+  let edge_arrJson = "{}"
+  let resNom = extractStringArrayElements(arg_arrJson)
+  let resEdge = extractStringArrayElements(edge_arrJson)
+  assertEqInt(resNom.len(), 0, "extractStringArrayElements nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "extractStringArrayElements boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_vector_embedding_extractRequiredKeys_12(): int:
+  let arg_schemaJson = "{\"a\":1}"
+  let edge_schemaJson = "{}"
+  let resNom = extractRequiredKeys(arg_schemaJson)
+  let resEdge = extractRequiredKeys(edge_schemaJson)
+  assertEqInt(resNom.len(), 0, "extractRequiredKeys nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "extractRequiredKeys boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_vector_embedding_validateJsonAgainstSchema_13(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_schemaJson = "{\"a\":1}"
+  let edge_schemaJson = "{}"
+  let resNom = validateJsonAgainstSchema(arg_jsonStr, arg_schemaJson)
+  let resEdge = validateJsonAgainstSchema(edge_jsonStr, edge_schemaJson)
+  assert(resNom.isOk() == true, "validateJsonAgainstSchema nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "validateJsonAgainstSchema boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_vector_embedding_renderPromptTemplate_14(): int:
+  let arg_template = "test"
+  let edge_template = "a"
+  let arg_vars = {}
+  let edge_vars = {}
+  let resNom = renderPromptTemplate(arg_template, arg_vars)
+  let resEdge = renderPromptTemplate(edge_template, edge_vars)
+  assertEqStr(resNom, "test", "renderPromptTemplate nominal string matches")
+  assertEqStr(resEdge, "a", "renderPromptTemplate boundary string matches")
+  ret 0
+
+pub fn test_vector_embedding_estimateTokenCount_15(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = estimateTokenCount(arg_text)
+  let resEdge = estimateTokenCount(edge_text)
+  assertEqInt(resNom, 1, "estimateTokenCount nominal resNom == 1")
+  assertEqInt(resEdge, 1, "estimateTokenCount boundary resEdge == 1")
+  ret 0
+
+pub fn test_vector_embedding_rankEmbeddingsByCosine_16(): int:
+  let arg_query = [1.0]
+  let edge_query = []
+  let arg_candidates = [[]]
+  let edge_candidates = []
+  let resNom = rankEmbeddingsByCosine(arg_query, arg_candidates)
+  let resEdge = rankEmbeddingsByCosine(edge_query, edge_candidates)
+  assertEqInt(resNom.len(), 1, "rankEmbeddingsByCosine nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "rankEmbeddingsByCosine boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_vector_embedding_denseLayerForward_17(): int:
+  let arg_input = [1.0]
+  let edge_input = []
+  let arg_weights = [2.0]
+  let edge_weights = []
+  let arg_bias = [1.0]
+  let edge_bias = []
+  let arg_inDim = 4
+  let edge_inDim = 1
+  let arg_outDim = 4
+  let edge_outDim = 1
+  let resNom = denseLayerForward(arg_input, arg_weights, arg_bias, arg_inDim, arg_outDim)
+  let resEdge = denseLayerForward(edge_input, edge_weights, edge_bias, edge_inDim, edge_outDim)
+  assertEqInt(resNom.len(), 4, "denseLayerForward nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "denseLayerForward boundary resEdge.len() == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_btree_ai_blackboardNew_1(), 0, "test_btree_ai_blackboardNew_1")
+  assertEqInt(test_btree_ai_blackboardSet_2(), 0, "test_btree_ai_blackboardSet_2")
+  assertEqInt(test_btree_ai_blackboardGet_3(), 0, "test_btree_ai_blackboardGet_3")
+  assertEqInt(test_btree_ai_btreeTickNode_4(), 0, "test_btree_ai_btreeTickNode_4")
+  assertEqInt(test_btree_ai_blackboardHasKey_5(), 0, "test_btree_ai_blackboardHasKey_5")
+  assertEqInt(test_btree_ai_blackboardClear_6(), 0, "test_btree_ai_blackboardClear_6")
+  assertEqInt(test_btree_ai_btreeCreateSequence_7(), 0, "test_btree_ai_btreeCreateSequence_7")
+  assertEqInt(test_btree_ai_btreeCreateSelector_8(), 0, "test_btree_ai_btreeCreateSelector_8")
+  assertEqInt(test_btree_ai_btreeCreateAction_9(), 0, "test_btree_ai_btreeCreateAction_9")
+  assertEqInt(test_btree_ai_btSuccess_10(), 0, "test_btree_ai_btSuccess_10")
+  assertEqInt(test_btree_ai_btFailure_11(), 0, "test_btree_ai_btFailure_11")
+  assertEqInt(test_btree_ai_btRunning_12(), 0, "test_btree_ai_btRunning_12")
+  assertEqInt(test_btree_ai_btInvert_13(), 0, "test_btree_ai_btInvert_13")
+  assertEqInt(test_btree_ai_btSequence_14(), 0, "test_btree_ai_btSequence_14")
+  assertEqInt(test_btree_ai_btSelector_15(), 0, "test_btree_ai_btSelector_15")
+  assertEqInt(test_fsm_fsmNew_1(), 0, "test_fsm_fsmNew_1")
+  assertEqInt(test_fsm_fsmAddState_2(), 0, "test_fsm_fsmAddState_2")
+  assertEqInt(test_fsm_fsmAddTransition_3(), 0, "test_fsm_fsmAddTransition_3")
+  assertEqInt(test_fsm_fsmTriggerEvent_4(), 0, "test_fsm_fsmTriggerEvent_4")
+  assertEqInt(test_fsm_fsmCurrentStateId_5(), 0, "test_fsm_fsmCurrentStateId_5")
+  assertEqInt(test_fsm_fsmCurrentStateName_6(), 0, "test_fsm_fsmCurrentStateName_6")
+  assertEqInt(test_fsm_fsmHasState_7(), 0, "test_fsm_fsmHasState_7")
+  assertEqInt(test_fsm_fsmReset_8(), 0, "test_fsm_fsmReset_8")
+  assertEqInt(test_fsm_fsmGetValidEvents_9(), 0, "test_fsm_fsmGetValidEvents_9")
+  assertEqInt(test_goap_goapPlannerNew_1(), 0, "test_goap_goapPlannerNew_1")
+  assertEqInt(test_goap_goapAddAction_2(), 0, "test_goap_goapAddAction_2")
+  assertEqInt(test_goap_satisfiesGoal_3(), 0, "test_goap_satisfiesGoal_3")
+  assertEqInt(test_goap_goapHasGoalSatisfied_4(), 0, "test_goap_goapHasGoalSatisfied_4")
+  assertEqInt(test_goap_goapHeuristicDistance_5(), 0, "test_goap_goapHeuristicDistance_5")
+  assertEqInt(test_goap_actionApplicable_6(), 0, "test_goap_actionApplicable_6")
+  assertEqInt(test_goap_applyActionEffects_7(), 0, "test_goap_applyActionEffects_7")
+  assertEqInt(test_goap_goapPlanAStar_8(), 0, "test_goap_goapPlanAStar_8")
+  assertEqInt(test_goap_utilityResponseCurveLogistic_9(), 0, "test_goap_utilityResponseCurveLogistic_9")
+  assertEqInt(test_goap_utilityLinear_10(), 0, "test_goap_utilityLinear_10")
+  assertEqInt(test_goap_utilityQuadratic_11(), 0, "test_goap_utilityQuadratic_11")
+  assertEqInt(test_goap_utilityExponential_12(), 0, "test_goap_utilityExponential_12")
+  assertEqInt(test_goap_utilityGaussian_13(), 0, "test_goap_utilityGaussian_13")
+  assertEqInt(test_goap_utilitySelectBest_14(), 0, "test_goap_utilitySelectBest_14")
+  assertEqInt(test_hebar_referee_hebarRefereeNew_1(), 0, "test_hebar_referee_hebarRefereeNew_1")
+  assertEqInt(test_hebar_referee_hebarEnqueueAction_2(), 0, "test_hebar_referee_hebarEnqueueAction_2")
+  assertEqInt(test_hebar_referee_hebarPopReadyActions_3(), 0, "test_hebar_referee_hebarPopReadyActions_3")
+  assertEqInt(test_hebar_referee_hebarIsWithinApmLimit_4(), 0, "test_hebar_referee_hebarIsWithinApmLimit_4")
+  assertEqInt(test_hebar_referee_hebarClampReactionDelayMs_5(), 0, "test_hebar_referee_hebarClampReactionDelayMs_5")
+  assertEqInt(test_hebar_referee_hebarQuantizeFloat_6(), 0, "test_hebar_referee_hebarQuantizeFloat_6")
+  assertEqInt(test_hebar_referee_hebarHashInt_7(), 0, "test_hebar_referee_hebarHashInt_7")
+  assertEqInt(test_hebar_referee_hebarHashFloat_8(), 0, "test_hebar_referee_hebarHashFloat_8")
+  assertEqInt(test_hebar_referee_hebarVerifyDeterminism_9(), 0, "test_hebar_referee_hebarVerifyDeterminism_9")
+  assertEqInt(test_hebar_referee_hebarStepDamageTrail_10(), 0, "test_hebar_referee_hebarStepDamageTrail_10")
+  assertEqInt(test_vector_embedding_cosineSimilarity_1(), 0, "test_vector_embedding_cosineSimilarity_1")
+  assertEqInt(test_vector_embedding_l2Distance_2(), 0, "test_vector_embedding_l2Distance_2")
+  assertEqInt(test_vector_embedding_knnLinearSearch_3(), 0, "test_vector_embedding_knnLinearSearch_3")
+  assertEqInt(test_vector_embedding_buildGeminiRequest_4(), 0, "test_vector_embedding_buildGeminiRequest_4")
+  assertEqInt(test_vector_embedding_buildOpenAiRequest_5(), 0, "test_vector_embedding_buildOpenAiRequest_5")
+  assertEqInt(test_vector_embedding_buildAnthropicRequest_6(), 0, "test_vector_embedding_buildAnthropicRequest_6")
+  assertEqInt(test_vector_embedding_buildOllamaRequest_7(), 0, "test_vector_embedding_buildOllamaRequest_7")
+  assertEqInt(test_vector_embedding_tryExtractToolCallPair_8(), 0, "test_vector_embedding_tryExtractToolCallPair_8")
+  assertEqInt(test_vector_embedding_parseAiToolCall_9(), 0, "test_vector_embedding_parseAiToolCall_9")
+  assertEqInt(test_vector_embedding_hasJsonKey_10(), 0, "test_vector_embedding_hasJsonKey_10")
+  assertEqInt(test_vector_embedding_extractStringArrayElements_11(), 0, "test_vector_embedding_extractStringArrayElements_11")
+  assertEqInt(test_vector_embedding_extractRequiredKeys_12(), 0, "test_vector_embedding_extractRequiredKeys_12")
+  assertEqInt(test_vector_embedding_validateJsonAgainstSchema_13(), 0, "test_vector_embedding_validateJsonAgainstSchema_13")
+  assertEqInt(test_vector_embedding_renderPromptTemplate_14(), 0, "test_vector_embedding_renderPromptTemplate_14")
+  assertEqInt(test_vector_embedding_estimateTokenCount_15(), 0, "test_vector_embedding_estimateTokenCount_15")
+  assertEqInt(test_vector_embedding_rankEmbeddingsByCosine_16(), 0, "test_vector_embedding_rankEmbeddingsByCosine_16")
+  assertEqInt(test_vector_embedding_denseLayerForward_17(), 0, "test_vector_embedding_denseLayerForward_17")
+  ret 0

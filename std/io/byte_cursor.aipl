@@ -1,0 +1,124 @@
+/// # Module: `std/io/byte_cursor` (`IoByteCursor`)
+///
+/// ## Purpose & Domain Scope
+/// In-memory seekable byte cursor (`ByteCursor`) supporting sequential and random-access
+/// reading, exact-length reads, and dynamic grow-on-write buffer semantics.
+module IoByteCursor
+
+import "io_traits.aipl"
+
+pub struct ByteCursor:
+  mut buf: [int]
+  mut pos: int = 0
+  mut limit: int = 0
+
+pub fn cursorNew(data: [int]): ByteCursor:
+  mut copy: [int] = []
+  mut i = 0
+  while i < data.len():
+    copy.push(data[i] & 255)
+    i = i + 1
+  ret ByteCursor(buf: copy, pos: 0, limit: copy.len())
+
+pub fn cursorEmpty(capacity: int): ByteCursor:
+  if capacity < 0:
+    ret ByteCursor(buf: [], pos: 0, limit: 0)
+  ret ByteCursor(buf: [], pos: 0, limit: 0)
+
+pub fn cursorPosition(c: ByteCursor): int:
+  ret c.pos
+
+pub fn cursorRemaining(c: ByteCursor): int:
+  if c.pos >= c.limit:
+    ret 0
+  ret c.limit - c.pos
+
+pub fn cursorIsEof(c: ByteCursor): bool:
+  ret c.pos >= c.limit
+
+pub fn cursorSeek(mut c: ByteCursor, from: SeekFrom): Result[int, IoError]:
+  let res = ioSeekResolve(c.pos, c.limit, from)
+  if res.isOk():
+    let newPos = res.unwrap()
+    c.pos = newPos
+    ret Ok(newPos)
+  ret Err(res.unwrapErr())
+
+pub fn cursorRewind(mut c: ByteCursor): ByteCursor:
+  c.pos = 0
+  ret c
+
+pub fn cursorRead(mut c: ByteCursor, maxBytes: int): [int]:
+  if maxBytes <= 0 or c.pos >= c.limit:
+    ret []
+  mut avail = c.limit - c.pos
+  if maxBytes < avail:
+    avail = maxBytes
+  mut out: [int] = []
+  mut i = 0
+  while i < avail:
+    out.push(c.buf[c.pos + i])
+    i = i + 1
+  c.pos = c.pos + avail
+  ret out
+
+pub fn cursorReadExact(mut c: ByteCursor, n: int): Result[[int], IoError]:
+  if n < 0:
+    ret Err(ioErrNew(IoErrorKind::InvalidInput, "cursorReadExact: negative length"))
+  if c.pos + n > c.limit:
+    ret Err(ioErrUnexpectedEof("cursorReadExact: insufficient bytes remaining"))
+  mut out: [int] = []
+  mut i = 0
+  while i < n:
+    out.push(c.buf[c.pos + i])
+    i = i + 1
+  c.pos = c.pos + n
+  ret Ok(out)
+
+pub fn cursorReadByte(mut c: ByteCursor): Result[int, IoError]:
+  if c.pos >= c.limit:
+    ret Err(ioErrUnexpectedEof("cursorReadByte: reached EOF"))
+  let b = c.buf[c.pos]
+  c.pos = c.pos + 1
+  ret Ok(b)
+
+pub fn cursorWrite(mut c: ByteCursor, data: [int]): int:
+  mut i = 0
+  while i < data.len():
+    let b = data[i] & 255
+    if c.pos < c.buf.len():
+      c.buf[c.pos] = b
+    else:
+      c.buf.push(b)
+    c.pos = c.pos + 1
+    if c.pos > c.limit:
+      c.limit = c.pos
+    i = i + 1
+  ret data.len()
+
+pub fn cursorWriteByte(mut c: ByteCursor, b: int): ByteCursor:
+  let byteVal = b & 255
+  if c.pos < c.buf.len():
+    c.buf[c.pos] = byteVal
+  else:
+    c.buf.push(byteVal)
+  c.pos = c.pos + 1
+  if c.pos > c.limit:
+    c.limit = c.pos
+  ret c
+
+pub fn cursorIntoInner(c: ByteCursor): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < c.limit and i < c.buf.len():
+    out.push(c.buf[i])
+    i = i + 1
+  ret out
+
+pub fn cursorSliceRemaining(c: ByteCursor): [int]:
+  mut out: [int] = []
+  mut i = c.pos
+  while i < c.limit and i < c.buf.len():
+    out.push(c.buf[i])
+    i = i + 1
+  ret out

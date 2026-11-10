@@ -1,0 +1,89 @@
+/// # Module: `std/ecs/archetype` (`ArchetypeMod`)
+///
+/// ## Purpose & Domain Scope
+/// Structure-of-Arrays (SoA) archetype storage tables, component signature
+/// bitmasks, and swap-remove row compaction.
+module ArchetypeMod
+
+import { EntityId } from "std/ecs/entity"
+
+pub struct ComponentColumn(componentId: int, values: [float])
+
+pub struct ArchetypeTable(signatureMask: int, entities: [EntityId], columns: [ComponentColumn])
+
+pub fn createArchetypeTable(signatureMask: int, componentIds: [int]): ArchetypeTable:
+  mut ents: [EntityId] = []
+  mut cols: [ComponentColumn] = []
+  mut i = 0
+  while i < componentIds.len:
+    mut vals: [float] = []
+    cols.push(ComponentColumn(componentId = componentIds[i], values = vals))
+    i = i + 1
+  ret ArchetypeTable(signatureMask = signatureMask, entities = ents, columns = cols)
+
+pub fn insertArchetypeRow(table: ArchetypeTable, entity: EntityId, initialValues: [float]): ArchetypeTable:
+  mut ents = table.entities
+  ents.push(entity)
+  mut cols = table.columns
+  mut i = 0
+  while i < cols.len:
+    let col: ComponentColumn = cols[i]
+    mut vals = col.values
+    let initVal = if i < initialValues.len: initialValues[i] else: 0.0
+    vals.push(initVal)
+    cols[i] = ComponentColumn(componentId = col.componentId, values = vals)
+    i = i + 1
+  ret ArchetypeTable(signatureMask = table.signatureMask, entities = ents, columns = cols)
+
+pub fn swapRemoveArchetypeRow(table: ArchetypeTable, rowIndex: int): ArchetypeTable:
+  let n = table.entities.len
+  if rowIndex < 0 or rowIndex >= n:
+    ret table
+
+  mut nextEnts: [EntityId] = []
+  mut i = 0
+  while i < n - 1:
+    if i == rowIndex:
+      nextEnts.push(table.entities[n - 1])
+    else:
+      nextEnts.push(table.entities[i])
+    i = i + 1
+
+  mut nextCols: [ComponentColumn] = []
+  mut c = 0
+  while c < table.columns.len:
+    let col: ComponentColumn = table.columns[c]
+    mut nextVals: [float] = []
+    mut r = 0
+    while r < n - 1:
+      if r == rowIndex:
+        nextVals.push(col.values[n - 1])
+      else:
+        nextVals.push(col.values[r])
+      r = r + 1
+    nextCols.push(ComponentColumn(componentId = col.componentId, values = nextVals))
+    c = c + 1
+
+  ret ArchetypeTable(signatureMask = table.signatureMask, entities = nextEnts, columns = nextCols)
+
+pub fn migrateEntityBetweenArchetypes(src: ArchetypeTable, dst: ArchetypeTable, rowIndex: int): (ArchetypeTable, ArchetypeTable, int):
+  let ent: EntityId = src.entities[rowIndex]
+  mut dstVals: [float] = []
+  mut d = 0
+  while d < dst.columns.len:
+    let dstCol: ComponentColumn = dst.columns[d]
+    let compId = dstCol.componentId
+    mut copiedVal = 0.0
+    mut s = 0
+    while s < src.columns.len:
+      let srcCol: ComponentColumn = src.columns[s]
+      if srcCol.componentId == compId:
+        copiedVal = srcCol.values[rowIndex]
+      s = s + 1
+    dstVals.push(copiedVal)
+    d = d + 1
+
+  let newDstRow = dst.entities.len
+  let nextDst = insertArchetypeRow(dst, ent, dstVals)
+  let nextSrc = swapRemoveArchetypeRow(src, rowIndex)
+  ret (nextSrc, nextDst, newDstRow)

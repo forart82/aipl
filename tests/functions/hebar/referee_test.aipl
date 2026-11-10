@@ -1,0 +1,50 @@
+module tests.functions.hebar.referee_test
+
+import { Vec2 } from "std/math/vec_math"
+import { assert, assertEqInt, assertApproxEq } from "std/prelude"
+import {
+  HebarActionRecord,
+  HebarReferee,
+  hebarRefereeNew,
+  hebarEnqueueAction,
+  hebarPopReadyActions,
+  hebarIsWithinApmLimit,
+  hebarClampReactionDelayMs,
+  hebarStepCursorTrajectory,
+  hebarClampAngularSlew,
+  hebarVerifyZeroTampering,
+  connectTargetWindow,
+  renderHebarRefereeDashboard,
+  exportHebarTelemetryJson
+} from "std/hebar/referee"
+
+pub fn test_hebar_alias_all_five_bounds(): int:
+  mut ref: HebarReferee = hebarRefereeNew(150, 250, 900)
+  assert(hebarVerifyZeroTampering(ref, 0) == true, "5-bound referee verified")
+  assertEqInt(hebarClampReactionDelayMs(50, 150, 250), 150, "reaction delay clamped to >= 150ms")
+  assertEqInt(hebarClampReactionDelayMs(400, 150, 250), 250, "reaction delay clamped to <= 250ms")
+  assert(hebarIsWithinApmLimit(15, 1000, 900) == true, "15 Hz == 900 APM within limit")
+  assert(hebarIsWithinApmLimit(16, 1000, 900) == false, "16 Hz > 900 APM rejected")
+
+  let rec = HebarActionRecord(timestampMs = 100, actionTag = "move", targetPos = Vec2(x = 200.0, y = 100.0))
+  assert(hebarEnqueueAction(ref, rec, 100) == true, "action enqueued at t=100ms")
+  let early = hebarPopReadyActions(ref, 200)
+  assertEqInt(early.len, 0, "action not popped before 150ms reaction latency")
+  let ready = hebarPopReadyActions(ref, 260)
+  assertEqInt(ready.len, 1, "action popped after 160ms >= 150ms reaction latency")
+
+  let curNext = hebarStepCursorTrajectory(Vec2(x = 0.0, y = 0.0), Vec2(x = 780.0, y = 0.0), 780.0, 0.5)
+  assertApproxEq(curNext.x, 390.0, 0.01, "cursor moves 390px in 0.5s at 780px/s")
+
+  let angNext = hebarClampAngularSlew(0.0, 3.14159, 6.2831853, 0.25)
+  assertApproxEq(angNext, 1.570796, 0.01, "angular slew moves PI/2 rad in 0.25s at 2*PI rad/s")
+
+  assertEqInt(connectTargetWindow("nonexistent_window_hebar_alias", 0), -1, "connectTargetWindow timeout=0")
+  renderHebarRefereeDashboard(ref, 0.0, 0.0, 300.0, 80.0)
+  assert(exportHebarTelemetryJson(ref, "/tmp/aipl_hebar_alias_test.json") == true, "exportHebarTelemetryJson succeeds")
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_hebar_alias_all_five_bounds(), 0, "test_hebar_alias_all_five_bounds")
+  println("PASS: hebar/referee_test")
+  ret 0

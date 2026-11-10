@@ -1,0 +1,45 @@
+// ============================================================================
+// Twin Test Suite 032: 2D Geometry Intersections, SAT & Swept AABB Window
+// Verifies examples/ex_032_math_geom2d_intersections_window.aipl
+// ============================================================================
+module Ex032MathGeom2dIntersectionsWindowTest
+
+import {
+  Geom2DLabState,
+  evaluateRayAndSatCollisions,
+  evaluateSweptAabbEntryPermille,
+  describeCollisionManifold,
+  buildGeom2DLabState,
+  renderFrameStep
+} from "../../examples/ex_032_math_geom2d_intersections_window"
+
+pub fn test_ray_rect_and_polygon_sat(): int:
+  // Ray from (-5, 5) along +X hits Rect(0, 0, 10, 10) at t = 5, plus SAT overlap (1) -> 6
+  assert(evaluateRayAndSatCollisions() == 6, "ray t=5 + polygonSAT2D(true=1) == 6")
+  let sweptT = evaluateSweptAabbEntryPermille()
+  assert(sweptT > 0 and sweptT < 1000, "sweptAabb entry time is in (0, 1000) permille")
+  ret 0
+
+pub fn test_geom2d_window_state_and_step(): int:
+  let st0 = buildGeom2DLabState(0)
+  let st1 = buildGeom2DLabState(1)
+  let st20 = buildGeom2DLabState(20)
+  let st100 = buildGeom2DLabState(100)
+  assert(st0.rayHitT == 5, "rayHitT == 5")
+  assert(st0.circleColliding == 0 and st1.circleColliding == 0, "circle separated at early frames 0 and 1")
+  assert(st20.circleColliding == 1, "circle collides with wall at frame 20")
+  assert(st100.sweptTimePermille > 0, "sweptTimePermille remains active at frame 100")
+  assert(describeCollisionManifold(true) == "GEOM2D:CONTACT_ACTIVE", "contact active")
+  assert(describeCollisionManifold(false) == "GEOM2D:SEPARATED_CLEAR", "separated")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m1 > m0 and m20 > m1 and m100 > m20, "renderFrameStep advances across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_ray_rect_and_polygon_sat()
+  test_geom2d_window_state_and_step()
+  println("PASS: ex_032_math_geom2d_intersections_window_test")
+  ret 0

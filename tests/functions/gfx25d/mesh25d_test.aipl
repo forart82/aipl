@@ -1,0 +1,248 @@
+module tests.functions.gfx25d.mesh25d_test
+
+import { Vec2, Vec3 } from "std/math/vec_math"
+import { assert, assertEqInt, absInt } from "std/prelude"
+import {
+  Color,
+  rgb,
+  initCanvas,
+  clearScreen,
+  setDepthTest,
+  clearDepth,
+  beginWorldPass,
+  endWorldPass,
+  createProceduralTexture,
+  getPixel
+} from "std/gfx2d/shape2d"
+import { TerrainHeightfield } from "std/gfx3d/terrain3d"
+import {
+  Camera25D,
+  createCamera25D,
+  project3DToIso,
+  Vertex25D,
+  IndexedMesh25D,
+  Vertex25DTextured,
+  IndexedMesh25DTextured,
+  shadeVertex25D,
+  drawHeightfieldPatch25D,
+  drawHeightfieldPatchTextured25D,
+  drawHeightfieldSplat25D,
+  drawGroundDecal25D,
+  drawIndexedMesh25D,
+  drawIndexedMeshTextured25D,
+  drawPrism25D,
+  drawPrismTextured25D,
+  drawCone25D,
+  drawBillboard25D
+} from "std/gfx25d/gfx25d_mod"
+
+pub fn test_mesh25d_vertex_shading(): int:
+  let base = rgb(200, 100, 50)
+  let sunDir = Vec3(x = 0.0, y = 0.0, z = 1.0)
+  let litUp = shadeVertex25D(base, Vec3(x = 0.0, y = 0.0, z = 1.0), sunDir, 0.30)
+  let litDown = shadeVertex25D(base, Vec3(x = 0.0, y = 0.0, z = -1.0), sunDir, 0.30)
+  assert(litUp.r > litDown.r, "surface facing sun must be brighter than surface facing away")
+  assert(litUp.g > litDown.g, "green channel brighter facing sun")
+  ret 0
+
+pub fn test_mesh25d_zbuffer_occlusion_invariance(): int:
+  initCanvas(320, 240)
+  clearScreen(rgb(5, 8, 15))
+  setDepthTest(true)
+  clearDepth()
+  beginWorldPass()
+
+  let cam: Camera25D = createCamera25D(320.0, 240.0, 1.0, 45.0, 30.0)
+  let sunDir = Vec3(x = 0.3, y = -0.4, z = 0.85)
+
+  // Draw a FOREGROUND pure-red prism first at (wx=20, wy=20, baseWz=0, heightZ=40)
+  let frontQuads = drawPrism25D(cam, 20.0, 20.0, 0.0, 48.0, 48.0, 40.0, rgb(255, 0, 0), sunDir)
+  assertEqInt(frontQuads, 5, "drawPrism25D draws 5 quads")
+
+  let frontRoofCenter = project3DToIso(cam, 20.0, 20.0, 40.0)
+  let px = int(frontRoofCenter.x)
+  let py = int(frontRoofCenter.y)
+  let colBefore = getPixel(px, py)
+  let rBefore = (colBefore >> 24) & 255
+  let gBefore = (colBefore >> 16) & 255
+  assert(rBefore > 120 and gBefore == 0, "foreground red prism pixel written before rear cone")
+
+  // Now draw a BACKGROUND pure-green cone at (wx=-20, wy=-20, baseWz=-35, heightZ=60)
+  // whose screen projection overlaps (px, py) but has larger depth z (behind the front prism).
+  let coneTris = drawCone25D(cam, -20.0, -20.0, -35.0, 55.0, 60.0, rgb(0, 255, 0), sunDir, 12)
+  assertEqInt(coneTris, 12, "drawCone25D draws 12 segment triangles")
+
+  let colAfter = getPixel(px, py)
+  let rAfter = (colAfter >> 24) & 255
+  let gAfter = (colAfter >> 16) & 255
+  assertEqInt(rAfter, rBefore, "rear cone must NOT overwrite foreground prism red channel")
+  assertEqInt(gAfter, 0, "rear cone must NOT leak green pixels over foreground prism")
+
+  endWorldPass()
+  setDepthTest(false)
+  ret 0
+
+pub fn test_mesh25d_heightfield_and_indexed_mesh(): int:
+  initCanvas(320, 240)
+  clearScreen(rgb(0, 0, 0))
+  setDepthTest(true)
+  clearDepth()
+
+  let cam = createCamera25D(320.0, 240.0, 1.0, 45.0, 30.0) { worldX = 32.0, worldY = 32.0, worldZ = 10.0 }
+  mut heights: [float] = []
+  mut gz = 0
+  while gz < 8:
+    mut gx = 0
+    while gx < 8:
+      let hVal = 0.5 + 0.35 * sin(float(gx) * 0.6) * cos(float(gz) * 0.6)
+      heights.push(hVal)
+      gx += 1
+    gz += 1
+  let terrain = TerrainHeightfield(
+    width = 8,
+    depth = 8,
+    heightValues = heights,
+    heightScale = 30.0,
+    horizontalScale = 12.0
+  )
+  let sunDir = Vec3(x = 0.4, y = -0.3, z = 0.86)
+
+  let patchQuads = drawHeightfieldPatch25D(cam, terrain, 0, 0, 6, 6, sunDir, rgb(34, 139, 34), rgb(220, 230, 242))
+  assertEqInt(patchQuads, 36, "6x6 heightfield patch renders 36 Gouraud quads")
+
+  let v0 = Vertex25D(pos = Vec3(x = 20.0, y = 20.0, z = 25.0), normal = Vec3(x = 0.0, y = 0.0, z = 1.0), color = rgb(240, 180, 40))
+  let v1 = Vertex25D(pos = Vec3(x = 44.0, y = 20.0, z = 25.0), normal = Vec3(x = 0.0, y = 0.0, z = 1.0), color = rgb(240, 180, 40))
+  let v2 = Vertex25D(pos = Vec3(x = 32.0, y = 44.0, z = 35.0), normal = Vec3(x = 0.0, y = 0.0, z = 1.0), color = rgb(255, 220, 90))
+  let mesh = IndexedMesh25D(vertices = [v0, v1, v2], indices = [0, 1, 2])
+  let meshTris = drawIndexedMesh25D(cam, mesh, sunDir)
+  assertEqInt(meshTris, 1, "drawIndexedMesh25D renders 1 indexed triangle")
+
+  let bbQuads = drawBillboard25D(cam, 32.0, 32.0, 25.0, 18.0, 28.0, rgb(255, 255, 255), rgb(80, 160, 255))
+  assertEqInt(bbQuads, 1, "drawBillboard25D renders 1 screen-aligned depth-tested quad")
+
+  setDepthTest(false)
+  ret 0
+
+pub fn test_mesh25d_textured_terrain_mesh_and_prism(): int:
+  initCanvas(320, 240)
+  clearScreen(rgb(8, 12, 20))
+  setDepthTest(true)
+  clearDepth()
+
+  let grassTex = createProceduralTexture("grass", 32, 32, 11)
+  let rockTex = createProceduralTexture("rock", 32, 32, 22)
+  let brickTex = createProceduralTexture("brick", 32, 32, 33)
+  let roofTex = createProceduralTexture("roof", 32, 32, 44)
+
+  let cam = createCamera25D(320.0, 240.0, 1.1, 45.0, 30.0) { worldX = 32.0, worldY = 32.0, worldZ = 10.0 }
+  mut heights: [float] = []
+  mut gz = 0
+  while gz < 8:
+    mut gx = 0
+    while gx < 8:
+      let hVal = 0.4 + 0.45 * sin(float(gx) * 0.7) * cos(float(gz) * 0.6)
+      heights.push(hVal)
+      gx += 1
+    gz += 1
+  let terrain = TerrainHeightfield(
+    width = 8,
+    depth = 8,
+    heightValues = heights,
+    heightScale = 36.0,
+    horizontalScale = 12.0
+  )
+  let sunDir = Vec3(x = -0.35, y = -0.45, z = 0.82)
+
+  let texQuads = drawHeightfieldPatchTextured25D(cam, terrain, 0, 0, 6, 6, sunDir, grassTex, rockTex, 0.5)
+  assertEqInt(texQuads, 36, "drawHeightfieldPatchTextured25D renders 36 textured quads")
+
+  let prismFaces = drawPrismTextured25D(cam, 32.0, 32.0, 12.0, 24.0, 24.0, 28.0, brickTex, roofTex, rgb(255, 255, 255), sunDir)
+  assertEqInt(prismFaces, 5, "drawPrismTextured25D renders 5 textured prism faces")
+
+  let tv0 = Vertex25DTextured(pos = Vec3(x = 16.0, y = 16.0, z = 44.0), normal = Vec3(x = 0.0, y = 0.0, z = 1.0), uv = Vec2(x = 0.0, y = 0.0), color = rgb(255, 255, 255))
+  let tv1 = Vertex25DTextured(pos = Vec3(x = 48.0, y = 16.0, z = 44.0), normal = Vec3(x = 0.0, y = 0.0, z = 1.0), uv = Vec2(x = 2.0, y = 0.0), color = rgb(255, 255, 255))
+  let tv2 = Vertex25DTextured(pos = Vec3(x = 32.0, y = 48.0, z = 54.0), normal = Vec3(x = 0.0, y = 0.0, z = 1.0), uv = Vec2(x = 1.0, y = 2.0), color = rgb(255, 255, 255))
+  let tMesh = IndexedMesh25DTextured(vertices = [tv0, tv1, tv2], indices = [0, 1, 2], texId = roofTex)
+  let tTris = drawIndexedMeshTextured25D(cam, tMesh, sunDir)
+  assertEqInt(tTris, 1, "drawIndexedMeshTextured25D renders 1 textured triangle")
+
+  // Verify non-flat texel variance across center scanline
+  mut diffSum = 0
+  mut prevR = -1
+  mut sx = 120
+  while sx <= 200:
+    let p = getPixel(sx, 120)
+    let r = (p >> 24) & 255
+    if prevR >= 0:
+      diffSum += absInt(r - prevR)
+    prevR = r
+    sx += 3
+  assert(diffSum > 40, "textured 2.5D terrain and prism produce non-flat texel variation")
+
+  setDepthTest(false)
+  ret 0
+
+pub fn test_mesh25d_splat_and_ground_decal(): int:
+  initCanvas(320, 240)
+  clearScreen(rgb(6, 9, 14))
+  setDepthTest(true)
+  clearDepth()
+
+  let grassTex = createProceduralTexture("grass", 32, 32, 11)
+  let dirtTex = createProceduralTexture("dirt", 32, 32, 22)
+  let rockTex = createProceduralTexture("rock", 32, 32, 33)
+  let cobbleTex = createProceduralTexture("cobble", 32, 32, 44)
+
+  let cam = createCamera25D(320.0, 240.0, 1.0, 45.0, 30.0) { worldX = 36.0, worldY = 36.0, worldZ = 8.0 }
+  mut heights: [float] = []
+  mut gz = 0
+  while gz < 8:
+    mut gx = 0
+    while gx < 8:
+      let hVal = 0.25 + 0.55 * sin(float(gx) * 0.65) * cos(float(gz) * 0.65)
+      heights.push(hVal)
+      gx += 1
+    gz += 1
+  let terrain = TerrainHeightfield(
+    width = 8,
+    depth = 8,
+    heightValues = heights,
+    heightScale = 34.0,
+    horizontalScale = 12.0
+  )
+  let sunDir = Vec3(x = -0.35, y = -0.45, z = 0.82)
+
+  let splatQuads = drawHeightfieldSplat25D(
+    cam,
+    terrain,
+    0,
+    0,
+    6,
+    6,
+    sunDir,
+    grassTex,
+    dirtTex,
+    rockTex,
+    cobbleTex,
+    36.0,
+    36.0,
+    28.0,
+    0.4
+  )
+  assert(splatQuads > 36, "drawHeightfieldSplat25D renders base grass plus multi-biome splat layers")
+
+  let decalQuads = drawGroundDecal25D(cam, dirtTex, 36.0, 36.0, 12.0, 16.0, 10.0, 0.35, rgb(210, 180, 140), 0.2)
+  assertEqInt(decalQuads, 1, "drawGroundDecal25D renders 1 rotated decal quad")
+  assertEqInt(drawGroundDecal25D(cam, 0, 36.0, 36.0, 12.0, 16.0, 10.0, 0.0, rgb(255, 255, 255), 0.2), 0, "drawGroundDecal25D returns 0 for invalid texId")
+
+  setDepthTest(false)
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_mesh25d_vertex_shading(), 0, "test_mesh25d_vertex_shading")
+  assertEqInt(test_mesh25d_zbuffer_occlusion_invariance(), 0, "test_mesh25d_zbuffer_occlusion_invariance")
+  assertEqInt(test_mesh25d_heightfield_and_indexed_mesh(), 0, "test_mesh25d_heightfield_and_indexed_mesh")
+  assertEqInt(test_mesh25d_textured_terrain_mesh_and_prism(), 0, "test_mesh25d_textured_terrain_mesh_and_prism")
+  assertEqInt(test_mesh25d_splat_and_ground_decal(), 0, "test_mesh25d_splat_and_ground_decal")
+  println("PASS: mesh25d_test")
+  ret 0

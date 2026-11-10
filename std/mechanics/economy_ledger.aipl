@@ -1,0 +1,217 @@
+/// # Module: `std/mechanics/economy_ledger` (`EconomyLedgerMod`)
+///
+/// ## Purpose & Domain Scope
+/// Double-entry resource ledgers, progressive tiered bracket rates,
+/// crafting recipe fulfillment and execution, and Elo rating updates.
+module EconomyLedgerMod
+
+import { LN10, clampInt, clampFloat, maxFloat, minInt } from "std/math/consts"
+import { exp } from "std/math/trig"
+
+pub struct ResourceLedger(accounts: Map[str, int])
+
+pub struct TaxBracketTier(threshold: int, ratePct: float)
+
+pub struct ProgressiveTaxBracket(tiers: [TaxBracketTier])
+
+pub struct CraftingIngredient(itemTag: str, amount: int)
+
+pub struct CraftingRecipe(recipeId: str, inputs: [CraftingIngredient], outputs: [CraftingIngredient], craftDurationSec: float)
+
+pub fn resourceLedgerNew(): ResourceLedger:
+  mut acc: Map[str, int] = {}
+  ret ResourceLedger(accounts = acc)
+
+pub fn ledgerDeposit(mut ledger: ResourceLedger, account: str, amount: int): void:
+  if amount <= 0:
+    ret
+  mut acc = ledger.accounts
+  let curOpt = acc.get(account)
+  let cur = if curOpt.isSome(): curOpt.unwrap() else: 0
+  acc.set(account, cur + amount)
+  ledger.accounts = acc
+
+pub fn ledgerGetBalance(ledger: ResourceLedger, account: str): int:
+  let opt = ledger.accounts.get(account)
+  if opt.isSome():
+    ret opt.unwrap()
+  ret 0
+
+pub fn ledgerHasFunds(ledger: ResourceLedger, account: str, required: int): bool:
+  ret ledgerGetBalance(ledger, account) >= required
+
+pub fn ledgerWithdraw(mut ledger: ResourceLedger, account: str, amount: int): bool:
+  if amount <= 0:
+    ret false
+  let cur = ledgerGetBalance(ledger, account)
+  if cur < amount:
+    ret false
+  mut acc = ledger.accounts
+  acc.set(account, cur - amount)
+  ledger.accounts = acc
+  ret true
+
+pub fn ledgerTotalSupply(ledger: ResourceLedger): int:
+  let ks = ledger.accounts.keys()
+  mut total = 0
+  mut i = 0
+  while i < ks.len:
+    total = total + ledgerGetBalance(ledger, ks[i])
+    i = i + 1
+  ret total
+
+pub fn ledgerTransfer(mut ledger: ResourceLedger, fromAccount: str, toAccount: str, amount: int): bool:
+  if amount <= 0:
+    ret false
+  mut acc = ledger.accounts
+  let fromOpt = acc.get(fromAccount)
+  let fromBal = if fromOpt.isSome(): fromOpt.unwrap() else: 0
+  if fromBal < amount:
+    ret false
+  let toOpt = acc.get(toAccount)
+  let toBal = if toOpt.isSome(): toOpt.unwrap() else: 0
+  acc.set(fromAccount, fromBal - amount)
+  acc.set(toAccount, toBal + amount)
+  ledger.accounts = acc
+  ret true
+
+pub fn computeTieredBracketRatePct(bracket: ProgressiveTaxBracket, totalWealth: int): float:
+  let n = bracket.tiers.len
+  if n == 0:
+    ret 0.0
+  mut i = 0
+  while i < n:
+    let tier: TaxBracketTier = bracket.tiers[i]
+    if totalWealth <= tier.threshold:
+      ret tier.ratePct
+    i = i + 1
+  let lastTier: TaxBracketTier = bracket.tiers[n - 1]
+  ret lastTier.ratePct
+
+pub fn computeProgressiveTaxAmount(bracket: ProgressiveTaxBracket, grossAmount: int): int:
+  if grossAmount <= 0:
+    ret 0
+  let ratePct = computeTieredBracketRatePct(bracket, grossAmount)
+  ret int((float(grossAmount) * ratePct) / 100.0 + 0.5)
+
+pub fn computeNetAfterTax(bracket: ProgressiveTaxBracket, grossAmount: int): int:
+  if grossAmount <= 0:
+    ret 0
+  ret grossAmount - computeProgressiveTaxAmount(bracket, grossAmount)
+
+pub fn computeCompoundInterest(principal: float, ratePerPeriod: float, periods: int): float:
+  mut amt = maxFloat(0.0, principal)
+  let factor = 1.0 + ratePerPeriod
+  mut i = 0
+  while i < periods:
+    amt = amt * factor
+    i = i + 1
+  ret amt
+
+pub fn computeSupplyDemandPrice(basePrice: float, supply: int, demand: int, elasticity: float = 0.5): float:
+  let safeSupply = if supply > 0: float(supply) else: 1.0
+  let safeDemand = if demand >= 0: float(demand) else: 0.0
+  let ratio = safeDemand / safeSupply
+  let adj = 1.0 + (ratio - 1.0) * clampFloat(elasticity, 0.0, 2.0)
+  ret maxFloat(0.01, basePrice * clampFloat(adj, 0.1, 10.0))
+
+pub fn craftingCanFulfill(ledger: ResourceLedger, accountPrefix: str, recipe: CraftingRecipe): bool:
+  mut i = 0
+  while i < recipe.inputs.len:
+    let inp: CraftingIngredient = recipe.inputs[i]
+    let key = accountPrefix + ":" + inp.itemTag
+    let balOpt = ledger.accounts.get(key)
+    let bal = if balOpt.isSome(): balOpt.unwrap() else: 0
+    if bal < inp.amount:
+      ret false
+    i = i + 1
+  ret true
+
+pub fn craftingMaxBatchCount(ledger: ResourceLedger, accountPrefix: str, recipe: CraftingRecipe): int:
+  if recipe.inputs.len == 0:
+    ret 0
+  mut maxBatches = 999999
+  mut i = 0
+  while i < recipe.inputs.len:
+    let inp = recipe.inputs[i]
+    if inp.amount > 0:
+      let bal = ledgerGetBalance(ledger, accountPrefix + ":" + inp.itemTag)
+      maxBatches = minInt(maxBatches, bal / inp.amount)
+    i = i + 1
+  ret maxBatches
+
+pub fn craftingExecute(mut ledger: ResourceLedger, accountPrefix: str, recipe: CraftingRecipe): bool:
+  if not craftingCanFulfill(ledger, accountPrefix, recipe):
+    ret false
+  mut acc = ledger.accounts
+  mut i = 0
+  while i < recipe.inputs.len:
+    let inp: CraftingIngredient = recipe.inputs[i]
+    let key = accountPrefix + ":" + inp.itemTag
+    let bal = acc.get(key).unwrap()
+    acc.set(key, bal - inp.amount)
+    i = i + 1
+  mut j = 0
+  while j < recipe.outputs.len:
+    let outp: CraftingIngredient = recipe.outputs[j]
+    let key = accountPrefix + ":" + outp.itemTag
+    let balOpt = acc.get(key)
+    let bal = if balOpt.isSome(): balOpt.unwrap() else: 0
+    acc.set(key, bal + outp.amount)
+    j = j + 1
+  ledger.accounts = acc
+  ret true
+
+pub fn computeEloRatingDelta(ratingA: float, ratingB: float, scoreA: float, kFactor: float): float:
+  if ratingA == ratingB:
+    ret kFactor * (scoreA - 0.5)
+  let exponent = ((ratingB - ratingA) / 400.0) * LN10
+  let expectedA = 1.0 / (1.0 + exp(exponent))
+  ret kFactor * (scoreA - expectedA)
+
+pub fn recipeKeyCommutative2(idA: int, idB: int): int:
+  let lo = if idA < idB: idA else: idB
+  let hi = if idA < idB: idB else: idA
+  ret lo * 1000 + hi
+
+pub fn recipeKeyCommutative3(idA: int, idB: int, idC: int): int:
+  mut a = idA
+  mut b = idB
+  mut c = idC
+  if a > b:
+    let tmp = a
+    a = b
+    b = tmp
+  if b > c:
+    let tmp = b
+    b = c
+    c = tmp
+  if a > b:
+    let tmp = a
+    a = b
+    b = tmp
+  ret a * 1000000 + b * 1000 + c
+
+pub fn recipeCombinatorCommutative2(idA: int, idB: int): int:
+  ret recipeKeyCommutative2(idA, idB)
+
+pub fn computeItemCombineRecipeId(itemIdA: int, itemIdB: int): int:
+  ret recipeKeyCommutative2(itemIdA, itemIdB)
+
+pub fn recipeOutputLevel(charLevel: int, itemLevel: int, biasRatio: float = 0.5): int:
+  let clvl = clampInt(charLevel, 1, 99)
+  let ilvl = clampInt(itemLevel, 1, 99)
+  let bias = clampFloat(biasRatio, 0.0, 1.0)
+  ret int(float(clvl) * (1.0 - bias) + float(ilvl) * bias)
+
+pub fn rateScaledCapacityPerSec(assignedUnits: int, unitRate: float, tierMult: float): float:
+  let sat = clampInt(assignedUnits, 0, 5)
+  let basePerSec = float(sat) * unitRate
+  ret basePerSec * tierMult
+
+pub fn forecastMonteCarloQuantile(p50Base: float, volatilityPct: float, zScore: float): float:
+  let vol = clampFloat(volatilityPct, 0.0, 200.0) * 0.01
+  ret maxFloat(0.0, p50Base * (1.0 + vol * zScore))
+
+pub fn computeMonteCarloPercentile(p50Base: float, volatilityPct: float, zScore: float): float:
+  ret forecastMonteCarloQuantile(p50Base, volatilityPct, zScore)

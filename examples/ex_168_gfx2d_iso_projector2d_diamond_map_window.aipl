@@ -1,0 +1,123 @@
+module Ex168Gfx2dIsoProjector2dDiamondMapWindow
+
+import {
+  IsoTileCoord, PainterSortItem, createIsoProjector2D,
+  isoGridToScreen, screenToIsoGrid, computeTopologicalDepthSortKey,
+  sortEntitiesByTopologicalDepth
+} from "../std/gfx2d/iso_projector2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepIsoActiveTile(frame: int): IsoTileCoord:
+  let idx = (frame + (frame / 7)) % 25
+  let col = idx % 5
+  let row = (idx / 5 + (frame % 3)) % 5
+  let elev = if col == 2 and row == 2: 1.5 else: float((frame + col + row) % 3) * 0.5
+  ret IsoTileCoord(col = col, row = row, elevation = elev)
+
+pub fn buildIsoProjectorDiamondAudit(): int:
+  let proj = createIsoProjector2D(64.0, 32.0, 16.0)
+  let tile = IsoTileCoord(col = 3, row = 2, elevation = 0.0)
+  let scr = isoGridToScreen(proj, tile)
+  let inv = screenToIsoGrid(proj, scr)
+  let sorted = sortEntitiesByTopologicalDepth([
+    PainterSortItem(entityId = 10, sortKey = 9.0, drawOrder = 0),
+    PainterSortItem(entityId = 20, sortKey = 2.0, drawOrder = 0),
+    PainterSortItem(entityId = 30, sortKey = 5.0, drawOrder = 0)
+  ])
+  ret int(scr.x) + int(scr.y) + inv.col + sorted[0].entityId
+
+pub fn main(): int:
+  let proj = createIsoProjector2D(72.0, 36.0, 18.0)
+  let audit = buildIsoProjectorDiamondAudit()
+
+  initWindow(1280, 720, "AIPL ex_168: 2:1 Isometric Diamond Map & Painter's Topological Depth Sort")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let activeTile = stepIsoActiveTile(frame)
+    let activeCol = activeTile.col
+    let activeRow = activeTile.row
+    let activeScr = isoGridToScreen(proj, IsoTileCoord(col = activeCol, row = activeRow, elevation = 0.0))
+    let invCoord = screenToIsoGrid(proj, activeScr)
+    let sorted = sortEntitiesByTopologicalDepth([
+      PainterSortItem(entityId = 101, sortKey = computeTopologicalDepthSortKey(4, 4, 1.0), drawOrder = 0),
+      PainterSortItem(entityId = 102, sortKey = computeTopologicalDepthSortKey(1, 1, 0.0), drawOrder = 0),
+      PainterSortItem(entityId = 103, sortKey = computeTopologicalDepthSortKey(invCoord.col, invCoord.row, activeTile.elevation), drawOrder = 0)
+    ])
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_168: 2:1 ISOMETRIC DIAMOND MAP & TOPOLOGICAL PAINTER'S SORT", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/iso_projector2d: isoGridToScreen | screenToIsoGrid | sortEntitiesByTopologicalDepth | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: 5x5 Isometric Diamond Grid
+    drawRect(40.0, 96.0, 660.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 660.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("2:1 ISOMETRIC DIAMOND GRID (Active Tile=(" + str(activeCol) + "," + str(activeRow) + ") z=" + str(activeTile.elevation) + ")", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    mut r: int = 0
+    while r < 5:
+      mut c: int = 0
+      while c < 5:
+        let isHovered = c == activeCol and r == activeRow
+        let elev = if isHovered: activeTile.elevation else: if c == 2 and r == 2: 1.5 else: if c == 1 and r == 1: 0.5 else: 0.0
+        let basePos = isoGridToScreen(proj, IsoTileCoord(col = c, row = r, elevation = 0.0))
+        let topPos = isoGridToScreen(proj, IsoTileCoord(col = c, row = r, elevation = elev))
+        let bx = 370.0 + basePos.x
+        let by = 225.0 + basePos.y
+        let cx = 370.0 + topPos.x
+        let cy = 225.0 + topPos.y
+        let lineCol = if isHovered: rgb(250, 204, 21) else: if elev > 0.0: rgb(34, 197, 94) else: rgb(56, 189, 248)
+        // Draw vertical pillar edges if elevated
+        if elev > 0.0:
+          drawLine(bx - 36.0, by, cx - 36.0, cy, lineCol, 1.5)
+          drawLine(bx, by + 18.0, cx, cy + 18.0, lineCol, 1.5)
+          drawLine(bx + 36.0, by, cx + 36.0, cy, lineCol, 1.5)
+        // Draw top diamond edges: Top -> Right -> Bottom -> Left -> Top
+        drawLine(cx, cy - 18.0, cx + 36.0, cy, lineCol, if isHovered: 3.0 else: 2.0)
+        drawLine(cx + 36.0, cy, cx, cy + 18.0, lineCol, if isHovered: 3.0 else: 2.0)
+        drawLine(cx, cy + 18.0, cx - 36.0, cy, lineCol, if isHovered: 3.0 else: 2.0)
+        drawLine(cx - 36.0, cy, cx, cy - 18.0, lineCol, if isHovered: 3.0 else: 2.0)
+        if c == 1 and r == 1:
+          drawCircle(cx, cy, 7.0, rgb(34, 197, 94))
+        if c == 4 and r == 4:
+          drawCircle(cx, cy, 7.0, rgb(56, 189, 248))
+        if isHovered:
+          drawCircle(cx, cy, 9.0, rgb(244, 63, 94))
+        c = c + 1
+      r = r + 1
+
+    // Right Panel: Topological Depth Sort Queue Inspector
+    drawRect(720.0, 96.0, 520.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(720.0, 96.0, 520.0, 410.0, 2.0, rgb(34, 197, 94))
+    drawText("PAINTER'S TOPOLOGICAL DEPTH SORT QUEUE", 740.0, 118.0, 17.0, rgb(134, 239, 172))
+
+    mut idx: int = 0
+    while idx < sorted.len():
+      let item = sorted[idx]
+      let by = 165.0 + float(idx) * 105.0
+      let entCol = if item.entityId == 103: rgb(244, 63, 94) else: if item.entityId == 102: rgb(34, 197, 94) else: rgb(56, 189, 248)
+      drawRect(740.0, by, 480.0, 88.0, rgb(30, 41, 59))
+      drawRectOutline(740.0, by, 480.0, 88.0, 2.0, entCol)
+      drawCircle(764.0, by + 24.0, 8.0, entCol)
+      drawText("Draw Order #" + str(idx) + " -> Entity ID=" + str(item.entityId), 782.0, by + 16.0, 16.0, rgb(248, 250, 252))
+      drawText("Topological Key (col + row + elev*0.01) = " + str(item.sortKey), 760.0, by + 44.0, 14.0, rgb(253, 224, 71))
+      drawRect(760.0, by + 66.0, item.sortKey * 42.0, 12.0, entCol)
+      idx = idx + 1
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("ISOMETRIC COORDINATE INVERSION TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Active Grid Tile: (col=" + str(activeCol) + ", row=" + str(activeRow) + ", z=" + str(activeTile.elevation) + ") -> Inverted=(" + str(invCoord.col) + ", " + str(invCoord.row) + ")", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Nearest Entity Drawn First: ID=" + str(sorted[0].entityId) + " | Furthest Drawn Last: ID=" + str(sorted[2].entityId) + " | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

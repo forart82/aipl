@@ -1,0 +1,52 @@
+module Gfx2dNinePatchMod
+
+// ============================================================================
+// std/gfx2d/ninepatch2d.aipl — Scalable 9-Slice Frame Rendering
+// ============================================================================
+
+import { Vec2 } from "../math/vec_math"
+import { Rect } from "../math/geom2d"
+import { BatchVertex2D } from "./batch2d"
+
+pub struct SliceInsets2D(left: float, top: float, right: float, bottom: float)
+
+pub struct NinePatch2D(textureId: int, imageSize: Vec2, insets: SliceInsets2D, drawMode: int)
+
+pub fn createNinePatch2D(textureId: int, imgW: float, imgH: float, insets: SliceInsets2D): NinePatch2D:
+  ret NinePatch2D(
+    textureId = textureId,
+    imageSize = Vec2(x = imgW, y = imgH),
+    insets = insets,
+    drawMode = 0
+  )
+
+pub fn generateNinePatchQuads(patch: NinePatch2D, targetBounds: Rect): [BatchVertex2D]:
+  mut out: [BatchVertex2D] = []
+  let xs = [
+    targetBounds.x,
+    targetBounds.x + patch.insets.left,
+    targetBounds.x + targetBounds.w - patch.insets.right,
+    targetBounds.x + targetBounds.w
+  ]
+  let ys = [
+    targetBounds.y,
+    targetBounds.y + patch.insets.top,
+    targetBounds.y + targetBounds.h - patch.insets.bottom,
+    targetBounds.y + targetBounds.h
+  ]
+  let iw = if patch.imageSize.x > 0.0: patch.imageSize.x else: 1.0
+  let ih = if patch.imageSize.y > 0.0: patch.imageSize.y else: 1.0
+  let us = [0.0, patch.insets.left / iw, (iw - patch.insets.right) / iw, 1.0]
+  let vs = [0.0, patch.insets.top / ih, (ih - patch.insets.bottom) / ih, 1.0]
+
+  mut row = 0
+  while row < 3:
+    mut col = 0
+    while col < 3:
+      out.push(BatchVertex2D(x = xs[col], y = ys[row], u = us[col], v = vs[row], colorRgba = -1))
+      out.push(BatchVertex2D(x = xs[col + 1], y = ys[row], u = us[col + 1], v = vs[row], colorRgba = -1))
+      out.push(BatchVertex2D(x = xs[col + 1], y = ys[row + 1], u = us[col + 1], v = vs[row + 1], colorRgba = -1))
+      out.push(BatchVertex2D(x = xs[col], y = ys[row + 1], u = us[col], v = vs[row + 1], colorRgba = -1))
+      col += 1
+    row += 1
+  ret out

@@ -1,0 +1,40 @@
+module Ex157GfxGpuBufferStd140InspectorWindowTest
+
+import {
+  buildStd140BufferAudit,
+  stepStd140StagingFrame
+} from "../../examples/ex_157_gfx_gpu_buffer_std140_inspector_window"
+import { createGpuDevice } from "../../std/gfx/gpu_device"
+import {
+  createGpuBuffer, writeGpuBuffer, alignOffsetStd140,
+  createStagingRingBuffer, advanceStagingRing,
+  BUFFER_USAGE_VERTEX, BUFFER_USAGE_UNIFORM
+} from "../../std/gfx/gpu_buffer"
+
+pub fn test_gfx_gpu_buffer_std140_inspector(): void:
+  let dev = createGpuDevice(1)
+  let ubo = createGpuBuffer(dev, 256, BUFFER_USAGE_VERTEX | BUFFER_USAGE_UNIFORM)
+  assert(ubo.sizeBytes == 256 and ubo.bufferId == 1, "UBO sizeBytes == 256")
+  assert(writeGpuBuffer(dev, ubo, 0, [64, 128, 192, 255]), "writeGpuBuffer in bounds succeeds")
+  assert(not writeGpuBuffer(dev, ubo, 254, [1, 2, 3, 4]), "writeGpuBuffer out of bounds rejected")
+
+  let off0 = alignOffsetStd140(0, 4)
+  let offVec3 = alignOffsetStd140(off0 + 4, 16)
+  let offMat4 = alignOffsetStd140(offVec3 + 12, 16)
+  assert(off0 == 0 and offVec3 == 16 and offMat4 == 32, "std140 alignment offsets 0, 16, 32")
+
+  mut ring = createStagingRingBuffer(8192)
+  ring = advanceStagingRing(ring)
+  ring = advanceStagingRing(ring)
+  assert(ring.frameId == 2 and ring.writeSlot == 2 and ring.readSlot == 1, "StagingRingBuffer advances slots")
+  let f0 = stepStd140StagingFrame(0)
+  let f1 = stepStd140StagingFrame(1)
+  let f20 = stepStd140StagingFrame(20)
+  let f100 = stepStd140StagingFrame(100)
+  assert(f0 != f1 and f1 != f20 and f20 != f100, "std140 staging ring and UBO column write advance across frames 0, 1, 20, 100")
+  assert(buildStd140BufferAudit() == 306, "buildStd140BufferAudit returns 256 + 16 + 32 + 2 == 306")
+
+pub fn main(): int:
+  test_gfx_gpu_buffer_std140_inspector()
+  println("PASS: ex_157_gfx_gpu_buffer_std140_inspector_window_test")
+  ret 0

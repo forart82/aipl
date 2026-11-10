@@ -1,0 +1,215 @@
+module Ex229Phys3dVehicleRaycastSuspensionWindow
+
+import {
+  RaycastWheel3D, RaycastVehicle3D, raycastVehicleNew,
+  vehicleAddWheel, vehicleStepSimulation
+} from "../std/phys3d/vehicle3d"
+import { PhysicsWorld3D, physWorld3dNew, physWorld3dAddBody, physWorld3dStep } from "../std/phys3d/phys_world3d"
+import { BodyType3D, RigidBody3D, rigidBody3dNew, rigidBody3dSetSphereInertia } from "../std/phys3d/rigid_body3d"
+import { Vec3 } from "../std/math/vec_math"
+import { Quat } from "../std/math/quat"
+import { sin, cos } from "../std/math/trig"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct VehicleScene(world: PhysicsWorld3D, vehicle: RaycastVehicle3D)
+
+fn makeWheel3D(cx: float, cz: float): RaycastWheel3D:
+  ret RaycastWheel3D(
+    connectionPoint = Vec3(x = cx, y = -0.2, z = cz),
+    direction = Vec3(x = 0.0, y = -1.0, z = 0.0),
+    axle = Vec3(x = 1.0, y = 0.0, z = 0.0),
+    suspensionRestLength = 0.6,
+    currentSuspensionLength = 0.6,
+    springStiffness = 220.0,
+    dampingCompression = 4.0,
+    dampingRelaxation = 4.0,
+    wheelRadius = 0.4,
+    steeringAngle = 0.0,
+    driveTorque = 180.0,
+    brakeTorque = 0.0,
+    isGrounded = false,
+    contactPoint = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    contactNormal = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  )
+
+pub fn createVehicleScene(): VehicleScene:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut world = physWorld3dNew(Vec3(x = 0.0, y = -9.81, z = 0.0))
+  mut body = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 1.05, z = 0.0), idRot)
+  body.linearDamping = 0.4
+  rigidBody3dSetSphereInertia(body, 20.0, 1.2)
+  let bId = physWorld3dAddBody(world, body)
+
+  mut veh = raycastVehicleNew(bId)
+  vehicleAddWheel(veh, makeWheel3D(-1.0, 1.5))
+  vehicleAddWheel(veh, makeWheel3D(1.0, 1.5))
+  vehicleAddWheel(veh, makeWheel3D(-1.0, -1.5))
+  vehicleAddWheel(veh, makeWheel3D(1.0, -1.5))
+  ret VehicleScene(world = world, vehicle = veh)
+
+pub fn stepScene(mut scene: VehicleScene, frame: int, dt: float): void:
+  mut ws = scene.vehicle.wheels
+  mut wi = 0
+  while wi < ws.len():
+    mut w: RaycastWheel3D = ws[wi]
+    let bump = sin(float(frame) * 0.16 + w.connectionPoint.z * 0.8 + w.connectionPoint.x * 0.4) * 0.11
+    w.connectionPoint = Vec3(x = w.connectionPoint.x, y = -0.2 - bump, z = w.connectionPoint.z)
+    if w.connectionPoint.z > 0.0:
+      w.steeringAngle = sin(float(frame) * 0.09) * 0.35
+    ws[wi] = w
+    wi = wi + 1
+  scene.vehicle.wheels = ws
+
+  vehicleStepSimulation(scene.vehicle, scene.world, dt)
+  physWorld3dStep(scene.world, dt)
+  mut bds = scene.world.bodies
+  mut chassis: RigidBody3D = bds[0]
+  if chassis.position.y < 0.72:
+    chassis.position = Vec3(x = chassis.position.x, y = 0.72, z = chassis.position.z)
+    chassis.linearVelocity = Vec3(x = chassis.linearVelocity.x, y = 1.15, z = chassis.linearVelocity.z)
+  if chassis.position.y > 1.12:
+    chassis.position = Vec3(x = chassis.position.x, y = 1.12, z = chassis.position.z)
+    chassis.linearVelocity = Vec3(x = chassis.linearVelocity.x, y = -0.6, z = chassis.linearVelocity.z)
+  bds[0] = chassis
+  scene.world.bodies = bds
+
+pub fn auditPhys3dVehicleSuspension(): int:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut world = physWorld3dNew(Vec3(x = 0.0, y = -9.81, z = 0.0))
+  mut body = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 1.0, z = 0.0), idRot)
+  rigidBody3dSetSphereInertia(body, 800.0, 1.5)
+  let bId = physWorld3dAddBody(world, body)
+
+  mut veh = raycastVehicleNew(bId)
+  vehicleAddWheel(veh, makeWheel3D(-1.0, 1.5))
+  vehicleAddWheel(veh, makeWheel3D(1.0, 1.5))
+  vehicleAddWheel(veh, makeWheel3D(-1.0, -1.5))
+  vehicleAddWheel(veh, makeWheel3D(1.0, -1.5))
+  vehicleStepSimulation(veh, world, 0.1)
+
+  mut groundedCount = 0
+  mut idx = 0
+  while idx < veh.wheels.len():
+    let w: RaycastWheel3D = veh.wheels[idx]
+    if w.isGrounded:
+      groundedCount = groundedCount + 1
+    idx = idx + 1
+  ret veh.wheels.len() * 10 + groundedCount
+
+pub fn main(): int:
+  let audit = auditPhys3dVehicleSuspension()
+  println("EX_229_PHYS3D_VEHICLE_AUDIT=" + str(audit))
+
+  mut scene = createVehicleScene()
+
+  initWindow(1280, 720, "AIPL ex_229: 3D Raycast Vehicle Suspension & Wheel Dynamics")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.05)
+    let chassis: RigidBody3D = scene.world.bodies[0]
+    let w0: RaycastWheel3D = scene.vehicle.wheels[0]
+    let w1: RaycastWheel3D = scene.vehicle.wheels[1]
+    let w2: RaycastWheel3D = scene.vehicle.wheels[2]
+    let w3: RaycastWheel3D = scene.vehicle.wheels[3]
+
+    let carX = 140.0 + float(int(chassis.position.z * 14.0) % 140)
+    let strutH0 = w0.currentSuspensionLength * 160.0
+    let strutH2 = w2.currentSuspensionLength * 160.0
+    let wheelY = 490.0
+    let chassisY = wheelY - (strutH0 + strutH2) * 0.5 - 132.0
+
+    beginDrawing()
+    clearScreen(rgb(10, 15, 28))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_229: 3D RAYCAST VEHICLE SUSPENSION STRUTS & GROUND CONTACT", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Wheels=" + str(scene.vehicle.wheels.len()) + " | FL Len=" + str(int(w0.currentSuspensionLength * 100.0)) + "cm | RL Len=" + str(int(w2.currentSuspensionLength * 100.0)) + "cm | Travel Z=" + str(int(chassis.position.z * 10.0)) + "dm", 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    // Left Panel: Side Elevation of 3D Raycast Vehicle
+    drawRect(32.0, 108.0, 820.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(32.0, 108.0, 820.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("SIDE-ELEVATION: 4-WHEEL RAYCAST SUSPENSION & SPRING COILS", 56.0, 132.0, 16.0, rgb(125, 211, 252))
+
+    // Roadway with scrolling distance markers
+    drawRect(56.0, 548.0, 772.0, 50.0, rgb(30, 41, 59))
+    drawLine(56.0, 548.0, 828.0, 548.0, rgb(16, 185, 129), 4.0)
+    let scrollOff = int(chassis.position.z * 30.0) % 720
+    mut mk = 0
+    while mk < 8:
+      let mx = 74.0 + float(((mk * 90 - scrollOff) + 720) % 720)
+      drawRect(mx, 568.0, 36.0, 8.0, rgb(250, 204, 21))
+      mk = mk + 1
+
+    // 3D Chassis Body & Cabin
+    drawRect(carX, chassisY, 480.0, 82.0, rgb(30, 58, 138))
+    drawRectOutline(carX, chassisY, 480.0, 82.0, 3.0, rgb(96, 165, 250))
+    drawRect(carX + 96.0, chassisY - 54.0, 250.0, 56.0, rgb(37, 99, 235))
+    drawRectOutline(carX + 96.0, chassisY - 54.0, 250.0, 56.0, 2.0, rgb(147, 197, 253))
+    drawText("3D Chassis (m=20kg, k=220 N/m)", carX + 112.0, chassisY + 32.0, 15.0, rgb(226, 232, 240))
+
+    let rearAxleX = carX + 92.0
+    let frontAxleX = carX + 388.0
+    let wRad = w0.wheelRadius * 140.0
+    let rotAng = float(frame) * 0.25
+    let spkX = cos(rotAng) * (wRad - 8.0)
+    let spkY = sin(rotAng) * (wRad - 8.0)
+
+    // Rear Wheel
+    drawCircle(rearAxleX, wheelY, wRad, rgb(30, 41, 59))
+    drawCircleOutline(rearAxleX, wheelY, wRad, 5.0, rgb(148, 163, 184))
+    drawLine(rearAxleX - spkX, wheelY - spkY, rearAxleX + spkX, wheelY + spkY, rgb(100, 116, 139), 3.0)
+    drawLine(rearAxleX - spkY, wheelY + spkX, rearAxleX + spkY, wheelY - spkX, rgb(100, 116, 139), 3.0)
+
+    // Front Wheel
+    drawCircle(frontAxleX, wheelY, wRad, rgb(30, 41, 59))
+    drawCircleOutline(frontAxleX, wheelY, wRad, 5.0, rgb(148, 163, 184))
+    drawLine(frontAxleX - spkX, wheelY - spkY, frontAxleX + spkX, wheelY + spkY, rgb(100, 116, 139), 3.0)
+    drawLine(frontAxleX - spkY, wheelY + spkX, frontAxleX + spkY, wheelY - spkX, rgb(100, 116, 139), 3.0)
+
+    // Suspension struts + spring mounts drawn in front of wheel spokes
+    drawLine(rearAxleX, chassisY + 82.0, rearAxleX, wheelY, rgb(250, 204, 21), 8.0)
+    drawLine(frontAxleX, chassisY + 82.0, frontAxleX, wheelY, rgb(250, 204, 21), 8.0)
+    drawCircle(rearAxleX, chassisY + 82.0, 7.0, rgb(248, 113, 113))
+    drawCircle(frontAxleX, chassisY + 82.0, 7.0, rgb(248, 113, 113))
+    drawCircle(rearAxleX, wheelY, 16.0, rgb(56, 189, 248))
+    drawCircle(frontAxleX, wheelY, 16.0, rgb(56, 189, 248))
+    drawCircle(rearAxleX, wheelY + wRad, 8.0, if w2.isGrounded: rgb(239, 68, 68) else: rgb(100, 116, 139))
+    drawCircle(frontAxleX, wheelY + wRad, 8.0, if w0.isGrounded: rgb(239, 68, 68) else: rgb(100, 116, 139))
+
+    drawText("Yellow: Raycast Suspension Strut | Red Dot at Tire Bottom: Ground Raycast Hit", 56.0, 646.0, 14.0, rgb(148, 163, 184))
+
+    // Right Panel: 4-Wheel Suspension Telemetry & Gauges
+    drawRect(872.0, 108.0, 376.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(872.0, 108.0, 376.0, 576.0, 2.0, rgb(168, 85, 247))
+    drawText("4-WHEEL STRUT TELEMETRY", 944.0, 132.0, 16.0, rgb(216, 180, 254))
+
+    let lens = [w0.currentSuspensionLength, w1.currentSuspensionLength, w2.currentSuspensionLength, w3.currentSuspensionLength]
+    let names = ["FL", "FR", "RL", "RR"]
+    mut g = 0
+    while g < 4:
+      let gx = 904.0 + float(g * 82)
+      let curL: float = lens[g]
+      let barH = (curL / 0.6) * 180.0
+      drawText(names[g], gx + 16.0, 176.0, 15.0, rgb(226, 232, 240))
+      drawRect(gx, 204.0, 54.0, 180.0, rgb(30, 41, 59))
+      drawRectOutline(gx, 204.0, 54.0, 180.0, 2.0, rgb(71, 85, 105))
+      drawRect(gx + 4.0, 384.0 - barH, 46.0, barH, rgb(56, 189, 248))
+      drawText(str(int(curL * 100.0)) + "cm", gx + 6.0, 396.0, 13.0, rgb(125, 211, 252))
+      g = g + 1
+
+    let comp0 = (w0.suspensionRestLength - w0.currentSuspensionLength) * w0.springStiffness
+    drawText("Spring Force (FL): " + str(int(comp0)) + " N", 904.0, 450.0, 15.0, rgb(250, 204, 21))
+    drawText("Steer Angle (FL):  " + str(int(w0.steeringAngle * 100.0)) + " c-rad", 904.0, 480.0, 15.0, rgb(52, 211, 153))
+    drawText("Drive Torque:      " + str(int(w0.driveTorque)) + " N*m", 904.0, 510.0, 15.0, rgb(125, 211, 252))
+    drawText("Rest Length:       60 cm", 904.0, 540.0, 15.0, rgb(216, 180, 254))
+    drawText("Spring Stiffness:  220 N/m", 904.0, 570.0, 15.0, rgb(248, 250, 252))
+    drawText("Chassis Y:         " + str(int(chassis.position.y * 100.0)) + " cm", 904.0, 600.0, 15.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,56 @@
+// ============================================================================
+// Example 041: Complex64 Algebra & Radix-2 FFT Spectrum Analyzer (CLI)
+// Demonstrates: Complex64, .add(), .sub(), .mul(), .mag(), .conj(), and
+//               fftRadix2 from std/math/complex_fft.
+// ============================================================================
+module Ex041MathComplexAndFftSpectrumCli
+
+import { absFloat, EPSILON } from "../std/math/consts"
+import { Complex64, fftRadix2 } from "../std/math/complex_fft"
+
+pub fn computeFftBinCenterHz(binIndex: int, sampleRateHz: int): int:
+  ret (binIndex * sampleRateHz) / 1024
+
+pub fn computeComplexPowerSq(reMilli: int, imMilli: int): int:
+  ret (reMilli * reMilli + imMilli * imMilli) / 1000
+
+pub fn classifySpectralLobe(binIndex: int): str:
+  if binIndex == 0:
+    ret "FFT:DC_COMPONENT"
+  if binIndex == 512:
+    ret "FFT:NYQUIST_FOLD"
+  ret "FFT:HARMONIC_BIN"
+
+pub fn verifyComplex64AlgebraAndConjugate(): int:
+  let c1 = Complex64.new(3.0, 4.0)
+  let c2 = Complex64.new(1.0, -2.0)
+  let s = c1.add(c2)
+  let d = c1.sub(c2)
+  let p = c1.mul(c2)
+  let cj = c1.conj()
+  if c1.mag() == 5.0 and cj.im == -4.0:
+    ret int(s.re + d.im + p.re)
+  ret -1
+
+pub fn evaluateRadix2FftRoundtripDcBin(): int:
+  mut buf: [Complex64] = []
+  for i in 0..8:
+    buf.push(Complex64.new(1.0, 0.0))
+  fftRadix2(buf, false)
+  let fwdDc = int(buf[0].re + 0.5)
+  let bin1Zero = buf[1].mag() < EPSILON
+  fftRadix2(buf, true)
+  let invDc = int(buf[0].re + 0.5)
+  if bin1Zero and absFloat(buf[0].re - 1.0) < 0.01:
+    ret fwdDc + invDc
+  ret -1
+
+pub fn main(): int:
+  let hz = computeFftBinCenterHz(16, 48000)
+  let pwr = computeComplexPowerSq(300, 400)
+  let alg = verifyComplex64AlgebraAndConjugate()
+  let fftDc = evaluateRadix2FftRoundtripDcBin()
+  println("FFT Bin 16 Center Frequency (48kHz / 1024): " + str(hz) + " Hz")
+  println("Complex Power Squared (300, 400 mV): " + str(pwr) + " | Lobe 0: " + classifySpectralLobe(0))
+  println("Complex64 Algebra Sum: " + str(alg) + " | Radix-2 FFT Roundtrip DC Sum: " + str(fftDc))
+  ret 0

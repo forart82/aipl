@@ -1,0 +1,174 @@
+/// # Module: `std/io/buffered_io` (`IoBuffered`)
+///
+/// ## Purpose & Domain Scope
+/// Buffered stream readers (`BufReader`) and writers (`BufWriter`) with delimiter scanning,
+/// universal line splitting (`\n` and `\r\n`), and capacity-controlled write coalescing.
+module IoBuffered
+
+import "io_traits.aipl"
+import "byte_cursor.aipl"
+
+pub struct BufReader:
+  mut source: [int]
+  mut sourcePos: int = 0
+  mut buf: [int]
+  mut pos: int = 0
+  mut filled: int = 0
+  capacity: int = 8192
+
+pub struct BufWriter:
+  mut sink: [int]
+  mut buf: [int]
+  capacity: int = 8192
+  mut totalFlushed: int = 0
+
+pub fn bufReaderNew(source: [int], capacity: int): BufReader:
+  mut cap = capacity
+  if cap <= 0:
+    cap = 8192
+  ret BufReader(source: source, sourcePos: 0, buf: [], pos: 0, filled: 0, capacity: cap)
+
+pub fn bufReaderFillBuf(mut r: BufReader): [int]:
+  if r.pos >= r.filled:
+    mut nextBuf: [int] = []
+    mut count = 0
+    while r.sourcePos < r.source.len() and count < r.capacity:
+      nextBuf.push(r.source[r.sourcePos] & 255)
+      r.sourcePos = r.sourcePos + 1
+      count = count + 1
+    r.buf = nextBuf
+    r.pos = 0
+    r.filled = count
+  mut window: [int] = []
+  mut i = r.pos
+  while i < r.filled:
+    window.push(r.buf[i])
+    i = i + 1
+  ret window
+
+pub fn bufReaderConsume(mut r: BufReader, amt: int): BufReader:
+  if amt > 0:
+    r.pos = r.pos + amt
+    if r.pos > r.filled:
+      r.pos = r.filled
+  ret r
+
+pub fn bufReaderRead(mut r: BufReader, maxBytes: int): [int]:
+  if maxBytes <= 0:
+    ret []
+  mut out: [int] = []
+  while out.len() < maxBytes:
+    let win = bufReaderFillBuf(r)
+    if win.len() == 0:
+      break
+    let needed = maxBytes - out.len()
+    mut take = win.len()
+    if needed < take:
+      take = needed
+    mut i = 0
+    while i < take:
+      out.push(win[i])
+      i = i + 1
+    r = bufReaderConsume(r, take)
+  ret out
+
+pub fn bufReaderReadUntil(mut r: BufReader, delimByte: int): [int]:
+  let target = delimByte & 255
+  mut out: [int] = []
+  while true:
+    let win = bufReaderFillBuf(r)
+    if win.len() == 0:
+      break
+    mut foundIdx = -1
+    mut i = 0
+    while i < win.len():
+      if win[i] == target:
+        foundIdx = i
+        break
+      i = i + 1
+    if foundIdx >= 0:
+      mut k = 0
+      while k <= foundIdx:
+        out.push(win[k])
+        k = k + 1
+      r = bufReaderConsume(r, foundIdx + 1)
+      break
+    else:
+      mut k = 0
+      while k < win.len():
+        out.push(win[k])
+        k = k + 1
+      r = bufReaderConsume(r, win.len())
+  ret out
+
+pub fn bufReaderReadLine(mut r: BufReader): Option[str]:
+  let raw = bufReaderReadUntil(r, 10)
+  if raw.len() == 0:
+    ret None
+  mut endIdx = raw.len()
+  if endIdx > 0 and raw[endIdx - 1] == 10:
+    endIdx = endIdx - 1
+  if endIdx > 0 and raw[endIdx - 1] == 13:
+    endIdx = endIdx - 1
+  mut s = ""
+  mut i = 0
+  while i < endIdx:
+    s = s + chr(raw[i])
+    i = i + 1
+  ret Some(s)
+
+pub fn bufReaderLines(mut r: BufReader): [str]:
+  mut lines: [str] = []
+  while true:
+    let lineOpt = bufReaderReadLine(r)
+    if lineOpt.isSome():
+      lines.push(lineOpt.unwrap())
+    else:
+      break
+  ret lines
+
+pub fn bufWriterNew(capacity: int): BufWriter:
+  mut cap = capacity
+  if cap <= 0:
+    cap = 8192
+  ret BufWriter(sink: [], buf: [], capacity: cap, totalFlushed: 0)
+
+pub fn bufWriterFlush(mut w: BufWriter): BufWriter:
+  mut i = 0
+  while i < w.buf.len():
+    w.sink.push(w.buf[i])
+    w.totalFlushed = w.totalFlushed + 1
+    i = i + 1
+  while w.buf.len() > 0:
+    let _ = w.buf.pop()
+  ret w
+
+pub fn bufWriterWrite(mut w: BufWriter, data: [int]): int:
+  mut i = 0
+  while i < data.len():
+    w.buf.push(data[i] & 255)
+    if w.buf.len() >= w.capacity:
+      w = bufWriterFlush(w)
+    i = i + 1
+  ret data.len()
+
+pub fn bufWriterWriteStr(mut w: BufWriter, text: str): int:
+  let raw = text.toBytes()
+  mut bytesArr: [int] = []
+  mut i = 0
+  while i < raw.len():
+    bytesArr.push(raw[i])
+    i = i + 1
+  ret bufWriterWrite(w, bytesArr)
+
+pub fn bufWriterGetOutput(mut w: BufWriter): [int]:
+  w = bufWriterFlush(w)
+  mut out: [int] = []
+  mut i = 0
+  while i < w.sink.len():
+    out.push(w.sink[i])
+    i = i + 1
+  ret out
+
+pub fn bufWriterBufferedLen(w: BufWriter): int:
+  ret w.buf.len()

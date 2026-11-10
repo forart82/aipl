@@ -1,0 +1,65 @@
+// ============================================================================
+// Canonical Example 123: HTTP Client Pool, REST Inspector & Multipart Encoder (CLI)
+// Target Profile: CLI | Standard Library Module: std/net
+// ============================================================================
+module Ex123NetHttpClientRestInspectorCli
+
+import {
+  HttpRequest,
+  createHttpClient,
+  httpGet,
+  httpPost,
+  httpSend,
+  parseUrl,
+  getHeaderValue,
+  parseResponseHeaders,
+  buildMultipartFormData
+} from "../std/net/net_mod.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub fn verifyHttpClientPoolRestAndHeaders(): int:
+  mut pool = createHttpClient(4)
+  let getRes = httpGet("http://localhost:8080/status", []).unwrap()
+  let postRes = httpPost("http://localhost:8080/items", [123, 125], "application/json").unwrap()
+
+  let req = HttpRequest(
+    method = "GET",
+    url = parseUrl("http://localhost/").unwrap(),
+    headers = [],
+    body = [],
+    timeoutMs = 1000,
+    maxRedirects = 1
+  )
+  let sendRes = httpSend(pool, req).unwrap()
+  assert(getHeaderValue(sendRes.headers, "content-type").unwrap() == "application/json", "case-insensitive header lookup")
+
+  let parsedHdrs = parseResponseHeaders([88, 45, 84, 101, 115, 116, 58, 32, 49, 10])
+  assert(parsedHdrs.len() == 1, "parsed X-Test: 1 header")
+
+  let mutParts = mapNew()
+  mutParts.set("field1", [65, 66])
+  let multipartBytes = buildMultipartFormData("BOUND", mutParts)
+  assert(multipartBytes.len() > 10, "multipart body encoded")
+  ret getRes.status + postRes.status + sendRes.status
+
+pub fn computeHttpStatusClassBucket(statusCode: int): int:
+  let s = clampInt(statusCode, 100, 599)
+  ret s / 100
+
+pub fn describeHttpStatusCategory(statusCode: int): str:
+  let s = clampInt(statusCode, 100, 599)
+  let bucket = s / 100
+  if bucket == 2:
+    ret "HTTP:STATUS_2XX_SUCCESS_" + str(s)
+  if bucket == 4:
+    ret "HTTP:STATUS_4XX_CLIENT_ERR_" + str(s)
+  ret "HTTP:STATUS_" + str(bucket) + "XX_" + str(s)
+
+pub fn main(): int:
+  let statusSum = verifyHttpClientPoolRestAndHeaders()
+  let bucket = computeHttpStatusClassBucket(200)
+  let tag = describeHttpStatusCategory(200)
+  assert(statusSum == 600, "3x 200 OK == 600")
+  assert(bucket == 2, "2xx bucket")
+  println(tag + " | statusSum=" + str(statusSum))
+  ret 0

@@ -1,0 +1,52 @@
+// ============================================================================
+// Example 068: Cooldown Timer, Repeating Ticker & Debounce Wheel (CLI)
+// Demonstrates: cooldownTimerNew, repeatingTickerNewAt, debounceTimerNew,
+//               instantFromMillis, and durationFromMillis from std/time.
+// ============================================================================
+module Ex068TimeCooldownTimerWheelCli
+
+import {
+  cooldownTimerNew,
+  repeatingTickerNewAt,
+  debounceTimerNew,
+  instantFromMillis,
+  durationFromMillis
+} from "../std/time"
+
+// Triggers a CooldownTimer at tTriggerMs and returns the remaining cooldown at tProbeMs.
+pub fn simulateCooldownRemainingMsAt(cooldownMs: int, tTriggerMs: int, tProbeMs: int): int:
+  mut cd = cooldownTimerNew(durationFromMillis(cooldownMs))
+  let t0 = instantFromMillis(tTriggerMs)
+  let tProbe = instantFromMillis(tProbeMs)
+  assert(cd.triggerAt(t0), "initial cooldown trigger succeeds")
+  assert(not cd.triggerAt(tProbe), "mid-cooldown re-trigger rejected")
+  assert(cd.progressAt(tProbe) > 0.0, "progressAt > 0")
+  ret cd.remainingAt(tProbe).toMillis()
+
+// Polls a RepeatingTicker and a DebounceTimer across a time window [tStartMs, tEndMs].
+pub fn pollRepeatingTickerAndDebounce(tickIntervalMs: int, debounceMs: int, tStartMs: int, tEndMs: int): int:
+  let tStart = instantFromMillis(tStartMs)
+  let tEnd = instantFromMillis(tEndMs)
+
+  mut ticker = repeatingTickerNewAt(durationFromMillis(tickIntervalMs), tStart)
+  let ticks = ticker.pollTicks(tEnd)
+
+  mut deb = debounceTimerNew(durationFromMillis(debounceMs))
+  deb.triggerAt(tStart)
+  mut debReady = 0
+  if deb.isReady(tEnd):
+    debReady = 1
+  ret ticks + debReady
+
+// Summarizes whether an ability/task cooldown is ready or still recharging.
+pub fn describeCooldownReadiness(remainingMs: int): str:
+  if remainingMs <= 0:
+    ret "COOLDOWN:READY_TO_FIRE"
+  ret "COOLDOWN:RECHARGING"
+
+pub fn main(): int:
+  let remMs = simulateCooldownRemainingMsAt(50, 1000, 1025)
+  let wheelEvents = pollRepeatingTickerAndDebounce(20, 30, 1000, 1060)
+  let status = describeCooldownReadiness(remMs)
+  println("ex_068_time_cooldown_timer_wheel_cli: remMs=" + str(remMs) + " wheelEvents=" + str(wheelEvents) + " status=" + status)
+  ret 0

@@ -1,0 +1,228 @@
+/// # Module: `std/gfx3d/mesh3d` (`Mesh3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 3D vertex and index buffers, submeshes, area-weighted normal computation,
+/// MikkTSpace-compliant tangent space generation, and bounding box updates.
+module Mesh3DMod
+
+import { EPSILON, minFloat, maxFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec2, Vec3, Vec4, IVec4 } from "std/math/vec_math"
+import { AABB3D } from "std/math/geom3d"
+import { ColorRgba8 } from "std/gfx/color"
+
+pub struct Vertex3D(pos: Vec3, normal: Vec3, tangent: Vec4, uv: Vec2, color: ColorRgba8, boneIndices: IVec4, boneWeights: Vec4)
+
+pub struct SubMesh3D(startIndex: int, indexCount: int, materialIndex: int, boundingBox: AABB3D)
+
+pub struct Mesh3D(vertices: [Vertex3D], indices: [int], subMeshes: [SubMesh3D], boundingBox: AABB3D)
+
+pub fn createEmptyMesh3D(): Mesh3D:
+  let zeroBox = AABB3D(
+    min = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    max = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  )
+  mut emptyVerts: [Vertex3D] = []
+  mut emptyIndices: [int] = []
+  mut emptySubs: [SubMesh3D] = []
+  ret Mesh3D(
+    vertices = emptyVerts,
+    indices = emptyIndices,
+    subMeshes = emptySubs,
+    boundingBox = zeroBox
+  )
+
+pub fn recomputeMeshBoundingBox(mesh: Mesh3D): Mesh3D:
+  if mesh.vertices.len == 0:
+    ret mesh
+  let first = mesh.vertices[0].pos
+  mut minX = first.x
+  mut minY = first.y
+  mut minZ = first.z
+  mut maxX = first.x
+  mut maxY = first.y
+  mut maxZ = first.z
+
+  mut i = 1
+  while i < mesh.vertices.len:
+    let p = mesh.vertices[i].pos
+    minX = minFloat(minX, p.x)
+    minY = minFloat(minY, p.y)
+    minZ = minFloat(minZ, p.z)
+    maxX = maxFloat(maxX, p.x)
+    maxY = maxFloat(maxY, p.y)
+    maxZ = maxFloat(maxZ, p.z)
+    i = i + 1
+
+  let bbox = AABB3D(
+    min = Vec3(x = minX, y = minY, z = minZ),
+    max = Vec3(x = maxX, y = maxY, z = maxZ)
+  )
+  ret Mesh3D(
+    vertices = mesh.vertices,
+    indices = mesh.indices,
+    subMeshes = mesh.subMeshes,
+    boundingBox = bbox
+  )
+
+pub fn computeMeshNormals(mesh: Mesh3D): Mesh3D:
+  let vCount = mesh.vertices.len
+  if vCount == 0:
+    ret mesh
+
+  mut accNormals: [Vec3] = []
+  mut i = 0
+  while i < vCount:
+    accNormals.push(Vec3(x = 0.0, y = 0.0, z = 0.0))
+    i = i + 1
+
+  mut t = 0
+  while t + 2 < mesh.indices.len:
+    let i0 = mesh.indices[t]
+    let i1 = mesh.indices[t + 1]
+    let i2 = mesh.indices[t + 2]
+    if i0 >= 0 and i0 < vCount and i1 >= 0 and i1 < vCount and i2 >= 0 and i2 < vCount:
+      let p0: Vec3 = mesh.vertices[i0].pos
+      let p1: Vec3 = mesh.vertices[i1].pos
+      let p2: Vec3 = mesh.vertices[i2].pos
+      let e1x = p1.x - p0.x
+      let e1y = p1.y - p0.y
+      let e1z = p1.z - p0.z
+      let e2x = p2.x - p0.x
+      let e2y = p2.y - p0.y
+      let e2z = p2.z - p0.z
+      let fnx = e1y * e2z - e1z * e2y
+      let fny = e1z * e2x - e1x * e2z
+      let fnz = e1x * e2y - e1y * e2x
+      let a0: Vec3 = accNormals[i0]
+      let a1: Vec3 = accNormals[i1]
+      let a2: Vec3 = accNormals[i2]
+      accNormals[i0] = Vec3(x = a0.x + fnx, y = a0.y + fny, z = a0.z + fnz)
+      accNormals[i1] = Vec3(x = a1.x + fnx, y = a1.y + fny, z = a1.z + fnz)
+      accNormals[i2] = Vec3(x = a2.x + fnx, y = a2.y + fny, z = a2.z + fnz)
+    t = t + 3
+
+  mut nextVerts: [Vertex3D] = []
+  mut vi = 0
+  while vi < vCount:
+    let v: Vertex3D = mesh.vertices[vi]
+    let nRaw: Vec3 = accNormals[vi]
+    let nLen2 = nRaw.x * nRaw.x + nRaw.y * nRaw.y + nRaw.z * nRaw.z
+    let n = if nLen2 > EPSILON:
+      let invL = 1.0 / sqrt(nLen2)
+      Vec3(x = nRaw.x * invL, y = nRaw.y * invL, z = nRaw.z * invL)
+    else:
+      Vec3(x = 0.0, y = 1.0, z = 0.0)
+    nextVerts.push(Vertex3D(
+      pos = v.pos,
+      normal = n,
+      tangent = v.tangent,
+      uv = v.uv,
+      color = v.color,
+      boneIndices = v.boneIndices,
+      boneWeights = v.boneWeights
+    ))
+    vi = vi + 1
+
+  ret Mesh3D(
+    vertices = nextVerts,
+    indices = mesh.indices,
+    subMeshes = mesh.subMeshes,
+    boundingBox = mesh.boundingBox
+  )
+
+pub fn computeMeshTangentsMikkTSpace(mesh: Mesh3D): Mesh3D:
+  let vCount = mesh.vertices.len
+  if vCount == 0:
+    ret mesh
+
+  mut tan1: [Vec3] = []
+  mut tan2: [Vec3] = []
+  mut i = 0
+  while i < vCount:
+    tan1.push(Vec3(x = 0.0, y = 0.0, z = 0.0))
+    tan2.push(Vec3(x = 0.0, y = 0.0, z = 0.0))
+    i = i + 1
+
+  mut t = 0
+  while t + 2 < mesh.indices.len:
+    let i0 = mesh.indices[t]
+    let i1 = mesh.indices[t + 1]
+    let i2 = mesh.indices[t + 2]
+    if i0 >= 0 and i0 < vCount and i1 >= 0 and i1 < vCount and i2 >= 0 and i2 < vCount:
+      let v0: Vertex3D = mesh.vertices[i0]
+      let v1: Vertex3D = mesh.vertices[i1]
+      let v2: Vertex3D = mesh.vertices[i2]
+      let dp1x = v1.pos.x - v0.pos.x
+      let dp1y = v1.pos.y - v0.pos.y
+      let dp1z = v1.pos.z - v0.pos.z
+      let dp2x = v2.pos.x - v0.pos.x
+      let dp2y = v2.pos.y - v0.pos.y
+      let dp2z = v2.pos.z - v0.pos.z
+      let du1 = v1.uv.x - v0.uv.x
+      let dv1 = v1.uv.y - v0.uv.y
+      let du2 = v2.uv.x - v0.uv.x
+      let dv2 = v2.uv.y - v0.uv.y
+      let det = du1 * dv2 - du2 * dv1
+      let r = if det > EPSILON or det < -EPSILON: 1.0 / det else: 1.0
+      let sx = (dp1x * dv2 - dp2x * dv1) * r
+      let sy = (dp1y * dv2 - dp2y * dv1) * r
+      let sz = (dp1z * dv2 - dp2z * dv1) * r
+      let tx = (dp2x * du1 - dp1x * du2) * r
+      let ty = (dp2y * du1 - dp1y * du2) * r
+      let tz = (dp2z * du1 - dp1z * du2) * r
+      let t10: Vec3 = tan1[i0]
+      let t11: Vec3 = tan1[i1]
+      let t12: Vec3 = tan1[i2]
+      let t20: Vec3 = tan2[i0]
+      let t21: Vec3 = tan2[i1]
+      let t22: Vec3 = tan2[i2]
+      tan1[i0] = Vec3(x = t10.x + sx, y = t10.y + sy, z = t10.z + sz)
+      tan1[i1] = Vec3(x = t11.x + sx, y = t11.y + sy, z = t11.z + sz)
+      tan1[i2] = Vec3(x = t12.x + sx, y = t12.y + sy, z = t12.z + sz)
+      tan2[i0] = Vec3(x = t20.x + tx, y = t20.y + ty, z = t20.z + tz)
+      tan2[i1] = Vec3(x = t21.x + tx, y = t21.y + ty, z = t21.z + tz)
+      tan2[i2] = Vec3(x = t22.x + tx, y = t22.y + ty, z = t22.z + tz)
+    t = t + 3
+
+  mut nextVerts: [Vertex3D] = []
+  mut vi = 0
+  while vi < vCount:
+    let v: Vertex3D = mesh.vertices[vi]
+    let n: Vec3 = v.normal
+    let tVec: Vec3 = tan1[vi]
+    let bVec: Vec3 = tan2[vi]
+    // Gram-Schmidt orthogonalization: t' = normalize(t - n * dot(n, t))
+    let ndott = n.x * tVec.x + n.y * tVec.y + n.z * tVec.z
+    let ox = tVec.x - n.x * ndott
+    let oy = tVec.y - n.y * ndott
+    let oz = tVec.z - n.z * ndott
+    let oLen2 = ox * ox + oy * oy + oz * oz
+    let ortho = if oLen2 > EPSILON:
+      let invO = 1.0 / sqrt(oLen2)
+      Vec3(x = ox * invO, y = oy * invO, z = oz * invO)
+    else:
+      Vec3(x = 1.0, y = 0.0, z = 0.0)
+    // Handedness sign w = (dot(cross(n, t), b) < 0.0) ? -1.0 : 1.0
+    let cx = n.y * tVec.z - n.z * tVec.y
+    let cy = n.z * tVec.x - n.x * tVec.z
+    let cz = n.x * tVec.y - n.y * tVec.x
+    let cdotb = cx * bVec.x + cy * bVec.y + cz * bVec.z
+    let handedness = if cdotb < 0.0: -1.0 else: 1.0
+    nextVerts.push(Vertex3D(
+      pos = v.pos,
+      normal = v.normal,
+      tangent = Vec4(x = ortho.x, y = ortho.y, z = ortho.z, w = handedness),
+      uv = v.uv,
+      color = v.color,
+      boneIndices = v.boneIndices,
+      boneWeights = v.boneWeights
+    ))
+    vi = vi + 1
+
+  ret Mesh3D(
+    vertices = nextVerts,
+    indices = mesh.indices,
+    subMeshes = mesh.subMeshes,
+    boundingBox = mesh.boundingBox
+  )

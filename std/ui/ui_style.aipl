@@ -1,0 +1,792 @@
+/// # Module: `std/ui/ui_style` (`UiStyleMod`)
+///
+/// ## Purpose & Domain Scope
+/// Design tokens, semantic dark/light UI themes, elevation shadows, and spacing scales.
+module UiStyleMod
+
+import { ColorRgba8 } from "std/gfx/color"
+
+import { RadixScale12 } from "../gfx/color"
+import { rgba, drawLine } from "../gfx2d/shape2d"
+import { minInt, maxInt, clampInt, maxFloat, clampFloat } from "../math/consts"
+pub struct DesignTokens(spacingXs: float, spacingSm: float, spacingMd: float, spacingLg: float, spacingXl: float, radiusSm: float, radiusMd: float, radiusLg: float)
+
+pub struct UiTheme(surfaceBase: ColorRgba8, surfaceCard: ColorRgba8, surfaceElevated: ColorRgba8, primary: ColorRgba8, primaryHover: ColorRgba8, textPrimary: ColorRgba8, textMuted: ColorRgba8, outline: ColorRgba8, error: ColorRgba8, isDark: bool)
+
+pub fn createDarkTheme(): UiTheme:
+  ret UiTheme(
+    surfaceBase = ColorRgba8(r = 15, g = 23, b = 42, a = 255),
+    surfaceCard = ColorRgba8(r = 30, g = 41, b = 59, a = 255),
+    surfaceElevated = ColorRgba8(r = 51, g = 65, b = 85, a = 255),
+    primary = ColorRgba8(r = 56, g = 189, b = 248, a = 255),
+    primaryHover = ColorRgba8(r = 125, g = 211, b = 252, a = 255),
+    textPrimary = ColorRgba8(r = 248, g = 250, b = 252, a = 255),
+    textMuted = ColorRgba8(r = 148, g = 163, b = 184, a = 255),
+    outline = ColorRgba8(r = 71, g = 85, b = 105, a = 255),
+    error = ColorRgba8(r = 239, g = 68, b = 68, a = 255),
+    isDark = true
+  )
+
+pub fn createLightTheme(): UiTheme:
+  ret UiTheme(
+    surfaceBase = ColorRgba8(r = 248, g = 250, b = 252, a = 255),
+    surfaceCard = ColorRgba8(r = 255, g = 255, b = 255, a = 255),
+    surfaceElevated = ColorRgba8(r = 241, g = 245, b = 249, a = 255),
+    primary = ColorRgba8(r = 2, g = 132, b = 199, a = 255),
+    primaryHover = ColorRgba8(r = 3, g = 105, b = 161, a = 255),
+    textPrimary = ColorRgba8(r = 15, g = 23, b = 42, a = 255),
+    textMuted = ColorRgba8(r = 100, g = 116, b = 139, a = 255),
+    outline = ColorRgba8(r = 203, g = 213, b = 225, a = 255),
+    error = ColorRgba8(r = 220, g = 38, b = 38, a = 255),
+    isDark = false
+  )
+
+pub fn getDefaultDesignTokens(): DesignTokens:
+  ret DesignTokens(
+    spacingXs = 4.0,
+    spacingSm = 8.0,
+    spacingMd = 16.0,
+    spacingLg = 24.0,
+    spacingXl = 32.0,
+    radiusSm = 4.0,
+    radiusMd = 8.0,
+    radiusLg = 16.0
+  )
+
+pub struct RgbColor(r: int, g: int, b: int, a: int = 255)
+pub struct HslColor(h: float, s: float, l: float, a: float = 1.0)
+pub struct CmykColor(c: float, m: float, y: float, k: float)
+pub struct OklabColor(l: float, a: float, b: float, alpha: float = 1.0)
+pub struct OklchColor(l: float, c: float, h: float, alpha: float = 1.0)
+
+fn clampByte(v: int): int:
+  if v < 0:
+    ret 0
+  if v > 255:
+    ret 255
+  ret v
+
+fn clampUnit(v: float): float:
+  if v < 0.0:
+    ret 0.0
+  if v > 1.0:
+    ret 1.0
+  ret v
+
+fn wrapHue(h: float): float:
+  mut deg = h
+  while deg < 0.0:
+    deg = deg + 360.0
+  while deg >= 360.0:
+    deg = deg - 360.0
+  ret deg
+
+pub fn rgbToHsl(rgb: RgbColor): HslColor:
+  let r = float(clampByte(rgb.r)) / 255.0
+  let g = float(clampByte(rgb.g)) / 255.0
+  let b = float(clampByte(rgb.b)) / 255.0
+  let a = float(clampByte(rgb.a)) / 255.0
+
+  mut maxC = r
+  if g > maxC:
+    maxC = g
+  if b > maxC:
+    maxC = b
+
+  mut minC = r
+  if g < minC:
+    minC = g
+  if b < minC:
+    minC = b
+
+  let delta = maxC - minC
+  let l = (maxC + minC) / 2.0
+
+  if delta < 0.00001:
+    ret HslColor(h = 0.0, s = 0.0, l = l, a = a)
+
+  mut s = 0.0
+  if l <= 0.5:
+    s = delta / (maxC + minC)
+  else:
+    s = delta / (2.0 - maxC - minC)
+
+  mut h = 0.0
+  if maxC == r:
+    mut seg = (g - b) / delta
+    if g < b:
+      seg = seg + 6.0
+    h = seg * 60.0
+  elif maxC == g:
+    h = (((b - r) / delta) + 2.0) * 60.0
+  else:
+    h = (((r - g) / delta) + 4.0) * 60.0
+
+  ret HslColor(h = wrapHue(h), s = clampUnit(s), l = clampUnit(l), a = a)
+
+fn hueToChannel(p: float, q: float, tIn: float): float:
+  mut t = tIn
+  if t < 0.0:
+    t = t + 1.0
+  if t > 1.0:
+    t = t - 1.0
+  if t < (1.0 / 6.0):
+    ret p + (q - p) * 6.0 * t
+  if t < 0.5:
+    ret q
+  if t < (2.0 / 3.0):
+    ret p + (q - p) * ((2.0 / 3.0) - t) * 6.0
+  ret p
+
+pub fn hslToRgb(hsl: HslColor): RgbColor:
+  let hNorm = wrapHue(hsl.h) / 360.0
+  let s = clampUnit(hsl.s)
+  let l = clampUnit(hsl.l)
+  let aByte = clampByte(int(clampUnit(hsl.a) * 255.0 + 0.5))
+
+  if s <= 0.00001:
+    let gray = clampByte(int(l * 255.0 + 0.5))
+    ret RgbColor(r = gray, g = gray, b = gray, a = aByte)
+
+  mut q = 0.0
+  if l < 0.5:
+    q = l * (1.0 + s)
+  else:
+    q = l + s - (l * s)
+  let p = 2.0 * l - q
+
+  let r = clampByte(int(hueToChannel(p, q, hNorm + (1.0 / 3.0)) * 255.0 + 0.5))
+  let g = clampByte(int(hueToChannel(p, q, hNorm) * 255.0 + 0.5))
+  let b = clampByte(int(hueToChannel(p, q, hNorm - (1.0 / 3.0)) * 255.0 + 0.5))
+  ret RgbColor(r = r, g = g, b = b, a = aByte)
+
+pub fn rgbToCmyk(rgb: RgbColor): CmykColor:
+  let r = float(clampByte(rgb.r)) / 255.0
+  let g = float(clampByte(rgb.g)) / 255.0
+  let b = float(clampByte(rgb.b)) / 255.0
+
+  mut maxC = r
+  if g > maxC:
+    maxC = g
+  if b > maxC:
+    maxC = b
+
+  let k = 1.0 - maxC
+  if k >= 0.99999:
+    ret CmykColor(c = 0.0, m = 0.0, y = 0.0, k = 1.0)
+
+  let c = (1.0 - r - k) / (1.0 - k)
+  let m = (1.0 - g - k) / (1.0 - k)
+  let y = (1.0 - b - k) / (1.0 - k)
+  ret CmykColor(c = clampUnit(c), m = clampUnit(m), y = clampUnit(y), k = clampUnit(k))
+
+pub fn cmykToRgb(cmyk: CmykColor): RgbColor:
+  let c = clampUnit(cmyk.c)
+  let m = clampUnit(cmyk.m)
+  let y = clampUnit(cmyk.y)
+  let k = clampUnit(cmyk.k)
+  let r = clampByte(int(255.0 * (1.0 - c) * (1.0 - k) + 0.5))
+  let g = clampByte(int(255.0 * (1.0 - m) * (1.0 - k) + 0.5))
+  let b = clampByte(int(255.0 * (1.0 - y) * (1.0 - k) + 0.5))
+  ret RgbColor(r = r, g = g, b = b, a = 255)
+
+fn hexNibbleVal(ch: str): int:
+  let digits = "0123456789abcdef"
+  let lower = ch.toLowerCase()
+  ret digits.indexOf(lower)
+
+fn byteToHex2(v: int): str:
+  let digits = "0123456789abcdef"
+  let b = clampByte(v)
+  let hi = digits.charAt(b / 16)
+  let lo = digits.charAt(b % 16)
+  ret "{hi}{lo}"
+
+fn parseHexColorRgb(s: str): Result[RgbColor, str]:
+  let trimmed = s.trim()
+  mut hex = trimmed
+  if hex.startsWith("#"):
+    hex = hex.substring(1, hex.len)
+  if hex.len == 3:
+    let r = hexNibbleVal(hex.charAt(0))
+    let g = hexNibbleVal(hex.charAt(1))
+    let b = hexNibbleVal(hex.charAt(2))
+    if r < 0 or g < 0 or b < 0:
+      ret Err("invalid hex color")
+    ret Ok(RgbColor(r = r * 17, g = g * 17, b = b * 17, a = 255))
+  if hex.len == 6 or hex.len == 8:
+    let r = hexNibbleVal(hex.charAt(0)) * 16 + hexNibbleVal(hex.charAt(1))
+    let g = hexNibbleVal(hex.charAt(2)) * 16 + hexNibbleVal(hex.charAt(3))
+    let b = hexNibbleVal(hex.charAt(4)) * 16 + hexNibbleVal(hex.charAt(5))
+    if r < 0 or g < 0 or b < 0:
+      ret Err("invalid hex color")
+    mut a = 255
+    if hex.len == 8:
+      a = hexNibbleVal(hex.charAt(6)) * 16 + hexNibbleVal(hex.charAt(7))
+    ret Ok(RgbColor(r = r, g = g, b = b, a = a))
+  ret Err("invalid hex color length")
+
+fn extractCssArgs(s: str, prefix: str): [str]:
+  let lower = s.toLowerCase().trim()
+  if not lower.startsWith(prefix) or not lower.endsWith(")"):
+    ret []
+  let inner = lower.substring(prefix.len, lower.len - 1)
+  mut parts: [str] = []
+  mut cur = ""
+  mut i = 0
+  while i < inner.len:
+    let ch = inner.charAt(i)
+    if ch == "," or ch == " " or ch == "/":
+      let trimmed = cur.trim()
+      if trimmed.len > 0:
+        parts.push(trimmed)
+      cur = ""
+    else:
+      cur = "{cur}{ch}"
+    i += 1
+  let finalTrim = cur.trim()
+  if finalTrim.len > 0:
+    parts.push(finalTrim)
+  ret parts
+
+pub fn hexToRgb(s: str): Result[RgbColor, str]:
+  ret parseHexColorRgb(s)
+
+pub fn parseCssColor(s: str): Result[RgbColor, str]:
+  let trimmed = s.trim()
+  let lower = trimmed.toLowerCase()
+  if lower.startsWith("#"):
+    ret parseHexColorRgb(trimmed)
+  if lower == "transparent":
+    ret Ok(RgbColor(r = 0, g = 0, b = 0, a = 0))
+  if lower == "black":
+    ret Ok(RgbColor(r = 0, g = 0, b = 0, a = 255))
+  if lower == "white":
+    ret Ok(RgbColor(r = 255, g = 255, b = 255, a = 255))
+  if lower == "red":
+    ret Ok(RgbColor(r = 255, g = 0, b = 0, a = 255))
+  if lower == "green":
+    ret Ok(RgbColor(r = 0, g = 128, b = 0, a = 255))
+  if lower == "blue":
+    ret Ok(RgbColor(r = 0, g = 0, b = 255, a = 255))
+  if lower == "yellow":
+    ret Ok(RgbColor(r = 255, g = 255, b = 0, a = 255))
+  if lower == "cyan":
+    ret Ok(RgbColor(r = 0, g = 255, b = 255, a = 255))
+  if lower == "magenta":
+    ret Ok(RgbColor(r = 255, g = 0, b = 255, a = 255))
+  if lower == "gray" or lower == "grey":
+    ret Ok(RgbColor(r = 128, g = 128, b = 128, a = 255))
+
+  if lower.startsWith("rgba(") or lower.startsWith("rgb("):
+    let prefix = if lower.startsWith("rgba("): "rgba(" else: "rgb("
+    let args = extractCssArgs(trimmed, prefix)
+    if args.len >= 3:
+      let r = parseInt(args[0])
+      let g = parseInt(args[1])
+      let b = parseInt(args[2])
+      mut a = 255
+      if args.len >= 4:
+        let aVal = float(args[3])
+        a = if aVal <= 1.0 and args[3].indexOf(".") >= 0: clampByte(int(aVal * 255.0 + 0.5)) else: clampByte(int(aVal))
+      ret Ok(RgbColor(r = clampByte(r), g = clampByte(g), b = clampByte(b), a = a))
+
+  if lower.startsWith("hsla(") or lower.startsWith("hsl("):
+    let prefix = if lower.startsWith("hsla("): "hsla(" else: "hsl("
+    let args = extractCssArgs(trimmed, prefix)
+    if args.len >= 3:
+      mut hStr = args[0]
+      if hStr.endsWith("deg"):
+        hStr = hStr.substring(0, hStr.len - 3)
+      let h = float(hStr)
+      mut sStr = args[1]
+      if sStr.endsWith("%"):
+        sStr = sStr.substring(0, sStr.len - 1)
+      let s = float(sStr) / 100.0
+      mut lStr = args[2]
+      if lStr.endsWith("%"):
+        lStr = lStr.substring(0, lStr.len - 1)
+      let l = float(lStr) / 100.0
+      mut a = 1.0
+      if args.len >= 4:
+        a = float(args[3])
+      let hsl = HslColor(h = h, s = s, l = l, a = a)
+      ret Ok(hslToRgb(hsl))
+
+  ret parseHexColorRgb(trimmed)
+
+pub fn toCssRgb(rgb: RgbColor): str:
+  ret "rgb({rgb.r}, {rgb.g}, {rgb.b})"
+
+pub fn toCssRgba(rgb: RgbColor): str:
+  let aFloat = roundTo(float(rgb.a) / 255.0, 2)
+  ret "rgba({rgb.r}, {rgb.g}, {rgb.b}, {aFloat})"
+
+pub fn toCssHsl(hsl: HslColor): str:
+  let h = int(wrapHue(hsl.h) + 0.5)
+  let s = int(clampUnit(hsl.s) * 100.0 + 0.5)
+  let l = int(clampUnit(hsl.l) * 100.0 + 0.5)
+  ret "hsl({h}, {s}%, {l}%)"
+
+fn toHexColorRgb(rgb: RgbColor): str:
+  let rh = byteToHex2(rgb.r)
+  let gh = byteToHex2(rgb.g)
+  let bh = byteToHex2(rgb.b)
+  ret "#{rh}{gh}{bh}"
+
+pub fn rgbToHex(rgb: RgbColor): str:
+  ret toHexColorRgb(rgb)
+
+pub fn colorToHex(rgb: RgbColor): str:
+  ret toHexColorRgb(rgb)
+
+fn srgbChannelLuminance(cByte: int): float:
+  let c = float(clampByte(cByte)) / 255.0
+  if c <= 0.03928:
+    ret c / 12.92
+  ret pow((c + 0.055) / 1.055, 2.4)
+
+pub fn relativeLuminance(rgb: RgbColor): float:
+  let rl = srgbChannelLuminance(rgb.r)
+  let gl = srgbChannelLuminance(rgb.g)
+  let bl = srgbChannelLuminance(rgb.b)
+  ret 0.2126 * rl + 0.7152 * gl + 0.0722 * bl
+
+pub fn contrastRatio(c1: RgbColor, c2: RgbColor): float:
+  let l1 = relativeLuminance(c1)
+  let l2 = relativeLuminance(c2)
+  if l1 > l2:
+    ret (l1 + 0.05) / (l2 + 0.05)
+  ret (l2 + 0.05) / (l1 + 0.05)
+
+pub fn colorContrastRatio(c1: RgbColor, c2: RgbColor): float:
+  ret contrastRatio(c1, c2)
+
+pub fn lerpColor(c1: RgbColor, c2: RgbColor, t: float): RgbColor:
+  let u = clampUnit(t)
+  let r = clampByte(int(float(c1.r) + (float(c2.r) - float(c1.r)) * u + 0.5))
+  let g = clampByte(int(float(c1.g) + (float(c2.g) - float(c1.g)) * u + 0.5))
+  let b = clampByte(int(float(c1.b) + (float(c2.b) - float(c1.b)) * u + 0.5))
+  let a = clampByte(int(float(c1.a) + (float(c2.a) - float(c1.a)) * u + 0.5))
+  ret RgbColor(r = r, g = g, b = b, a = a)
+
+pub fn colorLerp(c1: RgbColor, c2: RgbColor, t: float): RgbColor:
+  ret lerpColor(c1, c2, t)
+
+pub fn meetsWcagAA(c1: RgbColor, c2: RgbColor, largeText: bool = false): bool:
+  let ratio = contrastRatio(c1, c2)
+  if largeText:
+    ret ratio >= 3.0
+  ret ratio >= 4.5
+
+pub fn meetsWcagAAA(c1: RgbColor, c2: RgbColor, largeText: bool = false): bool:
+  let ratio = contrastRatio(c1, c2)
+  if largeText:
+    ret ratio >= 4.5
+  ret ratio >= 7.0
+
+pub fn paletteComplementary(base: RgbColor): [RgbColor]:
+  let hsl = rgbToHsl(base)
+  let comp = hslToRgb(HslColor(h = wrapHue(hsl.h + 180.0), s = hsl.s, l = hsl.l, a = hsl.a))
+  ret [base, comp]
+
+pub fn paletteTriadic(base: RgbColor): [RgbColor]:
+  let hsl = rgbToHsl(base)
+  let c2 = hslToRgb(HslColor(h = wrapHue(hsl.h + 120.0), s = hsl.s, l = hsl.l, a = hsl.a))
+  let c3 = hslToRgb(HslColor(h = wrapHue(hsl.h + 240.0), s = hsl.s, l = hsl.l, a = hsl.a))
+  ret [base, c2, c3]
+
+pub fn paletteAnalogous(base: RgbColor): [RgbColor]:
+  let hsl = rgbToHsl(base)
+  let c1 = hslToRgb(HslColor(h = wrapHue(hsl.h - 30.0), s = hsl.s, l = hsl.l, a = hsl.a))
+  let c3 = hslToRgb(HslColor(h = wrapHue(hsl.h + 30.0), s = hsl.s, l = hsl.l, a = hsl.a))
+  ret [c1, base, c3]
+
+pub fn paletteSplitComplementary(base: RgbColor): [RgbColor]:
+  let hsl = rgbToHsl(base)
+  let c2 = hslToRgb(HslColor(h = wrapHue(hsl.h + 150.0), s = hsl.s, l = hsl.l, a = hsl.a))
+  let c3 = hslToRgb(HslColor(h = wrapHue(hsl.h + 210.0), s = hsl.s, l = hsl.l, a = hsl.a))
+  ret [base, c2, c3]
+
+pub fn paletteShades(base: RgbColor, steps: int = 5): [RgbColor]:
+  let lch = rgbToOklch(base)
+  mut out: [RgbColor] = []
+  mut n = steps
+  if n < 2:
+    n = 2
+  mut i = 0
+  while i < n:
+    let l = 0.20 + (0.72 * float(i)) / float(n - 1)
+    out.push(oklchToRgbGamutMapped(OklchColor(l = l, c = lch.c, h = lch.h, alpha = lch.alpha)))
+    i += 1
+  ret out
+
+// =============================================================================
+// Oklab & OKLCH Perceptual Color Space (Björn Ottosson M1/M2 LMS Matrices)
+// =============================================================================
+
+pub fn packedHexToRgb(hex: int): RgbColor:
+  let r = (hex / 65536) % 256
+  let g = (hex / 256) % 256
+  let b = hex % 256
+  ret RgbColor(r = clampByte(r), g = clampByte(g), b = clampByte(b), a = 255)
+
+pub fn rgbToPackedHex(rgb: RgbColor): int:
+  let r = clampByte(rgb.r)
+  let g = clampByte(rgb.g)
+  let b = clampByte(rgb.b)
+  ret r * 65536 + g * 256 + b
+
+fn srgbToLinearUnit(c: float): float:
+  if c <= 0.04045:
+    ret c / 12.92
+  ret pow((c + 0.055) / 1.055, 2.4)
+
+fn linearToSrgbUnit(c: float): float:
+  if c <= 0.0031308:
+    ret 12.92 * c
+  ret 1.055 * pow(c, 1.0 / 2.4) - 0.055
+
+fn cubeRootPerceptual(x: float): float:
+  if x <= 0.0:
+    ret 0.0
+  ret pow(x, 1.0 / 3.0)
+
+pub fn rgbToOklab(rgb: RgbColor): OklabColor:
+  let r = srgbToLinearUnit(float(clampByte(rgb.r)) / 255.0)
+  let g = srgbToLinearUnit(float(clampByte(rgb.g)) / 255.0)
+  let b = srgbToLinearUnit(float(clampByte(rgb.b)) / 255.0)
+  let lCone = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+  let mCone = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
+  let sCone = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+  let lC = cubeRootPerceptual(lCone)
+  let mC = cubeRootPerceptual(mCone)
+  let sC = cubeRootPerceptual(sCone)
+  let L = 0.2104542553 * lC + 0.7936177850 * mC - 0.0040720468 * sC
+  let A = 1.9779984951 * lC - 2.4285922050 * mC + 0.4505937099 * sC
+  let B = 0.0259040371 * lC + 0.7827717662 * mC - 0.8086757660 * sC
+  ret OklabColor(l = L, a = A, b = B, alpha = float(clampByte(rgb.a)) / 255.0)
+
+pub fn oklabToRgb(lab: OklabColor): RgbColor:
+  let lC = lab.l + 0.3963377774 * lab.a + 0.2158037573 * lab.b
+  let mC = lab.l - 0.1055613458 * lab.a - 0.0638541728 * lab.b
+  let sC = lab.l - 0.0894841775 * lab.a - 1.2914855480 * lab.b
+  let lCone = lC * lC * lC
+  let mCone = mC * mC * mC
+  let sCone = sC * sC * sC
+  let rLin = 4.0767416621 * lCone - 3.3077115913 * mCone + 0.2309699292 * sCone
+  let gLin = -1.2684380046 * lCone + 2.6097574011 * mCone - 0.3413193965 * sCone
+  let bLin = -0.0041960863 * lCone - 0.7034186147 * mCone + 1.7076147010 * sCone
+  let rSrgb = clampUnit(linearToSrgbUnit(clampUnit(rLin)))
+  let gSrgb = clampUnit(linearToSrgbUnit(clampUnit(gLin)))
+  let bSrgb = clampUnit(linearToSrgbUnit(clampUnit(bLin)))
+  ret RgbColor(
+    r = clampByte(int(rSrgb * 255.0 + 0.5)),
+    g = clampByte(int(gSrgb * 255.0 + 0.5)),
+    b = clampByte(int(bSrgb * 255.0 + 0.5)),
+    a = clampByte(int(clampUnit(lab.alpha) * 255.0 + 0.5))
+  )
+
+pub fn rgbToOklch(rgb: RgbColor): OklchColor:
+  let lab = rgbToOklab(rgb)
+  let c = sqrt(lab.a * lab.a + lab.b * lab.b)
+  let hRad = atan2(lab.b, lab.a)
+  let hDeg = wrapHue(hRad * 57.29577951308232)
+  ret OklchColor(l = lab.l, c = c, h = hDeg, alpha = lab.alpha)
+
+fn oklabInSrgbGamut(L: float, a: float, b: float): bool:
+  let lC = L + 0.3963377774 * a + 0.2158037573 * b
+  let mC = L - 0.1055613458 * a - 0.0638541728 * b
+  let sC = L - 0.0894841775 * a - 1.2914855480 * b
+  let lCone = lC * lC * lC
+  let mCone = mC * mC * mC
+  let sCone = sC * sC * sC
+  let rLin = 4.0767416621 * lCone - 3.3077115913 * mCone + 0.2309699292 * sCone
+  let gLin = -1.2684380046 * lCone + 2.6097574011 * mCone - 0.3413193965 * sCone
+  let bLin = -0.0041960863 * lCone - 0.7034186147 * mCone + 1.7076147010 * sCone
+  ret rLin >= -0.0005 and rLin <= 1.0005 and gLin >= -0.0005 and gLin <= 1.0005 and bLin >= -0.0005 and bLin <= 1.0005
+
+pub fn oklchToRgbGamutMapped(lch: OklchColor): RgbColor:
+  let L = clampUnit(lch.l)
+  if L <= 0.0001:
+    ret RgbColor(r = 0, g = 0, b = 0, a = clampByte(int(clampUnit(lch.alpha) * 255.0 + 0.5)))
+  if L >= 0.9999:
+    ret RgbColor(r = 255, g = 255, b = 255, a = clampByte(int(clampUnit(lch.alpha) * 255.0 + 0.5)))
+  let rad = lch.h * 0.017453292519943295
+  let cosH = cos(rad)
+  let sinH = sin(rad)
+  mut cTarget = lch.c
+  if cTarget < 0.0:
+    cTarget = 0.0
+  if not oklabInSrgbGamut(L, cTarget * cosH, cTarget * sinH):
+    mut lo = 0.0
+    mut hi = cTarget
+    mut step = 0
+    while step < 12:
+      let mid = (lo + hi) * 0.5
+      if oklabInSrgbGamut(L, mid * cosH, mid * sinH):
+        lo = mid
+      else:
+        hi = mid
+      step += 1
+    cTarget = lo
+  ret oklabToRgb(OklabColor(l = L, a = cTarget * cosH, b = cTarget * sinH, alpha = lch.alpha))
+
+pub fn oklchToHex(l: float, c: float, h: float): int:
+  let rgb = oklchToRgbGamutMapped(OklchColor(l = l, c = c, h = h, alpha = 1.0))
+  ret rgbToPackedHex(rgb)
+
+pub fn lerpOklabRgb(c1: RgbColor, c2: RgbColor, t: float): RgbColor:
+  let u = clampUnit(t)
+  let labA = rgbToOklab(c1)
+  let labB = rgbToOklab(c2)
+  let labM = OklabColor(
+    l = labA.l + (labB.l - labA.l) * u,
+    a = labA.a + (labB.a - labA.a) * u,
+    b = labA.b + (labB.b - labA.b) * u,
+    alpha = labA.alpha + (labB.alpha - labA.alpha) * u
+  )
+  ret oklabToRgb(labM)
+
+pub fn lerpOklabHex(hexA: int, hexB: int, t: float): int:
+  let rgbM = lerpOklab(packedHexToRgb(hexA), packedHexToRgb(hexB), t)
+  ret rgbToPackedHex(rgbM)
+
+// =============================================================================
+// APCA-W3 0.98G-4g Perceptual Contrast & Radix 12-Step Perceptual Scale
+// =============================================================================
+
+pub fn apcaScreenLuminance(rgb: RgbColor): float:
+  let rLin = pow(float(clampByte(rgb.r)) / 255.0, 2.4)
+  let gLin = pow(float(clampByte(rgb.g)) / 255.0, 2.4)
+  let bLin = pow(float(clampByte(rgb.b)) / 255.0, 2.4)
+  let y = 0.2126729 * rLin + 0.7151522 * gLin + 0.0721750 * bLin
+  if y < 0.022:
+    ret y + pow(0.022 - y, 1.414)
+  ret y
+
+pub fn apcaContrastLc(textRgb: RgbColor, bgRgb: RgbColor): float:
+  let yTxt = apcaScreenLuminance(textRgb)
+  let yBg = apcaScreenLuminance(bgRgb)
+  if absFloat(yBg - yTxt) < 0.0005:
+    ret 0.0
+  if yBg > yTxt:
+    let sapc = (pow(yBg, 0.56) - pow(yTxt, 0.57)) * 1.14
+    if sapc < 0.1:
+      ret 0.0
+    ret (sapc - 0.027) * 100.0
+  let sapc = (pow(yBg, 0.65) - pow(yTxt, 0.62)) * 1.14
+  if sapc > -0.1:
+    ret 0.0
+  ret (sapc + 0.027) * 100.0
+
+pub fn autoContrastForegroundHex(bgHex: int): int:
+  let bg = packedHexToRgb(bgHex)
+  let whiteLc = absFloat(apcaContrastLc(RgbColor(r = 248, g = 250, b = 252, a = 255), bg))
+  let darkLc = absFloat(apcaContrastLc(RgbColor(r = 15, g = 23, b = 42, a = 255), bg))
+  if whiteLc >= darkLc:
+    ret 0xF8FAFC
+  ret 0x0F172A
+
+pub fn generateRadix12Scale(seedHex: int, isDark: bool): RadixScale12:
+  let seedLch = rgbToOklch(packedHexToRgb(seedHex))
+  let h = seedLch.h
+  let cBase = if seedLch.c < 0.02: 0.01 else: seedLch.c
+  if isDark:
+    ret RadixScale12(
+      s1  = oklchToHex(0.14, cBase * 0.12, h),
+      s2  = oklchToHex(0.17, cBase * 0.16, h),
+      s3  = oklchToHex(0.22, cBase * 0.28, h),
+      s4  = oklchToHex(0.26, cBase * 0.38, h),
+      s5  = oklchToHex(0.31, cBase * 0.46, h),
+      s6  = oklchToHex(0.37, cBase * 0.54, h),
+      s7  = oklchToHex(0.45, cBase * 0.65, h),
+      s8  = oklchToHex(0.55, cBase * 0.80, h),
+      s9  = oklchToHex(clampFloat(seedLch.l, 0.58, 0.72), cBase, h),
+      s10 = oklchToHex(clampFloat(seedLch.l + 0.05, 0.63, 0.78), cBase * 0.96, h),
+      s11 = oklchToHex(0.80, cBase * 0.65, h),
+      s12 = oklchToHex(0.95, cBase * 0.22, h)
+    )
+  ret RadixScale12(
+    s1  = oklchToHex(0.99, cBase * 0.05, h),
+    s2  = oklchToHex(0.97, cBase * 0.10, h),
+    s3  = oklchToHex(0.94, cBase * 0.22, h),
+    s4  = oklchToHex(0.90, cBase * 0.34, h),
+    s5  = oklchToHex(0.85, cBase * 0.46, h),
+    s6  = oklchToHex(0.79, cBase * 0.58, h),
+    s7  = oklchToHex(0.72, cBase * 0.70, h),
+    s8  = oklchToHex(0.63, cBase * 0.85, h),
+    s9  = oklchToHex(clampFloat(seedLch.l, 0.50, 0.65), cBase, h),
+    s10 = oklchToHex(clampFloat(seedLch.l - 0.05, 0.44, 0.60), cBase * 0.98, h),
+    s11 = oklchToHex(0.42, cBase * 0.75, h),
+    s12 = oklchToHex(0.22, cBase * 0.35, h)
+  )
+
+pub struct SemanticPalette(bgPrimary: int, bgSurface: int, fgPrimary: int, fgMuted: int, accent: int, focusRing: int, surfaceContainerLowest: int = 0x070A12, surfaceContainerLow: int = 0x0F172A, surfaceContainer: int = 0x1E293B, surfaceContainerHigh: int = 0x334155, surfaceContainerHighest: int = 0x475569)
+pub struct AuraSeedToken(name: str, primaryHex: int, secondaryHex: int, tertiaryHex: int, neutralHex: int, isDark: bool, densityScale: float = 1.0, radiusScale: float = 1.0)
+pub struct AuraTypographyToken(role: str, fontSizePx: float, lineHeightPx: float, fontWeight: int, letterSpacingPx: float)
+
+pub fn defaultDarkPalette(): SemanticPalette:
+  ret SemanticPalette(
+    bgPrimary = 0x0B0F19,
+    bgSurface = 0x111827,
+    fgPrimary = 0xF8FAFC,
+    fgMuted = 0x94A3B8,
+    accent = 0x6366F1,
+    focusRing = 0x00F5D4,
+    surfaceContainerLowest = 0x070A12,
+    surfaceContainerLow = 0x0F172A,
+    surfaceContainer = 0x1E293B,
+    surfaceContainerHigh = 0x334155,
+    surfaceContainerHighest = 0x475569
+  )
+
+pub fn defaultLightPalette(): SemanticPalette:
+  ret SemanticPalette(
+    bgPrimary = 0xF8FAFC,
+    bgSurface = 0xFFFFFF,
+    fgPrimary = 0x0F172A,
+    fgMuted = 0x64748B,
+    accent = 0x4F46E5,
+    focusRing = 0x2563EB,
+    surfaceContainerLowest = 0xFFFFFF,
+    surfaceContainerLow = 0xF8FAFC,
+    surfaceContainer = 0xF1F5F9,
+    surfaceContainerHigh = 0xE2E8F0,
+    surfaceContainerHighest = 0xCBD5E1
+  )
+
+/// Composites an M3 interactive state layer (`0.08` hover, `0.10` focus/pressed, `0.16` dragged) in perceptual Oklab space.
+pub fn auraApplyStateLayer(baseHex: int, stateHex: int, opacity: float): int:
+  ret lerpOklabHex(baseHex, stateHex, opacity)
+
+pub fn auraTypoDisplayLarge(): AuraTypographyToken:
+  ret AuraTypographyToken(role = "display-large", fontSizePx = 57.0, lineHeightPx = 64.0, fontWeight = 400, letterSpacingPx = -0.25)
+
+pub fn auraTypoHeadlineMedium(): AuraTypographyToken:
+  ret AuraTypographyToken(role = "headline-medium", fontSizePx = 28.0, lineHeightPx = 36.0, fontWeight = 600, letterSpacingPx = 0.0)
+
+pub fn auraTypoTitleMedium(): AuraTypographyToken:
+  ret AuraTypographyToken(role = "title-medium", fontSizePx = 16.0, lineHeightPx = 24.0, fontWeight = 600, letterSpacingPx = 0.15)
+
+pub fn auraTypoBodyLarge(): AuraTypographyToken:
+  ret AuraTypographyToken(role = "body-large", fontSizePx = 16.0, lineHeightPx = 24.0, fontWeight = 400, letterSpacingPx = 0.5)
+
+pub fn auraTypoBodyMedium(): AuraTypographyToken:
+  ret AuraTypographyToken(role = "body-medium", fontSizePx = 14.0, lineHeightPx = 20.0, fontWeight = 400, letterSpacingPx = 0.25)
+
+pub fn auraTypoLabelMedium(): AuraTypographyToken:
+  ret AuraTypographyToken(role = "label-medium", fontSizePx = 12.0, lineHeightPx = 16.0, fontWeight = 500, letterSpacingPx = 0.5)
+
+pub struct ColorGradeLut3D(blackPoint: int, whitePoint: int, gammaX100: int, contrastBoost: int)
+
+/// Evaluates a cubic tone-curve channel (`[0..255]`) with `shadowLift` black-floor offset,
+/// parabolic/cubic `midtoneBias` centered at `50%` luma, and `highlightGainPct` (`100` = `1.0x`).
+/// Uses explicit `float(...)` casts on division operands for `--target html` JS parity.
+pub fn lutEvalCubicCurveChannel(val255: int, shadowLift: int, midtoneBias: int, highlightGainPct: int): int:
+  let v = clampInt(val255, 0, 255)
+  let t = float(v) / float(255.0)
+  let invT = 1.0 - t
+  let gain = float(maxInt(0, highlightGainPct)) / float(100.0)
+  let baseVal = float(v) * gain
+  let shadowTerm = float(shadowLift) * invT * invT
+  let midTerm = float(midtoneBias) * 4.0 * t * invT
+  let outVal = int(baseVal + shadowTerm + midTerm + 0.5)
+  ret clampInt(outVal, 0, 255)
+
+/// Maps input channel `val255` (`[0..255]`) from input black/white point range `[inBlack..inWhite]`
+/// into output levels range `[outBlack..outWhite]`, clamped to `[0..255]`.
+pub fn lutApplyLevelsGammaChannel(val255: int, inBlack: int, inWhite: int, outBlack: int, outWhite: int): int:
+  let v = clampInt(val255, 0, 255)
+  let inB = clampInt(inBlack, 0, 254)
+  let inW = clampInt(maxInt(inB + 1, inWhite), 1, 255)
+  let outB = clampInt(outBlack, 0, 255)
+  let outW = clampInt(outWhite, 0, 255)
+  if v <= inB:
+    ret outB
+  if v >= inW:
+    ret outW
+  let spanIn = maxInt(1, inW - inB)
+  let t = clampFloat(float(v - inB) / float(spanIn), 0.0, 1.0)
+  let mapped = float(outB) + t * float(outW - outB)
+  ret clampInt(int(mapped + 0.5), 0, 255)
+
+/// Evaluates a 3-stop Gradient Map color ramp (`lowHex` at `0`, `midHex` at `128`, `highHex` at `255`)
+/// for perceptual luminance `luma255` (`[0..255]`), returning packed `0xRRGGBB`.
+pub fn lutMapGradientStopColor(luma255: int, lowHex: int, midHex: int, highHex: int): int:
+  let lum = clampInt(luma255, 0, 255)
+  let r0 = (lowHex >> 16) & 255
+  let g0 = (lowHex >> 8) & 255
+  let b0 = lowHex & 255
+  let r1 = (midHex >> 16) & 255
+  let g1 = (midHex >> 8) & 255
+  let b1 = midHex & 255
+  let r2 = (highHex >> 16) & 255
+  let g2 = (highHex >> 8) & 255
+  let b2 = highHex & 255
+  if lum <= 0:
+    ret (r0 << 16) | (g0 << 8) | b0
+  if lum >= 255:
+    ret (r2 << 16) | (g2 << 8) | b2
+  if lum == 128:
+    ret (r1 << 16) | (g1 << 8) | b1
+  if lum < 128:
+    let t = clampFloat(float(lum) / float(128.0), 0.0, 1.0)
+    let r = clampInt(int(float(r0) + float(r1 - r0) * t + 0.5), 0, 255)
+    let g = clampInt(int(float(g0) + float(g1 - g0) * t + 0.5), 0, 255)
+    let b = clampInt(int(float(b0) + float(b1 - b0) * t + 0.5), 0, 255)
+    ret (r << 16) | (g << 8) | b
+  let tHigh = clampFloat(float(lum - 128) / float(127.0), 0.0, 1.0)
+  let rH = clampInt(int(float(r1) + float(r2 - r1) * tHigh + 0.5), 0, 255)
+  let gH = clampInt(int(float(g1) + float(g2 - g1) * tHigh + 0.5), 0, 255)
+  let bH = clampInt(int(float(b1) + float(b2 - b1) * tHigh + 0.5), 0, 255)
+  ret (rH << 16) | (gH << 8) | bH
+
+/// Evaluates a 3-stop Gradient Map color ramp in perceptual Oklab space (`lowHex` at `0`, `midHex` at `128`, `highHex` at `255`).
+pub fn lutMapGradientStopOklab(luma255: int, lowHex: int, midHex: int, highHex: int): int:
+  let lum = clampInt(luma255, 0, 255)
+  if lum <= 0:
+    ret lowHex
+  if lum >= 255:
+    ret highHex
+  if lum == 128:
+    ret midHex
+  if lum < 128:
+    let t = clampFloat(float(lum) / 128.0, 0.0, 1.0)
+    ret lerpOklabHex(lowHex, midHex, t)
+  let tHigh = clampFloat(float(lum - 128) / 127.0, 0.0, 1.0)
+  ret lerpOklabHex(midHex, highHex, tHigh)
+
+/// Generates a 1D perceptual color Lookup Table (LUT) interpolated in Oklab space.
+pub fn generateColorLut1D(startHex: int, endHex: int, steps: int): [int]:
+  mut n = steps
+  if n < 2:
+    n = 2
+  mut lut: [int] = []
+  mut i = 0
+  while i < n:
+    let t = float(i) / float(n - 1)
+    lut.push(lerpOklabHex(startHex, endHex, t))
+    i += 1
+  ret lut
+
+/// Renders a green/custom phosphor night-vision (`NVG` / CRT) horizontal scanline and rolling
+/// refresh beam overlay across `(viewX, viewY, viewW, viewH)` animated by `tick`.
+pub fn drawFxNightVisionPhosphorScanlines2D(viewX: float, viewY: float, viewW: float, viewH: float, tick: int, phosphorHex: int):
+  let safeW = maxFloat(8.0, viewW)
+  let safeH = maxFloat(8.0, viewH)
+  let r = (phosphorHex >> 16) & 255
+  let g = (phosphorHex >> 8) & 255
+  let b = phosphorHex & 255
+  let lineCol = rgba(r, g, b, 0.18)
+  let beamCol = rgba(minInt(255, r + 40), minInt(255, g + 40), minInt(255, b + 40), 0.36)
+  let lines = 10
+  mut i = 0
+  while i < lines:
+    let ly = viewY + (float(i) / float(lines)) * safeH
+    drawLine(viewX, ly, viewX + safeW, ly, lineCol, 1.0)
+    i += 1
+  let sweepFrac = float(maxInt(0, tick) % 100) / float(100.0)
+  let beamY = viewY + sweepFrac * safeH
+  drawLine(viewX, beamY, viewX + safeW, beamY, beamCol, 2.2)
+  ret

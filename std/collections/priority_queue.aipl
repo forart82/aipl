@@ -1,0 +1,337 @@
+// ============================================================================
+// Module: std/collections/priority_queue (PriorityQueue)
+// Layer 1 (Core Primitives & Math) — BinaryMinHeap, BinaryMaxHeap & IndexedPQ
+// ============================================================================
+module PriorityQueueMod
+
+pub struct BinaryMinHeap[T]:
+  items: [T]
+  priorities: [int]
+
+pub struct BinaryMaxHeap[T]:
+  items: [T]
+  priorities: [int]
+
+pub struct IndexedPriorityQueue:
+  priorities: [int]
+  heapIndices: [int]
+  inverseHeap: [int]
+
+pub struct PriorityQueue:
+  nodes: [int]
+  costs: [int]
+
+pub struct HeapItem:
+  priority: float
+  item: any
+
+pub struct MinHeap:
+  items: [HeapItem]
+
+pub struct BinaryHeap:
+  priorities: [int]
+  values: [any]
+  isMax: bool
+
+pub struct HeapPopResult:
+  heap: BinaryHeap
+  value: any
+  priority: int
+
+pub fn minHeapNew[T](): BinaryMinHeap[T]:
+  let it: [T] = []
+  let pr: [int] = []
+  ret BinaryMinHeap(items = it, priorities = pr)
+
+pub fn (mut self: BinaryMinHeap[T]) push(item: T, priority: int): void:
+  self.items.push(item)
+  self.priorities.push(priority)
+  mut idx = self.items.len - 1
+  while idx > 0:
+    let parent = (idx - 1) / 2
+    if self.priorities[idx] < self.priorities[parent]:
+      let tmpItem = self.items[idx]
+      let tmpPrio = self.priorities[idx]
+      self.items[idx] = self.items[parent]
+      self.priorities[idx] = self.priorities[parent]
+      self.items[parent] = tmpItem
+      self.priorities[parent] = tmpPrio
+      idx = parent
+    else:
+      idx = 0
+
+pub fn (mut self: BinaryMinHeap[T]) pop(): Option[T]:
+  let n = self.items.len
+  if n == 0:
+    ret None
+  let topItem = self.items[0]
+  let lastItem = self.items.pop()
+  let lastPrio = self.priorities.pop()
+  let newLen = self.items.len
+  if newLen > 0:
+    self.items[0] = lastItem
+    self.priorities[0] = lastPrio
+    mut idx = 0
+    mut looping = true
+    while looping:
+      let left = idx * 2 + 1
+      let right = idx * 2 + 2
+      mut smallest = idx
+      if left < newLen and self.priorities[left] < self.priorities[smallest]:
+        smallest = left
+      if right < newLen and self.priorities[right] < self.priorities[smallest]:
+        smallest = right
+      if smallest != idx:
+        let tmpItem = self.items[idx]
+        let tmpPrio = self.priorities[idx]
+        self.items[idx] = self.items[smallest]
+        self.priorities[idx] = self.priorities[smallest]
+        self.items[smallest] = tmpItem
+        self.priorities[smallest] = tmpPrio
+        idx = smallest
+      else:
+        looping = false
+  ret Some(topItem)
+
+pub fn (self: BinaryMinHeap[T]) peek(): Option[T]:
+  if self.items.len == 0:
+    ret None
+  ret Some(self.items[0])
+
+pub fn (self: BinaryMinHeap[T]) peekPriority(): Option[int]:
+  if self.priorities.len == 0:
+    ret None
+  ret Some(self.priorities[0])
+
+pub fn (self: BinaryMinHeap[T]) len(): int:
+  ret self.items.len
+
+pub fn (self: BinaryMinHeap[T]) isEmpty(): bool:
+  ret self.items.len == 0
+
+pub fn (mut self: BinaryMinHeap[T]) clear(): void:
+  let it: [T] = []
+  let pr: [int] = []
+  self.items = it
+  self.priorities = pr
+
+pub fn minHeapLen[T](h: BinaryMinHeap[T]): int:
+  ret h.len()
+
+pub fn minHeapIsEmpty[T](h: BinaryMinHeap[T]): bool:
+  ret h.isEmpty()
+
+pub fn minHeapPeek[T](h: BinaryMinHeap[T]): Option[T]:
+  ret h.peek()
+
+pub fn minHeapPeekPriority[T](h: BinaryMinHeap[T]): Option[int]:
+  ret h.peekPriority()
+
+pub fn minHeapPush[T](mut h: BinaryMinHeap[T], priority: float, item: T): BinaryMinHeap[T]:
+  h.push(item, int(priority * 1000.0))
+  ret h
+
+pub fn minHeapPop[T](mut h: BinaryMinHeap[T]): Option[T]:
+  ret h.pop()
+
+// BinaryMaxHeap[T]
+pub fn maxHeapNew[T](): BinaryMaxHeap[T]:
+  let it: [T] = []
+  let pr: [int] = []
+  ret BinaryMaxHeap(items = it, priorities = pr)
+
+pub fn (mut self: BinaryMaxHeap[T]) push(item: T, priority: int): void:
+  self.items.push(item)
+  self.priorities.push(priority)
+  mut idx = self.items.len - 1
+  while idx > 0:
+    let parent = (idx - 1) / 2
+    if self.priorities[idx] > self.priorities[parent]:
+      let tmpItem = self.items[idx]
+      let tmpPrio = self.priorities[idx]
+      self.items[idx] = self.items[parent]
+      self.priorities[idx] = self.priorities[parent]
+      self.items[parent] = tmpItem
+      self.priorities[parent] = tmpPrio
+      idx = parent
+    else:
+      idx = 0
+
+pub fn (mut self: BinaryMaxHeap[T]) pop(): Option[T]:
+  let n = self.items.len
+  if n == 0:
+    ret None
+  let topItem = self.items[0]
+  let lastItem = self.items.pop()
+  let lastPrio = self.priorities.pop()
+  let newLen = self.items.len
+  if newLen > 0:
+    self.items[0] = lastItem
+    self.priorities[0] = lastPrio
+    mut idx = 0
+    mut looping = true
+    while looping:
+      let left = idx * 2 + 1
+      let right = idx * 2 + 2
+      mut largest = idx
+      if left < newLen and self.priorities[left] > self.priorities[largest]:
+        largest = left
+      if right < newLen and self.priorities[right] > self.priorities[largest]:
+        largest = right
+      if largest != idx:
+        let tmpItem = self.items[idx]
+        let tmpPrio = self.priorities[idx]
+        self.items[idx] = self.items[largest]
+        self.priorities[idx] = self.priorities[largest]
+        self.items[largest] = tmpItem
+        self.priorities[largest] = tmpPrio
+        idx = largest
+      else:
+        looping = false
+  ret Some(topItem)
+
+pub fn (self: BinaryMaxHeap[T]) peek(): Option[T]:
+  if self.items.len == 0:
+    ret None
+  ret Some(self.items[0])
+
+pub fn (self: BinaryMaxHeap[T]) peekPriority(): Option[int]:
+  if self.priorities.len == 0:
+    ret None
+  ret Some(self.priorities[0])
+
+pub fn (self: BinaryMaxHeap[T]) len(): int:
+  ret self.items.len
+
+pub fn (self: BinaryMaxHeap[T]) isEmpty(): bool:
+  ret self.items.len == 0
+
+// IndexedPriorityQueue
+pub fn indexedPqNew(maxId: int): IndexedPriorityQueue:
+  mut pr: [int] = []
+  mut hi: [int] = []
+  mut inv: [int] = []
+  for i in 0..maxId:
+    inv.push(-1)
+  ret IndexedPriorityQueue(priorities = pr, heapIndices = hi, inverseHeap = inv)
+
+// PriorityQueue (node, cost) helpers
+pub fn pqNew(): PriorityQueue:
+  let emptyNodes: [int] = []
+  let emptyCosts: [int] = []
+  ret PriorityQueue(nodes = emptyNodes, costs = emptyCosts)
+
+pub fn PriorityQueue.new(): PriorityQueue:
+  ret pqNew()
+
+pub fn pqLen(pq: PriorityQueue): int:
+  ret pq.nodes.len
+
+pub fn (self: PriorityQueue) len(): int:
+  ret self.nodes.len
+
+pub fn pqIsEmpty(pq: PriorityQueue): bool:
+  ret pq.nodes.len == 0
+
+pub fn (self: PriorityQueue) isEmpty(): bool:
+  ret self.nodes.len == 0
+
+pub fn pqPeek(pq: PriorityQueue): Option[int]:
+  if pq.nodes.len == 0:
+    ret None
+  ret Some(pq.nodes[0])
+
+pub fn (self: PriorityQueue) peek(): Option[int]:
+  ret pqPeek(self)
+
+pub fn pqPeekCost(pq: PriorityQueue): Option[int]:
+  if pq.costs.len == 0:
+    ret None
+  ret Some(pq.costs[0])
+
+pub fn pqPush(mut pq: PriorityQueue, node: int, cost: int): PriorityQueue:
+  pq.nodes.push(node)
+  pq.costs.push(cost)
+  mut idx = pq.nodes.len - 1
+  while idx > 0:
+    let parent = (idx - 1) / 2
+    if pq.costs[idx] < pq.costs[parent]:
+      let tmpNode = pq.nodes[idx]
+      let tmpCost = pq.costs[idx]
+      pq.nodes[idx] = pq.nodes[parent]
+      pq.costs[idx] = pq.costs[parent]
+      pq.nodes[parent] = tmpNode
+      pq.costs[parent] = tmpCost
+      idx = parent
+    else:
+      idx = 0
+  ret pq
+
+pub fn pqPopMin(mut pq: PriorityQueue): Option[int]:
+  let n = pq.nodes.len
+  if n == 0:
+    ret None
+  let minNode = pq.nodes[0]
+  let lastNode = pq.nodes.pop()
+  let lastCost = pq.costs.pop()
+  let newLen = pq.nodes.len
+  if newLen > 0:
+    pq.nodes[0] = lastNode
+    pq.costs[0] = lastCost
+    mut idx = 0
+    mut looping = true
+    while looping:
+      let left = idx * 2 + 1
+      let right = idx * 2 + 2
+      mut smallest = idx
+      if left < newLen and pq.costs[left] < pq.costs[smallest]:
+        smallest = left
+      if right < newLen and pq.costs[right] < pq.costs[smallest]:
+        smallest = right
+      if smallest != idx:
+        let tmpNode = pq.nodes[idx]
+        let tmpCost = pq.costs[idx]
+        pq.nodes[idx] = pq.nodes[smallest]
+        pq.costs[idx] = pq.costs[smallest]
+        pq.nodes[smallest] = tmpNode
+        pq.costs[smallest] = tmpCost
+        idx = smallest
+      else:
+        looping = false
+  ret Some(minNode)
+
+pub fn pqDecreaseKey(mut pq: PriorityQueue, node: int, newCost: int): bool:
+  mut targetIdx = -1
+  let n = pq.nodes.len
+  for i in 0..n:
+    if targetIdx < 0 and pq.nodes[i] == node:
+      targetIdx = i
+  if targetIdx < 0 or newCost >= pq.costs[targetIdx]:
+    ret false
+  pq.costs[targetIdx] = newCost
+  mut idx = targetIdx
+  while idx > 0:
+    let parent = (idx - 1) / 2
+    if pq.costs[idx] < pq.costs[parent]:
+      let tmpNode = pq.nodes[idx]
+      let tmpCost = pq.costs[idx]
+      pq.nodes[idx] = pq.nodes[parent]
+      pq.costs[idx] = pq.costs[parent]
+      pq.nodes[parent] = tmpNode
+      pq.costs[parent] = tmpCost
+      idx = parent
+    else:
+      idx = 0
+  ret true
+
+// BinaryHeap legacy helpers
+pub fn BinaryHeap.new(): BinaryHeap:
+  let p: [int] = []
+  let v: [any] = []
+  ret BinaryHeap(priorities = p, values = v, isMax = false)
+
+pub fn (self: BinaryHeap) len(): int:
+  ret self.priorities.len
+
+pub fn (self: BinaryHeap) isEmpty(): bool:
+  ret self.priorities.len == 0

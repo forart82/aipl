@@ -1,0 +1,366 @@
+/// # Module: `std/math/consts` (`MathConsts`)
+///
+/// ## Purpose & Domain Scope
+/// Fundamental mathematical, physical, and IEEE-754 floating-point constants,
+/// scalar clamping/interpolation helpers, and bitwise manipulation primitives.
+module MathConsts
+
+pub import * from "std/prelude"
+
+pub const PI: float = 3.14159265358979323846
+pub const TAU: float = 6.28318530717958647692
+pub const E: float = 2.71828182845904523536
+pub const HALF_PI: float = 1.57079632679489661923
+pub const QUARTER_PI: float = 0.78539816339744830962
+pub const SQRT2: float = 1.41421356237309504880
+pub const SQRT3: float = 1.73205080756887729352
+pub const GOLDEN_RATIO: float = 1.61803398874989484820
+pub const DEG2RAD: float = 0.01745329251994329577
+pub const RAD2DEG: float = 57.2957795130823208768
+pub const LN2: float = 0.69314718055994530942
+pub const LN10: float = 2.30258509299404568402
+pub const EPSILON: float = 0.000001
+pub const FLOAT_MAX: float = 1.7976931348623157e308
+pub const INT_MAX: int = 9223372036854775807
+
+pub fn pi(): float:
+  ret PI
+
+pub fn tau(): float:
+  ret TAU
+
+pub fn eulerE(): float:
+  ret E
+
+pub fn abs(x: int): int:
+  ret if x < 0: -x else: x
+
+pub fn absInt(x: int): int:
+  ret if x < 0: -x else: x
+
+pub fn absFloat(x: float): float:
+  ret if x < 0.0: -x else: x
+
+pub fn min(a: int, b: int): int:
+  ret if a < b: a else: b
+
+pub fn max(a: int, b: int): int:
+  ret if a > b: a else: b
+
+pub fn clamp(val: int, minVal: int, maxVal: int): int:
+  if val < minVal:
+    ret minVal
+  if val > maxVal:
+    ret maxVal
+  ret val
+
+pub fn sign(x: int): int:
+  if x > 0:
+    ret 1
+  if x < 0:
+    ret -1
+  ret 0
+
+pub fn signInt(x: int): int:
+  ret sign(x)
+
+pub fn signFloat(x: float): float:
+  if x > 0.0:
+    ret 1.0
+  if x < 0.0:
+    ret -1.0
+  ret 0.0
+
+pub fn lerp(a: float, b: float, t: float): float:
+  ret a + (b - a) * t
+
+pub fn inverseLerp(a: float, b: float, v: float): float:
+  let denom = b - a
+  if absFloat(denom) < EPSILON:
+    ret 0.0
+  ret (v - a) / denom
+
+pub fn remapFloat(inMin: float, inMax: float, outMin: float, outMax: float, v: float): float:
+  let t = inverseLerp(inMin, inMax, v)
+  ret lerp(outMin, outMax, t)
+
+pub fn smoothstep(edge0: float, edge1: float, x: float): float:
+  let denom = edge1 - edge0
+  if absFloat(denom) < EPSILON:
+    ret 0.0
+  mut t = (x - edge0) / denom
+  if t < 0.0:
+    t = 0.0
+  if t > 1.0:
+    t = 1.0
+  ret t * t * (3.0 - 2.0 * t)
+
+pub fn smootherstep(edge0: float, edge1: float, x: float): float:
+  let denom = edge1 - edge0
+  if absFloat(denom) < EPSILON:
+    ret 0.0
+  mut t = (x - edge0) / denom
+  if t < 0.0:
+    t = 0.0
+  if t > 1.0:
+    t = 1.0
+  ret t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+pub fn pingPong(t: float, length: float): float:
+  if length <= 0.0:
+    ret 0.0
+  let twoLen = length * 2.0
+  mut modVal = t % twoLen
+  if modVal < 0.0:
+    modVal += twoLen
+  if modVal <= length:
+    ret modVal
+  ret twoLen - modVal
+
+pub fn bitTest(val: int, bitIdx: int): bool:
+  ret ((val >> bitIdx) & 1) != 0
+
+pub fn bitSet(val: int, bitIdx: int): int:
+  ret val | (1 << bitIdx)
+
+pub fn bitClear(val: int, bitIdx: int): int:
+  ret val & (~(1 << bitIdx))
+
+pub fn bitToggle(val: int, bitIdx: int): int:
+  ret val ^ (1 << bitIdx)
+
+pub fn rotateLeft32(val: int, shift: int): int:
+  let s = shift & 31
+  let u = val & 0xFFFFFFFF
+  ret ((u << s) | (u >> (32 - s))) & 0xFFFFFFFF
+
+pub fn rotateRight32(val: int, shift: int): int:
+  let s = shift & 31
+  let u = val & 0xFFFFFFFF
+  ret ((u >> s) | (u << (32 - s))) & 0xFFFFFFFF
+
+pub fn popcount64(val: int): int:
+  mut v = val
+  mut count = 0
+  mut i = 0
+  while i < 64 and v != 0:
+    count += (v & 1)
+    v = (v >> 1) & 0x7FFFFFFFFFFFFFFF
+    i += 1
+  ret count
+
+pub fn moveTowards(current: float, target: float, maxDelta: float): float:
+  let diff = target - current
+  if absFloat(diff) <= maxDelta:
+    ret target
+  ret current + signFloat(diff) * maxDelta
+
+pub fn remap(val: float, inMin: float, inMax: float, outMin: float, outMax: float): float:
+  if inMax == inMin:
+    ret outMin
+  let t = (val - inMin) / (inMax - inMin)
+  ret outMin + (outMax - outMin) * t
+
+pub fn fract(x: float): float:
+  ret x - floor(x)
+
+pub fn modFloat(x: float, y: float): float:
+  if y == 0.0:
+    ret 0.0
+  ret x - y * floor(x / y)
+
+pub fn distSq(x1: float, y1: float, x2: float, y2: float): float:
+  let dx = x2 - x1
+  let dy = y2 - y1
+  ret dx * dx + dy * dy
+
+pub fn roundFloat(val: float): int:
+  if val >= 0.0:
+    ret int(val + 0.5)
+  ret int(val - 0.5)
+
+pub fn roundTo(val: float, decimals: int): float:
+  mut factor = 1.0
+  mut d = decimals
+  while d > 0:
+    factor *= 10.0
+    d -= 1
+  while d < 0:
+    factor /= 10.0
+    d += 1
+  let r = if (val * factor) >= 0.0: int(val * factor + 0.5) else: int(val * factor - 0.5)
+  ret float(r) / factor
+
+pub fn remEuclid(a: int, b: int): int:
+  if b == 0:
+    ret 0
+  let m = a % b
+  if m < 0:
+    ret if b > 0: m + b else: m - b
+  ret m
+
+pub fn gcdInt(a: int, b: int): int:
+  mut x = abs(a)
+  mut y = abs(b)
+  while y != 0:
+    let t = y
+    y = x % y
+    x = t
+  ret x
+
+pub fn lcmInt(a: int, b: int): int:
+  if a == 0 or b == 0:
+    ret 0
+  let g = gcdInt(a, b)
+  ret (abs(a) / g) * abs(b)
+
+pub fn isPowerOfTwo(n: int): bool:
+  ret n > 0 and (n & (n - 1)) == 0
+
+pub fn nextPowerOfTwo(n: int): int:
+  if n <= 1:
+    ret 1
+  mut v = n - 1
+  v = v | (v >> 1)
+  v = v | (v >> 2)
+  v = v | (v >> 4)
+  v = v | (v >> 8)
+  v = v | (v >> 16)
+  v = v | (v >> 32)
+  ret v + 1
+
+pub fn popcnt(x: int): int:
+  ret popcount64(x)
+
+pub fn ctz(x: int): int:
+  if x == 0:
+    ret 64
+  mut count = 0
+  mut i = 0
+  while i < 64:
+    if ((x >> i) & 1) != 0:
+      ret count
+    count += 1
+    i += 1
+  ret 64
+
+pub fn clz(x: int): int:
+  if x == 0:
+    ret 64
+  mut count = 0
+  mut i = 63
+  while i >= 0:
+    if ((x >> i) & 1) != 0:
+      ret count
+    count += 1
+    i -= 1
+  ret 64
+
+pub fn popcnt64(x: int): int:
+  ret popcount64(x)
+
+pub fn ctz64(x: int): int:
+  ret ctz(x)
+
+pub fn clz64(x: int): int:
+  ret clz(x)
+
+pub fn gf256Mul(a: int, b: int): int:
+  mut p = 0
+  mut x = a & 255
+  mut y = b & 255
+  mut i = 0
+  while i < 8:
+    if (y & 1) != 0:
+      p = p ^ x
+    let hiBit = (x & 128) != 0
+    x = (x << 1) & 255
+    if hiBit:
+      x = x ^ 29
+    y = y >> 1
+    i += 1
+  ret p
+
+pub fn gf256Inv(b: int): int:
+  let val = b & 255
+  if val <= 1:
+    ret val
+  mut i = 1
+  while i < 256:
+    if gf256Mul(val, i) == 1:
+      ret i
+    i += 1
+  ret 0
+
+pub fn gf256Div(a: int, b: int): int:
+  let y = b & 255
+  if y == 0:
+    ret 0
+  if (a & 255) == 0:
+    ret 0
+  ret gf256Mul(a & 255, gf256Inv(y))
+
+pub fn ldexpFloat(m: float, exp2: int): float:
+  if m == 0.0 or exp2 == 0:
+    ret m
+  if exp2 > 1024:
+    ret if m > 0.0: 1e308 else: -1e308
+  if exp2 < -1074:
+    ret 0.0
+  mut res = m
+  mut e = exp2
+  let p64 = 18446744073709551616.0
+  while e >= 64:
+    res *= p64
+    e -= 64
+  while e <= -64:
+    res /= p64
+    e += 64
+  if e > 0:
+    mut factor = 1.0
+    mut cur = 2.0
+    while e > 0:
+      if (e & 1) == 1:
+        factor *= cur
+      if e > 1:
+        cur *= cur
+      e = e >> 1
+    res *= factor
+  elif e < 0:
+    mut negE = -e
+    mut factor = 1.0
+    mut cur = 2.0
+    while negE > 0:
+      if (negE & 1) == 1:
+        factor *= cur
+      if negE > 1:
+        cur *= cur
+      negE = negE >> 1
+    res /= factor
+  ret res
+
+pub fn sqrtSafePrescaled(x: float): float:
+  if x <= 0.0:
+    ret 0.0
+  mut m = x
+  mut exp2 = 0
+  let p32 = 4294967296.0
+  let invP32 = 2.3283064365386963e-10
+  while m >= p32:
+    m *= invP32
+    exp2 += 32
+  while m < invP32:
+    m *= p32
+    exp2 -= 32
+  while m >= 2.0:
+    m *= 0.25
+    exp2 += 2
+  while m < 0.5:
+    m *= 4.0
+    exp2 -= 2
+  mut g = 0.5 * (1.0 + m)
+  mut i = 0
+  while i < 8:
+    g = 0.5 * (g + m / g)
+    i += 1
+  ret ldexpFloat(g, exp2 / 2)

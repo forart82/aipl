@@ -1,0 +1,68 @@
+module tests.functions.phys3d.phys_query3d_test
+
+import * from "std/phys3d/phys_query3d"
+import { absFloat, minFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { Quat } from "std/math/quat"
+import { Ray3D } from "std/math/geom3d"
+import { Transform3D } from "std/spatial/continuous_world3d"
+import { Collider3D, ColliderShapeType3D } from "std/phys3d/collider3d"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_phys_query3d_extractRayDir3D_1(): int:
+  let arg_ray = Ray3D(origin = Vec3(x = 1.0, y = 1.0, z = 1.0), dir = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), maxDistance = 2.0)
+  let edge_ray = Ray3D(origin = Vec3(x = 0.5, y = 0.5, z = 0.5), dir = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), maxDistance = 1.0)
+  let resNom = extractRayDir3D(arg_ray)
+  let resEdge = extractRayDir3D(edge_ray)
+  assertApproxEq(resNom.x, 0.57735, 0.001, "extractRayDir3D nominal resNom.x ~= 0.57735")
+  assertApproxEq(resEdge.x, 0.57735, 0.001, "extractRayDir3D boundary resEdge.x ~= 0.57735")
+  ret 0
+
+pub fn test_phys_query3d_raycast3dSphere_2(): int:
+  let arg_ray = Ray3D(origin = Vec3(x = 1.0, y = 1.0, z = 1.0), dir = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), maxDistance = 2.0)
+  let edge_ray = Ray3D(origin = Vec3(x = 0.5, y = 0.5, z = 0.5), dir = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), maxDistance = 1.0)
+  let arg_sphereCenter = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_sphereCenter = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let resNom = raycast3dSphere(arg_ray, arg_sphereCenter, arg_radius)
+  let resEdge = raycast3dSphere(edge_ray, edge_sphereCenter, edge_radius)
+  assert(resNom.isSome() == false, "raycast3dSphere nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "raycast3dSphere boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_phys_query3d_raycast3dBox_3(): int:
+  let arg_ray = Ray3D(origin = Vec3(x = 1.0, y = 1.0, z = 1.0), dir = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), maxDistance = 2.0)
+  let edge_ray = Ray3D(origin = Vec3(x = 0.5, y = 0.5, z = 0.5), dir = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), maxDistance = 1.0)
+  let arg_boxPos = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_boxPos = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_boxRot = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0)
+  let edge_boxRot = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0)
+  let arg_boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = raycast3dBox(arg_ray, arg_boxPos, arg_boxRot, arg_boxHalfExtents)
+  let resEdge = raycast3dBox(edge_ray, edge_boxPos, edge_boxRot, edge_boxHalfExtents)
+  assert(resNom.isSome() == true, "raycast3dBox nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "raycast3dBox boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_phys_query3d_sphereCast3D_4(): int:
+  let arg_ray = Ray3D(origin = Vec3(x = 1.0, y = 1.0, z = 1.0), dir = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), maxDistance = 2.0)
+  let edge_ray = Ray3D(origin = Vec3(x = 0.5, y = 0.5, z = 0.5), dir = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), maxDistance = 1.0)
+  let arg_sphereRadius = 2.0
+  let edge_sphereRadius = 1.0
+  let arg_colliders = [Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5)), sphereRadius = 2.0, boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0), capsuleRadius = 2.0, capsuleHeight = 2.0, cylinderRadius = 2.0, cylinderHeight = 2.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)]
+  let edge_colliders = []
+  let resNom = sphereCast3D(arg_ray, arg_sphereRadius, arg_colliders)
+  let resEdge = sphereCast3D(edge_ray, edge_sphereRadius, edge_colliders)
+  assert(resNom.isSome() == false, "sphereCast3D nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "sphereCast3D boundary resEdge.isSome() == false")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_phys_query3d_extractRayDir3D_1(), 0, "test_phys_query3d_extractRayDir3D_1")
+  assertEqInt(test_phys_query3d_raycast3dSphere_2(), 0, "test_phys_query3d_raycast3dSphere_2")
+  assertEqInt(test_phys_query3d_raycast3dBox_3(), 0, "test_phys_query3d_raycast3dBox_3")
+  assertEqInt(test_phys_query3d_sphereCast3D_4(), 0, "test_phys_query3d_sphereCast3D_4")
+  ret 0

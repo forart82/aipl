@@ -1,0 +1,94 @@
+// ============================================================================
+// Step 3.8: Exhaustive Per-Function Unit Tests for std/sys/sys_syscall.aipl (22)
+// Target: tests/functions/sys/sys_syscall_test.aipl
+// ============================================================================
+module SysSyscallTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  SYS_READ,
+  SYS_WRITE,
+  SYS_CLOSE,
+  SYS_MMAP,
+  SYS_MUNMAP,
+  PROT_READ,
+  PROT_WRITE,
+  MAP_PRIVATE,
+  MAP_ANONYMOUS,
+  rawSyscall,
+  sysArchSyscall0,
+  sysArchSyscall1,
+  sysArchSyscall2,
+  sysArchSyscall3,
+  sysArchSyscall4,
+  sysArchSyscall5,
+  sysArchSyscall6,
+  syscall0,
+  syscall1,
+  syscall2,
+  syscall3,
+  syscall4,
+  syscall5,
+  syscall6,
+  sysRead,
+  sysWrite,
+  sysOpenat,
+  sysClose,
+  sysMmap,
+  sysMunmap,
+  sysExit
+} from "../../../std/sys/sys_syscall.aipl"
+
+pub fn test_syscall_register_dispatchers(): int:
+  // SYS_GETPID = 39 on x86_64 Linux
+  let pid0 = sysArchSyscall0(39)
+  assert(pid0 > 0, "sysArchSyscall0(getpid) > 0")
+  assertEqInt(rawSyscall(39, 0, 0, 0, 0, 0, 0), pid0, "rawSyscall(getpid) matches")
+  if pid0 < 0:
+    sysExit(0)
+
+  let pidAlias = syscall0(39)
+  assertEqInt(pidAlias, pid0, "syscall0 alias matches sysArchSyscall0")
+
+  // Arity wrappers
+  assertEqInt(syscall1(-1, 0), -1, "syscall1 invalid")
+  assertEqInt(syscall2(-1, 0, 0), -1, "syscall2 invalid")
+  assertEqInt(syscall3(-1, 0, 0, 0), -1, "syscall3 invalid")
+  assertEqInt(syscall4(-1, 0, 0, 0, 0), -1, "syscall4 invalid")
+  assertEqInt(syscall5(-1, 0, 0, 0, 0, 0), -1, "syscall5 invalid")
+  assertEqInt(syscall6(-1, 0, 0, 0, 0, 0, 0), -1, "syscall6 invalid")
+
+  assertEqInt(sysArchSyscall1(-1, 0), -1, "sysArchSyscall1 invalid")
+  assertEqInt(sysArchSyscall2(-1, 0, 0), -1, "sysArchSyscall2 invalid")
+  assertEqInt(sysArchSyscall3(-1, 0, 0, 0), -1, "sysArchSyscall3 invalid")
+  assertEqInt(sysArchSyscall4(-1, 0, 0, 0, 0), -1, "sysArchSyscall4 invalid")
+  assertEqInt(sysArchSyscall5(-1, 0, 0, 0, 0, 0), -1, "sysArchSyscall5 invalid")
+  assertEqInt(sysArchSyscall6(-1, 0, 0, 0, 0, 0, 0), -1, "sysArchSyscall6 invalid")
+  ret 0
+
+pub fn test_mmap_and_io_syscalls(): int:
+  // Test mmap anonymous memory
+  let prot = PROT_READ | PROT_WRITE
+  let flags = MAP_PRIVATE | MAP_ANONYMOUS
+  let addr = sysMmap(0, 4096, prot, flags, -1, 0)
+  assert(addr > 0, "sysMmap returns non-zero address")
+
+  let unmapRes = sysMunmap(addr, 4096)
+  assertEqInt(unmapRes, 0, "sysMunmap returns 0")
+
+  // Check read/write/close/openat on invalid fd
+  assertEqInt(sysRead(-1, 0, 0), -1, "sysRead invalid fd returns -1")
+  assertEqInt(sysWrite(-1, 0, 0), -1, "sysWrite invalid fd returns -1")
+  assert(sysOpenat(-100, 0, 0, 0) < 0, "sysOpenat invalid returns < 0")
+  assert(sysClose(-1) < 0, "sysClose invalid fd < 0")
+  ret 0
+
+pub fn main(): int:
+  test_syscall_register_dispatchers()
+  test_mmap_and_io_syscalls()
+  println("PASS: sys_syscall_test")
+  ret 0

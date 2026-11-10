@@ -1,0 +1,100 @@
+module Ex200UiAnimSpringTransitionsWindow
+
+import { clampFloat } from "../std/math/consts"
+import { ColorRgba8 } from "../std/gfx/color"
+import { UiSpring, updateUiSpring } from "../std/ui/ui_anim"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepSpringTargetX(frame: int): float:
+  let phase = (frame / 65) % 3
+  let base = if phase == 0: 880.0 else: (if phase == 1: 300.0 else: 640.0)
+  ret base + sin(float(frame) * 0.04) * 24.0
+
+fn drawSpringTrack(y: float, title: str, sp: UiSpring, col: ColorRgba8): void:
+  drawRect(120.0, y, 1040.0, 130.0, rgb(17, 24, 39))
+  drawRectOutline(120.0, y, 1040.0, 130.0, 2.0, col)
+  drawText(title, 140.0, y + 14.0, 16.0, col)
+  let disp = int(sp.position - sp.target)
+  drawText("pos=" + str(int(sp.position)) + "px | vel=" + str(int(sp.velocity)) + "px/s | dx=" + str(disp) + "px", 140.0, y + 36.0, 14.0, rgb(148, 163, 184))
+
+  let cy = y + 86.0
+  let cx = clampFloat(sp.position, 168.0, 1120.0)
+  // Left anchor wall
+  drawRect(142.0, cy - 22.0, 8.0, 44.0, rgb(100, 116, 139))
+
+  // Zig-zag spring coil from anchor (150.0) to mass (cx - 24.0)
+  let endCoilX = cx - 24.0
+  let span = if endCoilX > 158.0: endCoilX - 150.0 else: 8.0
+  let coils = 14
+  mut cIdx = 0
+  while cIdx < coils:
+    let x0 = 150.0 + (float(cIdx) / float(coils)) * span
+    let x1 = 150.0 + (float(cIdx + 1) / float(coils)) * span
+    let y0 = if cIdx == 0: cy else: (if cIdx % 2 == 1: cy - 11.0 else: cy + 11.0)
+    let y1 = if cIdx + 1 == coils: cy else: (if (cIdx + 1) % 2 == 1: cy - 11.0 else: cy + 11.0)
+    drawLine(x0, y0, x1, y1, rgb(148, 163, 184), 1.8)
+    cIdx = cIdx + 1
+
+  // Velocity vector indicator
+  let velTipX = clampFloat(cx + sp.velocity * 0.08, 145.0, 1145.0)
+  drawLine(cx, cy, velTipX, cy, rgb(250, 204, 21), 3.0)
+
+  // Oscillating spring mass
+  drawCircle(cx, cy, 22.0, col)
+  drawCircleOutline(cx, cy, 22.0, 2.0, rgb(248, 250, 252))
+
+pub fn buildUiAnimSpringAudit(): int:
+  let sp0 = UiSpring(position = 0.0, target = 100.0, velocity = 0.0, stiffness = 50.0, damping = 5.0)
+  let sp1 = updateUiSpring(sp0, 0.1)
+  ret int(sp1.position) + int(sp1.velocity)
+
+pub fn main(): int:
+  let auditScore = buildUiAnimSpringAudit()
+
+  mut spUnderdamped = UiSpring(position = 220.0, target = 880.0, velocity = 0.0, stiffness = 45.0, damping = 3.2)
+  mut spCritical = UiSpring(position = 220.0, target = 880.0, velocity = 0.0, stiffness = 45.0, damping = 13.4)
+  mut spOverdamped = UiSpring(position = 220.0, target = 880.0, velocity = 0.0, stiffness = 45.0, damping = 28.0)
+
+  initWindow(1280, 720, "AIPL ex_200: UI Animation Damped Harmonic Oscillator Springs")
+  mut frame = 0
+  while not windowShouldClose():
+    let targetX = stepSpringTargetX(frame)
+    spUnderdamped = UiSpring(position = spUnderdamped.position, target = targetX, velocity = spUnderdamped.velocity, stiffness = spUnderdamped.stiffness, damping = spUnderdamped.damping)
+    spCritical = UiSpring(position = spCritical.position, target = targetX, velocity = spCritical.velocity, stiffness = spCritical.stiffness, damping = spCritical.damping)
+    spOverdamped = UiSpring(position = spOverdamped.position, target = targetX, velocity = spOverdamped.velocity, stiffness = spOverdamped.stiffness, damping = spOverdamped.damping)
+
+    spUnderdamped = updateUiSpring(spUnderdamped, 0.016)
+    spCritical = updateUiSpring(spCritical, 0.016)
+    spOverdamped = updateUiSpring(spOverdamped, 0.016)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_200: UI ANIMATION - DAMPED HARMONIC OSCILLATOR SPRING TRANSITIONS", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("target=" + str(int(targetX)) + " | underdampedX=" + str(int(spUnderdamped.position)) + " | criticalX=" + str(int(spCritical.position)) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Track 1: Underdamped (Bouncy)
+    drawSpringTrack(150.0, "1. Underdamped Spring (stiffness=45, damping=3.2 : elastic overshoot)", spUnderdamped, rgb(56, 189, 248))
+
+    // Track 2: Critically Damped (Snappy)
+    drawSpringTrack(315.0, "2. Critically Damped Spring (stiffness=45, damping=13.4 : fastest zero-overshoot)", spCritical, rgb(52, 211, 153))
+
+    // Track 3: Overdamped (Smooth viscous)
+    drawSpringTrack(480.0, "3. Overdamped Spring (stiffness=45, damping=28.0 : viscous slow settle)", spOverdamped, rgb(168, 85, 247))
+
+    // Target line drawn across all 3 tracks
+    drawLine(targetX, 130.0, targetX, 635.0, rgb(250, 204, 21), 2.5)
+    drawText("TARGET X=" + str(int(targetX)), targetX - 52.0, 110.0, 15.0, rgb(250, 204, 21))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

@@ -1,0 +1,63 @@
+module Bench10PhysicsSim
+
+import std.math
+
+struct Body2D(id: int, x: float, y: float, vx: float, vy: float, radius: float, mass: float)
+
+fn stepPhysicsWorld(bodies: [Body2D], dt: float, worldW: float, worldH: float): [Body2D]:
+  mut next: [Body2D] = []
+  for b in bodies:
+    mut nx = b.x + b.vx * dt
+    mut ny = b.y + (b.vy + 9.8 * dt) * dt
+    mut nvx = b.vx
+    mut nvy = b.vy + 9.8 * dt
+    if nx - b.radius < 0.0:
+      nx = b.radius
+      nvx = -nvx * 0.9
+    else if nx + b.radius > worldW:
+      nx = worldW - b.radius
+      nvx = -nvx * 0.9
+    if ny + b.radius > worldH:
+      ny = worldH - b.radius
+      nvy = -nvy * 0.85
+    next.push(Body2D(..b, x = nx, y = ny, vx = nvx, vy = nvy))
+
+  // Circle-circle elastic collision resolution
+  mut i = 0
+  while i < next.len:
+    mut j = i + 1
+    while j < next.len:
+      let a = next[i]
+      let b = next[j]
+      let dx = b.x - a.x
+      let dy = b.y - a.y
+      let distSq = dx * dx + dy * dy
+      let minDist = a.radius + b.radius
+      if distSq < minDist * minDist and distSq > 0.0001:
+        let dist = sqrt(distSq)
+        let nx = dx / dist
+        let ny = dy / dist
+        let velAlongNormal = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny
+        if velAlongNormal < 0.0:
+          let impulse = -(1.0 + 0.9) * velAlongNormal / (1.0 / a.mass + 1.0 / b.mass)
+          next[i].vx -= (impulse / a.mass) * nx
+          next[i].vy -= (impulse / a.mass) * ny
+          next[j].vx += (impulse / b.mass) * nx
+          next[j].vy += (impulse / b.mass) * ny
+      j += 1
+    i += 1
+  ret next
+
+fn main(): void:
+  mut world = [
+    Body2D(1, 20.0, 50.0, 40.0, 0.0, 5.0, 1.0),
+    Body2D(2, 28.0, 50.0, -40.0, 0.0, 5.0, 1.0)
+  ]
+  mut step = 0
+  while step < 5:
+    world = stepPhysicsWorld(world, 0.05, 100.0, 100.0)
+    step += 1
+  // After head-on collision, velocities reverse sign
+  assert(world[0].vx < 0.0 and world[1].vx > 0.0)
+  println("v0=" + str(world[0].vx) + " v1=" + str(world[1].vx))
+  println("BENCH_10_OK")

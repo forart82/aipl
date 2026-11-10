@@ -1,0 +1,64 @@
+module Ex222Phys2dFluidSphWaterTankWindowTest
+
+import {
+  SphParticle2D, SphFluidWorld2D, CellularSandGrid2D,
+  sphFluidWorldNew, sphFluidStep, cellularSandStep
+} from "../../std/phys2d/fluid2d"
+import { Vec2 } from "../../std/math/vec_math"
+import {
+  SphSandScene, createSphSandScene, stepScene, auditSphFluidAndSandTank
+} from "../../examples/ex_222_phys2d_fluid_sph_water_tank_window"
+
+pub fn test_sph_fluid_water_tank(): void:
+  mut sph = sphFluidWorldNew(24.0, 1.0, 10.0, 0.1)
+  mut sPts: [SphParticle2D] = [
+    SphParticle2D(position = Vec2(x = 0.0, y = 0.0), velocity = Vec2(x = 0.0, y = 0.0), force = Vec2(x = 0.0, y = 0.0), density = 1.0, pressure = 0.0),
+    SphParticle2D(position = Vec2(x = 10.0, y = 0.0), velocity = Vec2(x = 0.0, y = 0.0), force = Vec2(x = 0.0, y = 0.0), density = 1.0, pressure = 0.0)
+  ]
+  sph.particles = sPts
+  sphFluidStep(sph, Vec2(x = 0.0, y = -9.8), 0.1)
+  let sp0: SphParticle2D = sph.particles[0]
+  assert(sp0.velocity.y < 0.0, "SPH fluid accelerated downward")
+  assert(sp0.density > 1.0, "SPH particles within smoothingRadius interact via Poly6 kernel")
+
+  mut sand = CellularSandGrid2D(width = 3, height = 3, cells = [0, 1, 0, 0, 0, 0, 0, 0, 0])
+  let moved = cellularSandStep(sand)
+  assert(moved == 1 and sand.cells[4] == 1, "Sand grain fell 1 row")
+
+  mut scene: SphSandScene = createSphSandScene()
+  let p0Init: SphParticle2D = scene.sph.particles[0]
+  let y0 = p0Init.position.y
+  stepScene(scene, 0, 0.12)
+  let p0Step1: SphParticle2D = scene.sph.particles[0]
+  let y1 = p0Step1.position.y
+  assert(y1 > y0, "t=0 -> t=1 advances SPH particle downward")
+  assert(scene.totalSandMoved > 0, "t=0 -> t=1 moves sand grains")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.12)
+    f = f + 1
+  let p0Step20: SphParticle2D = scene.sph.particles[0]
+  assert(p0Step20.position.y != y1, "t=1 -> t=20 progresses SPH simulation")
+  assert(p0Step20.position.y <= 140.0 and p0Step20.position.x >= 0.0 and p0Step20.position.x <= 160.0, "Tank floor and walls contain SPH particles")
+  let sandMoved20 = scene.totalSandMoved
+
+  while f <= 64:
+    stepScene(scene, f, 0.12)
+    f = f + 1
+  let sandMoved64 = scene.totalSandMoved
+
+  while f <= 100:
+    stepScene(scene, f, 0.12)
+    f = f + 1
+  let p0Step100: SphParticle2D = scene.sph.particles[0]
+  assert(p0Step100.position.x != p0Step20.position.x or p0Step100.position.y != p0Step20.position.y, "t=20 -> t=100 continues sloshing SPH particles")
+  assert(scene.totalSandMoved > sandMoved20 and scene.totalSandMoved > sandMoved64, "sand continues spawning, draining, and falling past frame 64 up to t=100")
+
+  let audit = auditSphFluidAndSandTank()
+  assert(audit == 31, "SPH fluid and cellular sand audit")
+
+pub fn main(): int:
+  test_sph_fluid_water_tank()
+  println("PASS: ex_222_phys2d_fluid_sph_water_tank_window_test")
+  ret 0

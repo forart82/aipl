@@ -1,0 +1,216 @@
+module Ex248MechanicsDialogueDagQuestJournalWindow
+
+import { DialogueChoice, DialogueNode, DialogueGraph, ObjectiveDependencyDAG, dialogueGraphNew, dialogueAddNode, dialogueFindNode, dialogueGetAvailableChoices, dialogueAdvanceChoice, objectiveDagNew, objectiveAddPrerequisite, objectiveIsUnlocked, objectiveComplete, objectiveIsCompleted, objectiveCompletionRatio } from "../std/mechanics/dialogue_dag"
+import { initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow, clearScreen, drawRect, drawRectOutline, drawLine, drawText, rgb } from "../std/gfx2d/shape2d"
+
+pub struct DialogueQuestScene(graph: DialogueGraph, currentNode: DialogueNode, availableChoices: [DialogueChoice], activeFlags: [str], dag: ObjectiveDependencyDAG, completionRatio: float, forgeUnlocked: bool, stepCount: int)
+
+pub fn initScene(): DialogueQuestScene:
+  mut graph = dialogueGraphNew(1)
+  let choice1 = DialogueChoice(choiceId = 101, text = "Enter Vault (Requires: has_key)", targetNodeId = 2, requiredFlags = ["has_key"])
+  let choice2 = DialogueChoice(choiceId = 102, text = "Wait at Citadel Gate", targetNodeId = 1, requiredFlags = [])
+  let n1 = DialogueNode(nodeId = 1, speaker = "Gatekeeper", content = "State your purpose at the Citadel Vault.", choices = [choice1, choice2])
+  let choice3 = DialogueChoice(choiceId = 201, text = "Inspect Ancient Forge (Requires: has_key)", targetNodeId = 3, requiredFlags = ["has_key"])
+  let n2 = DialogueNode(nodeId = 2, speaker = "Gatekeeper", content = "Welcome inside the Citadel Vault.", choices = [choice3])
+  let choice4 = DialogueChoice(choiceId = 301, text = "Claim Runeblade (Requires: sword_forged)", targetNodeId = 1, requiredFlags = ["sword_forged"])
+  let choice5 = DialogueChoice(choiceId = 302, text = "Return to Citadel Gate", targetNodeId = 1, requiredFlags = [])
+  let n3 = DialogueNode(nodeId = 3, speaker = "Master Smith", content = "Runeblade tempered at the Ancient Forge!", choices = [choice4, choice5])
+  dialogueAddNode(graph, n1)
+  dialogueAddNode(graph, n2)
+  dialogueAddNode(graph, n3)
+
+  mut flags: [str] = []
+  let avail = dialogueGetAvailableChoices(graph, 1, flags)
+
+  mut dag = objectiveDagNew()
+  objectiveAddPrerequisite(dag, "forge_sword", "gather_iron")
+  objectiveAddPrerequisite(dag, "forge_sword", "gather_coal")
+  let ratio = objectiveCompletionRatio(dag, 3)
+  let unlocked = objectiveIsUnlocked(dag, "forge_sword")
+
+  ret DialogueQuestScene(
+    graph = graph,
+    currentNode = n1,
+    availableChoices = avail,
+    activeFlags = flags,
+    dag = dag,
+    completionRatio = ratio,
+    forgeUnlocked = unlocked,
+    stepCount = 0
+  )
+
+pub fn stepScene(mut scene: DialogueQuestScene, frame: int, dt: float): DialogueQuestScene:
+  let cycleTick = frame % 29
+  mut dag = objectiveDagNew()
+  objectiveAddPrerequisite(dag, "forge_sword", "gather_iron")
+  objectiveAddPrerequisite(dag, "forge_sword", "gather_coal")
+
+  // Stage 1 (ticks 0..3): Gather Iron ore at Citadel Gate (Node 1)
+  objectiveComplete(dag, "gather_iron")
+  mut flags: [str] = []
+  mut curNode = dialogueFindNode(scene.graph, 1).unwrap()
+
+  // Stage 2 (ticks 4..7): Gather Coal + acquire Vault Key (unlocks forge_sword & choice 101)
+  if cycleTick >= 4:
+    objectiveComplete(dag, "gather_coal")
+    flags = ["has_key"]
+
+  let unlocked = objectiveIsUnlocked(dag, "forge_sword")
+
+  // Stage 3 (ticks 8..16): Complete forge_sword & advance Dialogue Node 1 -> Node 2 (Vault)
+  if cycleTick >= 8 and unlocked:
+    objectiveComplete(dag, "forge_sword")
+    let next2 = dialogueAdvanceChoice(scene.graph, 1, 101, flags)
+    if next2.isSome():
+      curNode = next2.unwrap()
+
+  // Stage 4 (ticks 17..28): Grant sword_forged flag & advance Dialogue Node 2 -> Node 3 (Ancient Forge)
+  if cycleTick >= 17 and unlocked:
+    flags = ["has_key", "sword_forged"]
+    let next3 = dialogueAdvanceChoice(scene.graph, 2, 201, flags)
+    if next3.isSome():
+      curNode = next3.unwrap()
+
+  scene.dag = dag
+  scene.activeFlags = flags
+  scene.forgeUnlocked = unlocked
+  scene.currentNode = curNode
+  scene.availableChoices = dialogueGetAvailableChoices(scene.graph, scene.currentNode.nodeId, scene.activeFlags)
+  scene.completionRatio = objectiveCompletionRatio(scene.dag, 3)
+  scene.stepCount = scene.stepCount + 1
+  ret scene
+
+pub fn auditMechanicsDialogueAndQuestDag(): int:
+  mut scene = initScene()
+  scene = stepScene(scene, 5, 0.1)
+  let nextNode = dialogueAdvanceChoice(scene.graph, 1, 101, scene.activeFlags).unwrap()
+  let unlocked = if scene.forgeUnlocked: 1 else: 0
+  ret scene.availableChoices.len() * 10 + nextNode.nodeId + unlocked
+
+pub fn main(): int:
+  let audit = auditMechanicsDialogueAndQuestDag()
+  println("EX_248_MECHANICS_DIALOGUE_AUDIT=" + str(audit))
+
+  mut scene = initScene()
+  mut frame = 0
+
+  initWindow(1280, 720, "AIPL ex_248: Branching Dialogue Graph & Quest Prerequisite DAG")
+  while not windowShouldClose():
+    scene = stepScene(scene, frame, 0.1)
+    let pct = int(scene.completionRatio * 100.0 + 0.5)
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_248: BRANCHING DIALOGUE GRAPH & QUEST OBJECTIVE DEPENDENCY DAG", 36.0, 24.0, 21.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | ActiveNode=#" + str(scene.currentNode.nodeId) + " (" + scene.currentNode.speaker + ") | QuestProgress=" + str(pct) + "% | forge_sword=" + str(scene.forgeUnlocked), 36.0, 54.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: Dialogue Graph Topology, Speech Bubble & Flag-Gated Choices
+    drawRect(44.0, 90.0, 584.0, 590.0, rgb(15, 23, 42))
+    drawRectOutline(44.0, 90.0, 584.0, 590.0, 2.0, rgb(56, 189, 248))
+    drawText("DIALOGUE DAG TOPOLOGY & FLAG-GATED CHOICES", 68.0, 108.0, 16.0, rgb(125, 211, 252))
+
+    // 3-Node Dialogue Graph Topology Header
+    drawLine(218.0, 174.0, 272.0, 174.0, rgb(56, 189, 248), 3.0)
+    drawLine(412.0, 174.0, 466.0, 174.0, rgb(56, 189, 248), 3.0)
+    mut nIdx = 0
+    while nIdx < 3:
+      let nid = nIdx + 1
+      let nx = 78.0 + float(nIdx * 194)
+      let isCur = scene.currentNode.nodeId == nid
+      let nFill = if isCur: rgb(30, 58, 138) else: rgb(24, 33, 50)
+      let nOut = if isCur: rgb(56, 189, 248) else: rgb(71, 85, 105)
+      drawRect(nx, 144.0, 140.0, 60.0, nFill)
+      drawRectOutline(nx, 144.0, 140.0, 60.0, 2.0, nOut)
+      let nTitle = if nid == 1: "Node #1: Gate" elif nid == 2: "Node #2: Vault" else: "Node #3: Forge"
+      let nSub = if isCur: "[ACTIVE SPEAKER]" else: "Idle Node"
+      drawText(nTitle, nx + 12.0, 156.0, 13.0, rgb(241, 245, 249))
+      drawText(nSub, nx + 12.0, 178.0, 11.0, if isCur: rgb(125, 211, 252) else: rgb(148, 163, 184))
+      nIdx = nIdx + 1
+
+    // Active NPC Speech Card
+    drawRect(68.0, 224.0, 536.0, 96.0, rgb(24, 35, 56))
+    drawRectOutline(68.0, 224.0, 536.0, 96.0, 2.0, rgb(96, 165, 250))
+    drawText("SPEAKER: " + scene.currentNode.speaker + " (Node #" + str(scene.currentNode.nodeId) + ")", 86.0, 240.0, 14.0, rgb(147, 197, 253))
+    drawText("\"" + scene.currentNode.content + "\"", 86.0, 272.0, 15.0, rgb(255, 255, 255))
+
+    // Active World Flags Bar
+    let flagStr = if scene.activeFlags.len == 0: "[none]" elif scene.activeFlags.len == 1: "[has_key]" else: "[has_key, sword_forged]"
+    drawRect(68.0, 334.0, 536.0, 42.0, rgb(22, 30, 46))
+    drawRectOutline(68.0, 334.0, 536.0, 42.0, 1.0, rgb(71, 85, 105))
+    drawText("Active Dialogue Flags: " + flagStr + "  |  Unlocked Choices: " + str(scene.availableChoices.len), 86.0, 348.0, 13.0, rgb(250, 204, 21))
+
+    // All Choices on Current Node (showing unlocked vs locked status)
+    mut cIdx = 0
+    while cIdx < scene.currentNode.choices.len:
+      let ch: DialogueChoice = scene.currentNode.choices[cIdx]
+      mut isAvail = false
+      mut aIdx = 0
+      while aIdx < scene.availableChoices.len:
+        if scene.availableChoices[aIdx].choiceId == ch.choiceId:
+          isAvail = true
+        aIdx = aIdx + 1
+      let cy = 394.0 + float(cIdx * 96)
+      let cFill = if isAvail: rgb(6, 78, 59) else: rgb(45, 24, 36)
+      let cOut = if isAvail: rgb(52, 211, 153) else: rgb(244, 63, 94)
+      drawRect(68.0, cy, 536.0, 80.0, cFill)
+      drawRectOutline(68.0, cy, 536.0, 80.0, 2.0, cOut)
+      let statusBadge = if isAvail: "[UNLOCKED -> Node #" + str(ch.targetNodeId) + "]" else: "[LOCKED: Missing Flag]"
+      drawText("Choice #" + str(ch.choiceId) + ": " + ch.text, 86.0, cy + 18.0, 14.0, rgb(255, 255, 255))
+      drawText(statusBadge, 86.0, cy + 46.0, 12.0, cOut)
+      cIdx = cIdx + 1
+
+    // Right Panel: Quest Prerequisite Dependency DAG
+    drawRect(654.0, 90.0, 582.0, 590.0, rgb(15, 23, 42))
+    drawRectOutline(654.0, 90.0, 582.0, 590.0, 2.0, rgb(245, 158, 11))
+    drawText("QUEST PREREQUISITE DEPENDENCY DAG (std/mechanics/dialogue_dag)", 678.0, 108.0, 15.0, rgb(253, 224, 71))
+
+    let ironDone = objectiveIsCompleted(scene.dag, "gather_iron")
+    let coalDone = objectiveIsCompleted(scene.dag, "gather_coal")
+    let swordDone = objectiveIsCompleted(scene.dag, "forge_sword")
+
+    // Directed dependency edges from prerequisites to forge_sword
+    let edge1Col = if ironDone: rgb(52, 211, 153) else: rgb(71, 85, 105)
+    let edge2Col = if coalDone: rgb(52, 211, 153) else: rgb(71, 85, 105)
+    drawLine(796.0, 266.0, 945.0, 390.0, edge1Col, 4.0)
+    drawLine(1094.0, 266.0, 945.0, 390.0, edge2Col, 4.0)
+
+    // Prerequisite 1: gather_iron
+    drawRect(682.0, 176.0, 228.0, 90.0, if ironDone: rgb(6, 78, 59) else: rgb(30, 41, 59))
+    drawRectOutline(682.0, 176.0, 228.0, 90.0, 2.0, if ironDone: rgb(52, 211, 153) else: rgb(100, 116, 139))
+    drawText("PREREQ #1: gather_iron", 700.0, 194.0, 14.0, rgb(255, 255, 255))
+    drawText("Status: " + (if ironDone: "COMPLETED" else: "IN PROGRESS"), 700.0, 220.0, 13.0, if ironDone: rgb(167, 243, 208) else: rgb(148, 163, 184))
+    drawText("Required by: forge_sword", 700.0, 242.0, 11.0, rgb(148, 163, 184))
+
+    // Prerequisite 2: gather_coal
+    drawRect(980.0, 176.0, 228.0, 90.0, if coalDone: rgb(6, 78, 59) else: rgb(30, 41, 59))
+    drawRectOutline(980.0, 176.0, 228.0, 90.0, 2.0, if coalDone: rgb(52, 211, 153) else: rgb(100, 116, 139))
+    drawText("PREREQ #2: gather_coal", 998.0, 194.0, 14.0, rgb(255, 255, 255))
+    drawText("Status: " + (if coalDone: "COMPLETED (+has_key)" else: "PENDING"), 998.0, 220.0, 13.0, if coalDone: rgb(167, 243, 208) else: rgb(148, 163, 184))
+    drawText("Required by: forge_sword", 998.0, 242.0, 11.0, rgb(148, 163, 184))
+
+    // Dependent Objective: forge_sword
+    let swordFill = if swordDone: rgb(6, 78, 59) elif scene.forgeUnlocked: rgb(120, 53, 15) else: rgb(45, 24, 36)
+    let swordOut = if swordDone: rgb(52, 211, 153) elif scene.forgeUnlocked: rgb(250, 204, 21) else: rgb(244, 63, 94)
+    let swordState = if swordDone: "COMPLETED (+sword_forged)" elif scene.forgeUnlocked: "UNLOCKED & READY TO FORGE" else: "LOCKED (Needs Coal & Iron)"
+    drawRect(785.0, 390.0, 320.0, 102.0, swordFill)
+    drawRectOutline(785.0, 390.0, 320.0, 102.0, 3.0, swordOut)
+    drawText("DEPENDENT GOAL: forge_sword", 806.0, 410.0, 15.0, rgb(255, 255, 255))
+    drawText("State: " + swordState, 806.0, 438.0, 13.0, swordOut)
+    drawText("Prereqs: gather_iron AND gather_coal", 806.0, 464.0, 12.0, rgb(226, 232, 240))
+
+    // Quest Completion Ratio Progress Card
+    let cycleTick = frame % 29
+    let cycleBarW = float(cycleTick + 1) * 486.0 / 29.0
+    drawRect(682.0, 532.0, 526.0, 134.0, rgb(22, 30, 46))
+    drawRectOutline(682.0, 532.0, 526.0, 134.0, 1.0, rgb(71, 85, 105))
+    drawText("QUEST JOURNAL COMPLETION RATIO: " + str(scene.dag.completedTasks.len) + " / 3 Objectives (" + str(pct) + "%)", 702.0, 548.0, 14.0, rgb(253, 224, 71))
+    drawRect(702.0, 576.0, 486.0, 18.0, rgb(30, 41, 59))
+    drawRect(702.0, 576.0, scene.completionRatio * 486.0, 18.0, rgb(52, 211, 153))
+    drawRectOutline(702.0, 576.0, 486.0, 18.0, 1.0, rgb(100, 116, 139))
+    drawRect(702.0, 602.0, 486.0, 10.0, rgb(30, 41, 59))
+    drawRect(702.0, 602.0, cycleBarW, 10.0, rgb(56, 189, 248))
+    drawText("Dialogue Cycle Tick " + str(cycleTick) + "/28 (Step #" + str(scene.stepCount) + "): Iron -> Coal+Key -> Vault -> Forge", 702.0, 624.0, 11.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

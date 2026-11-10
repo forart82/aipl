@@ -1,0 +1,40 @@
+module Ex174Gfx3dMesh3dNormalsAndTangentsWindowTest
+
+import {
+  buildMesh3dTangentAudit, stepMesh3dBoxWidth
+} from "../../examples/ex_174_gfx3d_mesh3d_normals_and_tangents_window"
+import { generateBoxMesh } from "../../std/gfx3d/primitives3d"
+import {
+  createEmptyMesh3D, computeMeshNormals,
+  computeMeshTangentsMikkTSpace, recomputeMeshBoundingBox
+} from "../../std/gfx3d/mesh3d"
+
+pub fn test_gfx3d_mesh3d_normals_and_tangents(): void:
+  let emptyM = createEmptyMesh3D()
+  assert(emptyM.vertices.len() == 0, "Empty mesh starts with 0 vertices")
+
+  mut boxM = generateBoxMesh(4.0, 4.0, 4.0)
+  boxM = computeMeshNormals(boxM)
+  boxM = computeMeshTangentsMikkTSpace(boxM)
+  boxM = recomputeMeshBoundingBox(boxM)
+  assert(boxM.vertices.len() == 24 and boxM.indices.len() == 36, "24 vertices & 36 indices preserved")
+  assert(boxM.boundingBox.max.x == 2.0 and boxM.boundingBox.min.x == -2.0, "Recomputed AABB spans [-2..2]")
+
+  let v0 = boxM.vertices[0]
+  let nLenSq = v0.normal.x * v0.normal.x + v0.normal.y * v0.normal.y + v0.normal.z * v0.normal.z
+  let tLenSq = v0.tangent.x * v0.tangent.x + v0.tangent.y * v0.tangent.y + v0.tangent.z * v0.tangent.z
+  assert(nLenSq > 0.99 and nLenSq < 1.01, "Area-weighted vertex normal is unit length")
+  assert(v0.normal.z > 0.99, "+Z front face vertex normal points along +Z")
+  assert(tLenSq > 0.99 and tLenSq < 1.01, "MikkTSpace vertex tangent is unit length")
+  assert(buildMesh3dTangentAudit() == 64, "buildMesh3dTangentAudit returns 24 + 36 + 4 == 64")
+
+  let w0 = stepMesh3dBoxWidth(0)
+  let w1 = stepMesh3dBoxWidth(1)
+  let w20 = stepMesh3dBoxWidth(20)
+  let w100 = stepMesh3dBoxWidth(100)
+  assert(w0 != w1 and w1 != w20 and w20 != w100, "Box width evolves without aliasing across frames 0, 1, 20, 100")
+
+pub fn main(): int:
+  test_gfx3d_mesh3d_normals_and_tangents()
+  println("PASS: ex_174_gfx3d_mesh3d_normals_and_tangents_window_test")
+  ret 0

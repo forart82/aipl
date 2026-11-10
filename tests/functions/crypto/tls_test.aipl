@@ -1,0 +1,58 @@
+module tests.functions.crypto.tls_test
+
+import * from "std/crypto/tls"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_tls_tlsFrameRecord_1(): int:
+  let arg_contentType = 4
+  let edge_contentType = 1
+  let arg_payload = [65, 73, 80, 76]
+  let edge_payload = [65]
+  let resNom = tlsFrameRecord(arg_contentType, arg_payload)
+  let resEdge = tlsFrameRecord(edge_contentType, edge_payload)
+  assertEqInt(resNom.len(), 5, "tlsFrameRecord nominal resNom.len() == 5")
+  assertEqInt(resEdge.len(), 5, "tlsFrameRecord boundary resEdge.len() == 5")
+  ret 0
+
+pub fn test_tls_tlsParseRecord_2(): int:
+  let payload = bytesFromArray([65, 73, 80, 76])
+  let framed = tlsFrameRecord(23, payload)
+  let resOk = tlsParseRecord(framed, 0)
+  assert(resOk.isOk() == true, "tlsParseRecord valid framed record returns Ok")
+  let (rec, nextOffset) = resOk.unwrap()
+  assertEqInt(rec.contentType, 23, "tlsParseRecord contentType == 23")
+  assertEqInt(rec.protocolVersion, 771, "tlsParseRecord protocolVersion == 0x0303 (771)")
+  assertEqInt(rec.length, 4, "tlsParseRecord length == 4")
+  assertEqInt(rec.fragment.len(), 4, "tlsParseRecord fragment len == 4")
+  assertEqInt(rec.fragment[0], 65, "tlsParseRecord fragment byte 0")
+  assertEqInt(nextOffset, framed.len(), "tlsParseRecord nextOffset equals framed length")
+  let resBad = tlsParseRecord(bytesFromArray([23, 3, 3]), 0)
+  assert(resBad.isOk() == false, "tlsParseRecord truncated header returns Err")
+  ret 0
+
+pub fn test_tls_tlsBuildClientHello_3(): int:
+  let arg_host = "127.0.0.1"
+  let edge_host = "127.0.0.1"
+  let arg_suites = [2]
+  let edge_suites = []
+  let arg_random = [65, 73, 80, 76]
+  let edge_random = [65]
+  let arg_keyShare = [65, 73, 80, 76]
+  let edge_keyShare = [65]
+  let resNom = tlsBuildClientHello(arg_host, arg_suites, arg_random, arg_keyShare)
+  let resEdge = tlsBuildClientHello(edge_host, edge_suites, edge_random, edge_keyShare)
+  assertEqInt(resNom.len(), 65, "tlsBuildClientHello nominal resNom.len() == 65")
+  assertEqInt(resEdge.len(), 60, "tlsBuildClientHello boundary resEdge.len() == 60")
+  ret 0
+
+pub fn test_tls_verifyX509Validity_4(): int:
+  let arg_cert = X509Cert(issuer = "test", subject = "test", notBefore = 4, notAfter = 4, publicKey = [65, 73, 80, 76])
+  let edge_cert = X509Cert(issuer = "a", subject = "a", notBefore = 1, notAfter = 1, publicKey = [65])
+  let arg_currentUnixSec = 4
+  let edge_currentUnixSec = 1
+  let resNom = verifyX509Validity(arg_cert, arg_currentUnixSec)
+  let resEdge = verifyX509Validity(edge_cert, edge_currentUnixSec)
+  assert(resNom == true, "verifyX509Validity nominal resNom == true")
+  assert(resEdge == true, "verifyX509Validity boundary resEdge == true")
+  ret 0

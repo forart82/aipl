@@ -1,0 +1,47 @@
+module tests.functions.compress.lz4_test
+
+import * from "std/compress/lz4"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_lz4_lz4CompressBlock_1(): int:
+  let arg_src = [65, 73, 80, 76]
+  let edge_src = [65]
+  let resNom = lz4CompressBlock(arg_src)
+  let resEdge = lz4CompressBlock(edge_src)
+  assertEqInt(resNom.len(), 5, "lz4CompressBlock nominal resNom.len() == 5")
+  assertEqInt(resEdge.len(), 2, "lz4CompressBlock boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_lz4_lz4DecompressBlock_2(): int:
+  let orig = [65, 73, 80, 76]
+  let comp = lz4CompressBlock(orig)
+  let decompRes = lz4DecompressBlock(comp, 4)
+  assert(decompRes.isOk() == true, "lz4DecompressBlock roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "lz4DecompressBlock len == 4")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = lz4DecompressBlock([255, 255], 10)
+  assert(bad.isOk() == false, "lz4DecompressBlock corrupt block rejected")
+  ret 0
+
+pub fn test_lz4_lz4CompressFrame_3(): int:
+  let arg_src = [65, 73, 80, 76]
+  let edge_src = [65]
+  let resNom = lz4CompressFrame(arg_src)
+  let resEdge = lz4CompressFrame(edge_src)
+  assertEqInt(resNom.len(), 24, "lz4CompressFrame nominal resNom.len() == 24")
+  assertEqInt(resEdge.len(), 21, "lz4CompressFrame boundary resEdge.len() == 21")
+  ret 0
+
+pub fn test_lz4_lz4DecompressFrame_4(): int:
+  let orig = [65, 73, 80, 76]
+  let comp = lz4CompressFrame(orig)
+  let decompRes = lz4DecompressFrame(comp)
+  assert(decompRes.isOk() == true, "lz4DecompressFrame roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "lz4DecompressFrame len == 4")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = lz4DecompressFrame([1, 2, 3])
+  assert(bad.isOk() == false, "lz4DecompressFrame corrupt frame rejected")
+  ret 0

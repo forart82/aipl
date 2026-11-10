@@ -1,0 +1,700 @@
+// ============================================================================
+// Module: std/fmt/str_builder
+// Layer 1: Standard Formatting, Text Manipulation & Unicode
+// Growable string accumulation, zero-copy string slice views, casing transforms,
+// and edit-distance metrics (Levenshtein, Jaro-Winkler).
+// ============================================================================
+module FmtStrBuilder
+
+pub struct StringBuilder:
+  chunks: [str]
+  totalLen: int
+  capacity: int
+
+pub struct StringView:
+  source: str
+  start: int
+  len: int
+
+pub struct TextRange:
+  start: int
+  end: int
+
+pub fn TextRange.new(start: int, end: int): TextRange:
+  ret TextRange(start = start, end = end)
+
+pub fn (self: TextRange) len(): int:
+  ret if self.end >= self.start: self.end - self.start else: 0
+
+pub fn stringBuilderNew(initialCapacity: int = 64): StringBuilder:
+  mut empty: [str] = []
+  ret StringBuilder(chunks = empty, totalLen = 0, capacity = initialCapacity)
+
+pub fn stringBuilderWithCapacity(cap: int): StringBuilder:
+  ret stringBuilderNew(cap)
+
+pub fn (mut self: StringBuilder) append(text: str): StringBuilder:
+  if text.len > 0:
+    self.chunks.push(text)
+    self.totalLen = self.totalLen + text.len
+  ret self
+
+pub fn (mut self: StringBuilder) appendChar(code: int): StringBuilder:
+  let s = chr(code)
+  self.chunks.push(s)
+  self.totalLen = self.totalLen + s.len
+  ret self
+
+pub fn (mut self: StringBuilder) appendLine(line: str = ""): StringBuilder:
+  if line.len > 0:
+    self.chunks.push(line)
+  self.chunks.push("\n")
+  self.totalLen = self.totalLen + line.len + 1
+  ret self
+
+pub fn (mut self: StringBuilder) appendInt(n: int): StringBuilder:
+  let s = str(n)
+  self.chunks.push(s)
+  self.totalLen = self.totalLen + s.len
+  ret self
+
+pub fn (mut self: StringBuilder) appendFloat(f: float, precision: int = 2): StringBuilder:
+  mut neg = false
+  mut val = f
+  if val < 0.0:
+    neg = true
+    val = 0.0 - val
+  let p = if precision < 0: 0 elif precision > 9: 9 else: precision
+  mut scale = 1
+  mut i = 0
+  while i < p:
+    scale = scale * 10
+    i = i + 1
+  let scaled = int(val * float(scale) + 0.5)
+  let intPart = scaled / scale
+  let fracPart = scaled % scale
+  let prefix = if neg: "-" else: ""
+  mut s = prefix + str(intPart)
+  if p > 0:
+    mut fracStr = str(fracPart)
+    while fracStr.len < p:
+      fracStr = "0" + fracStr
+    s = s + "." + fracStr
+  self.chunks.push(s)
+  self.totalLen = self.totalLen + s.len
+  ret self
+
+pub fn (mut self: StringBuilder) clear(): void:
+  while self.chunks.len > 0:
+    let _ = self.chunks.pop()
+  self.totalLen = 0
+
+pub fn (self: StringBuilder) toString(): str:
+  ret self.chunks.join("")
+
+pub fn (self: StringBuilder) length(): int:
+  mut total = 0
+  mut i = 0
+  while i < self.chunks.len:
+    total += self.chunks[i].len
+    i += 1
+  ret total
+
+pub fn sbAppend(mut sb: StringBuilder, s: str): StringBuilder:
+  ret sb.append(s)
+
+pub fn sbAppendChar(mut sb: StringBuilder, ch: str): StringBuilder:
+  ret sb.append(ch)
+
+pub fn sbAppendIndent(mut sb: StringBuilder, count: int, indentStr: str = "  "): StringBuilder:
+  mut i = 0
+  while i < count:
+    let _ = sb.append(indentStr)
+    i += 1
+  ret sb
+
+pub fn sbAppendLine(mut sb: StringBuilder, line: str = ""): StringBuilder:
+  ret sb.appendLine(line)
+
+pub fn sbToString(sb: StringBuilder): str:
+  ret sb.toString()
+
+pub fn sbLen(sb: StringBuilder): int:
+  ret sb.length()
+
+pub fn sbClear(mut sb: StringBuilder): StringBuilder:
+  sb.clear()
+  ret sb
+
+pub fn stringViewFrom(s: str, start: int, len: int): StringView:
+  let clampedStart = if start < 0: 0 else: (if start > s.len: s.len else: start)
+  let maxLen = s.len - clampedStart
+  let clampedLen = if len < 0: 0 else: (if len > maxLen: maxLen else: len)
+  ret StringView(source = s, start = clampedStart, len = clampedLen)
+
+pub fn (self: StringView) toString(): str:
+  ret self.source.slice(self.start, self.start + self.len)
+
+pub fn strLen(s: str): int:
+  ret s.len
+
+pub fn charAt(s: str, index: int): str:
+  ret s.charAt(index)
+
+pub fn charCodeAt(s: str, idx: int): int:
+  ret s.charCodeAt(idx)
+
+pub fn ord(ch: str): int:
+  let len = ch.len
+  if len == 0:
+    ret 0
+  let b0 = ch.charCodeAt(0)
+  if b0 < 128:
+    ret b0
+  if (b0 >= 192 and b0 < 224) and len >= 2:
+    let b1 = ch.charCodeAt(1)
+    ret ((b0 % 32) * 64) + (b1 % 64)
+  if (b0 >= 224 and b0 < 240) and len >= 3:
+    let b1 = ch.charCodeAt(1)
+    let b2 = ch.charCodeAt(2)
+    ret ((b0 % 16) * 4096) + ((b1 % 64) * 64) + (b2 % 64)
+  if (b0 >= 240 and b0 < 248) and len >= 4:
+    let b1 = ch.charCodeAt(1)
+    let b2 = ch.charCodeAt(2)
+    let b3 = ch.charCodeAt(3)
+    ret ((b0 % 8) * 262144) + ((b1 % 64) * 4096) + ((b2 % 64) * 64) + (b3 % 64)
+  ret b0
+
+pub fn chr(code: int): str:
+  if code < 0:
+    ret ""
+  if code < 128:
+    let b = bytesFromArray([code])
+    ret b.toStringLossy()
+  if code < 2048:
+    let b0 = 192 + (code / 64)
+    let b1 = 128 + (code % 64)
+    let b = bytesFromArray([b0, b1])
+    ret b.toStringLossy()
+  if code < 65536:
+    let b0 = 224 + (code / 4096)
+    let b1 = 128 + ((code / 64) % 64)
+    let b2 = 128 + (code % 64)
+    let b = bytesFromArray([b0, b1, b2])
+    ret b.toStringLossy()
+  let b0 = 240 + (code / 262144)
+  let b1 = 128 + ((code / 4096) % 64)
+  let b2 = 128 + ((code / 64) % 64)
+  let b3 = 128 + (code % 64)
+  let b = bytesFromArray([b0, b1, b2, b3])
+  ret b.toStringLossy()
+
+pub fn fromCharCode(code: int): str:
+  ret chr(code)
+
+pub fn charFromCode(code: int): str:
+  ret chr(code)
+
+pub fn chars(s: str): [str]:
+  ret s.chars()
+
+pub fn substring(s: str, start: int, end: int): str:
+  ret s.slice(start, end)
+
+pub fn isWhitespace(c: str): bool:
+  let len = c.len
+  if len == 0:
+    ret false
+  mut i = 0
+  while i < len:
+    let ch = c.charAt(i)
+    if not (ch == " " or ch == "\t" or ch == "\n" or ch == "\r"):
+      ret false
+    i += 1
+  ret true
+
+pub fn isDigit(c: str): bool:
+  let len = c.len
+  if len == 0:
+    ret false
+  mut i = 0
+  while i < len:
+    let ch = c.charAt(i)
+    if not (ch >= "0" and ch <= "9"):
+      ret false
+    i += 1
+  ret true
+
+pub fn isAlpha(c: str): bool:
+  let len = c.len
+  if len == 0:
+    ret false
+  mut i = 0
+  while i < len:
+    let ch = c.charAt(i)
+    if not ((ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z")):
+      ret false
+    i += 1
+  ret true
+
+pub fn isAlphanumeric(c: str): bool:
+  let len = c.len
+  if len == 0:
+    ret false
+  mut i = 0
+  while i < len:
+    let ch = c.charAt(i)
+    if not ((ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9")):
+      ret false
+    i += 1
+  ret true
+
+pub fn isAlnum(c: str): bool:
+  ret isAlphanumeric(c)
+
+pub fn isHexDigit(c: str): bool:
+  let len = c.len
+  if len == 0:
+    ret false
+  mut i = 0
+  while i < len:
+    let ch = c.charAt(i)
+    if not ((ch >= "0" and ch <= "9") or (ch >= "a" and ch <= "f") or (ch >= "A" and ch <= "F")):
+      ret false
+    i += 1
+  ret true
+
+pub fn isIdentChar(c: str): bool:
+  let len = c.len
+  if len == 0:
+    ret false
+  mut i = 0
+  while i < len:
+    let ch = c.charAt(i)
+    if not ((ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9") or ch == "_"):
+      ret false
+    i += 1
+  ret true
+
+pub fn padLeft(s: str, targetLen: int, padChar: str = " "): str:
+  let diff = targetLen - s.len
+  if diff <= 0:
+    ret s
+  let fillStr = if padChar.len > 0: padChar else: " "
+  mut padding = ""
+  while padding.len < diff:
+    padding = padding + fillStr
+  if padding.len > diff:
+    padding = padding.slice(0, diff)
+  ret padding + s
+
+pub fn padStart(s: str, width: int, fill: str = " "): str:
+  ret padLeft(s, width, fill)
+
+pub fn padRight(s: str, targetLen: int, padChar: str = " "): str:
+  let diff = targetLen - s.len
+  if diff <= 0:
+    ret s
+  let fillStr = if padChar.len > 0: padChar else: " "
+  mut padding = ""
+  while padding.len < diff:
+    padding = padding + fillStr
+  if padding.len > diff:
+    padding = padding.slice(0, diff)
+  ret s + padding
+
+pub fn padEnd(s: str, width: int, fill: str = " "): str:
+  ret padRight(s, width, fill)
+
+pub fn padCenter(s: str, targetLen: int, padChar: str = " "): str:
+  let diff = targetLen - s.len
+  if diff <= 0:
+    ret s
+  let leftPad = diff / 2
+  let rightPad = diff - leftPad
+  let withLeft = padLeft(s, s.len + leftPad, padChar)
+  ret padRight(withLeft, s.len + leftPad + rightPad, padChar)
+
+pub fn trimStart(s: str): str:
+  let len = s.len
+  mut start = 0
+  while start < len:
+    if not isWhitespace(s.charAt(start)):
+      ret s.slice(start, len)
+    start += 1
+  ret ""
+
+pub fn trimLeft(s: str): str:
+  ret trimStart(s)
+
+pub fn trimEnd(s: str): str:
+  let len = s.len
+  mut endIdx = len
+  while endIdx > 0:
+    if not isWhitespace(s.charAt(endIdx - 1)):
+      ret s.slice(0, endIdx)
+    endIdx -= 1
+  ret ""
+
+pub fn trimRight(s: str): str:
+  ret trimEnd(s)
+
+pub fn trim(s: str): str:
+  ret trimEnd(trimStart(s))
+
+pub fn repeat(s: str, count: int): str:
+  if count <= 0:
+    ret ""
+  mut out = ""
+  mut i = 0
+  while i < count:
+    out = out + s
+    i += 1
+  ret out
+
+pub fn repeatStr(s: str, count: int): str:
+  ret repeat(s, count)
+
+pub fn reverseStr(s: str): str:
+  let n = s.len
+  if n <= 1:
+    ret s
+  mut out = ""
+  mut i = n - 1
+  while i >= 0:
+    out = out + s.charAt(i)
+    i -= 1
+  ret out
+
+pub fn toUpper(s: str): str:
+  ret s.toUpperCase()
+
+pub fn toLower(s: str): str:
+  ret s.toLowerCase()
+
+pub fn capitalize(s: str): str:
+  if s.len == 0:
+    ret ""
+  ret s.charAt(0).toUpperCase() + s.slice(1, s.len).toLowerCase()
+
+fn extractWordsForCase(s: str): [str]:
+  mut wList: [str] = []
+  let len = s.len
+  if len == 0:
+    ret wList
+  mut cur = ""
+  mut i = 0
+  while i < len:
+    let ch = s.charAt(i)
+    if ch == "_" or ch == "-" or ch == " " or ch == "\t" or ch == "." or ch == "/":
+      if cur.len > 0:
+        wList.push(cur)
+        cur = ""
+    elif ch >= "A" and ch <= "Z":
+      let prevIsLowerOrDigit = if i > 0:
+        let prev = s.charAt(i - 1)
+        (prev >= "a" and prev <= "z") or (prev >= "0" and prev <= "9")
+      else:
+        false
+      let nextIsLower = if i + 1 < len:
+        let nxt = s.charAt(i + 1)
+        nxt >= "a" and nxt <= "z"
+      else:
+        false
+      let prevIsUpper = if i > 0:
+        let prev = s.charAt(i - 1)
+        prev >= "A" and prev <= "Z"
+      else:
+        false
+      if (prevIsLowerOrDigit and cur.len > 0) or (prevIsUpper and nextIsLower and cur.len > 1):
+        wList.push(cur)
+        cur = ch
+      else:
+        cur = cur + ch
+    else:
+      cur = cur + ch
+    i += 1
+  if cur.len > 0:
+    wList.push(cur)
+  ret wList
+
+pub fn toCamelCase(s: str): str:
+  let ws = extractWordsForCase(s)
+  if ws.len == 0:
+    ret ""
+  mut out = ws[0].toLowerCase()
+  mut i = 1
+  while i < ws.len:
+    let w = ws[i]
+    if w.len > 0:
+      out = out + capitalize(w)
+    i += 1
+  ret out
+
+pub fn toSnakeCase(s: str): str:
+  let ws = extractWordsForCase(s)
+  if ws.len == 0:
+    ret ""
+  mut out = ws[0].toLowerCase()
+  mut i = 1
+  while i < ws.len:
+    out = out + "_" + ws[i].toLowerCase()
+    i += 1
+  ret out
+
+pub fn toKebabCase(s: str): str:
+  let ws = extractWordsForCase(s)
+  if ws.len == 0:
+    ret ""
+  mut out = ws[0].toLowerCase()
+  mut i = 1
+  while i < ws.len:
+    out = out + "-" + ws[i].toLowerCase()
+    i += 1
+  ret out
+
+pub fn toPascalCase(s: str): str:
+  let ws = extractWordsForCase(s)
+  if ws.len == 0:
+    ret ""
+  mut out = ""
+  mut i = 0
+  while i < ws.len:
+    let w = ws[i]
+    if w.len > 0:
+      out = out + capitalize(w)
+    i += 1
+  ret out
+
+pub fn split(s: str, sep: str): [str]:
+  ret s.split(sep)
+
+pub fn splitLines(s: str): [str]:
+  mut result: [str] = []
+  let len = s.len
+  if len == 0:
+    ret result
+  mut start = 0
+  mut i = 0
+  while i < len:
+    if s.charAt(i) == "\n":
+      mut lineEnd = i
+      if lineEnd > start and s.charAt(lineEnd - 1) == "\r":
+        lineEnd -= 1
+      result.push(s.slice(start, lineEnd))
+      start = i + 1
+    i += 1
+  if start < len:
+    mut lineEnd = len
+    if lineEnd > start and s.charAt(lineEnd - 1) == "\r":
+      lineEnd -= 1
+    result.push(s.slice(start, lineEnd))
+  ret result
+
+pub fn lines(s: str): [str]:
+  ret splitLines(s)
+
+pub fn join(pieces: [str], sep: str): str:
+  ret pieces.join(sep)
+
+pub fn replaceAll(s: str, needle: str, repl: str): str:
+  ret s.replace(needle, repl)
+
+pub fn replace(s: str, search: str, repl: str): str:
+  ret s.replace(search, repl)
+
+pub fn replaceFirst(s: str, old: str, new: str): str:
+  if old.len == 0:
+    ret s
+  let idx = s.indexOf(old)
+  if idx < 0:
+    ret s
+  ret s.slice(0, idx) + new + s.slice(idx + old.len, s.len)
+
+pub fn startsWith(s: str, prefix: str, offset: int = 0): bool:
+  if offset < 0 or offset > s.len:
+    ret false
+  if s.len - offset < prefix.len:
+    ret false
+  ret s.slice(offset, offset + prefix.len) == prefix
+
+pub fn endsWith(s: str, suffix: str): bool:
+  if s.len < suffix.len:
+    ret false
+  ret s.slice(s.len - suffix.len, s.len) == suffix
+
+pub fn contains(s: str, needle: str): bool:
+  ret s.indexOf(needle) >= 0
+
+pub fn indexOf(s: str, needle: str, fromIndex: int = 0): int:
+  if fromIndex <= 0:
+    ret s.indexOf(needle)
+  ret s.indexOfFrom(needle, fromIndex)
+
+pub fn indexOfFrom(s: str, sub: str, startIdx: int): int:
+  ret s.indexOfFrom(sub, startIdx)
+
+pub fn lastIndexOf(s: str, needle: str): int:
+  ret s.lastIndexOf(needle)
+
+pub fn stripPrefix(s: str, prefix: str): str:
+  if prefix.len > 0 and s.startsWith(prefix):
+    ret s.slice(prefix.len, s.len)
+  ret s
+
+pub fn stripSuffix(s: str, suffix: str): str:
+  if suffix.len > 0 and s.endsWith(suffix):
+    ret s.slice(0, s.len - suffix.len)
+  ret s
+
+pub fn splitOnce(s: str, delim: str): Option[(str, str)]:
+  if delim.len == 0:
+    ret None
+  let idx = s.indexOf(delim)
+  if idx < 0:
+    ret None
+  ret Some((s.slice(0, idx), s.slice(idx + delim.len, s.len)))
+
+pub fn words(s: str): [str]:
+  mut res: [str] = []
+  let len = s.len
+  mut inWord = false
+  mut wordStart = 0
+  mut i = 0
+  while i < len:
+    let ws = isWhitespace(s.charAt(i))
+    if not inWord and not ws:
+      inWord = true
+      wordStart = i
+    elif inWord and ws:
+      res.push(s.slice(wordStart, i))
+      inWord = false
+    i += 1
+  if inWord:
+    res.push(s.slice(wordStart, len))
+  ret res
+
+pub fn splitWhitespace(s: str): [str]:
+  ret words(s)
+
+pub fn escapeQuotedString(s: str): str:
+  mut out = ""
+  mut i = 0
+  while i < s.len:
+    let ch = s.charAt(i)
+    if ch == "\"":
+      out = out + "\\\""
+    elif ch == "\\":
+      out = out + "\\\\"
+    elif ch == "\n":
+      out = out + "\\n"
+    elif ch == "\r":
+      out = out + "\\r"
+    elif ch == "\t":
+      out = out + "\\t"
+    else:
+      out = out + ch
+    i += 1
+  ret out
+
+pub fn levenshteinDistance(a: str, b: str): int:
+  let m = a.len
+  let n = b.len
+  if m == 0:
+    ret n
+  if n == 0:
+    ret m
+  if a == b:
+    ret 0
+  mut prevRow: [int] = []
+  mut curRow: [int] = []
+  mut j = 0
+  while j <= n:
+    prevRow.push(j)
+    curRow.push(0)
+    j += 1
+  mut i = 1
+  while i <= m:
+    curRow[0] = i
+    let ca = a.charAt(i - 1)
+    j = 1
+    while j <= n:
+      let cb = b.charAt(j - 1)
+      let cost = if ca == cb: 0 else: 1
+      let delCost = prevRow[j] + 1
+      let insCost = curRow[j - 1] + 1
+      let subCost = prevRow[j - 1] + cost
+      mut best = delCost
+      if insCost < best:
+        best = insCost
+      if subCost < best:
+        best = subCost
+      curRow[j] = best
+      j += 1
+    j = 0
+    while j <= n:
+      prevRow[j] = curRow[j]
+      j += 1
+    i += 1
+  ret prevRow[n]
+
+pub fn jaroWinklerSimilarity(a: str, b: str): float:
+  if a == b:
+    ret 1.0
+  let la = a.len
+  let lb = b.len
+  if la == 0 or lb == 0:
+    ret 0.0
+  let maxLen = if la > lb: la else: lb
+  mut matchDist = (maxLen / 2) - 1
+  if matchDist < 0:
+    matchDist = 0
+  mut aMatches: [bool] = []
+  mut bMatches: [bool] = []
+  mut i = 0
+  while i < la:
+    aMatches.push(false)
+    i += 1
+  mut j = 0
+  while j < lb:
+    bMatches.push(false)
+    j += 1
+
+  mut matches = 0
+  i = 0
+  while i < la:
+    let start = if i - matchDist > 0: i - matchDist else: 0
+    let endIdx = if i + matchDist + 1 < lb: i + matchDist + 1 else: lb
+    j = start
+    while j < endIdx:
+      if not bMatches[j] and a.charAt(i) == b.charAt(j):
+        aMatches[i] = true
+        bMatches[j] = true
+        matches += 1
+        break
+      j += 1
+    i += 1
+
+  if matches == 0:
+    ret 0.0
+
+  mut transpositions = 0
+  mut k = 0
+  i = 0
+  while i < la:
+    if aMatches[i]:
+      while k < lb and not bMatches[k]:
+        k += 1
+      if k < lb and a.charAt(i) != b.charAt(k):
+        transpositions += 1
+      k += 1
+    i += 1
+
+  let mFloat = float(matches)
+  let tFloat = float(transpositions / 2)
+  let jaro = ((mFloat / float(la)) + (mFloat / float(lb)) + ((mFloat - tFloat) / mFloat)) / 3.0
+  mut prefix = 0
+  let maxPfx = if la < lb: (if la < 4: la else: 4) else: (if lb < 4: lb else: 4)
+  while prefix < maxPfx and a.charAt(prefix) == b.charAt(prefix):
+    prefix += 1
+  ret jaro + (float(prefix) * 0.1 * (1.0 - jaro))

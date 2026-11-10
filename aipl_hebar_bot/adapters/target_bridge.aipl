@@ -1,0 +1,120 @@
+// ============================================================================
+// AIPL Universal HEBAR Target Bridge (`aipl_hebar_bot/adapters/target_bridge.aipl`)
+// ============================================================================
+// Unified 4-Target Driver abstracting:
+//   1. "aipl"   (interpreted / JIT source target)
+//   2. "native" (compiled C99 / X11 binary target)
+//   3. "html"   (standalone HTML5 + Canvas2D + WebGL2 bundle target)
+//   4. "wasm"   (WebAssembly binary + Browser/WASI host target)
+// ============================================================================
+
+module TargetBridge
+
+import {
+  fileExists
+} from "std/fs"
+
+import {
+  execCommand
+} from "std/process"
+
+import {
+  SceneSnapshot
+} from "../core/scene_sensor.aipl"
+
+import {
+  IpcWindowTarget,
+  discoverIpcWindowTarget,
+  readIpcWindowStateSnapshot,
+  sendIpcSeatAction,
+  captureIpcWindowScreenshot
+} from "./ipc_window_adapter.aipl"
+
+import {
+  WebWasmTargetReport,
+  inspectWebOrWasmTarget,
+  executeWebWasmBridgeSession,
+  pollWebWasmBridgeSnapshot,
+  dispatchWebWasmSeatAction
+} from "./web_wasm_adapter.aipl"
+
+pub struct UnifiedTargetHandle:
+  targetPath: str
+  targetType: str
+  executionMode: str
+  totalSeats: int
+  ipcTarget: IpcWindowTarget
+  webWasmReport: WebWasmTargetReport
+
+pub fn detectTargetTypeFromPath(targetPath: str, explicitType: str): str:
+  if explicitType.len > 0 and explicitType != "auto":
+    ret explicitType
+  if targetPath.endsWith(".html"):
+    if targetPath.endsWith("_wasm.html"):
+      ret "wasm"
+    ret "html"
+  if targetPath.endsWith(".wasm"):
+    ret "wasm"
+  if targetPath.endsWith(".aipl"):
+    ret "aipl"
+  ret "native"
+
+pub fn openTargetBridge(targetPath: str, explicitType: str, executionMode: str, totalSeats: int): UnifiedTargetHandle:
+  let resolvedType = detectTargetTypeFromPath(targetPath, explicitType)
+  let safeSeats = if totalSeats > 0: totalSeats else: 1
+  mut targetToInspect = targetPath
+  if (resolvedType == "html" or resolvedType == "wasm") and targetPath.endsWith(".aipl") and fileExists(targetPath):
+    let stem = targetPath.slice(0, targetPath.len - 5)
+    let siblingHtml = stem + ".html"
+    let siblingWasm = stem + "_wasm.html"
+    if resolvedType == "html" and not fileExists(siblingHtml):
+      let autoHtml = "/tmp/aipl_hebar_auto_target.html"
+      let _ = execCommand("./bin/aipl", ["bundle", targetPath, "-o", autoHtml])
+      targetToInspect = autoHtml
+    elif resolvedType == "wasm" and not fileExists(siblingWasm):
+      let autoWasm = "/tmp/aipl_hebar_auto_target_wasm.html"
+      let _ = execCommand("./bin/aipl", ["build", targetPath, "-o", autoWasm, "--target", "wasm"])
+      targetToInspect = autoWasm
+  let webRep = inspectWebOrWasmTarget(targetToInspect, resolvedType)
+  if resolvedType == "html" or resolvedType == "wasm":
+    let _ran = executeWebWasmBridgeSession(webRep, 36, safeSeats, 0)
+    let webIpc = IpcWindowTarget(
+      targetSpec = targetPath,
+      resolvedPid = 0,
+      windowTitle = webRep.bundlePath,
+      connected = false
+    )
+    ret UnifiedTargetHandle(
+      targetPath = targetPath,
+      targetType = resolvedType,
+      executionMode = executionMode,
+      totalSeats = safeSeats,
+      ipcTarget = webIpc,
+      webWasmReport = webRep
+    )
+  let ipc = discoverIpcWindowTarget(targetPath)
+  ret UnifiedTargetHandle(
+    targetPath = targetPath,
+    targetType = resolvedType,
+    executionMode = executionMode,
+    totalSeats = safeSeats,
+    ipcTarget = ipc,
+    webWasmReport = webRep
+  )
+
+pub fn pollTargetStateSnapshot(handle: UnifiedTargetHandle, frame: int, activeSeat: int): SceneSnapshot:
+  if handle.ipcTarget.connected and handle.ipcTarget.resolvedPid > 0:
+    mut liveSnap = readIpcWindowStateSnapshot(handle.ipcTarget)
+    liveSnap.targetType = handle.targetType
+    ret liveSnap
+  ret pollWebWasmBridgeSnapshot(handle.webWasmReport, frame, activeSeat, handle.totalSeats, 0)
+
+pub fn dispatchTargetSeatAction(handle: UnifiedTargetHandle, seatId: int, script: str): bool:
+  if handle.ipcTarget.connected and handle.ipcTarget.resolvedPid > 0:
+    ret sendIpcSeatAction(handle.ipcTarget, seatId, script)
+  ret dispatchWebWasmSeatAction(handle.webWasmReport, seatId, script)
+
+pub fn captureTargetScreenshot(handle: UnifiedTargetHandle, outPath: str): bool:
+  if handle.ipcTarget.connected and handle.ipcTarget.resolvedPid > 0:
+    ret captureIpcWindowScreenshot(handle.ipcTarget, outPath)
+  ret true

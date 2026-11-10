@@ -1,0 +1,33 @@
+module Ex159GfxGpuShaderWgslGlslViewerWindowTest
+
+import {
+  buildGpuShaderReflectionAudit,
+  stepShaderCompilation
+} from "../../examples/ex_159_gfx_gpu_shader_wgsl_glsl_viewer_window"
+import { createGpuDevice } from "../../std/gfx/gpu_device"
+import { compileShaderModule, reflectUniformBlock } from "../../std/gfx/gpu_shader"
+
+pub fn test_gfx_gpu_shader_wgsl_glsl_viewer(): void:
+  let dev = createGpuDevice(1)
+  let src = "@group(0) @binding(0) var<uniform> globals: Mat4; @vertex fn vs_main() -> @builtin(position) vec4<f32> {}"
+  let bindings = reflectUniformBlock(src)
+  assert(bindings.len() == 1, "reflectUniformBlock extracts 1 binding")
+  assert(bindings[0].name == "globals" and bindings[0].sizeBytes == 64, "binding globals sizeBytes == 64")
+
+  let vsMod = compileShaderModule(dev, 0, src, "vs_main")
+  let fsMod = compileShaderModule(dev, 1, "@fragment fn fs_main() -> @location(0) vec4<f32> {}", "fs_main")
+  assert(vsMod.shaderId == 1 and vsMod.entryPoint == "vs_main", "Vertex shader compiled")
+  assert(fsMod.shaderId == 1 and fsMod.stage == 1, "Fragment shader compiled")
+  let s0 = stepShaderCompilation(dev, 0)
+  let s1 = stepShaderCompilation(dev, 1)
+  let s20 = stepShaderCompilation(dev, 20)
+  let s100 = stepShaderCompilation(dev, 100)
+  assert(s0.stage == 0 and s0.entryPoint == "vs_main", "t=0 compiles vertex stage")
+  assert(s1.stage == 1 and s1.entryPoint == "fs_main", "t=1 compiles fragment stage")
+  assert(s20.stage != s1.stage and s100.stage != s20.stage, "stepShaderCompilation progresses across t=0, t=1, t=20, t=100")
+  assert(buildGpuShaderReflectionAudit() == 67, "buildGpuShaderReflectionAudit returns 64 + 1 + 1 + 1 == 67")
+
+pub fn main(): int:
+  test_gfx_gpu_shader_wgsl_glsl_viewer()
+  println("PASS: ex_159_gfx_gpu_shader_wgsl_glsl_viewer_window_test")
+  ret 0

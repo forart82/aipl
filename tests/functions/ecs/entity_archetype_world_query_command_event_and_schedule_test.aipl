@@ -1,0 +1,353 @@
+module tests.functions.ecs.entity_archetype_world_query_command_event_and_schedule_test
+
+import * from "std/ecs/archetype"
+import { EntityId } from "std/ecs/entity"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import * from "std/ecs/ecs_command"
+import { EcsWorld, spawnEntity, despawnEntity } from "std/ecs/ecs_world"
+import * from "std/ecs/ecs_event"
+import * from "std/ecs/ecs_query"
+import { ArchetypeTable } from "std/ecs/archetype"
+import { EcsWorld } from "std/ecs/ecs_world"
+import * from "std/ecs/ecs_schedule"
+import * from "std/ecs/ecs_world"
+import { EntityId, EntityPool, createEntityPool, allocateEntity, recycleEntity, isEntityAlive } from "std/ecs/entity"
+import { ArchetypeTable, createArchetypeTable, insertArchetypeRow, swapRemoveArchetypeRow } from "std/ecs/archetype"
+import * from "std/ecs/entity"
+
+pub fn test_archetype_createArchetypeTable_1(): int:
+  let arg_signatureMask = 4
+  let edge_signatureMask = 1
+  let arg_componentIds = [4]
+  let edge_componentIds = []
+  let resNom = createArchetypeTable(arg_signatureMask, arg_componentIds)
+  let resEdge = createArchetypeTable(edge_signatureMask, edge_componentIds)
+  assertEqInt(resNom.signatureMask, 4, "createArchetypeTable nominal resNom.signatureMask == 4")
+  assertEqInt(resEdge.signatureMask, 1, "createArchetypeTable boundary resEdge.signatureMask == 1")
+  ret 0
+
+pub fn test_archetype_insertArchetypeRow_2(): int:
+  let arg_table = ArchetypeTable(signatureMask = 4, entities = [], columns = [])
+  let edge_table = ArchetypeTable(signatureMask = 1, entities = [], columns = [])
+  let arg_entity = EntityId(index = 0, generation = 4)
+  let edge_entity = EntityId(index = 0, generation = 1)
+  let arg_initialValues = [1.0]
+  let edge_initialValues = []
+  let resNom = insertArchetypeRow(arg_table, arg_entity, arg_initialValues)
+  let resEdge = insertArchetypeRow(edge_table, edge_entity, edge_initialValues)
+  assertEqInt(resNom.signatureMask, 4, "insertArchetypeRow nominal resNom.signatureMask == 4")
+  assertEqInt(resEdge.signatureMask, 1, "insertArchetypeRow boundary resEdge.signatureMask == 1")
+  ret 0
+
+pub fn test_archetype_swapRemoveArchetypeRow_3(): int:
+  let arg_table = ArchetypeTable(signatureMask = 4, entities = [], columns = [])
+  let edge_table = ArchetypeTable(signatureMask = 1, entities = [], columns = [])
+  let arg_rowIndex = 4
+  let edge_rowIndex = 1
+  let resNom = swapRemoveArchetypeRow(arg_table, arg_rowIndex)
+  let resEdge = swapRemoveArchetypeRow(edge_table, edge_rowIndex)
+  assertEqInt(resNom.signatureMask, 4, "swapRemoveArchetypeRow nominal resNom.signatureMask == 4")
+  assertEqInt(resEdge.signatureMask, 1, "swapRemoveArchetypeRow boundary resEdge.signatureMask == 1")
+  ret 0
+
+pub fn test_archetype_migrateEntityBetweenArchetypes_4(): int:
+  let arg_src = ArchetypeTable(signatureMask = 4, entities = [], columns = [])
+  let edge_src = ArchetypeTable(signatureMask = 1, entities = [], columns = [])
+  let arg_dst = ArchetypeTable(signatureMask = 4, entities = [], columns = [])
+  let edge_dst = ArchetypeTable(signatureMask = 1, entities = [], columns = [])
+  let arg_rowIndex = 4
+  let edge_rowIndex = 1
+  let resNom = migrateEntityBetweenArchetypes(arg_src, arg_dst, arg_rowIndex)
+  let resEdge = migrateEntityBetweenArchetypes(edge_src, edge_dst, edge_rowIndex)
+  let (n_t0, n_t1, n_t2) = resNom
+  let (e_t0, e_t1, e_t2) = resEdge
+  assertEqInt(n_t0.signatureMask, 4, "migrateEntityBetweenArchetypes nominal n_t0.signatureMask == 4")
+  assertEqInt(e_t0.signatureMask, 1, "migrateEntityBetweenArchetypes boundary e_t0.signatureMask == 1")
+  ret 0
+
+pub fn test_ecs_command_createCommandBuffer_1(): int:
+  let resNom = createCommandBuffer()
+  let resEdge = createCommandBuffer()
+  assertEqInt(resNom.commands.len(), 0, "createCommandBuffer nominal resNom.commands.len() == 0")
+  assertEqInt(resEdge.commands.len(), 0, "createCommandBuffer boundary resEdge.commands.len() == 0")
+  ret 0
+
+pub fn test_ecs_command_recordSpawnCommand_2(): int:
+  let arg_buf = EcsCommandBuffer(commands = [])
+  let edge_buf = EcsCommandBuffer(commands = [])
+  let resNom = recordSpawnCommand(arg_buf)
+  let resEdge = recordSpawnCommand(edge_buf)
+  assertEqInt(resNom.commands.len(), 1, "recordSpawnCommand nominal resNom.commands.len() == 1")
+  assertEqInt(resEdge.commands.len(), 1, "recordSpawnCommand boundary resEdge.commands.len() == 1")
+  ret 0
+
+pub fn test_ecs_command_recordDespawnCommand_3(): int:
+  let arg_buf = EcsCommandBuffer(commands = [])
+  let edge_buf = EcsCommandBuffer(commands = [])
+  let arg_entity = EntityId(index = 0, generation = 4)
+  let edge_entity = EntityId(index = 0, generation = 1)
+  let resNom = recordDespawnCommand(arg_buf, arg_entity)
+  let resEdge = recordDespawnCommand(edge_buf, edge_entity)
+  assertEqInt(resNom.commands.len(), 1, "recordDespawnCommand nominal resNom.commands.len() == 1")
+  assertEqInt(resEdge.commands.len(), 1, "recordDespawnCommand boundary resEdge.commands.len() == 1")
+  ret 0
+
+pub fn test_ecs_command_flushCommandBuffer_4(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_buf = EcsCommandBuffer(commands = [])
+  let edge_buf = EcsCommandBuffer(commands = [])
+  let resNom = flushCommandBuffer(arg_world, arg_buf)
+  let resEdge = flushCommandBuffer(edge_world, edge_buf)
+  assertEqInt(resNom.archetypes.len(), 0, "flushCommandBuffer nominal resNom.archetypes.len() == 0")
+  assertEqInt(resEdge.archetypes.len(), 0, "flushCommandBuffer boundary resEdge.archetypes.len() == 0")
+  ret 0
+
+pub fn test_ecs_event_createEventBus_1(): int:
+  let resNom = createEventBus()
+  let resEdge = createEventBus()
+  assertEqInt(resNom.currentQueue.len(), 0, "createEventBus nominal resNom.currentQueue.len() == 0")
+  assertEqInt(resEdge.currentQueue.len(), 0, "createEventBus boundary resEdge.currentQueue.len() == 0")
+  ret 0
+
+pub fn test_ecs_event_publishEvent_2(): int:
+  let arg_bus = EventBus(currentQueue = [], previousQueue = [])
+  let edge_bus = EventBus(currentQueue = [], previousQueue = [])
+  let arg_ev = EventEnvelope(eventTypeId = 4, sourceEntityIndex = 4, payloadA = 0.0, payloadB = 0.0)
+  let edge_ev = EventEnvelope(eventTypeId = 1, sourceEntityIndex = 1, payloadA = 0.0, payloadB = 0.0)
+  let resNom = publishEvent(arg_bus, arg_ev)
+  let resEdge = publishEvent(edge_bus, edge_ev)
+  assertEqInt(resNom.currentQueue.len(), 1, "publishEvent nominal resNom.currentQueue.len() == 1")
+  assertEqInt(resEdge.currentQueue.len(), 1, "publishEvent boundary resEdge.currentQueue.len() == 1")
+  ret 0
+
+pub fn test_ecs_event_swapEventBuffers_3(): int:
+  let arg_bus = EventBus(currentQueue = [], previousQueue = [])
+  let edge_bus = EventBus(currentQueue = [], previousQueue = [])
+  let resNom = swapEventBuffers(arg_bus)
+  let resEdge = swapEventBuffers(edge_bus)
+  assertEqInt(resNom.currentQueue.len(), 0, "swapEventBuffers nominal resNom.currentQueue.len() == 0")
+  assertEqInt(resEdge.currentQueue.len(), 0, "swapEventBuffers boundary resEdge.currentQueue.len() == 0")
+  ret 0
+
+pub fn test_ecs_event_readNewEvents_4(): int:
+  let arg_bus = EventBus(currentQueue = [], previousQueue = [])
+  let edge_bus = EventBus(currentQueue = [], previousQueue = [])
+  let arg_reader = EventReader(readCursorPrev = 2, readCursorCurr = 2)
+  let edge_reader = EventReader(readCursorPrev = 0, readCursorCurr = 0)
+  let arg_eventTypeId = 4
+  let edge_eventTypeId = 1
+  let resNom = readNewEvents(arg_bus, arg_reader, arg_eventTypeId)
+  let resEdge = readNewEvents(edge_bus, edge_reader, edge_eventTypeId)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.len(), 0, "readNewEvents nominal n_t0.len() == 0")
+  assertEqInt(e_t0.len(), 0, "readNewEvents boundary e_t0.len() == 0")
+  ret 0
+
+pub fn test_ecs_query_matchesQueryFilter_1(): int:
+  let arg_archetypeMask = 4
+  let edge_archetypeMask = 1
+  let arg_filter = QueryFilter(withMask = 4, withoutMask = 4)
+  let edge_filter = QueryFilter(withMask = 1, withoutMask = 1)
+  let resNom = matchesQueryFilter(arg_archetypeMask, arg_filter)
+  let resEdge = matchesQueryFilter(edge_archetypeMask, edge_filter)
+  assert(resNom == false, "matchesQueryFilter nominal resNom == false")
+  assert(resEdge == false, "matchesQueryFilter boundary resEdge == false")
+  ret 0
+
+pub fn test_ecs_query_findMatchingArchetypes_2(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_filter = QueryFilter(withMask = 4, withoutMask = 4)
+  let edge_filter = QueryFilter(withMask = 1, withoutMask = 1)
+  let resNom = findMatchingArchetypes(arg_world, arg_filter)
+  let resEdge = findMatchingArchetypes(edge_world, edge_filter)
+  assertEqInt(resNom.len(), 0, "findMatchingArchetypes nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "findMatchingArchetypes boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ecs_query_queryEntities_3(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_filter = QueryFilter(withMask = 4, withoutMask = 4)
+  let edge_filter = QueryFilter(withMask = 1, withoutMask = 1)
+  let resNom = queryEntities(arg_world, arg_filter)
+  let resEdge = queryEntities(edge_world, edge_filter)
+  assertEqInt(resNom.len(), 0, "queryEntities nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "queryEntities boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ecs_schedule_systemsConflict_1(): int:
+  let arg_a = SystemDescriptor(systemId = 4, stage = 2, readComponentMask = 4, writeComponentMask = 4, priority = 1)
+  let edge_a = SystemDescriptor(systemId = 1, stage = 0, readComponentMask = 1, writeComponentMask = 1, priority = 0)
+  let arg_b = SystemDescriptor(systemId = 4, stage = 2, readComponentMask = 4, writeComponentMask = 4, priority = 1)
+  let edge_b = SystemDescriptor(systemId = 1, stage = 0, readComponentMask = 1, writeComponentMask = 1, priority = 0)
+  let resNom = systemsConflict(arg_a, arg_b)
+  let resEdge = systemsConflict(edge_a, edge_b)
+  assert(resNom == true, "systemsConflict nominal resNom == true")
+  assert(resEdge == true, "systemsConflict boundary resEdge == true")
+  ret 0
+
+pub fn test_ecs_schedule_sortSystemsByPriority_2(): int:
+  let arg_systems = [SystemDescriptor(systemId = 4, stage = 2, readComponentMask = 4, writeComponentMask = 4, priority = 1)]
+  let edge_systems = []
+  let arg_stage = 2
+  let edge_stage = 0
+  let resNom = sortSystemsByPriority(arg_systems, arg_stage)
+  let resEdge = sortSystemsByPriority(edge_systems, edge_stage)
+  assertEqInt(resNom.len(), 1, "sortSystemsByPriority nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "sortSystemsByPriority boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ecs_schedule_buildParallelBatches_3(): int:
+  let arg_sortedSystems = [SystemDescriptor(systemId = 4, stage = 2, readComponentMask = 4, writeComponentMask = 4, priority = 1)]
+  let edge_sortedSystems = []
+  let resNom = buildParallelBatches(arg_sortedSystems)
+  let resEdge = buildParallelBatches(edge_sortedSystems)
+  assertEqInt(resNom.len(), 1, "buildParallelBatches nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "buildParallelBatches boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ecs_world_createEcsWorld_1(): int:
+  let resNom = createEcsWorld()
+  let resEdge = createEcsWorld()
+  assertEqInt(resNom.archetypes.len(), 1, "createEcsWorld nominal resNom.archetypes.len() == 1")
+  assertEqInt(resEdge.archetypes.len(), 1, "createEcsWorld boundary resEdge.archetypes.len() == 1")
+  ret 0
+
+pub fn test_ecs_world_spawnEntity_2(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let resNom = spawnEntity(arg_world)
+  let resEdge = spawnEntity(edge_world)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.archetypes.len(), 0, "spawnEntity nominal n_t0.archetypes.len() == 0")
+  assertEqInt(e_t0.archetypes.len(), 0, "spawnEntity boundary e_t0.archetypes.len() == 0")
+  ret 0
+
+pub fn test_ecs_world_despawnEntity_3(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_entity = EntityId(index = 0, generation = 4)
+  let edge_entity = EntityId(index = 0, generation = 1)
+  let resNom = despawnEntity(arg_world, arg_entity)
+  let resEdge = despawnEntity(edge_world, edge_entity)
+  assertEqInt(resNom.archetypes.len(), 0, "despawnEntity nominal resNom.archetypes.len() == 0")
+  assertEqInt(resEdge.archetypes.len(), 0, "despawnEntity boundary resEdge.archetypes.len() == 0")
+  ret 0
+
+pub fn test_ecs_world_setWorldResource_4(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_resourceId = 1
+  let edge_resourceId = 0
+  let arg_value = 1.0
+  let edge_value = 0.5
+  let resNom = setWorldResource(arg_world, arg_resourceId, arg_value)
+  let resEdge = setWorldResource(edge_world, edge_resourceId, edge_value)
+  assertEqInt(resNom.archetypes.len(), 0, "setWorldResource nominal resNom.archetypes.len() == 0")
+  assertEqInt(resEdge.archetypes.len(), 0, "setWorldResource boundary resEdge.archetypes.len() == 0")
+  ret 0
+
+pub fn test_ecs_world_getWorldResource_5(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_resourceId = 1
+  let edge_resourceId = 0
+  let resNom = getWorldResource(arg_world, arg_resourceId)
+  let resEdge = getWorldResource(edge_world, edge_resourceId)
+  assert(resNom.isSome() == false, "getWorldResource nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "getWorldResource boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_entity_createEntityPool_1(): int:
+  let resNom = createEntityPool()
+  let resEdge = createEntityPool()
+  assertEqInt(resNom.generations.len(), 0, "createEntityPool nominal resNom.generations.len() == 0")
+  assertEqInt(resEdge.generations.len(), 0, "createEntityPool boundary resEdge.generations.len() == 0")
+  ret 0
+
+pub fn test_entity_allocateEntity_2(): int:
+  let arg_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let edge_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let resNom = allocateEntity(arg_pool)
+  let resEdge = allocateEntity(edge_pool)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.generations.len(), 1, "allocateEntity nominal n_t0.generations.len() == 1")
+  assertEqInt(e_t0.generations.len(), 1, "allocateEntity boundary e_t0.generations.len() == 1")
+  ret 0
+
+pub fn test_entity_recycleEntity_3(): int:
+  let arg_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let edge_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let arg_id = EntityId(index = 0, generation = 4)
+  let edge_id = EntityId(index = 0, generation = 1)
+  let resNom = recycleEntity(arg_pool, arg_id)
+  let resEdge = recycleEntity(edge_pool, edge_id)
+  assertEqInt(resNom.generations.len(), 0, "recycleEntity nominal resNom.generations.len() == 0")
+  assertEqInt(resEdge.generations.len(), 0, "recycleEntity boundary resEdge.generations.len() == 0")
+  ret 0
+
+pub fn test_entity_isEntityAlive_4(): int:
+  let arg_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let edge_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let arg_id = EntityId(index = 0, generation = 4)
+  let edge_id = EntityId(index = 0, generation = 1)
+  let resNom = isEntityAlive(arg_pool, arg_id)
+  let resEdge = isEntityAlive(edge_pool, edge_id)
+  assert(resNom == false, "isEntityAlive nominal resNom == false")
+  assert(resEdge == false, "isEntityAlive boundary resEdge == false")
+  ret 0
+
+pub fn test_entity_packEntityU64_5(): int:
+  let arg_id = EntityId(index = 0, generation = 4)
+  let edge_id = EntityId(index = 0, generation = 1)
+  let resNom = packEntityU64(arg_id)
+  let resEdge = packEntityU64(edge_id)
+  assertEqInt(resNom, 17179869184, "packEntityU64 nominal resNom == 17179869184")
+  assertEqInt(resEdge, 4294967296, "packEntityU64 boundary resEdge == 4294967296")
+  ret 0
+
+pub fn test_entity_unpackEntityU64_6(): int:
+  let arg_packed = 4
+  let edge_packed = 1
+  let resNom = unpackEntityU64(arg_packed)
+  let resEdge = unpackEntityU64(edge_packed)
+  assertEqInt(resNom.index, 4, "unpackEntityU64 nominal resNom.index == 4")
+  assertEqInt(resEdge.index, 1, "unpackEntityU64 boundary resEdge.index == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_archetype_createArchetypeTable_1(), 0, "test_archetype_createArchetypeTable_1")
+  assertEqInt(test_archetype_insertArchetypeRow_2(), 0, "test_archetype_insertArchetypeRow_2")
+  assertEqInt(test_archetype_swapRemoveArchetypeRow_3(), 0, "test_archetype_swapRemoveArchetypeRow_3")
+  assertEqInt(test_archetype_migrateEntityBetweenArchetypes_4(), 0, "test_archetype_migrateEntityBetweenArchetypes_4")
+  assertEqInt(test_ecs_command_createCommandBuffer_1(), 0, "test_ecs_command_createCommandBuffer_1")
+  assertEqInt(test_ecs_command_recordSpawnCommand_2(), 0, "test_ecs_command_recordSpawnCommand_2")
+  assertEqInt(test_ecs_command_recordDespawnCommand_3(), 0, "test_ecs_command_recordDespawnCommand_3")
+  assertEqInt(test_ecs_command_flushCommandBuffer_4(), 0, "test_ecs_command_flushCommandBuffer_4")
+  assertEqInt(test_ecs_event_createEventBus_1(), 0, "test_ecs_event_createEventBus_1")
+  assertEqInt(test_ecs_event_publishEvent_2(), 0, "test_ecs_event_publishEvent_2")
+  assertEqInt(test_ecs_event_swapEventBuffers_3(), 0, "test_ecs_event_swapEventBuffers_3")
+  assertEqInt(test_ecs_event_readNewEvents_4(), 0, "test_ecs_event_readNewEvents_4")
+  assertEqInt(test_ecs_query_matchesQueryFilter_1(), 0, "test_ecs_query_matchesQueryFilter_1")
+  assertEqInt(test_ecs_query_findMatchingArchetypes_2(), 0, "test_ecs_query_findMatchingArchetypes_2")
+  assertEqInt(test_ecs_query_queryEntities_3(), 0, "test_ecs_query_queryEntities_3")
+  assertEqInt(test_ecs_schedule_systemsConflict_1(), 0, "test_ecs_schedule_systemsConflict_1")
+  assertEqInt(test_ecs_schedule_sortSystemsByPriority_2(), 0, "test_ecs_schedule_sortSystemsByPriority_2")
+  assertEqInt(test_ecs_schedule_buildParallelBatches_3(), 0, "test_ecs_schedule_buildParallelBatches_3")
+  assertEqInt(test_ecs_world_createEcsWorld_1(), 0, "test_ecs_world_createEcsWorld_1")
+  assertEqInt(test_ecs_world_spawnEntity_2(), 0, "test_ecs_world_spawnEntity_2")
+  assertEqInt(test_ecs_world_despawnEntity_3(), 0, "test_ecs_world_despawnEntity_3")
+  assertEqInt(test_ecs_world_setWorldResource_4(), 0, "test_ecs_world_setWorldResource_4")
+  assertEqInt(test_ecs_world_getWorldResource_5(), 0, "test_ecs_world_getWorldResource_5")
+  assertEqInt(test_entity_createEntityPool_1(), 0, "test_entity_createEntityPool_1")
+  assertEqInt(test_entity_allocateEntity_2(), 0, "test_entity_allocateEntity_2")
+  assertEqInt(test_entity_recycleEntity_3(), 0, "test_entity_recycleEntity_3")
+  assertEqInt(test_entity_isEntityAlive_4(), 0, "test_entity_isEntityAlive_4")
+  assertEqInt(test_entity_packEntityU64_5(), 0, "test_entity_packEntityU64_5")
+  assertEqInt(test_entity_unpackEntityU64_6(), 0, "test_entity_unpackEntityU64_6")
+  ret 0

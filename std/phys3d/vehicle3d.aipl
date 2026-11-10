@@ -1,0 +1,88 @@
+/// # Module: `std/phys3d/vehicle3d` (`Vehicle3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Raycast-based 3D vehicle dynamics with suspension spring/dampers,
+/// steering angles, and drive/brake force application.
+module Vehicle3DMod
+
+import { maxFloat } from "std/math/consts"
+import { Vec3 } from "std/math/vec_math"
+import { RigidBody3D, rigidBody3dApplyForceAtPoint } from "std/phys3d/rigid_body3d"
+import { PhysicsWorld3D } from "std/phys3d/phys_world3d"
+
+pub struct RaycastWheel3D(connectionPoint: Vec3, direction: Vec3, axle: Vec3, suspensionRestLength: float, currentSuspensionLength: float, springStiffness: float, dampingCompression: float, dampingRelaxation: float, wheelRadius: float, steeringAngle: float, driveTorque: float, brakeTorque: float, isGrounded: bool, contactPoint: Vec3, contactNormal: Vec3)
+
+pub struct RaycastVehicle3D(chassisBodyId: int, wheels: [RaycastWheel3D])
+
+pub fn raycastVehicleNew(chassisBodyId: int): RaycastVehicle3D:
+  mut ws: [RaycastWheel3D] = []
+  ret RaycastVehicle3D(chassisBodyId = chassisBodyId, wheels = ws)
+
+pub fn vehicleAddWheel(mut vehicle: RaycastVehicle3D, wheel: RaycastWheel3D): int:
+  mut ws = vehicle.wheels
+  let idx = ws.len
+  ws.push(wheel)
+  vehicle.wheels = ws
+  ret idx
+
+pub fn vehicleStepSimulation(mut vehicle: RaycastVehicle3D, mut world: PhysicsWorld3D, dt: float): void:
+  let cid = vehicle.chassisBodyId
+  if cid < 0 or cid >= world.bodies.len:
+    ret
+
+  mut bds = world.bodies
+  mut chassis: RigidBody3D = bds[cid]
+  mut ws = vehicle.wheels
+
+  mut i = 0
+  while i < ws.len:
+    let w: RaycastWheel3D = ws[i]
+    let worldAttach: Vec3 = chassis.position.add(w.connectionPoint)
+    let groundY = 0.0
+    let distToGround = worldAttach.y - groundY - w.wheelRadius
+    if distToGround <= w.suspensionRestLength:
+      let curLen = maxFloat(0.0, distToGround)
+      let compression = w.suspensionRestLength - curLen
+      let springForceMag = compression * w.springStiffness
+      let upForce = Vec3(x = 0.0, y = springForceMag * dt, z = w.driveTorque * dt)
+      rigidBody3dApplyForceAtPoint(chassis, upForce, worldAttach)
+      ws[i] = RaycastWheel3D(
+        connectionPoint = w.connectionPoint,
+        direction = w.direction,
+        axle = w.axle,
+        suspensionRestLength = w.suspensionRestLength,
+        currentSuspensionLength = curLen,
+        springStiffness = w.springStiffness,
+        dampingCompression = w.dampingCompression,
+        dampingRelaxation = w.dampingRelaxation,
+        wheelRadius = w.wheelRadius,
+        steeringAngle = w.steeringAngle,
+        driveTorque = w.driveTorque,
+        brakeTorque = w.brakeTorque,
+        isGrounded = true,
+        contactPoint = Vec3(x = worldAttach.x, y = groundY, z = worldAttach.z),
+        contactNormal = Vec3(x = 0.0, y = 1.0, z = 0.0)
+      )
+    else:
+      ws[i] = RaycastWheel3D(
+        connectionPoint = w.connectionPoint,
+        direction = w.direction,
+        axle = w.axle,
+        suspensionRestLength = w.suspensionRestLength,
+        currentSuspensionLength = w.suspensionRestLength,
+        springStiffness = w.springStiffness,
+        dampingCompression = w.dampingCompression,
+        dampingRelaxation = w.dampingRelaxation,
+        wheelRadius = w.wheelRadius,
+        steeringAngle = w.steeringAngle,
+        driveTorque = w.driveTorque,
+        brakeTorque = w.brakeTorque,
+        isGrounded = false,
+        contactPoint = worldAttach,
+        contactNormal = Vec3(x = 0.0, y = 1.0, z = 0.0)
+      )
+    i = i + 1
+
+  vehicle.wheels = ws
+  bds[cid] = chassis
+  world.bodies = bds

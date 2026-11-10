@@ -1,0 +1,42 @@
+module Ex215SpatialWaypointGraphWorldWindowTest
+
+import {
+  buildSpatialWaypointGraphAudit, stepWaypointRoutePreset, stepTravelerSegmentT
+} from "../../examples/ex_215_spatial_waypoint_graph_world_window"
+import { Vec3 } from "../../std/math/vec_math"
+import {
+  waypointGraphWorldNew, waypointAddNode, waypointAddEdge,
+  waypointShortestPathDijkstra, waypointNodesInRadius
+} from "../../std/spatial/waypoint_graph_world"
+
+pub fn test_spatial_waypoint_graph_world(): void:
+  mut wgw = waypointGraphWorldNew()
+  waypointAddNode(wgw, 1, "Alpha", Vec3(x = 0.0, y = 0.0, z = 0.0))
+  waypointAddNode(wgw, 2, "Beta", Vec3(x = 10.0, y = 0.0, z = 0.0))
+  waypointAddNode(wgw, 3, "Gamma", Vec3(x = 25.0, y = 0.0, z = 0.0))
+  waypointAddEdge(wgw, 1, 2, 10.0, true)
+  waypointAddEdge(wgw, 2, 3, 15.0, true)
+
+  let pathOpt = waypointShortestPathDijkstra(wgw, 1, 3)
+  let path = pathOpt.unwrap()
+  assert(path.len() == 3 and path[0] == 1 and path[1] == 2 and path[2] == 3, "Dijkstra shortest path 1 -> 2 -> 3")
+
+  let radNodes = waypointNodesInRadius(wgw, Vec3(x = 0.0, y = 0.0, z = 0.0), 12.0)
+  assert(radNodes.len() == 2, "Nodes 1 and 2 lie within radius 12")
+  assert(buildSpatialWaypointGraphAudit() == 11, "buildSpatialWaypointGraphAudit returns 3 + 1 + 2 + 3 + 2 == 11")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let t0 = stepTravelerSegmentT(0)
+  let t1 = stepTravelerSegmentT(1)
+  let t20 = stepTravelerSegmentT(20)
+  let t100 = stepTravelerSegmentT(100)
+  assert(t0 != t1 and t1 != t20 and t20 != t100, "traveler segment T progresses across t=0,1,20,100")
+
+  let r0 = stepWaypointRoutePreset(0)
+  let r20 = stepWaypointRoutePreset(20)
+  assert(r0 != r20, "route preset switches between t=0 and t=20")
+
+pub fn main(): int:
+  test_spatial_waypoint_graph_world()
+  println("PASS: ex_215_spatial_waypoint_graph_world_window_test")
+  ret 0

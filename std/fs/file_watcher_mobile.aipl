@@ -1,0 +1,45 @@
+/// # Module: `std/fs/file_watcher_mobile` (`FsFileWatcherMobile`)
+///
+/// ## Purpose & Domain Scope
+/// Smartphone `.aipl` File Watcher (`MobileAiplWatcher`, SHA-256 Polling, SAF & 50ms Debounce)
+/// for local file modifications on Android devices.
+module FsFileWatcherMobile
+
+import { sha256Str } from "std/crypto/hash"
+
+pub const FILE_OBSERVER_CLOSE_WRITE: int = 8
+pub const FILE_OBSERVER_MOVED_TO: int = 128
+pub const FILE_OBSERVER_ATTRIB: int = 4
+
+pub struct MobileAiplWatcher(debounceMs: int, lastTriggerTimeMs: int, reloadCount: int, watchedDigests: Map[str, str])
+
+pub fn createMobileAiplWatcher(debounceMs: int = 50): MobileAiplWatcher requires debounceMs >= -1000 ensures result.debounceMs >= 10 and result.reloadCount == 0:
+  let safeDebounce = if debounceMs >= 10: debounceMs else: 50
+  mut d: Map[str, str] = Map.new()
+  ret MobileAiplWatcher(debounceMs = safeDebounce, lastTriggerTimeMs = -1000, reloadCount = 0, watchedDigests = d)
+
+pub fn pollMobileFileSha256Change(prevSha256Hex: str, currentSource: str): (bool, str) requires prevSha256Hex.len() >= 0 and currentSource.len() >= 0 ensures result[1].len() == 64:
+  if currentSource.len() == 0:
+    let fallback = if prevSha256Hex.len() == 64: prevSha256Hex else: sha256Str("")
+    ret (false, fallback)
+  let digest = sha256Str(currentSource)
+  let changed = digest != prevSha256Hex
+  ret (changed, digest)
+
+pub fn handleAndroidSafOrFileObserverEvent(uriOrPath: str, eventMask: int, nowMs: int, lastTriggerMs: int, debounceMs: int): bool requires debounceMs >= 10 ensures not result or (nowMs - lastTriggerMs >= debounceMs):
+  let isAiplUri = uriOrPath.endsWith(".aipl") or uriOrPath.startsWith("content://")
+  if not isAiplUri:
+    ret false
+  let maskHit = (eventMask & (FILE_OBSERVER_CLOSE_WRITE | FILE_OBSERVER_MOVED_TO)) != 0
+  if not maskHit:
+    ret false
+  ret (nowMs - lastTriggerMs) >= debounceMs
+
+pub fn commitWatchedFileUpdate(mut watchedDigests: Map[str, str], uri: str, newSource: str, nowMs: int, lastTriggerMs: int, debounceMs: int, prevReloadCount: int): (Map[str, str], int, int, bool) requires debounceMs >= 10 and prevReloadCount >= 0 ensures result[2] >= prevReloadCount:
+  if uri.len() == 0 or newSource.len() == 0 or (nowMs - lastTriggerMs) < debounceMs:
+    ret (watchedDigests, lastTriggerMs, prevReloadCount, false)
+  let newHash = sha256Str(newSource)
+  if watchedDigests.containsKey(uri) and watchedDigests.get(uri).unwrap() == newHash:
+    ret (watchedDigests, lastTriggerMs, prevReloadCount, false)
+  watchedDigests.set(uri, newHash)
+  ret (watchedDigests, nowMs, prevReloadCount + 1, true)

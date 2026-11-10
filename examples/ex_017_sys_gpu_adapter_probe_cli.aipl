@@ -1,0 +1,70 @@
+// ============================================================================
+// Example 017: Low-Level GPU Context, Buffer Upload & Swapchain CLI
+// Demonstrates: sysGpuInitContext, sysGpuCreateBuffer, sysGpuUploadBuffer,
+//               sysGpuSwapBuffers, sysGpuDestroyBuffer, and
+//               sysGpuDestroyContext from std/sys/sys_gpu.
+// ============================================================================
+module Ex017SysGpuAdapterProbeCli
+
+import { maxInt } from "../std/prelude"
+import { sysPtrAlloc, sysPtrFree } from "../std/sys/sys_mem"
+import {
+  sysGpuInitContext,
+  sysGpuDestroyContext,
+  sysGpuCreateBuffer,
+  sysGpuUploadBuffer,
+  sysGpuDestroyBuffer,
+  sysGpuSwapBuffers
+} from "../std/sys/sys_gpu"
+
+pub struct GpuAdapterReport:
+  contextHandle: int
+  bufferHandle: int
+  uploadedBytes: int
+  backendTag: str
+
+pub fn alignUniformBufferBytes(rawBytes: int): int:
+  let n = maxInt(rawBytes, 1)
+  ret ((n + 255) / 256) * 256
+
+pub fn uploadVertexPayloadToGpu(payloadBytes: int): int:
+  let ctx = sysGpuInitContext(1, 0)
+  let buf = sysGpuCreateBuffer(ctx, payloadBytes, 1)
+  let hostPtr = sysPtrAlloc(payloadBytes)
+  let uploaded = sysGpuUploadBuffer(ctx, buf, 0, hostPtr, payloadBytes)
+  sysGpuSwapBuffers(ctx)
+  sysGpuDestroyBuffer(ctx, buf)
+  sysGpuDestroyContext(ctx)
+  sysPtrFree(hostPtr)
+  ret uploaded
+
+pub fn describeGpuBackendId(backendId: int): str:
+  if backendId == 1:
+    ret "GPU:VULKAN_WEBGPU"
+  elif backendId == 2:
+    ret "GPU:OPENGL_ES3"
+  else:
+    ret "GPU:SOFTWARE_RASTER"
+
+pub fn buildGpuAdapterReport(backendId: int, rawBytes: int): GpuAdapterReport:
+  let aligned = alignUniformBufferBytes(rawBytes)
+  let ctx = sysGpuInitContext(backendId, 0)
+  let buf = sysGpuCreateBuffer(ctx, aligned, 1)
+  let hostPtr = sysPtrAlloc(aligned)
+  let uploaded = sysGpuUploadBuffer(ctx, buf, 0, hostPtr, aligned)
+  sysGpuSwapBuffers(ctx)
+  sysGpuDestroyBuffer(ctx, buf)
+  sysGpuDestroyContext(ctx)
+  sysPtrFree(hostPtr)
+  ret GpuAdapterReport(
+    contextHandle = ctx,
+    bufferHandle = buf,
+    uploadedBytes = uploaded,
+    backendTag = describeGpuBackendId(backendId)
+  )
+
+pub fn main(): int:
+  let rep = buildGpuAdapterReport(1, 200)
+  println("[ex_017_sys_gpu_adapter_probe_cli] GpuAdapterReport(ctx=" + str(rep.contextHandle) + ", buf=" + str(rep.bufferHandle) + ", uploaded=" + str(rep.uploadedBytes) + ")")
+  println("[ex_017_sys_gpu_adapter_probe_cli] backend=" + rep.backendTag)
+  ret 0

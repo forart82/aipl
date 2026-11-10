@@ -1,0 +1,148 @@
+/// # Module: `std/sync/channel` (`SyncChannel`)
+///
+/// ## Purpose & Domain Scope
+/// Bounded multi-producer single-consumer ring channels (`MpscChannel`), lock-free
+/// single-producer single-consumer ring channels (`SpscRingChannel`), and multi-subscriber
+/// event broadcast buses (`BroadcastChannel`).
+module SyncChannel
+
+pub struct ChannelError:
+  kind: int
+  message: str
+
+pub struct MpscChannel:
+  capacity: int
+  mut buffer: [int]
+  mut head: int
+  mut tail: int
+  mut count: int
+  mut closed: bool
+
+pub struct SpscRingChannel:
+  capacity: int
+  mut buffer: [int]
+  mut readPos: int
+  mut writePos: int
+  mut closed: bool
+
+pub struct BroadcastChannel:
+  capacity: int
+  mut messages: [int]
+  mut subscriberPositions: [int]
+  mut closed: bool
+
+pub fn mpscChannelNew(capacity: int): MpscChannel:
+  mut cap = capacity
+  if cap <= 0:
+    cap = 16
+  mut buf: [int] = []
+  mut i = 0
+  while i < cap:
+    buf.push(0)
+    i = i + 1
+  ret MpscChannel(capacity: cap, buffer: buf, head: 0, tail: 0, count: 0, closed: false)
+
+pub fn mpscTrySend(mut ch: MpscChannel, val: int): Result[bool, ChannelError]:
+  if ch.closed:
+    ret Err(ChannelError(kind: 3, message: "mpscTrySend: channel is closed"))
+  if ch.count >= ch.capacity:
+    ret Err(ChannelError(kind: 1, message: "mpscTrySend: channel is full"))
+  ch.buffer[ch.tail] = val
+  ch.tail = (ch.tail + 1) % ch.capacity
+  ch.count = ch.count + 1
+  ret Ok(true)
+
+pub fn mpscSend(mut ch: MpscChannel, val: int): Result[bool, ChannelError]:
+  ret mpscTrySend(ch, val)
+
+pub fn mpscTryRecv(mut ch: MpscChannel): Result[int, ChannelError]:
+  if ch.count == 0:
+    if ch.closed:
+      ret Err(ChannelError(kind: 3, message: "mpscTryRecv: channel is closed and empty"))
+    ret Err(ChannelError(kind: 2, message: "mpscTryRecv: channel is empty"))
+  let v = ch.buffer[ch.head]
+  ch.head = (ch.head + 1) % ch.capacity
+  ch.count = ch.count - 1
+  ret Ok(v)
+
+pub fn mpscRecv(mut ch: MpscChannel): Result[int, ChannelError]:
+  ret mpscTryRecv(ch)
+
+pub fn mpscClose(mut ch: MpscChannel): bool:
+  if ch.closed:
+    ret false
+  ch.closed = true
+  ret true
+
+pub fn mpscIsClosed(ch: MpscChannel): bool:
+  ret ch.closed
+
+pub fn mpscLen(ch: MpscChannel): int:
+  ret ch.count
+
+pub fn mpscCapacity(ch: MpscChannel): int:
+  ret ch.capacity
+
+pub fn spscChannelNew(capacity: int): SpscRingChannel:
+  mut cap = capacity
+  if cap <= 0:
+    cap = 16
+  mut buf: [int] = []
+  mut i = 0
+  while i < cap:
+    buf.push(0)
+    i = i + 1
+  ret SpscRingChannel(capacity: cap, buffer: buf, readPos: 0, writePos: 0, closed: false)
+
+pub fn spscTrySend(mut ch: SpscRingChannel, val: int): Result[bool, ChannelError]:
+  if ch.closed:
+    ret Err(ChannelError(kind: 3, message: "spscTrySend: channel is closed"))
+  if (ch.writePos - ch.readPos) >= ch.capacity:
+    ret Err(ChannelError(kind: 1, message: "spscTrySend: ring buffer is full"))
+  let slot = ch.writePos % ch.capacity
+  ch.buffer[slot] = val
+  ch.writePos = ch.writePos + 1
+  ret Ok(true)
+
+pub fn spscSend(mut ch: SpscRingChannel, val: int): Result[bool, ChannelError]:
+  ret spscTrySend(ch, val)
+
+pub fn spscTryRecv(mut ch: SpscRingChannel): Result[int, ChannelError]:
+  if ch.readPos >= ch.writePos:
+    if ch.closed:
+      ret Err(ChannelError(kind: 3, message: "spscTryRecv: channel is closed and empty"))
+    ret Err(ChannelError(kind: 2, message: "spscTryRecv: ring buffer is empty"))
+  let slot = ch.readPos % ch.capacity
+  let v = ch.buffer[slot]
+  ch.readPos = ch.readPos + 1
+  ret Ok(v)
+
+pub fn spscRecv(mut ch: SpscRingChannel): Result[int, ChannelError]:
+  ret spscTryRecv(ch)
+
+pub fn broadcastChannelNew(capacity: int): BroadcastChannel:
+  mut cap = capacity
+  if cap <= 0:
+    cap = 32
+  ret BroadcastChannel(capacity: cap, messages: [], subscriberPositions: [], closed: false)
+
+pub fn broadcastSubscribe(mut ch: BroadcastChannel): int:
+  let subId = ch.subscriberPositions.len()
+  ch.subscriberPositions.push(ch.messages.len())
+  ret subId
+
+pub fn broadcastSend(mut ch: BroadcastChannel, val: int): Result[int, ChannelError]:
+  if ch.closed:
+    ret Err(ChannelError(kind: 3, message: "broadcastSend: channel is closed"))
+  ch.messages.push(val)
+  ret Ok(ch.subscriberPositions.len())
+
+pub fn broadcastRecv(mut ch: BroadcastChannel, subscriberId: int): Result[int, ChannelError]:
+  if subscriberId < 0 or subscriberId >= ch.subscriberPositions.len():
+    ret Err(ChannelError(kind: 2, message: "broadcastRecv: invalid subscriber ID"))
+  let pos = ch.subscriberPositions[subscriberId]
+  if pos >= ch.messages.len():
+    ret Err(ChannelError(kind: 2, message: "broadcastRecv: no new messages for subscriber"))
+  let v = ch.messages[pos]
+  ch.subscriberPositions[subscriberId] = pos + 1
+  ret Ok(v)

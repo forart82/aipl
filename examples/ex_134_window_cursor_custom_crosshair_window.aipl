@@ -1,0 +1,143 @@
+// ============================================================================
+// Canonical Example 134: Custom Crosshair & Locked Cursor State Machine (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/window/cursor
+// ============================================================================
+module Ex134WindowCursorCustomCrosshairWindow
+
+import {
+  CursorState,
+  createCursorState,
+  setCursorShape,
+  setCursorMode,
+  updateCursorPosition,
+  isCursorLocked,
+  CURSOR_SHAPE_CROSSHAIR,
+  CURSOR_MODE_LOCKED,
+  CURSOR_MODE_NORMAL
+} from "../std/window/cursor"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+import { clampInt } from "../std/prelude"
+
+pub fn verifyCursorCrosshairAndLockState(): int:
+  mut cursor = createCursorState()
+  assert(not isCursorLocked(cursor), "initially unlocked")
+  cursor = setCursorShape(cursor, CURSOR_SHAPE_CROSSHAIR)
+  cursor = setCursorMode(cursor, CURSOR_MODE_LOCKED)
+  assert(isCursorLocked(cursor), "cursor locked")
+  cursor = updateCursorPosition(cursor, 10.0, -5.5)
+  let dx = int(cursor.deltaX + 0.5)
+  let shape = cursor.shape
+  cursor = setCursorMode(cursor, CURSOR_MODE_NORMAL)
+  assert(not isCursorLocked(cursor), "unlocked back to normal")
+  ret shape + dx
+
+pub fn computeDynamicCrosshairSpreadPx(baseGapPx: int, recoilBloomPx: int): int:
+  let b = clampInt(baseGapPx, 2, 64)
+  let r = clampInt(recoilBloomPx, 0, 64)
+  ret b + r
+
+pub fn describeCursorCaptureMode(modeId: int): str:
+  if modeId == 2 or modeId == 3:
+    ret "CURSOR:LOCKED_RAW_MOTION"
+  if modeId == 1:
+    ret "CURSOR:HIDDEN_OS_SPRITE"
+  ret "CURSOR:NORMAL_DESKTOP"
+
+pub fn buildFrameCursorState(frameIndex: int): CursorState:
+  mut cursor = createCursorState()
+  cursor = updateCursorPosition(cursor, 454.0, 388.0)
+  cursor = setCursorShape(cursor, CURSOR_SHAPE_CROSSHAIR)
+  cursor = setCursorMode(cursor, CURSOR_MODE_LOCKED)
+  let dx = float((frameIndex % 23) - 11) * 11.0
+  let dy = float(((frameIndex * 3) % 29) - 14) * 9.0
+  cursor = updateCursorPosition(cursor, dx, dy)
+  ret cursor
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let cursor = buildFrameCursorState(frameIndex)
+  let _ = int(dt * 0.0)
+  ret cursor.shape * 100 + int(cursor.positionX + cursor.deltaX) + int(cursor.positionY + cursor.deltaY)
+
+pub fn renderCrosshairArenaScene(frameIndex: int): void:
+  let cursor = buildFrameCursorState(frameIndex)
+
+  clearScreen(rgb(8, 12, 20))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(16, 26, 44))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(34, 197, 94))
+  drawText("EX_134 // HARDWARE CURSOR STATE MACHINE & DYNAMIC RECOIL CROSSHAIR", 52.0, 38.0, 20.0, rgb(240, 253, 244))
+
+  // Tactical Target Arena
+  let ax = 64.0
+  let ay = 98.0
+  let aw = 780.0
+  let ah = 580.0
+  drawRect(ax, ay, aw, ah, rgb(12, 19, 33))
+  drawRectOutline(ax, ay, aw, ah, 2.0, rgb(51, 65, 85))
+
+  // Grid lines inside arena
+  mut gx = 160
+  while gx < 800:
+    drawLine(float(gx), ay, float(gx), ay + ah, rgb(22, 33, 54), 1.0)
+    gx = gx + 120
+  mut gy = 180
+  while gy < 650:
+    drawLine(ax, float(gy), ax + aw, float(gy), rgb(22, 33, 54), 1.0)
+    gy = gy + 120
+
+  // Dynamic Crosshair Center + Bloom Gap read directly from CursorState
+  let cx = cursor.positionX + cursor.deltaX
+  let cy = cursor.positionY + cursor.deltaY
+  let absDx = if cursor.deltaX < 0.0: -cursor.deltaX else: cursor.deltaX
+  let absDy = if cursor.deltaY < 0.0: -cursor.deltaY else: cursor.deltaY
+  let bloom = computeDynamicCrosshairSpreadPx(10, int((absDx + absDy) * 0.08))
+  let gap = float(bloom)
+  let arm = 22.0
+
+  // Locked anchor & raw motion delta vector
+  drawCircleOutline(cursor.positionX, cursor.positionY, 7.0, 1.5, rgb(100, 116, 139))
+  drawLine(cursor.positionX, cursor.positionY, cx, cy, rgb(56, 189, 248), 1.5)
+
+  // Outer reticle ring & 4 dynamic crosshair fins
+  drawCircleOutline(cx, cy, gap + 12.0, 1.5, rgb(34, 197, 94))
+  drawLine(cx - gap - arm, cy, cx - gap, cy, rgb(74, 222, 128), 3.0)
+  drawLine(cx + gap, cy, cx + gap + arm, cy, rgb(74, 222, 128), 3.0)
+  drawLine(cx, cy - gap - arm, cx, cy - gap, rgb(74, 222, 128), 3.0)
+  drawLine(cx, cy + gap, cx, cy + gap + arm, rgb(74, 222, 128), 3.0)
+  drawCircle(cx, cy, 3.0, rgb(250, 204, 21))
+
+  // Right Telemetry Panel reading cursor.shape, cursor.mode, isCursorLocked(cursor)
+  let rx = 876.0
+  drawRect(rx, ay, 348.0, ah, rgb(16, 24, 42))
+  drawRectOutline(rx, ay, 348.0, ah, 2.0, rgb(71, 85, 105))
+  drawText("CURSOR STATE INSPECTOR", rx + 24.0, ay + 32.0, 18.0, rgb(74, 222, 128))
+  drawText("Shape ID:    " + str(cursor.shape) + " (CROSSHAIR)", rx + 24.0, ay + 80.0, 15.0, rgb(226, 232, 240))
+  drawText("Capture:     " + describeCursorCaptureMode(cursor.mode), rx + 24.0, ay + 116.0, 14.0, rgb(56, 189, 248))
+  drawText("Spread Gap:  " + str(bloom) + " px", rx + 24.0, ay + 152.0, 15.0, rgb(250, 204, 21))
+  drawText("Locked:      " + str(isCursorLocked(cursor)) + " (dx=" + str(int(cursor.deltaX)) + ", dy=" + str(int(cursor.deltaY)) + ")", rx + 24.0, ay + 188.0, 15.0, rgb(134, 239, 172))
+
+pub fn main(): int:
+  let m = verifyCursorCrosshairAndLockState()
+  assert(m == 13, "cursor metric 13")
+  initWindow(1280, 720, "AIPL ex_134 - Custom Crosshair & Locked Cursor State Machine")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderCrosshairArenaScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

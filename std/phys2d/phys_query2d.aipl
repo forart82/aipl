@@ -1,0 +1,188 @@
+/// # Module: `std/phys2d/phys_query2d` (`PhysQuery2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Continuous 2D raycasts against segments, circles, and oriented boxes,
+/// plus swept circle shape casts.
+module PhysQuery2DMod
+
+import { absFloat, minFloat, maxFloat } from "std/math/consts"
+import { sin, cos, sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { Ray2D } from "std/math/geom2d"
+import { Collider2D, ColliderShapeType2D } from "std/phys2d/collider2d"
+
+pub struct RayHit2D(bodyId: int, point: Vec2, normal: Vec2, fraction: float, hit: bool)
+
+fn extractRayDir2D(ray: Ray2D): Vec2:
+  let dirPrimary: Vec2 = ray.direction
+  let dirFallback: Vec2 = ray.dir
+  if dirPrimary.x != 1.0 or dirPrimary.y != 0.0:
+    ret dirPrimary
+  ret dirFallback
+
+pub fn raycast2dSegment(ray: Ray2D, segA: Vec2, segB: Vec2): Option[RayHit2D]:
+  let rDir: Vec2 = extractRayDir2D(ray)
+  let rLen = sqrt(rDir.x * rDir.x + rDir.y * rDir.y)
+  if rLen <= 0.000001 or ray.maxDistance <= 0.0:
+    ret None
+  let dx = (rDir.x / rLen) * ray.maxDistance
+  let dy = (rDir.y / rLen) * ray.maxDistance
+
+  let sx = segB.x - segA.x
+  let sy = segB.y - segA.y
+  let denom = dx * sy - dy * sx
+  if absFloat(denom) <= 0.000001:
+    ret None
+
+  let qpx = segA.x - ray.origin.x
+  let qpy = segA.y - ray.origin.y
+  let t = (qpx * sy - qpy * sx) / denom
+  let u = (qpx * dy - qpy * dx) / denom
+  if t < 0.0 or t > 1.0 or u < 0.0 or u > 1.0:
+    ret None
+
+  let sLen = sqrt(sx * sx + sy * sy)
+  mut nx = if sLen > 0.0: -sy / sLen else: 0.0
+  mut ny = if sLen > 0.0: sx / sLen else: 1.0
+  if nx * dx + ny * dy > 0.0:
+    nx = -nx
+    ny = -ny
+
+  ret Some(RayHit2D(
+    bodyId = 0,
+    point = Vec2(x = ray.origin.x + dx * t, y = ray.origin.y + dy * t),
+    normal = Vec2(x = nx, y = ny),
+    fraction = t,
+    hit = true
+  ))
+
+pub fn raycast2dCircle(ray: Ray2D, center: Vec2, radius: float): Option[RayHit2D]:
+  let rDir: Vec2 = extractRayDir2D(ray)
+  let rLen = sqrt(rDir.x * rDir.x + rDir.y * rDir.y)
+  if rLen <= 0.000001 or ray.maxDistance <= 0.0:
+    ret None
+  let dx = rDir.x / rLen
+  let dy = rDir.y / rLen
+
+  let ox = ray.origin.x - center.x
+  let oy = ray.origin.y - center.y
+  let b = ox * dx + oy * dy
+  let c = ox * ox + oy * oy - radius * radius
+  let disc = b * b - c
+  if disc < 0.0:
+    ret None
+
+  let t = -b - sqrt(disc)
+  if t < 0.0 or t > ray.maxDistance:
+    ret None
+
+  let hitX = ray.origin.x + dx * t
+  let hitY = ray.origin.y + dy * t
+  let invR = if radius > 0.0: 1.0 / radius else: 1.0
+  ret Some(RayHit2D(
+    bodyId = 0,
+    point = Vec2(x = hitX, y = hitY),
+    normal = Vec2(x = (hitX - center.x) * invR, y = (hitY - center.y) * invR),
+    fraction = t / ray.maxDistance,
+    hit = true
+  ))
+
+pub fn raycast2dBox(ray: Ray2D, boxPos: Vec2, boxExtents: Vec2, boxAngle: float): Option[RayHit2D]:
+  let rDir: Vec2 = extractRayDir2D(ray)
+  let rLen = sqrt(rDir.x * rDir.x + rDir.y * rDir.y)
+  if rLen <= 0.000001 or ray.maxDistance <= 0.0:
+    ret None
+  let wx = rDir.x / rLen
+  let wy = rDir.y / rLen
+
+  let c = cos(boxAngle)
+  let s = sin(boxAngle)
+  let relX = ray.origin.x - boxPos.x
+  let relY = ray.origin.y - boxPos.y
+  let loX = relX * c + relY * s
+  let loY = -relX * s + relY * c
+  let ldX = wx * c + wy * s
+  let ldY = -wx * s + wy * c
+
+  mut tMin = 0.0
+  mut tMax = ray.maxDistance
+  mut normLocal = Vec2(x = -1.0, y = 0.0)
+
+  if absFloat(ldX) < 0.000001:
+    if loX < -boxExtents.x or loX > boxExtents.x:
+      ret None
+  else:
+    let invX = 1.0 / ldX
+    mut t1 = (-boxExtents.x - loX) * invX
+    mut t2 = (boxExtents.x - loX) * invX
+    mut nx = -1.0
+    if t1 > t2:
+      let tmp = t1
+      t1 = t2
+      t2 = tmp
+      nx = 1.0
+    if t1 > tMin:
+      tMin = t1
+      normLocal = Vec2(x = nx, y = 0.0)
+    tMax = minFloat(tMax, t2)
+
+  if absFloat(ldY) < 0.000001:
+    if loY < -boxExtents.y or loY > boxExtents.y:
+      ret None
+  else:
+    let invY = 1.0 / ldY
+    mut t1 = (-boxExtents.y - loY) * invY
+    mut t2 = (boxExtents.y - loY) * invY
+    mut ny = -1.0
+    if t1 > t2:
+      let tmp = t1
+      t1 = t2
+      t2 = tmp
+      ny = 1.0
+    if t1 > tMin:
+      tMin = t1
+      normLocal = Vec2(x = 0.0, y = ny)
+    tMax = minFloat(tMax, t2)
+
+  if tMin > tMax or tMax < 0.0 or tMin > ray.maxDistance:
+    ret None
+
+  let wnx = normLocal.x * c - normLocal.y * s
+  let wny = normLocal.x * s + normLocal.y * c
+  ret Some(RayHit2D(
+    bodyId = 0,
+    point = Vec2(x = ray.origin.x + wx * tMin, y = ray.origin.y + wy * tMin),
+    normal = Vec2(x = wnx, y = wny),
+    fraction = tMin / ray.maxDistance,
+    hit = true
+  ))
+
+pub fn shapeCastCircle2D(startPos: Vec2, radius: float, delta: Vec2, colliders: [Collider2D]): Option[RayHit2D]:
+  let dist = sqrt(delta.x * delta.x + delta.y * delta.y)
+  if dist <= 0.000001:
+    ret None
+  let ray = Ray2D(origin = startPos, dir = delta, direction = delta, maxDistance = dist)
+
+  mut bestFrac = 2.0
+  mut bestHit: Option[RayHit2D] = None
+  mut i = 0
+  while i < colliders.len:
+    let col: Collider2D = colliders[i]
+    if col.shapeType == ColliderShapeType2D.Circle:
+      let hOpt = raycast2dCircle(ray, col.offset, col.circleRadius + radius)
+      if hOpt.isSome():
+        let h: RayHit2D = hOpt.unwrap()
+        if h.fraction < bestFrac:
+          bestFrac = h.fraction
+          bestHit = Some(h)
+    else:
+      let he: Vec2 = col.boxHalfExtents
+      let expandedExt = Vec2(x = he.x + radius, y = he.y + radius)
+      let hOpt = raycast2dBox(ray, col.offset, expandedExt, 0.0)
+      if hOpt.isSome():
+        let h: RayHit2D = hOpt.unwrap()
+        if h.fraction < bestFrac:
+          bestFrac = h.fraction
+          bestHit = Some(h)
+    i = i + 1
+  ret bestHit

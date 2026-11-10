@@ -1,0 +1,131 @@
+module Ex162Gfx2dShape2dVectorGalleryWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import { rgba8 } from "../std/gfx/color"
+import {
+  StrokeStyle2D, buildLineQuads, buildCircleTris,
+  buildCapsuleTris, buildCubicBezierPoints,
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawTriangle,
+  drawEllipse, drawRegularPolygon, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepBezierControlY(frame: int): float:
+  ret 140.0 + float(frame % 37) * 3.2
+
+pub fn buildShape2dTessellationAudit(): int:
+  let col = rgba8(56, 189, 248, 255)
+  let stroke = StrokeStyle2D(width = 4.0, color = col, capStyle = 0, joinStyle = 0)
+  let lv = buildLineQuads(Vec2(x = 0.0, y = 0.0), Vec2(x = 100.0, y = 0.0), stroke)
+  let cv = buildCircleTris(Vec2(x = 50.0, y = 50.0), 30.0, col, 12)
+  let capV = buildCapsuleTris(Vec2(x = 0.0, y = 0.0), Vec2(x = 80.0, y = 0.0), 16.0, col, 8)
+  let bez = buildCubicBezierPoints(
+    Vec2(x = 0.0, y = 0.0),
+    Vec2(x = 40.0, y = 80.0),
+    Vec2(x = 120.0, y = -40.0),
+    Vec2(x = 160.0, y = 0.0),
+    16
+  )
+  ret lv.len() + cv.len() + capV.len() + bez.len()
+
+pub fn main(): int:
+  let col = rgba8(56, 189, 248, 255)
+  let stroke = StrokeStyle2D(width = 4.0, color = col, capStyle = 0, joinStyle = 0)
+  let audit = buildShape2dTessellationAudit()
+
+  initWindow(1280, 720, "AIPL ex_162: 2D Vector Shape Gallery & Bezier Tessellation")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let c1Y = stepBezierControlY(frame)
+    let c2Y = 440.0 - float((frame * 3) % 31) * 2.8
+    let bezPts = buildCubicBezierPoints(
+      Vec2(x = 680.0, y = 340.0),
+      Vec2(x = 810.0, y = c1Y),
+      Vec2(x = 1010.0, y = c2Y),
+      Vec2(x = 1180.0, y = 210.0),
+      24
+    )
+    let lineQuadVerts = buildLineQuads(Vec2(x = 680.0, y = 340.0), Vec2(x = 810.0, y = c1Y), stroke)
+    let segCount = 6 + ((frame / 9) % 7)
+    let circleVerts = buildCircleTris(Vec2(x = 150.0, y = 230.0), 56.0, col, segCount)
+    let capVerts = buildCapsuleTris(Vec2(x = 100.0, y = 395.0), Vec2(x = 200.0, y = 395.0), 22.0, col, 8)
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_162: 2D VECTOR PRIMITIVES & TESSELLATION GALLERY", 40.0, 28.0, 22.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/shape2d: buildLineQuads(" + str(lineQuadVerts.len()) + ") | buildCircleTris(" + str(circleVerts.len()) + ") | buildCapsuleTris(" + str(capVerts.len()) + ") | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Geometric Primitives Showcase (Polygons, Ellipses, Triangles, Circles)
+    drawRect(40.0, 96.0, 580.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 580.0, 390.0, 2.0, rgb(56, 189, 248))
+    drawText("TESSELLATED GEOMETRIC PRIMITIVES (Disc Segs=" + str(segCount) + ")", 60.0, 118.0, 17.0, rgb(125, 211, 252))
+
+    mut ci: int = 0
+    while ci + 2 < circleVerts.len():
+      drawTriangle(circleVerts[ci].x, circleVerts[ci].y, circleVerts[ci + 1].x, circleVerts[ci + 1].y, circleVerts[ci + 2].x, circleVerts[ci + 2].y, rgb(14, 165, 233))
+      drawLine(circleVerts[ci].x, circleVerts[ci].y, circleVerts[ci + 1].x, circleVerts[ci + 1].y, rgb(186, 230, 253), 1.0)
+      ci = ci + 3
+    drawCircleOutline(150.0, 230.0, 62.0, 2.5, rgb(248, 250, 252))
+    drawText("Disc (" + str(segCount) + " seg)", 100.0, 305.0, 14.0, rgb(203, 213, 225))
+
+    drawEllipse(330.0, 230.0, 72.0, 42.0, rgb(168, 85, 247))
+    drawText("Ellipse (72x42)", 275.0, 305.0, 14.0, rgb(203, 213, 225))
+
+    drawRegularPolygon(505.0, 230.0, 58.0, 6, rgb(34, 197, 94))
+    drawText("Hexagon (N=6)", 455.0, 305.0, 14.0, rgb(203, 213, 225))
+
+    drawTriangle(capVerts[0].x, capVerts[0].y, capVerts[1].x, capVerts[1].y, capVerts[2].x, capVerts[2].y, rgb(244, 63, 94))
+    drawTriangle(capVerts[0].x, capVerts[0].y, capVerts[2].x, capVerts[2].y, capVerts[3].x, capVerts[3].y, rgb(244, 63, 94))
+    mut cpi: int = 4
+    while cpi + 2 < capVerts.len():
+      drawTriangle(capVerts[cpi].x, capVerts[cpi].y, capVerts[cpi + 1].x, capVerts[cpi + 1].y, capVerts[cpi + 2].x, capVerts[cpi + 2].y, rgb(244, 63, 94))
+      cpi = cpi + 3
+    drawCircle(190.0, 395.0, 22.0, rgb(244, 63, 94))
+    drawText("Capsule (" + str(capVerts.len()) + "v)", 96.0, 452.0, 14.0, rgb(203, 213, 225))
+
+    drawRegularPolygon(330.0, 395.0, 48.0, 5, rgb(250, 204, 21))
+    drawText("Pentagon (N=5)", 275.0, 452.0, 14.0, rgb(203, 213, 225))
+
+    drawRegularPolygon(505.0, 395.0, 48.0, 8, rgb(56, 189, 248))
+    drawText("Octagon (N=8)", 455.0, 452.0, 14.0, rgb(203, 213, 225))
+
+    // Right Panel: Cubic Bezier Spline & Control Cage Inspector
+    drawRect(650.0, 96.0, 590.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 96.0, 590.0, 390.0, 2.0, rgb(250, 204, 21))
+    drawText("CUBIC BEZIER SPLINE TESSELLATION (24 SUBDIVISIONS)", 670.0, 118.0, 17.0, rgb(253, 224, 71))
+
+    // Control polygon lines & control handles
+    drawLine(680.0, 340.0, 810.0, c1Y, rgb(100, 116, 139), 1.5)
+    drawLine(810.0, c1Y, 1010.0, c2Y, rgb(100, 116, 139), 1.5)
+    drawLine(1010.0, c2Y, 1180.0, 210.0, rgb(100, 116, 139), 1.5)
+    drawCircle(680.0, 340.0, 6.0, rgb(168, 85, 247))
+    drawCircle(810.0, c1Y, 7.0, rgb(34, 197, 94))
+    drawCircle(1010.0, c2Y, 7.0, rgb(34, 197, 94))
+    drawCircle(1180.0, 210.0, 6.0, rgb(168, 85, 247))
+    drawText("P1(810," + str(int(c1Y)) + ")", 775.0, c1Y - 22.0, 13.0, rgb(134, 239, 172))
+    drawText("P2(1010," + str(int(c2Y)) + ")", 970.0, c2Y + 12.0, 13.0, rgb(134, 239, 172))
+
+    mut idx: int = 0
+    while idx + 1 < bezPts.len():
+      let p0 = bezPts[idx]
+      let p1 = bezPts[idx + 1]
+      drawLine(p0.x, p0.y, p1.x, p1.y, rgb(56, 189, 248), 3.5)
+      drawCircle(p0.x, p0.y, 3.5, rgb(250, 204, 21))
+      idx = idx + 1
+
+    let animPt = bezPts[(frame + (frame / 7)) % bezPts.len()]
+    drawCircle(animPt.x, animPt.y, 9.0, rgb(244, 63, 94))
+
+    // Bottom Telemetry Panel
+    drawRect(40.0, 506.0, 1200.0, 170.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 506.0, 1200.0, 170.0, 2.0, rgb(51, 65, 85))
+    drawText("VECTOR MESH BUILDER TELEMETRY", 60.0, 528.0, 18.0, rgb(56, 189, 248))
+    drawText("buildLineQuads: 4 verts | buildCircleTris(" + str(segCount) + " seg): " + str(circleVerts.len()) + " verts | buildCubicBezierPoints(24 seg): " + str(bezPts.len()) + " pts", 60.0, 566.0, 16.0, rgb(226, 232, 240))
+    drawText("Active Spline Evaluation Point: (" + str(int(animPt.x)) + ", " + str(int(animPt.y)) + ") | Control P1.y=" + str(int(c1Y)) + " | Audit=" + str(audit), 60.0, 602.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

@@ -1,0 +1,54 @@
+module Ex179Gfx3dRigging3dSkeletalSkinningWindowTest
+
+import {
+  buildRigging3dSkinningAudit, stepRigging3dSway
+} from "../../examples/ex_179_gfx3d_rigging3d_skeletal_skinning_window"
+import { Vec3 } from "../../std/math/vec_math"
+import { Mat4 } from "../../std/math/mat"
+import { Quat } from "../../std/math/quat"
+import {
+  Bone3D, Skeleton3D, updateSkeletonHierarchy,
+  computeLinearSkinningPalette, matrixToDualQuat, blendDualQuaternions
+} from "../../std/gfx3d/rigging3d"
+
+pub fn test_gfx3d_rigging3d_skeletal_skinning(): void:
+  let idMat = Mat4.identity()
+  let bRoot = Bone3D(
+    name = "pelvis",
+    parentIdx = -1,
+    localPos = Vec3(x = 0.0, y = 2.0, z = 0.0),
+    localRot = Quat.identity(),
+    localScale = Vec3(x = 1.0, y = 1.0, z = 1.0),
+    invBindMatrix = idMat,
+    worldMatrix = idMat
+  )
+  let bSpine = Bone3D(
+    name = "spine",
+    parentIdx = 0,
+    localPos = Vec3(x = 0.0, y = 3.0, z = 0.0),
+    localRot = Quat.identity(),
+    localScale = Vec3(x = 1.0, y = 1.0, z = 1.0),
+    invBindMatrix = idMat,
+    worldMatrix = idMat
+  )
+  let skel = updateSkeletonHierarchy(Skeleton3D(bones = [bRoot, bSpine]))
+  let palette = computeLinearSkinningPalette(skel)
+  assert(palette.len() == 2, "Skinning palette contains 2 bone matrices")
+  assert(palette[1].m13 == 5.0, "Spine world Y translation accumulates 2.0 + 3.0 == 5.0")
+
+  let dq0 = matrixToDualQuat(Mat4.translation(0.0, 0.0, 0.0))
+  let dq1 = matrixToDualQuat(Mat4.translation(0.0, 4.0, 0.0))
+  let dqMid = blendDualQuaternions(dq0, dq1, 0.5)
+  assert(dqMid.realQuat.w > 0.99, "Blended dual quaternion real part normalized")
+  assert(buildRigging3dSkinningAudit() == 107, "buildRigging3dSkinningAudit returns 2 + 5 + 100 == 107")
+
+  let s0 = stepRigging3dSway(0)
+  let s1 = stepRigging3dSway(1)
+  let s20 = stepRigging3dSway(20)
+  let s100 = stepRigging3dSway(100)
+  assert(s0 != s1 and s1 != s20 and s20 != s100, "Skeletal sway evolves continuously across frames 0, 1, 20, 100")
+
+pub fn main(): int:
+  test_gfx3d_rigging3d_skeletal_skinning()
+  println("PASS: ex_179_gfx3d_rigging3d_skeletal_skinning_window_test")
+  ret 0

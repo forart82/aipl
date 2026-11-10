@@ -1,0 +1,75 @@
+module tests.scenarios.compiler.lang_01_deep_generics_and_recursive_adt_match_test
+
+import { Vec2, Vec3 } from "std/math/vec_math"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertApproxEq } from "std/prelude"
+
+pub fn test_lang_01_nested_generic_containers_unwrapping(): int:
+  let v = Vec3(x = 3.0, y = 4.0, z = 5.0)
+  let r: Result[Vec3, str] = Ok(v)
+  let o: Option[Result[Vec3, str]] = Some(r)
+  assert(o.isSome() == true, "outer Option isSome")
+  assert(o.unwrap().isOk() == true, "inner Result isOk")
+  let outV = o.unwrap().unwrap()
+  assertApproxEq(outV.x, 3.0, 0.000001, "Vec3.x preserved across nested generics")
+  assertApproxEq(outV.y, 4.0, 0.000001, "Vec3.y preserved across nested generics")
+  assertApproxEq(outV.z, 5.0, 0.000001, "Vec3.z preserved across nested generics")
+  ret 0
+
+pub fn evalExprNode(op: int, a: int, b: int): int:
+  if op == 0:
+    ret a
+  if op == 1:
+    ret 0 - a
+  if op == 2:
+    ret a + b
+  ret a * b
+
+pub fn test_lang_01_recursive_adt_expr_arena_eval(): int:
+  let sumNode = evalExprNode(2, 10, 5)
+  let mulNode = evalExprNode(3, sumNode, 2)
+  let negNode = evalExprNode(1, -3, 0)
+  let total = evalExprNode(2, mulNode, negNode)
+  assertEqInt(sumNode, 15, "10 + 5 == 15")
+  assertEqInt(mulNode, 30, "15 * 2 == 30")
+  assertEqInt(total, 33, "30 + 3 == 33")
+  assertEqInt(evalExprNode(0, 0, 0), 0, "leaf Lit(0) == 0")
+  ret 0
+
+pub fn test_lang_01_generic_receiver_chaining_in_loops(): int:
+  mut acc = 0.0
+  mut i = 0
+  while i < 12:
+    i = i + 1
+    if i == 11:
+      continue
+    if i == 12:
+      break
+    let optV: Option[Vec2] = Some(Vec2(x = 1.5, y = 2.0))
+    let stepLen = optV.unwrapOr(Vec2(x = 0.0, y = 0.0)).add(Vec2(x = 1.5, y = 2.0)).len()
+    acc = acc + stepLen
+  assertApproxEq(acc, 50.0, 0.0001, "10 iterations * 5.0 norm == 50.0")
+  ret 0
+
+pub fn classifyTag(tag: int, payload: int): int:
+  if tag == 0:
+    ret payload + 10
+  if tag == 1:
+    ret payload * 2
+  if tag == 2:
+    ret payload - 5
+  ret -1
+
+pub fn test_lang_01_wildcard_and_variant_destructuring_exhaustiveness(): int:
+  assertEqInt(classifyTag(0, 5), 15, "tag 0 -> 15")
+  assertEqInt(classifyTag(1, 5), 10, "tag 1 -> 10")
+  assertEqInt(classifyTag(2, 5), 0, "tag 2 -> 0")
+  assertEqInt(classifyTag(999, 5), -1, "wildcard -> -1")
+  assertEqInt(classifyTag(-1, 5), -1, "negative wildcard -> -1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_lang_01_nested_generic_containers_unwrapping(), 0, "test_lang_01_nested_generic_containers_unwrapping")
+  assertEqInt(test_lang_01_recursive_adt_expr_arena_eval(), 0, "test_lang_01_recursive_adt_expr_arena_eval")
+  assertEqInt(test_lang_01_generic_receiver_chaining_in_loops(), 0, "test_lang_01_generic_receiver_chaining_in_loops")
+  assertEqInt(test_lang_01_wildcard_and_variant_destructuring_exhaustiveness(), 0, "test_lang_01_wildcard_and_variant_destructuring_exhaustiveness")
+  ret 0

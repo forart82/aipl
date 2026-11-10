@@ -1,0 +1,270 @@
+module tests.functions.time.cooldown_timer_test
+
+import * from "std/prelude"
+import * from "std/time/cooldown_timer"
+import { Duration, durationZero, durationFromNanos } from "std/time/duration"
+import { Instant, instantNow, instantFromNanos } from "std/time/instant"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_cooldown_timer_cooldownTimerNew_1(): int:
+  let arg_d = Duration(nanos = 4)
+  let edge_d = Duration(nanos = 1)
+  let resNom = cooldownTimerNew(arg_d)
+  let resEdge = cooldownTimerNew(edge_d)
+  assert(resNom.isReady == true, "cooldownTimerNew nominal resNom.isReady == true")
+  assert(resEdge.isReady == true, "cooldownTimerNew boundary resEdge.isReady == true")
+  ret 0
+
+pub fn test_cooldown_timer_CooldownTimer_trigger_2(): int:
+  let mut recv_self = CooldownTimer(duration = Duration(nanos = 4), lastTrigger = Instant(nanos = 4), isReady = true)
+  let mut edge_self = CooldownTimer(duration = Duration(nanos = 1), lastTrigger = Instant(nanos = 1), isReady = false)
+  let resNom = recv_self.trigger()
+  let resEdge = edge_self.trigger()
+  assert(resNom == true, "trigger nominal resNom == true")
+  assert(resEdge == true, "trigger boundary resEdge == true")
+  ret 0
+
+pub fn test_cooldown_timer_CooldownTimer_triggerAt_3(): int:
+  let mut recv_self = CooldownTimer(duration = Duration(nanos = 4), lastTrigger = Instant(nanos = 4), isReady = true)
+  let mut edge_self = CooldownTimer(duration = Duration(nanos = 1), lastTrigger = Instant(nanos = 1), isReady = false)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  let resNom = recv_self.triggerAt(arg_now)
+  let resEdge = edge_self.triggerAt(edge_now)
+  assert(resNom == true, "triggerAt nominal resNom == true")
+  assert(resEdge == false, "triggerAt boundary resEdge == false")
+  ret 0
+
+pub fn test_cooldown_timer_CooldownTimer_reset_4(): int:
+  let mut recv_self = CooldownTimer(duration = Duration(nanos = 4), lastTrigger = Instant(nanos = 4), isReady = true)
+  let mut edge_self = CooldownTimer(duration = Duration(nanos = 1), lastTrigger = Instant(nanos = 1), isReady = false)
+  recv_self.reset()
+  edge_self.reset()
+  assertEqInt(recv_self.lastTrigger.nanos, 0, "reset nominal recv_self.lastTrigger.nanos == 0")
+  assertEqInt(edge_self.lastTrigger.nanos, 0, "reset boundary edge_self.lastTrigger.nanos == 0")
+  ret 0
+
+pub fn test_cooldown_timer_CooldownTimer_remainingAt_5(): int:
+  let recv_self = CooldownTimer(duration = Duration(nanos = 4), lastTrigger = Instant(nanos = 4), isReady = true)
+  let edge_self = CooldownTimer(duration = Duration(nanos = 1), lastTrigger = Instant(nanos = 1), isReady = false)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  let resNom = recv_self.remainingAt(arg_now)
+  let resEdge = edge_self.remainingAt(edge_now)
+  assertEqInt(resNom.nanos, 0, "remainingAt nominal resNom.nanos == 0")
+  assertEqInt(resEdge.nanos, 1, "remainingAt boundary resEdge.nanos == 1")
+  ret 0
+
+pub fn test_cooldown_timer_CooldownTimer_remaining_6(): int:
+  let recv_self = CooldownTimer(duration = Duration(nanos = 4), lastTrigger = Instant(nanos = 4), isReady = true)
+  let edge_self = CooldownTimer(duration = Duration(nanos = 1), lastTrigger = Instant(nanos = 1), isReady = false)
+  let resNom = recv_self.remaining()
+  let resEdge = edge_self.remaining()
+  assertEqInt(resNom.nanos, 0, "remaining nominal resNom.nanos == 0")
+  assertEqInt(resEdge.nanos, 0, "remaining boundary resEdge.nanos == 0")
+  ret 0
+
+pub fn test_cooldown_timer_CooldownTimer_progressAt_7(): int:
+  let recv_self = CooldownTimer(duration = Duration(nanos = 4), lastTrigger = Instant(nanos = 4), isReady = true)
+  let edge_self = CooldownTimer(duration = Duration(nanos = 1), lastTrigger = Instant(nanos = 1), isReady = false)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  let resNom = recv_self.progressAt(arg_now)
+  let resEdge = edge_self.progressAt(edge_now)
+  assertApproxEq(resNom, 1.0, 0.001, "progressAt nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "progressAt boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_cooldown_timer_CooldownTimer_progress_8(): int:
+  let recv_self = CooldownTimer(duration = Duration(nanos = 4), lastTrigger = Instant(nanos = 4), isReady = true)
+  let edge_self = CooldownTimer(duration = Duration(nanos = 1), lastTrigger = Instant(nanos = 1), isReady = false)
+  let resNom = recv_self.progress()
+  let resEdge = edge_self.progress()
+  assertApproxEq(resNom, 1.0, 0.001, "progress nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "progress boundary resEdge ~= 1.0")
+  ret 0
+
+pub fn test_cooldown_timer_repeatingTickerNew_9(): int:
+  let arg_interval = Duration(nanos = 4)
+  let edge_interval = Duration(nanos = 1)
+  let resNom = repeatingTickerNew(arg_interval)
+  let resEdge = repeatingTickerNew(edge_interval)
+  assertEqInt(resNom.ticksPending, 0, "repeatingTickerNew nominal resNom.ticksPending == 0")
+  assertEqInt(resEdge.ticksPending, 0, "repeatingTickerNew boundary resEdge.ticksPending == 0")
+  ret 0
+
+pub fn test_cooldown_timer_repeatingTickerNewAt_10(): int:
+  let arg_interval = Duration(nanos = 4)
+  let edge_interval = Duration(nanos = 1)
+  let arg_start = Instant(nanos = 4)
+  let edge_start = Instant(nanos = 1)
+  let resNom = repeatingTickerNewAt(arg_interval, arg_start)
+  let resEdge = repeatingTickerNewAt(edge_interval, edge_start)
+  assertEqInt(resNom.ticksPending, 0, "repeatingTickerNewAt nominal resNom.ticksPending == 0")
+  assertEqInt(resEdge.ticksPending, 0, "repeatingTickerNewAt boundary resEdge.ticksPending == 0")
+  ret 0
+
+pub fn test_cooldown_timer_RepeatingTicker_pollTicks_11(): int:
+  let mut recv_self = RepeatingTicker(interval = Duration(nanos = 4), lastTick = Instant(nanos = 4), ticksPending = 4)
+  let mut edge_self = RepeatingTicker(interval = Duration(nanos = 1), lastTick = Instant(nanos = 1), ticksPending = 1)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  let resNom = recv_self.pollTicks(arg_now)
+  let resEdge = edge_self.pollTicks(edge_now)
+  assertEqInt(resNom, 0, "pollTicks nominal resNom == 0")
+  assertEqInt(resEdge, 0, "pollTicks boundary resEdge == 0")
+  ret 0
+
+pub fn test_cooldown_timer_RepeatingTicker_resetAt_12(): int:
+  let mut recv_self = RepeatingTicker(interval = Duration(nanos = 4), lastTick = Instant(nanos = 4), ticksPending = 4)
+  let mut edge_self = RepeatingTicker(interval = Duration(nanos = 1), lastTick = Instant(nanos = 1), ticksPending = 1)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  recv_self.resetAt(arg_now)
+  edge_self.resetAt(edge_now)
+  assertEqInt(recv_self.ticksPending, 0, "resetAt nominal recv_self.ticksPending == 0")
+  assertEqInt(edge_self.ticksPending, 0, "resetAt boundary edge_self.ticksPending == 0")
+  ret 0
+
+pub fn test_cooldown_timer_stopwatchNew_13(): int:
+  let resNom = stopwatchNew()
+  let resEdge = stopwatchNew()
+  assert(resNom.isRunning == false, "stopwatchNew nominal resNom.isRunning == false")
+  assert(resEdge.isRunning == false, "stopwatchNew boundary resEdge.isRunning == false")
+  ret 0
+
+pub fn test_cooldown_timer_Stopwatch_start_14(): int:
+  let mut recv_self = Stopwatch(startInstant = Instant(nanos = 4), accumulated = Duration(nanos = 4), isRunning = true)
+  let mut edge_self = Stopwatch(startInstant = Instant(nanos = 1), accumulated = Duration(nanos = 1), isRunning = false)
+  recv_self.start()
+  edge_self.start()
+  assert(recv_self.isRunning == true, "start nominal recv_self.isRunning == true")
+  assert(edge_self.isRunning == true, "start boundary edge_self.isRunning == true")
+  ret 0
+
+pub fn test_cooldown_timer_Stopwatch_startAt_15(): int:
+  let mut recv_self = Stopwatch(startInstant = Instant(nanos = 4), accumulated = Duration(nanos = 4), isRunning = true)
+  let mut edge_self = Stopwatch(startInstant = Instant(nanos = 1), accumulated = Duration(nanos = 1), isRunning = false)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  recv_self.startAt(arg_now)
+  edge_self.startAt(edge_now)
+  assert(recv_self.isRunning == true, "startAt nominal recv_self.isRunning == true")
+  assert(edge_self.isRunning == true, "startAt boundary edge_self.isRunning == true")
+  ret 0
+
+pub fn test_cooldown_timer_Stopwatch_stop_16(): int:
+  let mut recv_self = Stopwatch(startInstant = Instant(nanos = 4), accumulated = Duration(nanos = 4), isRunning = true)
+  let mut edge_self = Stopwatch(startInstant = Instant(nanos = 1), accumulated = Duration(nanos = 1), isRunning = false)
+  recv_self.stop()
+  edge_self.stop()
+  assert(recv_self.isRunning == false, "stop nominal recv_self.isRunning == false")
+  assert(edge_self.isRunning == false, "stop boundary edge_self.isRunning == false")
+  ret 0
+
+pub fn test_cooldown_timer_Stopwatch_stopAt_17(): int:
+  let mut recv_self = Stopwatch(startInstant = Instant(nanos = 4), accumulated = Duration(nanos = 4), isRunning = true)
+  let mut edge_self = Stopwatch(startInstant = Instant(nanos = 1), accumulated = Duration(nanos = 1), isRunning = false)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  recv_self.stopAt(arg_now)
+  edge_self.stopAt(edge_now)
+  assert(recv_self.isRunning == false, "stopAt nominal recv_self.isRunning == false")
+  assert(edge_self.isRunning == false, "stopAt boundary edge_self.isRunning == false")
+  ret 0
+
+pub fn test_cooldown_timer_Stopwatch_reset_18(): int:
+  let mut recv_self = Stopwatch(startInstant = Instant(nanos = 4), accumulated = Duration(nanos = 4), isRunning = true)
+  let mut edge_self = Stopwatch(startInstant = Instant(nanos = 1), accumulated = Duration(nanos = 1), isRunning = false)
+  recv_self.reset()
+  edge_self.reset()
+  assertEqInt(recv_self.startInstant.nanos, 0, "reset nominal recv_self.startInstant.nanos == 0")
+  assertEqInt(edge_self.startInstant.nanos, 0, "reset boundary edge_self.startInstant.nanos == 0")
+  ret 0
+
+pub fn test_cooldown_timer_Stopwatch_restart_19(): int:
+  let mut recv_self = Stopwatch(startInstant = Instant(nanos = 4), accumulated = Duration(nanos = 4), isRunning = true)
+  let mut edge_self = Stopwatch(startInstant = Instant(nanos = 1), accumulated = Duration(nanos = 1), isRunning = false)
+  let resNom = recv_self.restart()
+  let resEdge = edge_self.restart()
+  assert(resNom.nanos > 0, "restart nominal resNom.nanos > 0")
+  assertEqInt(resEdge.nanos, 1, "restart boundary resEdge.nanos == 1")
+  ret 0
+
+pub fn test_cooldown_timer_Stopwatch_elapsedAt_20(): int:
+  let recv_self = Stopwatch(startInstant = Instant(nanos = 4), accumulated = Duration(nanos = 4), isRunning = true)
+  let edge_self = Stopwatch(startInstant = Instant(nanos = 1), accumulated = Duration(nanos = 1), isRunning = false)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  let resNom = recv_self.elapsedAt(arg_now)
+  let resEdge = edge_self.elapsedAt(edge_now)
+  assertEqInt(resNom.nanos, 4, "elapsedAt nominal resNom.nanos == 4")
+  assertEqInt(resEdge.nanos, 1, "elapsedAt boundary resEdge.nanos == 1")
+  ret 0
+
+pub fn test_cooldown_timer_Stopwatch_elapsed_21(): int:
+  let recv_self = Stopwatch(startInstant = Instant(nanos = 4), accumulated = Duration(nanos = 4), isRunning = true)
+  let edge_self = Stopwatch(startInstant = Instant(nanos = 1), accumulated = Duration(nanos = 1), isRunning = false)
+  let resNom = recv_self.elapsed()
+  let resEdge = edge_self.elapsed()
+  assert(resNom.nanos > 0, "elapsed nominal resNom.nanos > 0")
+  assertEqInt(resEdge.nanos, 1, "elapsed boundary resEdge.nanos == 1")
+  ret 0
+
+pub fn test_cooldown_timer_Stopwatch_elapsedMs_22(): int:
+  let recv_self = Stopwatch(startInstant = Instant(nanos = 4), accumulated = Duration(nanos = 4), isRunning = true)
+  let edge_self = Stopwatch(startInstant = Instant(nanos = 1), accumulated = Duration(nanos = 1), isRunning = false)
+  let resNom = recv_self.elapsedMs()
+  let resEdge = edge_self.elapsedMs()
+  assert(resNom > 0, "elapsedMs nominal resNom > 0")
+  assertEqInt(resEdge, 0, "elapsedMs boundary resEdge == 0")
+  ret 0
+
+pub fn test_cooldown_timer_debounceTimerNew_23(): int:
+  let arg_delay = Duration(nanos = 4)
+  let edge_delay = Duration(nanos = 1)
+  let resNom = debounceTimerNew(arg_delay)
+  let resEdge = debounceTimerNew(edge_delay)
+  assert(resNom.hasPending == false, "debounceTimerNew nominal resNom.hasPending == false")
+  assert(resEdge.hasPending == false, "debounceTimerNew boundary resEdge.hasPending == false")
+  ret 0
+
+pub fn test_cooldown_timer_DebounceTimer_trigger_24(): int:
+  let mut recv_self = DebounceTimer(delay = Duration(nanos = 4), pendingInstant = Instant(nanos = 4), hasPending = true)
+  let mut edge_self = DebounceTimer(delay = Duration(nanos = 1), pendingInstant = Instant(nanos = 1), hasPending = false)
+  recv_self.trigger()
+  edge_self.trigger()
+  assert(recv_self.hasPending == true, "trigger nominal recv_self.hasPending == true")
+  assert(edge_self.hasPending == true, "trigger boundary edge_self.hasPending == true")
+  ret 0
+
+pub fn test_cooldown_timer_DebounceTimer_triggerAt_25(): int:
+  let mut recv_self = DebounceTimer(delay = Duration(nanos = 4), pendingInstant = Instant(nanos = 4), hasPending = true)
+  let mut edge_self = DebounceTimer(delay = Duration(nanos = 1), pendingInstant = Instant(nanos = 1), hasPending = false)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  recv_self.triggerAt(arg_now)
+  edge_self.triggerAt(edge_now)
+  assert(recv_self.hasPending == true, "triggerAt nominal recv_self.hasPending == true")
+  assert(edge_self.hasPending == true, "triggerAt boundary edge_self.hasPending == true")
+  ret 0
+
+pub fn test_cooldown_timer_DebounceTimer_cancel_26(): int:
+  let mut recv_self = DebounceTimer(delay = Duration(nanos = 4), pendingInstant = Instant(nanos = 4), hasPending = true)
+  let mut edge_self = DebounceTimer(delay = Duration(nanos = 1), pendingInstant = Instant(nanos = 1), hasPending = false)
+  recv_self.cancel()
+  edge_self.cancel()
+  assert(recv_self.hasPending == false, "cancel nominal recv_self.hasPending == false")
+  assert(edge_self.hasPending == false, "cancel boundary edge_self.hasPending == false")
+  ret 0
+
+pub fn test_cooldown_timer_DebounceTimer_isReady_27(): int:
+  let mut recv_self = DebounceTimer(delay = Duration(nanos = 4), pendingInstant = Instant(nanos = 4), hasPending = true)
+  let mut edge_self = DebounceTimer(delay = Duration(nanos = 1), pendingInstant = Instant(nanos = 1), hasPending = false)
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  let resNom = recv_self.isReady(arg_now)
+  let resEdge = edge_self.isReady(edge_now)
+  assert(resNom == false, "isReady nominal resNom == false")
+  assert(resEdge == false, "isReady boundary resEdge == false")
+  ret 0

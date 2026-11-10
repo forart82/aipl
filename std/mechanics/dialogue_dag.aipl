@@ -1,0 +1,190 @@
+/// # Module: `std/mechanics/dialogue_dag` (`DialogueDagMod`)
+///
+/// ## Purpose & Domain Scope
+/// Branching dialogue graphs with prerequisite flag filtering and
+/// directed acyclic objective dependency trees.
+module DialogueDagMod
+
+import { minInt, maxInt, clampInt, maxFloat, clampFloat } from "std/math/consts"
+
+pub struct DagNode(id: int, rank: int, maxRank: int, prereqId: int, prereqMinRank: int, unlocked: bool)
+
+pub struct DialogueChoice(choiceId: int, text: str, targetNodeId: int, requiredFlags: [str])
+
+pub struct DialogueNode(nodeId: int, speaker: str, content: str, choices: [DialogueChoice])
+
+pub struct DialogueGraph(startNodeId: int, nodes: [DialogueNode])
+
+pub struct ObjectivePrereqLink(task: str, requiredPrereq: str)
+
+pub struct ObjectiveDependencyDAG(links: [ObjectivePrereqLink], completedTasks: [str])
+
+pub fn dialogueGraphNew(startNodeId: int): DialogueGraph:
+  mut ns: [DialogueNode] = []
+  ret DialogueGraph(startNodeId = startNodeId, nodes = ns)
+
+pub fn dialogueAddNode(mut graph: DialogueGraph, node: DialogueNode): void:
+  mut ns = graph.nodes
+  ns.push(node)
+  graph.nodes = ns
+
+pub fn dialogueNodeCount(graph: DialogueGraph): int:
+  ret graph.nodes.len
+
+pub fn dialogueFindNode(graph: DialogueGraph, nodeId: int): Option[DialogueNode]:
+  mut i = 0
+  while i < graph.nodes.len:
+    if graph.nodes[i].nodeId == nodeId:
+      ret Some(graph.nodes[i])
+    i = i + 1
+  ret None
+
+fn hasFlagInSlice(flags: [str], target: str): bool:
+  mut i = 0
+  while i < flags.len:
+    if flags[i] == target:
+      ret true
+    i = i + 1
+  ret false
+
+pub fn dialogueGetAvailableChoices(graph: DialogueGraph, nodeId: int, activeFlags: [str]): [DialogueChoice]:
+  mut avail: [DialogueChoice] = []
+  mut i = 0
+  while i < graph.nodes.len:
+    let n: DialogueNode = graph.nodes[i]
+    if n.nodeId == nodeId:
+      mut c = 0
+      while c < n.choices.len:
+        let ch: DialogueChoice = n.choices[c]
+        mut allMet = true
+        mut f = 0
+        while f < ch.requiredFlags.len:
+          if not hasFlagInSlice(activeFlags, ch.requiredFlags[f]):
+            allMet = false
+          f = f + 1
+        if allMet:
+          avail.push(ch)
+        c = c + 1
+    i = i + 1
+  ret avail
+
+pub fn dialogueAdvanceChoice(graph: DialogueGraph, currentNodeId: int, choiceId: int, activeFlags: [str]): Option[DialogueNode]:
+  let choices = dialogueGetAvailableChoices(graph, currentNodeId, activeFlags)
+  mut i = 0
+  while i < choices.len:
+    if choices[i].choiceId == choiceId:
+      ret dialogueFindNode(graph, choices[i].targetNodeId)
+    i = i + 1
+  ret None
+
+pub fn objectiveDagNew(): ObjectiveDependencyDAG:
+  mut ls: [ObjectivePrereqLink] = []
+  mut done: [str] = []
+  ret ObjectiveDependencyDAG(links = ls, completedTasks = done)
+
+pub fn objectiveAddPrerequisite(mut dag: ObjectiveDependencyDAG, task: str, requiredPrereq: str): void:
+  mut ls = dag.links
+  ls.push(ObjectivePrereqLink(task = task, requiredPrereq = requiredPrereq))
+  dag.links = ls
+
+pub fn objectiveIsUnlocked(dag: ObjectiveDependencyDAG, task: str): bool:
+  mut i = 0
+  while i < dag.links.len:
+    let link: ObjectivePrereqLink = dag.links[i]
+    if link.task == task:
+      if not hasFlagInSlice(dag.completedTasks, link.requiredPrereq):
+        ret false
+    i = i + 1
+  ret true
+
+pub fn objectiveComplete(mut dag: ObjectiveDependencyDAG, task: str): void:
+  if not hasFlagInSlice(dag.completedTasks, task):
+    mut done = dag.completedTasks
+    done.push(task)
+    dag.completedTasks = done
+
+pub fn objectiveIsCompleted(dag: ObjectiveDependencyDAG, task: str): bool:
+  ret hasFlagInSlice(dag.completedTasks, task)
+
+pub fn objectiveGetPrerequisites(dag: ObjectiveDependencyDAG, task: str): [str]:
+  mut prereqs: [str] = []
+  mut i = 0
+  while i < dag.links.len:
+    let link = dag.links[i]
+    if link.task == task:
+      prereqs.push(link.requiredPrereq)
+    i = i + 1
+  ret prereqs
+
+pub fn objectiveGetAvailableTasks(dag: ObjectiveDependencyDAG, allTasks: [str]): [str]:
+  mut avail: [str] = []
+  mut i = 0
+  while i < allTasks.len:
+    let t = allTasks[i]
+    if not objectiveIsCompleted(dag, t) and objectiveIsUnlocked(dag, t):
+      avail.push(t)
+    i = i + 1
+  ret avail
+
+pub fn objectiveCompletionRatio(dag: ObjectiveDependencyDAG, totalTaskCount: int): float:
+  if totalTaskCount <= 0:
+    ret 1.0
+  ret clampFloat(float(dag.completedTasks.len) / float(totalTaskCount), 0.0, 1.0)
+
+pub fn dagCanUnlockNode(node: DagNode, prereqRank: int): bool:
+  if node.unlocked:
+    ret true
+  if node.prereqId <= 0:
+    ret true
+  ret prereqRank >= node.prereqMinRank
+
+pub fn dagAdvanceNodeRank(node: DagNode, pointsAvailable: int, prereqRank: int): (DagNode, int):
+  if not dagCanUnlockNode(node, prereqRank) or pointsAvailable <= 0 or node.rank >= node.maxRank:
+    ret (node, pointsAvailable)
+  let nextRank = node.rank + 1
+  let updated = DagNode(id = node.id, rank = nextRank, maxRank = node.maxRank, prereqId = node.prereqId, prereqMinRank = node.prereqMinRank, unlocked = true)
+  ret (updated, pointsAvailable - 1)
+
+pub fn dagCalculateTotalInvested(ranks: [int]): int:
+  mut total = 0
+  mut i = 0
+  while i < ranks.len:
+    total = total + maxInt(0, ranks[i])
+    i = i + 1
+  ret total
+
+pub fn computeSm2NextEasiness(ef: float, quality: int): float:
+  let safeEf = maxFloat(1.30, ef)
+  let q = clampInt(quality, 0, 5)
+  let diff = float(5 - q)
+  let delta = 0.10 - diff * (0.08 + diff * 0.02)
+  ret maxFloat(1.30, safeEf + delta)
+
+pub fn computeSm2NextIntervalDays(repetition: int, prevIntervalDays: int, ef: float, quality: int): int:
+  if quality < 3 or repetition <= 0:
+    ret 1
+  if repetition == 1:
+    ret 6
+  let prev = maxInt(1, prevIntervalDays)
+  let safeEf = maxFloat(1.30, ef)
+  ret maxInt(1, int(float(prev) * safeEf + 0.5))
+
+pub fn computeApmCounter(validActions: int, elapsedMs: int): int:
+  if validActions <= 0 or elapsedMs <= 0:
+    ret 0
+  ret (validActions * 60000) / elapsedMs
+
+pub fn selectZoneWithHysteresis(currentZone: int, entityX: float, entityY: float, zonesMinX: [float], zonesMinY: [float], zonesMaxX: [float], zonesMaxY: [float], margin: float): int:
+  let count = minInt(zonesMinX.len, minInt(zonesMinY.len, minInt(zonesMaxX.len, zonesMaxY.len)))
+  if count <= 0:
+    ret -1
+  if currentZone >= 0 and currentZone < count:
+    let m = maxFloat(0.0, margin)
+    if entityX >= (zonesMinX[currentZone] - m) and entityX <= (zonesMaxX[currentZone] + m) and entityY >= (zonesMinY[currentZone] - m) and entityY <= (zonesMaxY[currentZone] + m):
+      ret currentZone
+  mut i = 0
+  while i < count:
+    if entityX >= zonesMinX[i] and entityX <= zonesMaxX[i] and entityY >= zonesMinY[i] and entityY <= zonesMaxY[i]:
+      ret i
+    i = i + 1
+  ret if currentZone >= 0: currentZone else: 0

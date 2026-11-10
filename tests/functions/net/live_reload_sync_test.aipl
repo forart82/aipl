@@ -1,0 +1,75 @@
+// Test suite for std/net/live_reload_sync.aipl (step_22.3)
+module tests.functions.net.live_reload_sync_test
+
+import * from "std/net/live_reload_sync"
+import { crc32 } from "std/crypto/hash"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_live_reload_sync_parseWatcherSyncPacket(): int:
+  let frame = "AIPLSYNC|v1|7|main.aipl|4268412645|pub fn main(): int: ret 0"
+  let pkt = parseWatcherSyncPacket(frame)
+  assert(pkt.isValid == true, "valid AIPLSYNC v1 frame with matching CRC32")
+  assertEqInt(pkt.seq, 7, "seq == 7")
+  assertEqStr(pkt.filePath, "main.aipl", "filePath == main.aipl")
+  assertEqInt(pkt.actualCrc32, 4268412645, "crc32 == 4268412645")
+  assertEqInt(pkt.expectedCrc32, 4268412645, "expected crc32 == 4268412645")
+  assertEqStr(pkt.payload, "pub fn main(): int: ret 0", "payload matches")
+  // Corrupted CRC32
+  let badCrc = parseWatcherSyncPacket("AIPLSYNC|v1|7|main.aipl|12345|pub fn main(): int: ret 0")
+  assert(badCrc.isValid == false, "corrupted CRC32 rejected")
+  // Bad magic prefix
+  let badMagic = parseWatcherSyncPacket("BADMAGIC|v1|7|main.aipl|4268412645|pub fn main(): int: ret 0")
+  assert(badMagic.isValid == false, "invalid magic prefix rejected")
+  // Bad version
+  let badVer = parseWatcherSyncPacket("AIPLSYNC|v2|7|main.aipl|4268412645|pub fn main(): int: ret 0")
+  assert(badVer.isValid == false, "unknown version rejected")
+  // Non-.aipl file
+  let badExt = parseWatcherSyncPacket("AIPLSYNC|v1|7|main.txt|12345|some text")
+  assert(badExt.isValid == false, "non-.aipl extension rejected")
+  // Truncated frame
+  let trunc = parseWatcherSyncPacket("AIPLSYNC|v1|7")
+  assert(trunc.isValid == false, "truncated frame rejected")
+  // Frame with pipe characters in payload
+  let pipeSource = "pub fn bitwiseOr(a: int, b: int): int: ret a | b"
+  let pipeCrc = crc32(pipeSource.toBytes())
+  let pipeFrame = "AIPLSYNC|v1|8|main.aipl|" + str(pipeCrc) + "|" + pipeSource
+  let pipePkt = parseWatcherSyncPacket(pipeFrame)
+  assert(pipePkt.isValid == true, "frame with pipe character in payload is valid")
+  assertEqStr(pipePkt.payload, pipeSource, "payload with pipe character reconstructed completely")
+  assertEqInt(pipePkt.actualCrc32, pipeCrc, "CRC32 matches payload with pipes")
+  ret 0
+
+pub fn test_live_reload_sync_applyLiveReloadDeltaPatch(): int:
+  let base = "pub fn main(): int: ret 0"
+  let patchedRes = applyLiveReloadDeltaPatch(base, 24, 1, "42", 2921793328)
+  assert(patchedRes.isOk() == true, "delta patch succeeds with matching CRC32")
+  assertEqStr(patchedRes.unwrap(), "pub fn main(): int: ret 42", "0 replaced with 42")
+  let badBounds = applyLiveReloadDeltaPatch(base, -1, 2, "42", 2921793328)
+  assertEqStr(badBounds.unwrapErr(), "E_DELTA_OUT_OF_BOUNDS", "negative startOffset rejected")
+  let badCrc = applyLiveReloadDeltaPatch(base, 24, 1, "42", 999)
+  assertEqStr(badCrc.unwrapErr(), "E_DELTA_CRC_MISMATCH", "wrong post-patch CRC32 rejected")
+  let delRes = applyLiveReloadDeltaPatch("abcdef", 2, 2, "", crc32("abef".toBytes()))
+  assertEqStr(delRes.unwrap(), "abef", "pure deletion delta patch verified")
+  let oob2 = applyLiveReloadDeltaPatch("abc", 2, 5, "x", 0)
+  assert(oob2.isErr() == true, "startOffset + deleteLen > len rejected")
+  assertEqStr(oob2.unwrapErr(), "E_DELTA_OUT_OF_BOUNDS", "out of bounds error code")
+  let negDel = applyLiveReloadDeltaPatch("abc", 1, -1, "x", 0)
+  assertEqStr(negDel.unwrapErr(), "E_DELTA_OUT_OF_BOUNDS", "negative deleteLen rejected")
+  ret 0
+
+pub fn test_live_reload_sync_buildUdpDiscoveryBeacon(): int:
+  let b1 = buildUdpDiscoveryBeacon("Pixel-8-Pro", 9477)
+  assertEqStr(b1, "AIPL_WATCHER_BEACON|Pixel-8-Pro|9477|v1", "nominal UDP beacon")
+  let bDef = buildUdpDiscoveryBeacon("", 0)
+  assertEqStr(bDef, "AIPL_WATCHER_BEACON|Android-AIPL-Player|9477|v1", "empty name and invalid port fallback")
+  let bHigh = buildUdpDiscoveryBeacon("Tab-S9", 65536)
+  assertEqStr(bHigh, "AIPL_WATCHER_BEACON|Tab-S9|9477|v1", "port > 65535 falls back to 9477")
+  let bLow = buildUdpDiscoveryBeacon("  Phone-1  ", 1024)
+  assertEqStr(bLow, "AIPL_WATCHER_BEACON|Phone-1|1024|v1", "trimmed name and boundary port 1024")
+  let b1023 = buildUdpDiscoveryBeacon("Dev", 1023)
+  assertEqStr(b1023, "AIPL_WATCHER_BEACON|Dev|9477|v1", "port 1023 < 1024 falls back to 9477")
+  let bMax = buildUdpDiscoveryBeacon("MaxDevice", 65535)
+  assertEqStr(bMax, "AIPL_WATCHER_BEACON|MaxDevice|65535|v1", "boundary port 65535 preserved")
+  let bPipe = buildUdpDiscoveryBeacon("My|Pixel|Phone", 9477)
+  assertEqStr(bPipe, "AIPL_WATCHER_BEACON|My_Pixel_Phone|9477|v1", "pipes in device name sanitized to underscores")
+  ret 0

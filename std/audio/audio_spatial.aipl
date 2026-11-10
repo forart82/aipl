@@ -1,0 +1,285 @@
+module AudioSpatialMod
+
+// ============================================================================
+// std/audio/audio_spatial.aipl — 3D HRTF Panning, Distance Falloff & Doppler
+// ============================================================================
+
+import { absFloat, clampFloat, clampInt, maxFloat } from "../math/consts"
+import { sin, cos, tan, sqrt } from "../math/trig"
+
+pub struct AudioListener3D(x: float, y: float, z: float, forwardX: float, forwardY: float, forwardZ: float, upX: float, upY: float, upZ: float, velX: float = 0.0, velY: float = 0.0, velZ: float = 0.0, vx: float = 0.0, vy: float = 0.0, vz: float = 0.0, rightX: float = 1.0, rightY: float = 0.0, rightZ: float = 0.0)
+
+pub struct SoundEmitter3D(x: float, y: float, z: float, vx: float, vy: float, vz: float, baseFreqHz: float, maxRadius: float, baseGain: float)
+
+pub struct AudioEmitter3D(x: float, y: float, z: float, velX: float, velY: float, velZ: float, minDistance: float, maxDistance: float, rolloffFactor: float, coneInnerAngleDeg: float, coneOuterAngleDeg: float, coneOuterGain: float)
+
+pub struct SpatialGain(gainLeft: float, gainRight: float, dopplerPitchShift: float)
+
+pub fn createAudioListener3D(): AudioListener3D:
+  ret AudioListener3D(
+    x = 0.0,
+    y = 0.0,
+    z = 0.0,
+    forwardX = 0.0,
+    forwardY = 0.0,
+    forwardZ = 1.0,
+    upX = 0.0,
+    upY = 1.0,
+    upZ = 0.0,
+    velX = 0.0,
+    velY = 0.0,
+    velZ = 0.0
+  )
+
+pub fn createAudioEmitter3D(minDist: float = 1.0, maxDist: float = 50.0): AudioEmitter3D:
+  ret AudioEmitter3D(
+    x = 0.0,
+    y = 0.0,
+    z = 0.0,
+    velX = 0.0,
+    velY = 0.0,
+    velZ = 0.0,
+    minDistance = if minDist > 0.01: minDist else: 1.0,
+    maxDistance = if maxDist > minDist: maxDist else: 50.0,
+    rolloffFactor = 1.0,
+    coneInnerAngleDeg = 360.0,
+    coneOuterAngleDeg = 360.0,
+    coneOuterGain = 1.0
+  )
+
+pub fn computeInverseDistanceAttenuation(distance: float, minDist: float, maxDist: float, rolloff: float): float:
+  let dMin = if minDist > 0.001: minDist else: 1.0
+  let dMax = if maxDist > dMin: maxDist else: dMin
+  let clampedDist = if distance < dMin: dMin else: (if distance > dMax: dMax else: distance)
+  let denom = dMin + rolloff * (clampedDist - dMin)
+  if denom <= 0.00001:
+    ret 1.0
+  ret dMin / denom
+
+pub fn computeDopplerFactor(listenerVel: float, emitterVel: float, speedOfSound: float = 343.0): float:
+  let c = if speedOfSound > 1.0: speedOfSound else: 343.0
+  let maxV = c * 0.95
+  let vl = if listenerVel > maxV: maxV else: (if listenerVel < -maxV: -maxV else: listenerVel)
+  let vs = if emitterVel > maxV: maxV else: (if emitterVel < -maxV: -maxV else: emitterVel)
+  ret (c + vl) / (c - vs)
+
+pub fn computeSpatialGain(listener: AudioListener3D, emitter: AudioEmitter3D, speedOfSound: float = 343.0): SpatialGain:
+  let dx = emitter.x - listener.x
+  let dy = emitter.y - listener.y
+  let dz = emitter.z - listener.z
+  let dist = sqrt(dx * dx + dy * dy + dz * dz)
+  let atten = computeInverseDistanceAttenuation(dist, emitter.minDistance, emitter.maxDistance, emitter.rolloffFactor)
+
+  if dist <= 0.0001:
+    ret SpatialGain(gainLeft = atten * 0.7071, gainRight = atten * 0.7071, dopplerPitchShift = 1.0)
+
+  let dirX = dx / dist
+  let dirY = dy / dist
+  let dirZ = dz / dist
+
+  // Right basis vector = up x forward (so for forward=(0,0,1), up=(0,1,0), right=(1,0,0))
+  let rightX = listener.upY * listener.forwardZ - listener.upZ * listener.forwardY
+  let rightY = listener.upZ * listener.forwardX - listener.upX * listener.forwardZ
+  let rightZ = listener.upX * listener.forwardY - listener.upY * listener.forwardX
+
+  mut pan = dirX * rightX + dirY * rightY + dirZ * rightZ
+  if pan < -1.0:
+    pan = -1.0
+  if pan > 1.0:
+    pan = 1.0
+
+  let gainL = atten * 0.5 * (1.0 - pan)
+  let gainR = atten * 0.5 * (1.0 + pan)
+
+  let vListenerProj = -(listener.velX * dirX + listener.velY * dirY + listener.velZ * dirZ)
+  let vEmitterProj = -(emitter.velX * dirX + emitter.velY * dirY + emitter.velZ * dirZ)
+  let doppler = computeDopplerFactor(vListenerProj, vEmitterProj, speedOfSound)
+
+  ret SpatialGain(gainLeft = gainL, gainRight = gainR, dopplerPitchShift = doppler)
+
+pub fn computeStereoPan(listenerX: float, sourceX: float, maxSpread: float): [float]:
+  let spread = if maxSpread > 0.00001: maxSpread else: 1.0
+  let p = clampFloat((sourceX - listenerX) / spread, -1.0, 1.0)
+  let angle = (p + 1.0) * 0.78539816
+  ret [cos(angle), sin(angle)]
+
+pub fn computeDopplerPitch(baseFreq: float, relVelocityTowardListener: float, soundSpeed: float = 343.0): float:
+  let denom = soundSpeed - relVelocityTowardListener
+  let safeDenom = if denom > 10.0: denom else: 10.0
+  ret baseFreq * (soundSpeed / safeDenom)
+
+pub fn spatial3dAttenuation(srcX: float, srcY: float, srcZ: float, lisX: float, lisY: float, lisZ: float, minDist: float = 1.0, maxDist: float = 100.0, rollOff: float = 1.0): float:
+  let dx = srcX - lisX
+  let dy = srcY - lisY
+  let dz = srcZ - lisZ
+  let dist = sqrt(dx * dx + dy * dy + dz * dz)
+  let nearD = maxFloat(0.0, minDist)
+  let farD = maxFloat(nearD + 0.001, maxDist)
+  if dist <= nearD:
+    ret 1.0
+  if dist >= farD:
+    ret 0.0
+  let span = farD - nearD
+  let norm = clampFloat(float(dist - nearD) / float(span), 0.0, 1.0)
+  let inv = 1.0 - norm
+  let gain = if rollOff != 1.0: (inv * inv) else: inv
+  ret clampFloat(gain, 0.0, 1.0)
+
+pub fn spatial3dPan(srcX: float, srcY: float, srcZ: float, lisX: float, lisY: float, lisZ: float, lisYawRad: float = 0.0, maxSpread: float = 0.0): float:
+  let dx = srcX - lisX
+  let dy = srcY - lisY
+  let dz = srcZ - lisZ
+  let cosYaw = cos(-lisYawRad)
+  let sinYaw = sin(-lisYawRad)
+  let relX = dx * cosYaw - dz * sinYaw
+  let relZ = dx * sinYaw + dz * cosYaw
+  let distH = sqrt(relX * relX + relZ * relZ + dy * dy * 0.000001)
+  if distH < 0.0001:
+    ret 0.0
+  if maxSpread > 0.0001:
+    ret clampFloat(float(relX) / float(maxSpread), -1.0, 1.0)
+  ret clampFloat(float(relX) / float(distH), -1.0, 1.0)
+
+pub fn audioComputeDistanceGain(srcX: float, srcY: float, srcZ: float, lisX: float, lisY: float, lisZ: float, minDist: float, maxDist: float): float:
+  let dx = srcX - lisX
+  let dy = srcY - lisY
+  let dz = srcZ - lisZ
+  let dist = sqrt(dx * dx + dy * dy + dz * dz)
+  let nearD = maxFloat(0.0, minDist)
+  let farD = maxFloat(nearD + 0.001, maxDist)
+  if dist <= nearD:
+    ret 1.0
+  if dist >= farD:
+    ret 0.0
+  let span = farD - nearD
+  let norm = clampFloat(float(dist - nearD) / float(span), 0.0, 1.0)
+  let invLin = 1.0 - norm
+  ret clampFloat(invLin * invLin, 0.0, 1.0)
+
+pub fn audioComputeStereoPan2D(srcX: float, srcY: float, lisX: float, lisY: float, lisYawRad: float, maxPanDist: float): float:
+  let dx = srcX - lisX
+  let dy = srcY - lisY
+  let rightProj = dx * cos(lisYawRad) + dy * sin(lisYawRad)
+  let safeMax = maxFloat(0.001, maxPanDist)
+  ret clampFloat(float(rightProj) / float(safeMax), -1.0, 1.0)
+
+pub fn audioComputeDopplerPitchMultiplier(srcX: float, srcY: float, srcVx: float, srcVy: float, lisX: float, lisY: float, lisVx: float, lisVy: float, speedOfSound: float): float:
+  let dx = lisX - srcX
+  let dy = lisY - srcY
+  let dist = sqrt(dx * dx + dy * dy)
+  if dist < 0.0001:
+    ret 1.0
+  let ux = float(dx) / float(dist)
+  let uy = float(dy) / float(dist)
+  let vSrcToward = srcVx * ux + srcVy * uy
+  let vLisToward = -(lisVx * ux + lisVy * uy)
+  let c = maxFloat(10.0, speedOfSound)
+  let num = maxFloat(c * 0.25, c + vLisToward)
+  let den = maxFloat(c * 0.25, c - vSrcToward)
+  ret clampFloat(float(num) / float(den), 0.5, 2.0)
+
+pub fn audioComputeWallOcclusionLowpass(wallHits: int, baseCutoffHz: float, attenuationPerWall: float): float:
+  let baseHz = maxFloat(120.0, baseCutoffHz)
+  let hits = clampInt(wallHits, 0, 32)
+  if hits <= 0:
+    ret baseHz
+  let att = maxFloat(0.0, attenuationPerWall)
+  if att > 0.0 and att < 1.0:
+    let retain = clampFloat(1.0 - att, 0.1, 0.99)
+    mut curHz = baseHz
+    mut i = 0
+    while i < hits:
+      curHz = curHz * retain
+      i += 1
+    ret maxFloat(120.0, curHz)
+  let droppedHz = baseHz - float(hits) * att
+  ret maxFloat(120.0, droppedHz)
+
+pub fn audioComputeReverbDecayGain(elapsedMs: float, rt60Ms: float, wetMix: float): float:
+  let mix = clampFloat(wetMix, 0.0, 1.0)
+  if elapsedMs <= 0.0:
+    ret mix
+  let safeRt = maxFloat(1.0, rt60Ms)
+  if elapsedMs >= safeRt:
+    ret 0.0
+  let rem = clampFloat(1.0 - (float(elapsedMs) / float(safeRt)), 0.0, 1.0)
+  let envelope = rem * rem * rem
+  ret clampFloat(envelope * mix, 0.0, 1.0)
+
+pub fn audioComputeThunderDelaySeconds(distanceMeters: float): float:
+  let d = maxFloat(0.0, distanceMeters)
+  ret d / 343.0
+
+pub fn audioComputeCountdownBeepIntervalMs(remainingSec: float): int:
+  let rem = maxFloat(0.0, remainingSec)
+  if rem > 20.0:
+    ret 1000
+  if rem > 10.0:
+    ret 500
+  if rem > 5.0:
+    ret 250
+  ret 125
+
+pub fn audioListener3DDefault(): AudioListener3D:
+  ret AudioListener3D(
+    x = 0.0, y = 0.0, z = 0.0,
+    forwardX = 0.0, forwardY = 0.0, forwardZ = -1.0,
+    upX = 0.0, upY = 1.0, upZ = 0.0,
+    velX = 0.0, velY = 0.0, velZ = 0.0,
+    vx = 0.0, vy = 0.0, vz = 0.0,
+    rightX = 1.0, rightY = 0.0, rightZ = 0.0
+  )
+
+pub fn computeSpatialAudioListener3D(emitter: SoundEmitter3D, listener: AudioListener3D, wallHitsOrMinDist: float, minDistOrWallHits: float = 5.0): [float]:
+  let wallHits = if wallHitsOrMinDist <= 8.0 and minDistOrWallHits > 8.0: int(wallHitsOrMinDist) else: int(minDistOrWallHits)
+  let minDist = if wallHitsOrMinDist <= 8.0 and minDistOrWallHits > 8.0: minDistOrWallHits else: wallHitsOrMinDist
+  let distGain = audioComputeDistanceGain(emitter.x, emitter.y, emitter.z, listener.x, listener.y, listener.z, minDist, emitter.maxRadius) * emitter.baseGain
+  let dx = emitter.x - listener.x
+  let dy = emitter.y - listener.y
+  let dz = emitter.z - listener.z
+  let dist = maxFloat(0.0001, sqrt(dx * dx + dy * dy + dz * dz))
+  let dirX = dx / dist
+  let dirY = dy / dist
+  let dirZ = dz / dist
+
+  let pan = clampFloat(dirX * listener.rightX + dirY * listener.rightY + dirZ * listener.rightZ, -1.0, 1.0)
+  let angle = (pan + 1.0) * 0.7853981633974483
+  let leftGain = cos(angle) * distGain
+  let rightGain = sin(angle) * distGain
+
+  let absPan = absFloat(pan)
+  let itdMs = ((0.0875 / 343.0) * (absPan + sin(absPan * 1.5707963267948966))) * 1000.0
+  let leftItdMs = if pan > 0.0: itdMs else: 0.0
+  let rightItdMs = if pan < 0.0: itdMs else: 0.0
+
+  let doppler = audioComputeDopplerPitchMultiplier(emitter.x, emitter.z, emitter.vx, emitter.vz, listener.x, listener.z, listener.vx, listener.vz, 343.0)
+  let cutoffHz = audioComputeWallOcclusionLowpass(wallHits, 16000.0, 0.42)
+  ret [distGain, leftGain, rightGain, doppler, cutoffHz, leftItdMs, rightItdMs]
+
+pub fn applySpatialAudioDsp3D(samples: [float], emitter: SoundEmitter3D, listener: AudioListener3D, wallHits: int, sampleRate: int = 22050, minDist: float = 5.0): [float]:
+  let params = computeSpatialAudioListener3D(emitter, listener, float(wallHits), minDist)
+  let leftGain = params[1]
+  let rightGain = params[2]
+  let cutoffHz = params[4]
+  let sr = float(if sampleRate > 0: sampleRate else: 44100)
+  let fc = clampFloat(cutoffHz, 120.0, sr * 0.48)
+  let g = tan(3.141592653589793 * fc / sr)
+  let k = 1.41421356
+  let a1 = 1.0 / (1.0 + g * (g + k))
+  let a2 = g * a1
+  let a3 = g * a2
+  mut ic1eq = 0.0
+  mut ic2eq = 0.0
+  mut out: [float] = []
+  mut i = 0
+  while i < samples.len:
+    let v0 = samples[i]
+    let v3 = v0 - ic2eq
+    let v1 = a1 * ic1eq + a2 * v3
+    let v2 = ic2eq + a2 * ic1eq + a3 * v3
+    ic1eq = 2.0 * v1 - ic1eq
+    ic2eq = 2.0 * v2 - ic2eq
+    out.push(clampFloat(v2 * leftGain, -1.0, 1.0))
+    out.push(clampFloat(v2 * rightGain, -1.0, 1.0))
+    i += 1
+  ret out

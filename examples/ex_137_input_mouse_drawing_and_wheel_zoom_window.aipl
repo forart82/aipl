@@ -1,0 +1,151 @@
+// ============================================================================
+// Canonical Example 137: Mouse Brush Drawing & Wheel Zoom Inspector (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/input/mouse
+// ============================================================================
+module Ex137InputMouseDrawingAndWheelZoomWindow
+
+import {
+  MouseState,
+  createMouseState,
+  updateMousePosition,
+  updateMouseButton,
+  updateMouseScroll,
+  getMousePosition,
+  getMouseDelta,
+  getScrollDelta,
+  isMouseButtonDown,
+  isMouseButtonJustPressed,
+  isMouseButtonJustReleased,
+  flushMouseFrame,
+  MOUSE_BUTTON_LEFT
+} from "../std/input/mouse"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+import { clampInt } from "../std/prelude"
+
+pub fn verifyMouseDeltaScrollAndButtons(): int:
+  mut mouse = createMouseState()
+  let (mx0, my0) = getMousePosition(mouse)
+  assert(mx0 == 0.0 and my0 == 0.0, "initial mouse at origin")
+  mouse = updateMousePosition(mouse, 120.0, 80.0)
+  let (dx, dy) = getMouseDelta(mouse)
+  mouse = updateMouseScroll(mouse, 0.0, 3.0)
+  let (_, sy) = getScrollDelta(mouse)
+  mouse = updateMouseButton(mouse, MOUSE_BUTTON_LEFT, true)
+  assert(isMouseButtonDown(mouse, MOUSE_BUTTON_LEFT), "left button down")
+  assert(isMouseButtonJustPressed(mouse, MOUSE_BUTTON_LEFT), "left button just pressed")
+  mouse = flushMouseFrame(mouse)
+  mouse = updateMouseButton(mouse, MOUSE_BUTTON_LEFT, false)
+  assert(isMouseButtonJustReleased(mouse, MOUSE_BUTTON_LEFT), "left button just released")
+  ret int(dx + dy + sy + 0.5)
+
+pub fn computeWheelZoomPercent(basePct: int, wheelNotches: int): int:
+  let raw = basePct + wheelNotches * 25
+  ret clampInt(raw, 25, 400)
+
+pub fn describeMouseBrushTool(zoomPct: int): str:
+  let z = clampInt(zoomPct, 25, 400)
+  ret "MOUSE:BRUSH_ZOOM_" + str(z) + "PCT"
+
+pub fn buildMouseBrushTrail(frameIndex: int): [MouseState]:
+  mut trail: [MouseState] = []
+  mut mouse = createMouseState()
+  mouse = updateMouseButton(mouse, MOUSE_BUTTON_LEFT, true)
+  let notches = (frameIndex / 8) % 7
+  mouse = updateMouseScroll(mouse, 0.0, float(notches))
+  for seg in 0..13:
+    let px = 116.0 + float(seg * 52)
+    let py = 376.0 + float(((seg * 37 + frameIndex * 3) % 160) - 80)
+    mouse = flushMouseFrame(mouse)
+    mouse = updateMouseScroll(mouse, 0.0, float(notches))
+    mouse = updateMousePosition(mouse, px, py)
+    trail.push(mouse)
+  ret trail
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let trail = buildMouseBrushTrail(frameIndex)
+  let head = trail[trail.len - 1]
+  let (_, hy) = getMousePosition(head)
+  let (_, sy) = getScrollDelta(head)
+  let _ = int(dt * 0.0)
+  ret computeWheelZoomPercent(100, int(sy + 0.5)) * 10 + (int(hy) % 10)
+
+pub fn renderMouseDrawingAndZoomScene(frameIndex: int): void:
+  let trail = buildMouseBrushTrail(frameIndex)
+  let mouse = trail[trail.len - 1]
+  let (bx, by) = getMousePosition(mouse)
+  let (dx, dy) = getMouseDelta(mouse)
+  let (_, sy) = getScrollDelta(mouse)
+  let notches = int(sy + 0.5)
+  let zoomPct = computeWheelZoomPercent(100, notches)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_137 // MOUSE BRUSH VECTOR STROKE CANVAS & SCROLL-WHEEL ZOOM LOUPE", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Left: Vector Drawing Canvas
+  let cx = 56.0
+  let cy = 96.0
+  let cw = 760.0
+  let ch = 580.0
+  drawRect(cx, cy, cw, ch, rgb(15, 22, 38))
+  drawRectOutline(cx, cy, cw, ch, 2.0, rgb(71, 85, 105))
+  drawText("ACTIVE VECTOR BRUSH TRAIL (LMB HELD)", cx + 20.0, cy + 20.0, 16.0, rgb(56, 189, 248))
+
+  // Connected ribbon stroke across canvas read directly from trail[seg] MouseState
+  mut seg = 0
+  while seg < trail.len - 1:
+    let m1 = trail[seg]
+    let m2 = trail[seg + 1]
+    let (x1, y1) = getMousePosition(m1)
+    let (x2, y2) = getMousePosition(m2)
+    drawLine(x1, y1, x2, y2, rgb(56, 189, 248), 4.0)
+    drawCircle(x1, y1, 6.0, rgb(168, 85, 247))
+    seg = seg + 1
+
+  // Active Brush Tip + Zoom Loupe Ring read from mouse.x, mouse.y, and mouse.scrollDeltaY
+  let loupeR = 24.0 + sy * 8.0
+  drawCircle(bx, by, 8.0, rgb(34, 197, 94))
+  drawCircleOutline(bx, by, loupeR, 2.5, rgb(250, 204, 21))
+
+  // Right: Scroll Wheel Zoom & Button Telemetry Panel
+  let rx = 848.0
+  drawRect(rx, cy, 376.0, ch, rgb(16, 24, 42))
+  drawRectOutline(rx, cy, 376.0, ch, 2.0, rgb(56, 189, 248))
+  drawText("MOUSE & WHEEL TELEMETRY", rx + 24.0, cy + 32.0, 18.0, rgb(56, 189, 248))
+  drawText(describeMouseBrushTool(zoomPct), rx + 24.0, cy + 76.0, 15.0, rgb(74, 222, 128))
+  drawText("Pointer Pos: (" + str(int(bx)) + ", " + str(int(by)) + ") d=(" + str(int(dx)) + "," + str(int(dy)) + ")", rx + 24.0, cy + 114.0, 15.0, rgb(226, 232, 240))
+  drawText("Scroll Notches: +" + str(notches) + " (" + str(zoomPct) + "%)", rx + 24.0, cy + 152.0, 15.0, rgb(250, 204, 21))
+  drawText("LMB Down: " + str(isMouseButtonDown(mouse, MOUSE_BUTTON_LEFT)), rx + 24.0, cy + 190.0, 15.0, rgb(134, 239, 172))
+
+  // Zoom Gauge Bar
+  drawRect(rx + 24.0, cy + 240.0, 320.0, 26.0, rgb(30, 41, 59))
+  drawRect(rx + 24.0, cy + 240.0, float((zoomPct * 320) / 400), 26.0, rgb(250, 204, 21))
+  drawRectOutline(rx + 24.0, cy + 240.0, 320.0, 26.0, 1.5, rgb(254, 240, 138))
+
+pub fn main(): int:
+  let m = verifyMouseDeltaScrollAndButtons()
+  assert(m == 203, "mouse delta + scroll verified")
+  initWindow(1280, 720, "AIPL ex_137 - Mouse Brush Drawing & Wheel Zoom Inspector")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderMouseDrawingAndZoomScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

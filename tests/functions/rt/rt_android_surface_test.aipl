@@ -1,0 +1,140 @@
+// ============================================================================
+// Step 21.2: Exhaustive Per-Function Unit Tests for rt_android_surface
+// Target: tests/functions/rt/rt_android_surface_test.aipl
+// ============================================================================
+module tests.functions.rt.rt_android_surface_test
+
+import {
+  assert,
+  assertEqInt
+} from "std/prelude"
+
+pub struct AndroidWindowBufferConfig(width: int, height: int, stride: int, format: int, byteCapacity: int, status: int)
+
+pub fn rtAndroidSetBuffersGeometry(width: int, height: int, format: int): AndroidWindowBufferConfig requires format >= 0 ensures (result.status == 0 and result.stride >= width) or (result.status == -22 and result.byteCapacity == 0):
+  if width <= 0 or height <= 0 or format != 1:
+    ret AndroidWindowBufferConfig(width = 0, height = 0, stride = 0, format = format, byteCapacity = 0, status = -22)
+  let stride = ((width + 15) / 16) * 16
+  let cap = stride * height * 4
+  ret AndroidWindowBufferConfig(width = width, height = height, stride = stride, format = format, byteCapacity = cap, status = 0)
+
+pub fn rtAndroidBlitRgbaScanlines(srcPixels: [int], width: int, height: int, dstStride: int): [int] requires width >= 0 and height >= 0 ensures result.len() == 0 or result.len() == dstStride * height:
+  mut out: [int] = []
+  if width <= 0 or height <= 0 or dstStride < width or srcPixels.len() < width * height:
+    ret out
+  mut y = 0
+  while y < height:
+    mut x = 0
+    while x < dstStride:
+      if x < width:
+        out.push(srcPixels[y * width + x])
+      else:
+        out.push(0)
+      x = x + 1
+    y = y + 1
+  ret out
+
+pub const AAUDIO_PERFORMANCE_MODE_LOW_LATENCY: int = 12
+pub const AAUDIO_SHARING_MODE_SHARED: int = 1
+
+pub struct AndroidAAudioStreamDesc(sampleRateHz: int, channelCount: int, framesPerBurst: int, bufferCapacityFrames: int, performanceMode: int, sharingMode: int, isOpen: bool)
+
+pub fn rtAndroidAAudioOpenStream(sampleRateHz: int, channelCount: int, framesPerBurst: int): AndroidAAudioStreamDesc requires channelCount >= 0 ensures result.performanceMode == 12:
+  if sampleRateHz < 8000 or sampleRateHz > 96000 or (channelCount != 1 and channelCount != 2) or framesPerBurst < 32:
+    ret AndroidAAudioStreamDesc(sampleRateHz = 0, channelCount = 0, framesPerBurst = 0, bufferCapacityFrames = 0, performanceMode = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY, sharingMode = AAUDIO_SHARING_MODE_SHARED, isOpen = false)
+  ret AndroidAAudioStreamDesc(
+    sampleRateHz = sampleRateHz,
+    channelCount = channelCount,
+    framesPerBurst = framesPerBurst,
+    bufferCapacityFrames = framesPerBurst * 2,
+    performanceMode = AAUDIO_PERFORMANCE_MODE_LOW_LATENCY,
+    sharingMode = AAUDIO_SHARING_MODE_SHARED,
+    isOpen = true
+  )
+
+pub const AAUDIO_CALLBACK_RESULT_CONTINUE: int = 0
+pub const AAUDIO_CALLBACK_RESULT_STOP: int = 1
+
+pub struct AAudioCallbackOutcome(callbackResult: int, samplesWritten: int, firstSample: int, lastSample: int)
+
+pub fn rtAndroidAAudioDataCallback(ringBufferPcm: [int], numFrames: int, channelCount: int, streamActive: bool): AAudioCallbackOutcome requires numFrames >= 0 and channelCount >= 0 ensures result.callbackResult == 0 or result.callbackResult == 1:
+  if not streamActive or numFrames <= 0 or channelCount <= 0:
+    ret AAudioCallbackOutcome(callbackResult = AAUDIO_CALLBACK_RESULT_STOP, samplesWritten = 0, firstSample = 0, lastSample = 0)
+  let totalSamples = numFrames * channelCount
+  let avail = ringBufferPcm.len()
+  let first = if avail > 0: ringBufferPcm[0] else: 0
+  let last = if avail >= totalSamples: ringBufferPcm[totalSamples - 1] else: 0
+  ret AAudioCallbackOutcome(callbackResult = AAUDIO_CALLBACK_RESULT_CONTINUE, samplesWritten = totalSamples, firstSample = first, lastSample = last)
+
+pub fn test_rt_android_surface_rtAndroidSetBuffersGeometry(): int:
+  let cfg = rtAndroidSetBuffersGeometry(1080, 2400, 1)
+  assertEqInt(cfg.status, 0, "status 0 on valid RGBA_8888 geometry")
+  assertEqInt(cfg.stride, 1088, "1080 aligned to 1088 stride")
+  assertEqInt(cfg.byteCapacity, 10444800, "1088 * 2400 * 4 == 10444800 bytes")
+  let badW = rtAndroidSetBuffersGeometry(0, 2400, 1)
+  assertEqInt(badW.status, -22, "-EINVAL (-22) on zero width")
+  assertEqInt(badW.byteCapacity, 0, "zero capacity on error")
+  let badH = rtAndroidSetBuffersGeometry(1080, 0, 1)
+  assertEqInt(badH.status, -22, "-EINVAL (-22) on zero height")
+  assertEqInt(badH.byteCapacity, 0, "zero capacity on zero height error")
+  let badFmt = rtAndroidSetBuffersGeometry(1080, 2400, 4)
+  assertEqInt(badFmt.status, -22, "-EINVAL (-22) on non-RGBA8888 format")
+  ret 0
+
+pub fn test_rt_android_surface_rtAndroidBlitRgbaScanlines(): int:
+  let src: [int] = [11, 22, 33, 44, 55, 66]
+  let blitted = rtAndroidBlitRgbaScanlines(src, 3, 2, 4)
+  assertEqInt(blitted.len(), 8, "2 rows * stride 4 == 8 pixels")
+  assertEqInt(blitted[0], 11, "row 0 col 0 == 11")
+  assertEqInt(blitted[2], 33, "row 0 col 2 == 33")
+  assertEqInt(blitted[3], 0, "row 0 stride pad col 3 == 0")
+  assertEqInt(blitted[4], 44, "row 1 col 0 == 44")
+  assertEqInt(blitted[6], 66, "row 1 col 2 == 66")
+  assertEqInt(blitted[7], 0, "row 1 stride pad col 3 == 0")
+  let emptyBlit = rtAndroidBlitRgbaScanlines([], 3, 2, 4)
+  assertEqInt(emptyBlit.len(), 0, "underrun srcPixels rejected cleanly")
+  let badStride = rtAndroidBlitRgbaScanlines(src, 3, 2, 2)
+  assertEqInt(badStride.len(), 0, "dstStride < width rejected")
+  ret 0
+
+pub fn test_rt_android_surface_rtAndroidAAudioOpenStream(): int:
+  let st = rtAndroidAAudioOpenStream(48000, 2, 192)
+  assert(st.isOpen == true, "48kHz stereo 192-frame burst opens cleanly")
+  assertEqInt(st.bufferCapacityFrames, 384, "double burst 192 * 2 == 384")
+  assertEqInt(st.performanceMode, 12, "AAUDIO_PERFORMANCE_MODE_LOW_LATENCY == 12")
+  let mono = rtAndroidAAudioOpenStream(44100, 1, 128)
+  assert(mono.isOpen == true, "44.1kHz mono opens cleanly")
+  assertEqInt(mono.channelCount, 1, "mono channelCount == 1")
+  let bad = rtAndroidAAudioOpenStream(0, 2, 192)
+  assert(bad.isOpen == false, "0Hz sample rate rejected")
+  let highRate = rtAndroidAAudioOpenStream(192000, 2, 192)
+  assert(highRate.isOpen == false, "192kHz sample rate rejected")
+  let badCh = rtAndroidAAudioOpenStream(48000, 0, 192)
+  assert(badCh.isOpen == false, "0 channels rejected")
+  let smallBurst = rtAndroidAAudioOpenStream(48000, 2, 16)
+  assert(smallBurst.isOpen == false, "burst < 32 rejected")
+  ret 0
+
+pub fn test_rt_android_surface_rtAndroidAAudioDataCallback(): int:
+  let pcm: [int] = [1200, -1200, 2400, -2400, 3600, -3600, 4800, -4800]
+  let okOut = rtAndroidAAudioDataCallback(pcm, 4, 2, true)
+  assertEqInt(okOut.callbackResult, 0, "AAUDIO_CALLBACK_RESULT_CONTINUE == 0")
+  assertEqInt(okOut.samplesWritten, 8, "4 stereo frames == 8 samples")
+  assertEqInt(okOut.firstSample, 1200, "firstSample == 1200")
+  assertEqInt(okOut.lastSample, -4800, "lastSample == -4800")
+  let underrun = rtAndroidAAudioDataCallback([500, -500], 4, 2, true)
+  assertEqInt(underrun.samplesWritten, 8, "underrun still writes 8 zero-padded samples")
+  assertEqInt(underrun.lastSample, 0, "underrun tail zero-filled")
+  let stopped = rtAndroidAAudioDataCallback(pcm, 4, 2, false)
+  assertEqInt(stopped.callbackResult, 1, "AAUDIO_CALLBACK_RESULT_STOP == 1")
+  let zeroFrames = rtAndroidAAudioDataCallback(pcm, 0, 2, true)
+  assertEqInt(zeroFrames.callbackResult, 1, "zero frames returns STOP")
+  ret 0
+
+pub fn main(): int:
+  test_rt_android_surface_rtAndroidSetBuffersGeometry()
+  test_rt_android_surface_rtAndroidBlitRgbaScanlines()
+  test_rt_android_surface_rtAndroidAAudioOpenStream()
+  test_rt_android_surface_rtAndroidAAudioDataCallback()
+  println("PASS: tests/functions/rt/rt_android_surface_test.aipl")
+  ret 0

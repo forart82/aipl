@@ -1,0 +1,285 @@
+module AssetManagerMod
+
+// ============================================================================
+// std/asset/asset_manager.aipl — Typed, Reference-Counted Asset Manager
+// ============================================================================
+
+import { Vec2 } from "std/math/vec_math"
+
+pub const ASSET_STATUS_UNLOADED: int = 0
+pub const ASSET_STATUS_LOADING: int = 1
+pub const ASSET_STATUS_READY: int = 2
+pub const ASSET_STATUS_FAILED: int = 3
+
+pub struct AssetHandle[T]:
+  id: int
+  path: str
+  status: int
+  refCount: int
+  data: Option[T]
+  errorMessage: str
+
+pub struct AssetManager(assets: Map[str, int], nextId: int, hotReloadEnabled: bool, imagePaths: [str], imageIds: [int], soundPaths: [str], soundIds: [int])
+
+pub struct ImageHandle(id: int, width: int, height: int, path: str)
+
+pub struct SoundHandle(id: int, duration: float, path: str)
+
+pub struct FontHandle(id: int, path: str)
+
+pub struct SpriteSheet(imageId: int, frameWidth: int, frameHeight: int, columns: int, totalFrames: int)
+
+pub struct AnimationClip(startFrame: int, frameCount: int, fps: float, loopClip: bool)
+
+pub struct VideoSession(path: str, fps: int, frameCount: int, active: bool)
+
+pub fn createAssetManager(hotReload: bool = false): AssetManager:
+  mut m: Map[str, int] = Map.new()
+  mut ip: [str] = []
+  mut ii: [int] = []
+  mut sp: [str] = []
+  mut si: [int] = []
+  ret AssetManager(assets = m, nextId = 1, hotReloadEnabled = hotReload, imagePaths = ip, imageIds = ii, soundPaths = sp, soundIds = si)
+
+pub fn registerAsset[T](mgr: AssetManager, path: str, initialData: T): (AssetManager, AssetHandle[T]):
+  mut m = mgr.assets
+  let assignedId = mgr.nextId
+  m.set(path, assignedId)
+  let nextMgr = AssetManager(assets = m, nextId = assignedId + 1, hotReloadEnabled = mgr.hotReloadEnabled, imagePaths = mgr.imagePaths, imageIds = mgr.imageIds, soundPaths = mgr.soundPaths, soundIds = mgr.soundIds)
+  let handle = AssetHandle(
+    id = assignedId,
+    path = path,
+    status = ASSET_STATUS_READY,
+    refCount = 1,
+    data = Some(initialData),
+    errorMessage = ""
+  )
+  ret (nextMgr, handle)
+
+pub fn getAssetStatus[T](handle: AssetHandle[T]): int:
+  ret handle.status
+
+pub fn retainAsset[T](handle: AssetHandle[T]): AssetHandle[T]:
+  ret AssetHandle(
+    id = handle.id,
+    path = handle.path,
+    status = handle.status,
+    refCount = handle.refCount + 1,
+    data = handle.data,
+    errorMessage = handle.errorMessage
+  )
+
+pub fn releaseAsset[T](handle: AssetHandle[T]): AssetHandle[T]:
+  let nextRef = if handle.refCount > 0: handle.refCount - 1 else: 0
+  let nextStatus = if nextRef == 0: ASSET_STATUS_UNLOADED else: handle.status
+  let nextData: Option[T] = if nextRef == 0: None else: handle.data
+  ret AssetHandle(
+    id = handle.id,
+    path = handle.path,
+    status = nextStatus,
+    refCount = nextRef,
+    data = nextData,
+    errorMessage = handle.errorMessage
+  )
+
+pub fn notifyAssetFileChanged(mgr: AssetManager, changedPath: str): AssetManager:
+  if not mgr.hotReloadEnabled:
+    ret mgr
+  mut m = mgr.assets
+  if m.containsKey(changedPath):
+    let curId = m.get(changedPath).unwrap()
+    m.set(changedPath, curId + 1000)
+  ret AssetManager(assets = m, nextId = mgr.nextId, hotReloadEnabled = mgr.hotReloadEnabled, imagePaths = mgr.imagePaths, imageIds = mgr.imageIds, soundPaths = mgr.soundPaths, soundIds = mgr.soundIds)
+
+pub fn createImageHandle(id: int, path: str): ImageHandle:
+  let w = imageWidth(id)
+  let h = imageHeight(id)
+  ret ImageHandle(id = id, width = w, height = h, path = path)
+
+pub fn loadImageHandle(path: str): Result[ImageHandle, str]:
+  let res = loadImage(path)
+  if res.isOk():
+    ret Ok(createImageHandle(res.unwrap(), path))
+  ret Err(res.unwrapErr())
+
+pub fn decodeImageHandle(data: bytes, label: str): Result[ImageHandle, str]:
+  let res = decodeImage(data)
+  if res.isOk():
+    ret Ok(createImageHandle(res.unwrap(), label))
+  ret Err(res.unwrapErr())
+
+pub fn createSoundHandle(id: int, path: str): SoundHandle:
+  let dur = getSoundDuration(id)
+  ret SoundHandle(id = id, duration = dur, path = path)
+
+pub fn loadSoundHandle(path: str): Result[SoundHandle, str]:
+  let res = loadSound(path)
+  if res.isOk():
+    ret Ok(createSoundHandle(res.unwrap(), path))
+  ret Err(res.unwrapErr())
+
+pub fn decodeSoundHandle(data: bytes, label: str): Result[SoundHandle, str]:
+  let res = decodeSound(data)
+  if res.isOk():
+    ret Ok(createSoundHandle(res.unwrap(), label))
+  ret Err(res.unwrapErr())
+
+pub fn createFontHandle(id: int, path: str): FontHandle:
+  ret FontHandle(id = id, path = path)
+
+pub fn loadFontHandle(path: str): Result[FontHandle, str]:
+  let res = loadFont(path)
+  if res.isOk():
+    ret Ok(FontHandle(id = res.unwrap(), path = path))
+  ret Err(res.unwrapErr())
+
+pub fn decodeFontHandle(data: bytes, label: str): Result[FontHandle, str]:
+  let res = decodeFont(data)
+  if res.isOk():
+    ret Ok(FontHandle(id = res.unwrap(), path = label))
+  ret Err(res.unwrapErr())
+
+pub fn createSpriteSheet(imageId: int, frameWidth: int, frameHeight: int, columns: int, totalFrames: int): SpriteSheet:
+  let safeCols = if columns < 1: 1 else: columns
+  let safeTotal = if totalFrames < 1: 1 else: totalFrames
+  ret SpriteSheet(
+    imageId = imageId,
+    frameWidth = frameWidth,
+    frameHeight = frameHeight,
+    columns = safeCols,
+    totalFrames = safeTotal
+  )
+
+pub fn createAnimationClip(startFrame: int, frameCount: int, fps: float, loopClip: bool): AnimationClip:
+  let safeCount = if frameCount < 1: 1 else: frameCount
+  ret AnimationClip(
+    startFrame = startFrame,
+    frameCount = safeCount,
+    fps = fps,
+    loopClip = loopClip
+  )
+
+pub fn sampleAnimationFrame(clip: AnimationClip, elapsedSec: float): int:
+  if clip.frameCount <= 1 or clip.fps <= 0.0:
+    ret clip.startFrame
+  mut rawIdx = int(elapsedSec * clip.fps)
+  if rawIdx < 0:
+    rawIdx = 0
+  if clip.loopClip:
+    ret clip.startFrame + (rawIdx % clip.frameCount)
+  if rawIdx >= clip.frameCount:
+    ret clip.startFrame + clip.frameCount - 1
+  ret clip.startFrame + rawIdx
+
+pub fn drawSpriteFrame(sheet: SpriteSheet, frameIndex: int, dx: float, dy: float, dw: float, dh: float):
+  let safeCols = if sheet.columns < 1: 1 else: sheet.columns
+  mut idx = if frameIndex < 0: 0 else: frameIndex
+  if sheet.totalFrames > 0:
+    idx = idx % sheet.totalFrames
+  let col = idx % safeCols
+  let row = idx / safeCols
+  let sx = float(col * sheet.frameWidth)
+  let sy = float(row * sheet.frameHeight)
+  let sw = float(sheet.frameWidth)
+  let sh = float(sheet.frameHeight)
+  drawSubImage(sheet.imageId, sx, sy, sw, sh, dx, dy, dw, dh)
+  ret
+
+pub fn drawAnimatedSprite(sheet: SpriteSheet, clip: AnimationClip, elapsedSec: float, dx: float, dy: float, dw: float, dh: float):
+  let frameIdx = sampleAnimationFrame(clip, elapsedSec)
+  drawSpriteFrame(sheet, frameIdx, dx, dy, dw, dh)
+  ret
+
+pub fn measureLabel(font: FontHandle, text: str, size: float): Vec2:
+  if font.id > 0:
+    ret measureTextFont(font.id, text, size)
+  ret measureText(text, size)
+
+pub fn drawLabel(font: FontHandle, x: float, y: float, text: str, size: float, color: int):
+  let fid = if font.id > 0: font.id else: 0
+  drawTextFont(fid, x, y, text, size, color)
+  ret
+
+pub fn findCachedId(paths: [str], ids: [int], targetPath: str): int:
+  mut i = 0
+  while i < paths.len and i < ids.len:
+    if paths[i] == targetPath:
+      ret ids[i]
+    i = i + 1
+  ret 0
+
+pub fn getCachedImage(mgr: AssetManager, path: str): int:
+  let found = findCachedId(mgr.imagePaths, mgr.imageIds, path)
+  if found != 0:
+    ret found
+  if mgr.assets.containsKey(path):
+    ret mgr.assets.get(path).unwrap()
+  ret 0
+
+pub fn getCachedSound(mgr: AssetManager, path: str): int:
+  let found = findCachedId(mgr.soundPaths, mgr.soundIds, path)
+  if found != 0:
+    ret found
+  if mgr.assets.containsKey(path):
+    ret mgr.assets.get(path).unwrap()
+  ret 0
+
+pub fn cacheImage(mgr: AssetManager, path: str, imageId: int): AssetManager:
+  mut m = mgr.assets
+  if not m.containsKey(path):
+    m.set(path, imageId)
+  mut nextPaths = mgr.imagePaths
+  mut nextIds = mgr.imageIds
+  if findCachedId(nextPaths, nextIds, path) == 0:
+    nextPaths.push(path)
+    nextIds.push(imageId)
+  ret AssetManager(assets = m, nextId = mgr.nextId, hotReloadEnabled = mgr.hotReloadEnabled, imagePaths = nextPaths, imageIds = nextIds, soundPaths = mgr.soundPaths, soundIds = mgr.soundIds)
+
+pub fn cacheSound(mgr: AssetManager, path: str, soundId: int): AssetManager:
+  mut m = mgr.assets
+  if not m.containsKey(path):
+    m.set(path, soundId)
+  mut nextPaths = mgr.soundPaths
+  mut nextIds = mgr.soundIds
+  if findCachedId(nextPaths, nextIds, path) == 0:
+    nextPaths.push(path)
+    nextIds.push(soundId)
+  ret AssetManager(assets = m, nextId = mgr.nextId, hotReloadEnabled = mgr.hotReloadEnabled, imagePaths = mgr.imagePaths, imageIds = mgr.imageIds, soundPaths = nextPaths, soundIds = nextIds)
+
+pub fn createVideoSession(path: str, fps: int = 30): VideoSession:
+  let safeFps = if fps <= 0: 30 else: fps
+  ret VideoSession(path = path, fps = safeFps, frameCount = 0, active = false)
+
+pub fn startVideoCapture(mut session: VideoSession): Result[VideoSession, str]:
+  let ok = startVideoRecording(session.path, session.fps)
+  if not ok:
+    ret Err("Failed to start video recording")
+  session.active = true
+  ret Ok(session)
+
+pub fn captureVideoFrame(mut session: VideoSession): VideoSession:
+  if session.active:
+    recordVideoFrame()
+    session.frameCount = session.frameCount + 1
+  ret session
+
+pub fn stopVideoCapture(mut session: VideoSession): Result[int, str]:
+  if not session.active:
+    ret Err("Video recording session is not active")
+  let ok = stopVideoRecording()
+  session.active = false
+  if not ok:
+    ret Err("Failed to finalize video recording")
+  ret Ok(session.frameCount)
+
+pub fn isVideoCaptureActive(session: VideoSession): bool:
+  ret session.active and isRecordingVideo()
+
+pub fn takeScreenshot(path: str): bool:
+  ret saveScreenshot(path)
+
+pub fn captureScreenshotHandle(path: str): Result[ImageHandle, str]:
+  let ok = saveScreenshot(path)
+  if not ok:
+    ret Err("Failed to capture screenshot")
+  ret loadImageHandle(path)

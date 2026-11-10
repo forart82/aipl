@@ -1,0 +1,62 @@
+// ============================================================================
+// Example 066: Proleptic Gregorian Calendar & ISO-8601 DateTime (CLI)
+// Demonstrates: parseIso8601, formatIso8601, dateTimeUtcToUnix,
+//               unixToDateTimeUtc, timeZoneOffsetNew, isLeapYear, daysInMonth,
+//               createDate, daysBetween, dayOfWeek, monthName, dayOfWeekName,
+//               formatRfc2822, and parseRfc2822 from std/time.
+// ============================================================================
+module Ex066TimeDatetimeIso8601CalendarCli
+
+import {
+  parseIso8601,
+  formatIso8601,
+  dateTimeUtcToUnix,
+  unixToDateTimeUtc,
+  timeZoneOffsetNew,
+  isLeapYear,
+  daysInMonth,
+  createDate,
+  daysBetween,
+  dayOfWeek,
+  monthName,
+  dayOfWeekName,
+  formatRfc2822,
+  parseRfc2822
+} from "../std/time"
+
+// Parses an ISO-8601 UTC timestamp, round-trips through Unix seconds & RFC-2822,
+// and returns the local hour at the requested timezone offset in minutes.
+pub fn verifyIso8601UnixRoundTripHour(isoUtc: str, tzOffsetMin: int): int:
+  let dt = parseIso8601(isoUtc).unwrap()
+  let unixSec = dateTimeUtcToUnix(dt)
+  let restored = unixToDateTimeUtc(unixSec, 0)
+  assert(formatIso8601(restored) == isoUtc, "ISO-8601 string round-trip exact")
+
+  let rfcStr = formatRfc2822(restored)
+  let rfcDt = parseRfc2822(rfcStr).unwrap()
+  assert(rfcDt.date.year == dt.date.year, "RFC-2822 round-trip year match")
+
+  let localDt = restored.toLocal(timeZoneOffsetNew(tzOffsetMin, "+02:00"))
+  ret localDt.time.hour
+
+// Computes the days between two dates in the same month plus February's days in that year.
+pub fn computeCalendarSpanAndLeapDays(year: int, month: int, dayStart: int, dayEnd: int): int:
+  let dStart = createDate(year, month, dayStart)
+  let dEnd = createDate(year, month, dayEnd)
+  let span = daysBetween(dStart, dEnd)
+  let febDays = daysInMonth(year, 2)
+  if isLeapYear(year):
+    assert(febDays == 29, "leap year February has 29 days")
+  ret span + febDays
+
+// Formats a human-readable "Month:Weekday" summary for a calendar date.
+pub fn describeCalendarWeekdaySummary(year: int, month: int, day: int): str:
+  let dow = dayOfWeek(year, month, day)
+  ret monthName(month) + ":" + dayOfWeekName(dow)
+
+pub fn main(): int:
+  let localHr = verifyIso8601UnixRoundTripHour("2026-11-04T12:30:00Z", 120)
+  let spanMetric = computeCalendarSpanAndLeapDays(2024, 11, 4, 10)
+  let summary = describeCalendarWeekdaySummary(2026, 11, 4)
+  println("ex_066_time_datetime_iso8601_calendar_cli: localHr=" + str(localHr) + " spanMetric=" + str(spanMetric) + " summary=" + summary)
+  ret 0

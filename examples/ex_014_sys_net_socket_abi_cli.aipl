@@ -1,0 +1,69 @@
+// ============================================================================
+// Example 014: Berkeley Socket ABI, Non-Blocking Fcntl & Poll CLI
+// Demonstrates: sysNetSocket, sysNetSetNonBlocking, sysNetClose, sysNetBind,
+//               sysNetListen, sysNetPoll, and socket family constants from
+//               std/sys/sys_net.
+// ============================================================================
+module Ex014SysNetSocketAbiCli
+
+import {
+  SYS_AF_INET,
+  SYS_AF_INET6,
+  SYS_SOCK_STREAM,
+  SYS_SOCK_DGRAM,
+  sysNetSocket,
+  sysNetSetNonBlocking,
+  sysNetClose,
+  sysNetBind,
+  sysNetListen,
+  sysNetPoll
+} from "../std/sys/sys_net"
+
+pub struct SocketAbiProbe:
+  afInet: int
+  sockStream: int
+  sockDgram: int
+  udpCloseResult: int
+  rejectedCalls: int
+
+pub fn openAndCloseUdpSocket(): int:
+  let sfd = sysNetSocket(SYS_AF_INET, SYS_SOCK_DGRAM, 0)
+  if sfd >= 0:
+    let _ = sysNetSetNonBlocking(sfd, true)
+    ret sysNetClose(sfd)
+  ret 0
+
+pub fn probeInvalidSocketOps(): int:
+  mut rejected = 0
+  if sysNetBind(-1, 0, 0) < 0:
+    rejected = rejected + 1
+  if sysNetListen(-1, 1) < 0:
+    rejected = rejected + 1
+  if sysNetPoll(0, -1, 0) < 0:
+    rejected = rejected + 1
+  ret rejected
+
+pub fn describeSocketFamilyAndType(domain: int, sockType: int): str:
+  if domain == SYS_AF_INET and sockType == SYS_SOCK_STREAM:
+    ret "SOCK:AF_INET_STREAM_TCP"
+  if domain == SYS_AF_INET and sockType == SYS_SOCK_DGRAM:
+    ret "SOCK:AF_INET_DGRAM_UDP"
+  if domain == SYS_AF_INET6:
+    ret "SOCK:AF_INET6_STREAM"
+  ret "SOCK:CUSTOM_ABI"
+
+pub fn buildSocketAbiProbe(): SocketAbiProbe:
+  ret SocketAbiProbe(
+    afInet = SYS_AF_INET,
+    sockStream = SYS_SOCK_STREAM,
+    sockDgram = SYS_SOCK_DGRAM,
+    udpCloseResult = openAndCloseUdpSocket(),
+    rejectedCalls = probeInvalidSocketOps()
+  )
+
+pub fn main(): int:
+  let probe = buildSocketAbiProbe()
+  let tag = describeSocketFamilyAndType(probe.afInet, probe.sockDgram)
+  println("[ex_014_sys_net_socket_abi_cli] SocketAbiProbe(AF_INET=" + str(probe.afInet) + ", STREAM=" + str(probe.sockStream) + ", DGRAM=" + str(probe.sockDgram) + ", udpClose=" + str(probe.udpCloseResult) + ", rejected=" + str(probe.rejectedCalls) + ")")
+  println("[ex_014_sys_net_socket_abi_cli] mode=" + tag)
+  ret 0

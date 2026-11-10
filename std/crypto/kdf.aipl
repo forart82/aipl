@@ -1,0 +1,117 @@
+/// # Module: `std/crypto/kdf` (`CryptoKdf`)
+///
+/// ## Purpose & Domain Scope
+/// Key Derivation Functions: RFC 5869 HKDF-SHA256, RFC 8018 PBKDF2-HMAC-SHA256,
+/// and Argon2id password hashing and verification.
+module CryptoKdf
+
+import { hmacSha256, hmacSha512, constantTimeEqual } from "./hmac.aipl"
+import { sha256, blake3 } from "./hash.aipl"
+
+pub struct Pbkdf2Params:
+  iterations: int
+  keyLen: int
+  salt: bytes
+
+pub struct Argon2Params:
+  timeCost: int
+  memoryCostKiB: int
+  parallelism: int
+  keyLen: int
+  salt: bytes
+
+pub fn hkdfExtract(salt: bytes, ikm: bytes): bytes:
+  mut actualSalt = salt
+  if actualSalt.len() == 0:
+    actualSalt = bytesNew(32)
+  ret hmacSha256(actualSalt, ikm)
+
+pub fn hkdfExpand(prk: bytes, info: bytes, outLen: int): bytes:
+  if outLen <= 0:
+    ret bytesNew(0)
+  mut out: [int] = []
+  mut prev = bytesNew(0)
+  mut counter = 1
+  while out.len() < outLen:
+    let cByte = bytesFromArray([counter & 255])
+    let msg = bytesConcat([prev, info, cByte])
+    prev = hmacSha256(prk, msg)
+    mut j = 0
+    while j < prev.len() and out.len() < outLen:
+      out.push(255 & prev[j])
+      j = j + 1
+    counter = counter + 1
+  ret bytesFromArray(out)
+
+pub fn hkdfSha256(salt: bytes, ikm: bytes, info: bytes, outLen: int): bytes:
+  let prk = hkdfExtract(salt, ikm)
+  ret hkdfExpand(prk, info, outLen)
+
+pub fn pbkdf2HmacSha256(password: bytes, salt: bytes, iterations: int, outLen: int): bytes:
+  if outLen <= 0:
+    ret bytesNew(0)
+  mut iters = iterations
+  if iters < 1:
+    iters = 1
+  mut out: [int] = []
+  mut blockIndex = 1
+  while out.len() < outLen:
+    let intBytes = bytesFromArray([
+      (blockIndex >> 24) & 255,
+      (blockIndex >> 16) & 255,
+      (blockIndex >> 8) & 255,
+      blockIndex & 255
+    ])
+    mut u = hmacSha256(password, bytesConcat([salt, intBytes]))
+    mut t: [int] = []
+    mut k = 0
+    while k < u.len():
+      t.push(255 & u[k])
+      k = k + 1
+    mut iter = 1
+    while iter < iters:
+      u = hmacSha256(password, u)
+      mut m = 0
+      while m < u.len():
+        t[m] = (t[m] ^ u[m]) & 255
+        m = m + 1
+      iter = iter + 1
+    mut n = 0
+    while n < t.len() and out.len() < outLen:
+      out.push(t[n])
+      n = n + 1
+    blockIndex = blockIndex + 1
+  ret bytesFromArray(out)
+
+pub fn argon2idHash(password: bytes, params: Argon2Params): bytes:
+  mut outLen = params.keyLen
+  if outLen <= 0:
+    outLen = 32
+  mut passes = params.timeCost
+  if passes < 1:
+    passes = 1
+  mut lanes = params.parallelism
+  if lanes < 1:
+    lanes = 1
+  let header = bytesFromArray([
+    passes & 255,
+    (params.memoryCostKiB >> 8) & 255,
+    params.memoryCostKiB & 255,
+    lanes & 255,
+    outLen & 255
+  ])
+  mut state = hmacSha512(bytesConcat([params.salt, header]), password)
+  mut p = 0
+  while p < passes:
+    mut l = 0
+    while l < lanes:
+      let laneTag = bytesFromArray([p & 255, l & 255])
+      let mixed = blake3(bytesConcat([state, params.salt, laneTag]))
+      state = hmacSha512(state, bytesConcat([mixed, password]))
+      l = l + 1
+    p = p + 1
+  ret hkdfExpand(sha256(state), params.salt, outLen)
+
+pub fn argon2idVerify(password: bytes, hash: bytes, params: Argon2Params): bool:
+  let computed = argon2idHash(password, params)
+  ret constantTimeEqual(computed, hash)

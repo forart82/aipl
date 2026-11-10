@@ -1,0 +1,232 @@
+module tests.functions.ai.vector_embedding_test
+
+import * from "std/ai/vector_embedding"
+import { minInt } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { tensorMatmul, tensorCosineSimilarity } from "std/math/simd"
+import { jsonQuery, escapeJsonString } from "std/encoding/json"
+import { Map } from "std/collections/hash_map"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_vector_embedding_cosineSimilarity_1(): int:
+  let arg_v1 = VectorEmbedding(dims = 4, values = [])
+  let edge_v1 = VectorEmbedding(dims = 1, values = [])
+  let arg_v2 = VectorEmbedding(dims = 4, values = [])
+  let edge_v2 = VectorEmbedding(dims = 1, values = [])
+  let resNom = cosineSimilarity(arg_v1, arg_v2)
+  let resEdge = cosineSimilarity(edge_v1, edge_v2)
+  assertApproxEq(resNom, 0.0, 0.001, "cosineSimilarity nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "cosineSimilarity boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_vector_embedding_l2Distance_2(): int:
+  let arg_v1 = VectorEmbedding(dims = 4, values = [])
+  let edge_v1 = VectorEmbedding(dims = 1, values = [])
+  let arg_v2 = VectorEmbedding(dims = 4, values = [])
+  let edge_v2 = VectorEmbedding(dims = 1, values = [])
+  let resNom = l2Distance(arg_v1, arg_v2)
+  let resEdge = l2Distance(edge_v1, edge_v2)
+  assertApproxEq(resNom, 0.0, 0.001, "l2Distance nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "l2Distance boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_vector_embedding_knnLinearSearch_3(): int:
+  let arg_query = VectorEmbedding(dims = 4, values = [])
+  let edge_query = VectorEmbedding(dims = 1, values = [])
+  let arg_dataset = [VectorEmbedding(dims = 4, values = [])]
+  let edge_dataset = []
+  let arg_topK = 4
+  let edge_topK = 1
+  let resNom = knnLinearSearch(arg_query, arg_dataset, arg_topK)
+  let resEdge = knnLinearSearch(edge_query, edge_dataset, edge_topK)
+  assertEqInt(resNom.len(), 1, "knnLinearSearch nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "knnLinearSearch boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_vector_embedding_buildGeminiRequest_4(): int:
+  let arg_model = "[s]\nk=v"
+  let edge_model = "[s]\nk=v"
+  let arg_systemPrompt = "[s]\nk=v"
+  let edge_systemPrompt = "[s]\nk=v"
+  let arg_userPrompt = "[s]\nk=v"
+  let edge_userPrompt = "[s]\nk=v"
+  let arg_responseSchemaJson = "{\"a\":1}"
+  let edge_responseSchemaJson = "{}"
+  let resNom = buildGeminiRequest(arg_model, arg_systemPrompt, arg_userPrompt, arg_responseSchemaJson)
+  let resEdge = buildGeminiRequest(edge_model, edge_systemPrompt, edge_userPrompt, edge_responseSchemaJson)
+  assertEqInt(resNom.len(), 215, "buildGeminiRequest nominal string length == 215")
+  assertEqInt(resEdge.len(), 210, "buildGeminiRequest boundary string length == 210")
+  ret 0
+
+pub fn test_vector_embedding_buildOpenAiRequest_5(): int:
+  let arg_model = "test"
+  let edge_model = "a"
+  let arg_messages = [AiMessage(role = "test", content = "test")]
+  let edge_messages = []
+  let arg_responseSchemaJson = "{\"a\":1}"
+  let edge_responseSchemaJson = "{}"
+  let resNom = buildOpenAiRequest(arg_model, arg_messages, arg_responseSchemaJson)
+  let resEdge = buildOpenAiRequest(edge_model, edge_messages, edge_responseSchemaJson)
+  assertEqInt(resNom.len(), 174, "buildOpenAiRequest nominal string length == 174")
+  assertEqInt(resEdge.len(), 134, "buildOpenAiRequest boundary string length == 134")
+  ret 0
+
+pub fn test_vector_embedding_buildAnthropicRequest_6(): int:
+  let arg_model = "test"
+  let edge_model = "a"
+  let arg_systemPrompt = "test"
+  let edge_systemPrompt = "a"
+  let arg_messages = [AiMessage(role = "test", content = "test")]
+  let edge_messages = []
+  let arg_maxTokens = 4
+  let edge_maxTokens = 1
+  let resNom = buildAnthropicRequest(arg_model, arg_systemPrompt, arg_messages, arg_maxTokens)
+  let resEdge = buildAnthropicRequest(edge_model, edge_systemPrompt, edge_messages, edge_maxTokens)
+  assertEqInt(resNom.len(), 93, "buildAnthropicRequest nominal string length == 93")
+  assertEqInt(resEdge.len(), 55, "buildAnthropicRequest boundary string length == 55")
+  ret 0
+
+pub fn test_vector_embedding_buildOllamaRequest_7(): int:
+  let arg_model = "test"
+  let edge_model = "a"
+  let arg_prompt = "test"
+  let edge_prompt = "a"
+  let arg_formatSchemaJson = "{\"a\":1}"
+  let edge_formatSchemaJson = "{}"
+  let resNom = buildOllamaRequest(arg_model, arg_prompt, arg_formatSchemaJson)
+  let resEdge = buildOllamaRequest(edge_model, edge_prompt, edge_formatSchemaJson)
+  assertEqInt(resNom.len(), 64, "buildOllamaRequest nominal string length == 64")
+  assertEqInt(resEdge.len(), 53, "buildOllamaRequest boundary string length == 53")
+  ret 0
+
+pub fn test_vector_embedding_tryExtractToolCallPair_8(): int:
+  let arg_responseJson = "{\"a\":1}"
+  let edge_responseJson = "{}"
+  let arg_namePath = "/tmp/aipl_test_path"
+  let edge_namePath = "/tmp/aipl_test_path"
+  let arg_argsPath1 = "/tmp/aipl_test_path"
+  let edge_argsPath1 = "/tmp/aipl_test_path"
+  let arg_argsPath2 = "/tmp/aipl_test_path"
+  let edge_argsPath2 = "/tmp/aipl_test_path"
+  let resNom = tryExtractToolCallPair(arg_responseJson, arg_namePath, arg_argsPath1, arg_argsPath2)
+  let resEdge = tryExtractToolCallPair(edge_responseJson, edge_namePath, edge_argsPath1, edge_argsPath2)
+  assert(resNom.isSome() == false, "tryExtractToolCallPair nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "tryExtractToolCallPair boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_vector_embedding_parseAiToolCall_9(): int:
+  let arg_responseJson = "{\"a\":1}"
+  let edge_responseJson = "{}"
+  let resNom = parseAiToolCall(arg_responseJson)
+  let resEdge = parseAiToolCall(edge_responseJson)
+  assert(resNom.isOk() == false, "parseAiToolCall nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "parseAiToolCall boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_vector_embedding_hasJsonKey_10(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let resNom = hasJsonKey(arg_jsonStr, arg_key)
+  let resEdge = hasJsonKey(edge_jsonStr, edge_key)
+  assert(resNom == false, "hasJsonKey nominal resNom == false")
+  assert(resEdge == false, "hasJsonKey boundary resEdge == false")
+  ret 0
+
+pub fn test_vector_embedding_extractStringArrayElements_11(): int:
+  let arg_arrJson = "{\"a\":1}"
+  let edge_arrJson = "{}"
+  let resNom = extractStringArrayElements(arg_arrJson)
+  let resEdge = extractStringArrayElements(edge_arrJson)
+  assertEqInt(resNom.len(), 0, "extractStringArrayElements nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "extractStringArrayElements boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_vector_embedding_extractRequiredKeys_12(): int:
+  let arg_schemaJson = "{\"a\":1}"
+  let edge_schemaJson = "{}"
+  let resNom = extractRequiredKeys(arg_schemaJson)
+  let resEdge = extractRequiredKeys(edge_schemaJson)
+  assertEqInt(resNom.len(), 0, "extractRequiredKeys nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "extractRequiredKeys boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_vector_embedding_validateJsonAgainstSchema_13(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_schemaJson = "{\"a\":1}"
+  let edge_schemaJson = "{}"
+  let resNom = validateJsonAgainstSchema(arg_jsonStr, arg_schemaJson)
+  let resEdge = validateJsonAgainstSchema(edge_jsonStr, edge_schemaJson)
+  assert(resNom.isOk() == true, "validateJsonAgainstSchema nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "validateJsonAgainstSchema boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_vector_embedding_renderPromptTemplate_14(): int:
+  let arg_template = "test"
+  let edge_template = "a"
+  let arg_vars = {}
+  let edge_vars = {}
+  let resNom = renderPromptTemplate(arg_template, arg_vars)
+  let resEdge = renderPromptTemplate(edge_template, edge_vars)
+  assertEqStr(resNom, "test", "renderPromptTemplate nominal string matches")
+  assertEqStr(resEdge, "a", "renderPromptTemplate boundary string matches")
+  ret 0
+
+pub fn test_vector_embedding_estimateTokenCount_15(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = estimateTokenCount(arg_text)
+  let resEdge = estimateTokenCount(edge_text)
+  assertEqInt(resNom, 1, "estimateTokenCount nominal resNom == 1")
+  assertEqInt(resEdge, 1, "estimateTokenCount boundary resEdge == 1")
+  ret 0
+
+pub fn test_vector_embedding_rankEmbeddingsByCosine_16(): int:
+  let arg_query = [1.0]
+  let edge_query = []
+  let arg_candidates = [[]]
+  let edge_candidates = []
+  let resNom = rankEmbeddingsByCosine(arg_query, arg_candidates)
+  let resEdge = rankEmbeddingsByCosine(edge_query, edge_candidates)
+  assertEqInt(resNom.len(), 1, "rankEmbeddingsByCosine nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "rankEmbeddingsByCosine boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_vector_embedding_denseLayerForward_17(): int:
+  let arg_input = [1.0]
+  let edge_input = []
+  let arg_weights = [2.0]
+  let edge_weights = []
+  let arg_bias = [1.0]
+  let edge_bias = []
+  let arg_inDim = 4
+  let edge_inDim = 1
+  let arg_outDim = 4
+  let edge_outDim = 1
+  let resNom = denseLayerForward(arg_input, arg_weights, arg_bias, arg_inDim, arg_outDim)
+  let resEdge = denseLayerForward(edge_input, edge_weights, edge_bias, edge_inDim, edge_outDim)
+  assertEqInt(resNom.len(), 4, "denseLayerForward nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "denseLayerForward boundary resEdge.len() == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_vector_embedding_cosineSimilarity_1(), 0, "test_vector_embedding_cosineSimilarity_1")
+  assertEqInt(test_vector_embedding_l2Distance_2(), 0, "test_vector_embedding_l2Distance_2")
+  assertEqInt(test_vector_embedding_knnLinearSearch_3(), 0, "test_vector_embedding_knnLinearSearch_3")
+  assertEqInt(test_vector_embedding_buildGeminiRequest_4(), 0, "test_vector_embedding_buildGeminiRequest_4")
+  assertEqInt(test_vector_embedding_buildOpenAiRequest_5(), 0, "test_vector_embedding_buildOpenAiRequest_5")
+  assertEqInt(test_vector_embedding_buildAnthropicRequest_6(), 0, "test_vector_embedding_buildAnthropicRequest_6")
+  assertEqInt(test_vector_embedding_buildOllamaRequest_7(), 0, "test_vector_embedding_buildOllamaRequest_7")
+  assertEqInt(test_vector_embedding_tryExtractToolCallPair_8(), 0, "test_vector_embedding_tryExtractToolCallPair_8")
+  assertEqInt(test_vector_embedding_parseAiToolCall_9(), 0, "test_vector_embedding_parseAiToolCall_9")
+  assertEqInt(test_vector_embedding_hasJsonKey_10(), 0, "test_vector_embedding_hasJsonKey_10")
+  assertEqInt(test_vector_embedding_extractStringArrayElements_11(), 0, "test_vector_embedding_extractStringArrayElements_11")
+  assertEqInt(test_vector_embedding_extractRequiredKeys_12(), 0, "test_vector_embedding_extractRequiredKeys_12")
+  assertEqInt(test_vector_embedding_validateJsonAgainstSchema_13(), 0, "test_vector_embedding_validateJsonAgainstSchema_13")
+  assertEqInt(test_vector_embedding_renderPromptTemplate_14(), 0, "test_vector_embedding_renderPromptTemplate_14")
+  assertEqInt(test_vector_embedding_estimateTokenCount_15(), 0, "test_vector_embedding_estimateTokenCount_15")
+  assertEqInt(test_vector_embedding_rankEmbeddingsByCosine_16(), 0, "test_vector_embedding_rankEmbeddingsByCosine_16")
+  assertEqInt(test_vector_embedding_denseLayerForward_17(), 0, "test_vector_embedding_denseLayerForward_17")
+  ret 0

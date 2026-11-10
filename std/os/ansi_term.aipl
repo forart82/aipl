@@ -1,0 +1,482 @@
+/// # Module: `std/os/ansi_term` (`OsAnsiTerm`)
+///
+/// ## Purpose & Domain Scope
+/// ANSI escape sequence styling (16-color and 24-bit TrueColor), cursor motion,
+/// screen clearing, aligned terminal data tables (`TerminalTable`), progress bars,
+/// and animated spinners.
+module OsAnsiTerm
+
+pub import * from "std/fmt/text_print"
+
+pub struct AnsiColor:
+  code: int
+  isRgb: bool
+  r: int
+  g: int
+  b: int
+
+pub struct AnsiStyle:
+  bold: bool
+  dim: bool
+  italic: bool
+  underline: bool
+  fg: Option[AnsiColor]
+  bg: Option[AnsiColor]
+
+pub struct TerminalTable:
+  mut headers: [str]
+  mut rows: [[str]]
+  mut alignments: [int]
+  borderStyle: int = 0
+
+pub struct ProgressBar:
+  total: int
+  mut current: int
+  width: int
+  prefix: str
+  fillChar: str
+  emptyChar: str
+
+pub struct Spinner:
+  frames: [str]
+  mut currentFrame: int
+  message: str
+
+fn escSeq(): str:
+  ret chr(27) + "["
+
+pub fn ansiReset(): str:
+  ret escSeq() + "0m"
+
+pub fn ansiBold(s: str): str:
+  ret escSeq() + "1m" + s + ansiReset()
+
+pub fn ansiDim(s: str): str:
+  ret escSeq() + "2m" + s + ansiReset()
+
+pub fn ansiItalic(s: str): str:
+  ret escSeq() + "3m" + s + ansiReset()
+
+pub fn ansiUnderline(s: str): str:
+  ret escSeq() + "4m" + s + ansiReset()
+
+pub fn ansiFgColor(colorCode: int, text: str): str:
+  ret escSeq() + str(30 + (colorCode & 7)) + "m" + text + ansiReset()
+
+pub fn ansiBgColor(colorCode: int, text: str): str:
+  ret escSeq() + str(40 + (colorCode & 7)) + "m" + text + ansiReset()
+
+pub fn ansiRgbFg(r: int, g: int, b: int, text: str): str:
+  ret escSeq() + "38;2;" + str(r & 255) + ";" + str(g & 255) + ";" + str(b & 255) + "m" + text + ansiReset()
+
+pub fn ansiRgbBg(r: int, g: int, b: int, text: str): str:
+  ret escSeq() + "48;2;" + str(r & 255) + ";" + str(g & 255) + ";" + str(b & 255) + "m" + text + ansiReset()
+
+pub fn cursorMoveTo(row: int, col: int): str:
+  ret escSeq() + str(row) + ";" + str(col) + "H"
+
+pub fn cursorUp(n: int): str:
+  ret escSeq() + str(n) + "A"
+
+pub fn cursorDown(n: int): str:
+  ret escSeq() + str(n) + "B"
+
+pub fn cursorForward(n: int): str:
+  ret escSeq() + str(n) + "C"
+
+pub fn cursorBack(n: int): str:
+  ret escSeq() + str(n) + "D"
+
+pub fn termClearScreen(): str:
+  ret escSeq() + "2J" + escSeq() + "H"
+
+pub fn termClearLine(): str:
+  ret escSeq() + "2K"
+
+pub fn termGetSize(): [int]:
+  ret [80, 24]
+
+pub fn termTableNew(headers: [str]): TerminalTable:
+  mut aligns: [int] = []
+  mut i = 0
+  while i < headers.len():
+    aligns.push(0)
+    i = i + 1
+  ret TerminalTable(headers: headers, rows: [], alignments: aligns, borderStyle: 0)
+
+pub fn termTableAddColumn(mut t: TerminalTable, header: str, alignment: int): TerminalTable:
+  t.headers.push(header)
+  t.alignments.push(alignment)
+  ret t
+
+pub fn termTableAddRow(mut t: TerminalTable, row: [str]): TerminalTable:
+  t.rows.push(row)
+  ret t
+
+fn padCellText(text: str, width: int, align: int): str:
+  if text.len() >= width:
+    ret text
+  let diff = width - text.len()
+  mut spaces = ""
+  mut i = 0
+  while i < diff:
+    spaces = spaces + " "
+    i = i + 1
+  if align == 1:
+    ret spaces + text
+  ret text + spaces
+
+fn repeatChar(ch: str, n: int): str:
+  mut out = ""
+  mut i = 0
+  while i < n:
+    out = out + ch
+    i = i + 1
+  ret out
+
+pub fn termTableRender(t: TerminalTable): str:
+  let colCount = t.headers.len()
+  if colCount == 0:
+    ret ""
+  mut widths: [int] = []
+  mut c = 0
+  while c < colCount:
+    mut w = t.headers[c].len()
+    mut r = 0
+    while r < t.rows.len():
+      let row = t.rows[r]
+      if c < row.len() and row[c].len() > w:
+        w = row[c].len()
+      r = r + 1
+    widths.push(w)
+    c = c + 1
+
+  mut sepParts: [str] = []
+  c = 0
+  while c < colCount:
+    sepParts.push(repeatChar("-", widths[c] + 2))
+    c = c + 1
+  let sepLine = "+" + sepParts.join("+") + "+"
+
+  mut lines: [str] = []
+  lines.push(sepLine)
+  mut hdrCells: [str] = []
+  c = 0
+  while c < colCount:
+    hdrCells.push(" " + padCellText(t.headers[c], widths[c], 0) + " ")
+    c = c + 1
+  lines.push("|" + hdrCells.join("|") + "|")
+  lines.push(sepLine)
+
+  mut r = 0
+  while r < t.rows.len():
+    let row = t.rows[r]
+    mut rowCells: [str] = []
+    c = 0
+    while c < colCount:
+      let cell = if c < row.len(): row[c] else: ""
+      let align = if c < t.alignments.len(): t.alignments[c] else: 0
+      rowCells.push(" " + padCellText(cell, widths[c], align) + " ")
+      c = c + 1
+    lines.push("|" + rowCells.join("|") + "|")
+    r = r + 1
+  lines.push(sepLine)
+  ret lines.join("\n")
+
+pub fn progressBarNew(total: int, width: int, prefix: str): ProgressBar:
+  mut tot = total
+  if tot <= 0:
+    tot = 1
+  mut w = width
+  if w <= 0:
+    w = 20
+  ret ProgressBar(total: tot, current: 0, width: w, prefix: prefix, fillChar: "#", emptyChar: "-")
+
+pub fn progressBarUpdate(mut pb: ProgressBar, current: int): str:
+  mut cur = current
+  if cur < 0:
+    cur = 0
+  if cur > pb.total:
+    cur = pb.total
+  pb.current = cur
+  let filled = (cur * pb.width) / pb.total
+  let empty = pb.width - filled
+  let pct = (cur * 100) / pb.total
+  ret pb.prefix + " [" + repeatChar(pb.fillChar, filled) + repeatChar(pb.emptyChar, empty) + "] " + str(pct) + "%"
+
+pub fn progressBarFinish(mut pb: ProgressBar): str:
+  ret progressBarUpdate(pb, pb.total)
+
+pub fn spinnerNew(message: str): Spinner:
+  ret Spinner(frames: ["-", "/", "|", "*"], currentFrame: 0, message: message)
+
+pub fn spinnerTick(mut s: Spinner): str:
+  let idx = s.currentFrame % s.frames.len()
+  let frame = s.frames[idx]
+  s.currentFrame = s.currentFrame + 1
+  ret "[" + frame + "] " + s.message
+
+pub fn spinnerFinish(mut s: Spinner, finalMsg: str): str:
+  s.message = finalMsg
+  ret "[ok] " + s.message
+
+pub fn ansiRed(text: str): str:
+  ret escSeq() + "31m" + text + ansiReset()
+
+pub fn ansiGreen(text: str): str:
+  ret escSeq() + "32m" + text + ansiReset()
+
+pub fn ansiYellow(text: str): str:
+  ret escSeq() + "33m" + text + ansiReset()
+
+pub fn ansiBlue(text: str): str:
+  ret escSeq() + "34m" + text + ansiReset()
+
+pub fn ansiMagenta(text: str): str:
+  ret escSeq() + "35m" + text + ansiReset()
+
+pub fn ansiCyan(text: str): str:
+  ret escSeq() + "36m" + text + ansiReset()
+
+pub fn ansiWhite(text: str): str:
+  ret escSeq() + "37m" + text + ansiReset()
+
+pub fn fgRgb(text: str, r: int, g: int, b: int): str:
+  ret ansiRgbFg(r, g, b, text)
+
+pub fn bgRgb(text: str, r: int, g: int, b: int): str:
+  ret ansiRgbBg(r, g, b, text)
+
+pub fn termCursorHome(): str:
+  ret escSeq() + "H"
+
+pub fn termHideCursor(): str:
+  ret escSeq() + "?25l"
+
+pub fn termShowCursor(): str:
+  ret escSeq() + "?25h"
+
+pub fn enterAlternateScreen(): str:
+  ret escSeq() + "?1049h"
+
+pub fn leaveAlternateScreen(): str:
+  ret escSeq() + "?1049l"
+
+fn stripAnsiLocal(s: str): str:
+  mut out = ""
+  mut i = 0
+  while i < s.len():
+    let ch = s.charAt(i)
+    if ch == chr(27) and i + 1 < s.len() and s.charAt(i + 1) == "[":
+      i = i + 2
+      while i < s.len():
+        let c = s.charAt(i)
+        i = i + 1
+        if (c >= "A" and c <= "Z") or (c >= "a" and c <= "z"):
+          break
+    else:
+      out = out + ch
+      i = i + 1
+  ret out
+
+pub fn visibleWidth(s: str): int:
+  ret stripAnsiLocal(s).len()
+
+pub fn wrapText(s: str, maxWidth: int): [str]:
+  mut lines: [str] = []
+  if maxWidth <= 0:
+    lines.push(s)
+    ret lines
+  let words = s.split(" ")
+  mut cur = ""
+  mut i = 0
+  while i < words.len():
+    let w = words[i]
+    if cur.len() == 0:
+      cur = w
+    elif cur.len() + 1 + w.len() <= maxWidth:
+      cur = cur + " " + w
+    else:
+      lines.push(cur)
+      cur = w
+    i = i + 1
+  if cur.len() > 0:
+    lines.push(cur)
+  ret lines
+
+pub fn renderTable(headers: [str], rows: [[str]]): str:
+  let colCount = headers.len()
+  if colCount == 0:
+    ret ""
+  mut widths: [int] = []
+  mut c = 0
+  while c < colCount:
+    widths.push(visibleWidth(headers[c]))
+    c = c + 1
+  mut r = 0
+  while r < rows.len():
+    let row = rows[r]
+    mut cIdx = 0
+    while cIdx < colCount and cIdx < row.len():
+      let w = visibleWidth(row[cIdx])
+      if w > widths[cIdx]:
+        widths[cIdx] = w
+      cIdx = cIdx + 1
+    r = r + 1
+  mut out = ""
+  mut hIdx = 0
+  while hIdx < colCount:
+    let cell = padCellText(headers[hIdx], widths[hIdx], 0)
+    if hIdx > 0:
+      out = out + " | "
+    out = out + cell
+    hIdx = hIdx + 1
+  out = out + "\n"
+  mut sepIdx = 0
+  while sepIdx < colCount:
+    let dash = repeatChar("-", widths[sepIdx])
+    if sepIdx > 0:
+      out = out + "-+-"
+    out = out + dash
+    sepIdx = sepIdx + 1
+  out = out + "\n"
+  mut rIdx = 0
+  while rIdx < rows.len():
+    let row = rows[rIdx]
+    mut cIdx = 0
+    while cIdx < colCount:
+      let raw = if cIdx < row.len(): row[cIdx] else: ""
+      let cell = padCellText(raw, widths[cIdx], 0)
+      if cIdx > 0:
+        out = out + " | "
+      out = out + cell
+      cIdx = cIdx + 1
+    out = out + "\n"
+    rIdx = rIdx + 1
+  ret out
+
+pub fn renderBox(title: str, lines: [str], width: int): str:
+  mut maxContentWidth = if title.len() > 0: visibleWidth(title) + 2 else: 0
+  mut i = 0
+  while i < lines.len():
+    let lw = visibleWidth(lines[i])
+    if lw > maxContentWidth:
+      maxContentWidth = lw
+    i = i + 1
+  let w = if width > maxContentWidth + 4: width else: maxContentWidth + 4
+  let innerWidth = w - 4
+  mut top = ""
+  if title.len() > 0:
+    let prefix = "+- " + title + " "
+    let remDash = if w > prefix.len() + 1: w - prefix.len() - 1 else: 0
+    top = prefix + repeatChar("-", remDash) + "+"
+  else:
+    top = "+" + repeatChar("-", w - 2) + "+"
+  mut out = top + "\n"
+  mut li = 0
+  while li < lines.len():
+    let cleanLen = visibleWidth(lines[li])
+    let pad = if innerWidth > cleanLen: innerWidth - cleanLen else: 0
+    out = out + "| " + lines[li] + repeatChar(" ", pad) + " |\n"
+    li = li + 1
+  out = out + "+" + repeatChar("-", w - 2) + "+"
+  ret out
+
+pub fn renderBarChart(labels: [str], values: [int], maxWidth: int): str:
+  if labels.len() == 0 or values.len() == 0:
+    ret ""
+  mut maxV = 0
+  mut maxLabelLen = 0
+  mut i = 0
+  while i < labels.len() and i < values.len():
+    let lw = visibleWidth(labels[i])
+    if lw > maxLabelLen:
+      maxLabelLen = lw
+    if values[i] > maxV:
+      maxV = values[i]
+    i = i + 1
+  let effWidth = if maxWidth > 5: maxWidth else: 20
+  mut out = ""
+  mut j = 0
+  while j < labels.len() and j < values.len():
+    let label = padCellText(labels[j], maxLabelLen, 0)
+    let v = values[j]
+    let barLen = if maxV > 0: (v * effWidth) / maxV else: 0
+    let bar = repeatChar("#", barLen)
+    out = out + label + " | " + bar + " (" + str(v) + ")\n"
+    j = j + 1
+  ret out
+
+pub fn renderHorizontalSplit(leftLines: [str], rightLines: [str], leftWidth: int): [str]:
+  mut result: [str] = []
+  let totalLines = if leftLines.len() > rightLines.len(): leftLines.len() else: rightLines.len()
+  mut i = 0
+  while i < totalLines:
+    let left = if i < leftLines.len(): leftLines[i] else: ""
+    let right = if i < rightLines.len(): rightLines[i] else: ""
+    let paddedLeft = padCellText(left, leftWidth, 0)
+    result.push(paddedLeft + " | " + right)
+    i = i + 1
+  ret result
+
+pub fn renderAsciiBanner(text: str): str:
+  let border = repeatChar("=", text.len() + 4)
+  ret border + "\n| " + text + " |\n" + border
+
+pub fn termSparkline(values: [float]): str:
+  if values.len() == 0:
+    ret ""
+  let ticks = ["_", ".", "-", "=", "+", "*", "#", "@"]
+  mut minV = values[0]
+  mut maxV = values[0]
+  mut i = 1
+  while i < values.len():
+    if values[i] < minV:
+      minV = values[i]
+    if values[i] > maxV:
+      maxV = values[i]
+    i = i + 1
+  let span = maxV - minV
+  mut out = ""
+  mut j = 0
+  while j < values.len():
+    mut idx = 0
+    if span > 0.000001:
+      idx = int(((values[j] - minV) / span) * 7.0 + 0.5)
+    if idx < 0:
+      idx = 0
+    if idx > 7:
+      idx = 7
+    out = out + ticks[idx]
+    j = j + 1
+  ret out
+
+pub fn fuzzyScore(pattern: str, candidate: str): int:
+  if pattern.len() == 0:
+    ret 1
+  let pat = pattern.toLowerCase()
+  let cand = candidate.toLowerCase()
+  mut pIdx = 0
+  mut score = 0
+  mut streak = 0
+  mut cIdx = 0
+  while cIdx < cand.len() and pIdx < pat.len():
+    if cand.charAt(cIdx) == pat.charAt(pIdx):
+      streak = streak + 1
+      score = score + 10 + streak * 5
+      pIdx = pIdx + 1
+    else:
+      streak = 0
+    cIdx = cIdx + 1
+  if pIdx < pat.len():
+    ret 0
+  ret score
+
+pub fn fuzzyFilter(pattern: str, candidates: [str]): [str]:
+  mut out: [str] = []
+  mut i = 0
+  while i < candidates.len():
+    if fuzzyScore(pattern, candidates[i]) > 0:
+      out.push(candidates[i])
+    i = i + 1
+  ret out

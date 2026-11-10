@@ -1,0 +1,63 @@
+module CompilerOpt
+
+import { HirModule, eliminateDeadFunctionsHir, eliminateUnreachableHir, detectHotLoopOsrCandidatesHir, optimizeHir } from "./hir.aipl"
+
+// ============================================================================
+// Step 12.1: Tiered JIT & Cranelift Native Hot-Loop Compilation
+// ============================================================================
+
+pub struct HotLoopCandidate:
+  loopId: int
+  loopDepth: int
+  estTripCount: int
+  hasCallInBody: bool
+  isOsrEligible: bool
+
+pub const OSR_MIN_TRIP_COUNT: int = 64
+pub const OSR_MIN_LOOP_DEPTH: int = 1
+
+pub fn detectHotLoopOsrCandidates(loopDepth: int, estTripCount: int, hasCallInBody: bool): bool:
+  // Loops are eligible for Tier-2 Cranelift/C99 OSR compilation if:
+  // 1. Loop has no non-inlined function calls in body (leaf hot-loop)
+  // 2. Loop is at loopDepth >= 1 (active loop body)
+  // 3. Estimated trip count meets or exceeds OSR threshold (>= 64 iterations)
+  if hasCallInBody:
+    ret false
+  if loopDepth < OSR_MIN_LOOP_DEPTH:
+    ret false
+  if estTripCount < OSR_MIN_TRIP_COUNT:
+    ret false
+  ret true
+
+pub fn createHotLoopCandidate(loopId: int, loopDepth: int, estTripCount: int, hasCallInBody: bool): HotLoopCandidate:
+  let eligible = detectHotLoopOsrCandidates(loopDepth, estTripCount, hasCallInBody)
+  ret HotLoopCandidate(
+    loopId = loopId,
+    loopDepth = loopDepth,
+    estTripCount = estTripCount,
+    hasCallInBody = hasCallInBody,
+    isOsrEligible = eligible
+  )
+
+// ============================================================================
+// Step 14.1a: Call-Graph Reachability Dead-Code Elimination
+// ============================================================================
+
+pub fn eliminateDeadFunctionsOpt(hir: HirModule): HirModule:
+  ret eliminateDeadFunctionsHir(hir)
+
+pub fn eliminateUnreachableOpt(hir: HirModule): HirModule:
+  ret eliminateUnreachableHir(hir)
+
+// ============================================================================
+// Step 15.8: Hot-Loop OSR Candidate Detection on HirModule
+// ============================================================================
+
+pub fn detectHotLoopCandidatesOpt(hir: HirModule): [str]:
+  ret detectHotLoopOsrCandidatesHir(hir)
+
+pub fn detectHotLoopOsrCandidatesHirOpt(hir: HirModule): [str]:
+  ret detectHotLoopOsrCandidatesHir(hir)
+
+pub fn optimizeHirOpt(hir: HirModule): HirModule:
+  ret optimizeHir(hir)

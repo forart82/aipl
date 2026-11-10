@@ -1,0 +1,49 @@
+// ============================================================================
+// Canonical Example 129: Microbenchmark Timer & IQR Outlier Rejection (CLI)
+// Target Profile: CLI | Standard Library Module: std/test
+// ============================================================================
+module Ex129TestBenchMicrobenchmarkCli
+
+import {
+  BenchmarkResult,
+  createBenchmarkTimer,
+  startBenchmarkTimer,
+  stopBenchmarkTimer,
+  rejectOutliersIqr,
+  calculateStats,
+  formatBenchmarkReport
+} from "../std/test/test_mod.aipl"
+import { maxInt } from "../std/std_root.aipl"
+
+pub fn verifyBenchmarkIqrOutlierAndStats(): int:
+  mut timer = createBenchmarkTimer()
+  timer = startBenchmarkTimer(timer)
+  timer = stopBenchmarkTimer(timer)
+  assert(timer.iterCount == 1, "timer tracked 1 iteration")
+
+  let rawSamples = [100, 102, 101, 103, 100, 102, 1000, 101]
+  let cleaned = rejectOutliersIqr(rawSamples)
+  assert(cleaned.len() == 7, "IQR filter removes 1000ns outlier")
+
+  let stats = calculateStats(cleaned, 0)
+  assert(stats.meanNs > 101.0 and stats.meanNs < 101.5, "meanNs within 101.0..101.5")
+  let rep = formatBenchmarkReport(BenchmarkResult(name = "BenchSort", runs = cleaned, stats = stats))
+  assert(rep.contains("BenchSort: 7 ops"), "benchmark report formatted")
+  ret stats.minNs + stats.maxNs
+
+pub fn computeBenchmarkThroughputMops(nsPerOp: int): int:
+  let ns = maxInt(1, nsPerOp)
+  ret 1000 / ns
+
+pub fn describeBenchmarkStability(outliersRemoved: int): str:
+  let o = maxInt(0, outliersRemoved)
+  ret "BENCH:IQR_CLEANED_" + str(o) + "_OUTLIERS"
+
+pub fn main(): int:
+  let minMaxSum = verifyBenchmarkIqrOutlierAndStats()
+  let mops = computeBenchmarkThroughputMops(100)
+  let tag = describeBenchmarkStability(1)
+  assert(minMaxSum == 203, "minNs(100) + maxNs(103) == 203")
+  assert(mops == 10, "10 MOps/s")
+  println(tag + " | minMaxSum=" + str(minMaxSum) + " | mops=" + str(mops))
+  ret 0

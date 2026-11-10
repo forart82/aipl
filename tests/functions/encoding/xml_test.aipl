@@ -1,0 +1,200 @@
+module tests.functions.encoding.xml_test
+
+import * from "std/encoding/xml"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_xml_decodeXmlEntities_1(): int:
+  let arg_s = "<r></r>"
+  let edge_s = "<r></r>"
+  let resNom = decodeXmlEntities(arg_s)
+  let resEdge = decodeXmlEntities(edge_s)
+  assertEqStr(resNom, "<r></r>", "decodeXmlEntities nominal string matches")
+  assertEqStr(resEdge, "<r></r>", "decodeXmlEntities boundary string matches")
+  ret 0
+
+pub fn test_xml_encodeXmlEntities_2(): int:
+  let arg_s = "<r></r>"
+  let edge_s = "<r></r>"
+  let resNom = encodeXmlEntities(arg_s)
+  let resEdge = encodeXmlEntities(edge_s)
+  assertEqStr(resNom, "&lt;r&gt;&lt;/r&gt;", "encodeXmlEntities nominal string matches")
+  assertEqStr(resEdge, "&lt;r&gt;&lt;/r&gt;", "encodeXmlEntities boundary string matches")
+  ret 0
+
+pub fn test_xml_parseXmlAttributes_3(): int:
+  let arg_header = "<r></r>"
+  let edge_header = "<r></r>"
+  let resNom = parseXmlAttributes(arg_header)
+  let resEdge = parseXmlAttributes(edge_header)
+  assertEqInt(resNom.len(), 1, "parseXmlAttributes nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseXmlAttributes boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_xml_parseXmlNodeAt_4(): int:
+  let arg_text = "<r></r>"
+  let edge_text = "<r></r>"
+  let arg_startPos = 1
+  let edge_startPos = 0
+  let resNom = parseXmlNodeAt(arg_text, arg_startPos)
+  let resEdge = parseXmlNodeAt(edge_text, edge_startPos)
+  let (n_t0, n_t1, n_t2) = resNom
+  let (e_t0, e_t1, e_t2) = resEdge
+  assertEqInt(n_t0, 1, "parseXmlNodeAt nominal n_t0 == 1")
+  assertEqInt(e_t0, 7, "parseXmlNodeAt boundary e_t0 == 7")
+  ret 0
+
+pub fn test_xml_parseXml_5(): int:
+  let arg_text = "<r></r>"
+  let edge_text = "<r></r>"
+  let resNom = parseXml(arg_text)
+  let resEdge = parseXml(edge_text)
+  assert(resNom.isOk() == true, "parseXml nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseXml boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_xml_serializeXmlNode_6(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let arg_pretty = true
+  let edge_pretty = false
+  let arg_depth = 4
+  let edge_depth = 1
+  let resNom = serializeXmlNode(arg_node, arg_pretty, arg_depth)
+  let resEdge = serializeXmlNode(edge_node, edge_pretty, edge_depth)
+  assertEqStr(resNom, "        <!--<r></r>-->", "serializeXmlNode nominal string matches")
+  assertEqStr(resEdge, "<<r></r>>&lt;r&gt;&lt;/r&gt;</<r></r>>", "serializeXmlNode boundary string matches")
+  ret 0
+
+pub fn test_xml_serializeXml_7(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let arg_pretty = true
+  let edge_pretty = false
+  let resNom = serializeXml(arg_doc, arg_pretty)
+  let resEdge = serializeXml(edge_doc, edge_pretty)
+  assertEqInt(resNom.len(), 22, "serializeXml nominal string length == 22")
+  assertEqStr(resEdge, "<r></r><<r></r>>&lt;r&gt;&lt;/r&gt;</<r></r>>", "serializeXml boundary string matches")
+  ret 0
+
+pub fn test_xml_XmlNode_findChild_8(): int:
+  let recv_self = XmlNode(tag = "test", attributes = [], children = [], textContent = "test", isComment = true)
+  let edge_self = XmlNode(tag = "a", attributes = [], children = [], textContent = "a", isComment = false)
+  let arg_tag = "test"
+  let edge_tag = "a"
+  let resNom = recv_self.findChild(arg_tag)
+  let resEdge = edge_self.findChild(edge_tag)
+  assert(resNom.isSome() == false, "findChild nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "findChild boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_xml_XmlNode_getAttr_9(): int:
+  let recv_self = XmlNode(tag = "test", attributes = [], children = [], textContent = "test", isComment = true)
+  let edge_self = XmlNode(tag = "a", attributes = [], children = [], textContent = "a", isComment = false)
+  let arg_name = "test"
+  let edge_name = "a"
+  let resNom = recv_self.getAttr(arg_name)
+  let resEdge = edge_self.getAttr(edge_name)
+  assert(resNom.isSome() == false, "getAttr nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "getAttr boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_xml_escapeXml_10(): int:
+  let arg_s = "<r></r>"
+  let edge_s = "<r></r>"
+  let resNom = escapeXml(arg_s)
+  let resEdge = escapeXml(edge_s)
+  assertEqStr(resNom, "&lt;r&gt;&lt;/r&gt;", "escapeXml nominal string matches")
+  assertEqStr(resEdge, "&lt;r&gt;&lt;/r&gt;", "escapeXml boundary string matches")
+  ret 0
+
+pub fn test_xml_unescapeXml_11(): int:
+  let arg_s = "<r></r>"
+  let edge_s = "<r></r>"
+  let resNom = unescapeXml(arg_s)
+  let resEdge = unescapeXml(edge_s)
+  assertEqStr(resNom, "<r></r>", "unescapeXml nominal string matches")
+  assertEqStr(resEdge, "<r></r>", "unescapeXml boundary string matches")
+  ret 0
+
+pub fn test_xml_collectXmlElements_12(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let arg_tagName = "<r></r>"
+  let edge_tagName = "<r></r>"
+  let arg_acc = [XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)]
+  let edge_acc = []
+  let resNom = collectXmlElements(arg_node, arg_tagName, arg_acc)
+  let resEdge = collectXmlElements(edge_node, edge_tagName, edge_acc)
+  assertEqInt(resNom.len(), 1, "collectXmlElements nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "collectXmlElements boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_xml_xmlFindElements_13(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let arg_tagName = "<r></r>"
+  let edge_tagName = "<r></r>"
+  let resNom = xmlFindElements(arg_node, arg_tagName)
+  let resEdge = xmlFindElements(edge_node, edge_tagName)
+  assertEqInt(resNom.len(), 0, "xmlFindElements nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 1, "xmlFindElements boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_xml_xmlFindAll_14(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let arg_tagName = "<r></r>"
+  let edge_tagName = "<r></r>"
+  let resNom = xmlFindAll(arg_doc, arg_tagName)
+  let resEdge = xmlFindAll(edge_doc, edge_tagName)
+  assertEqInt(resNom.len(), 0, "xmlFindAll nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 1, "xmlFindAll boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_xml_xmlText_15(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let resNom = xmlText(arg_node)
+  let resEdge = xmlText(edge_node)
+  assertEqStr(resNom, "<r></r>", "xmlText nominal string matches")
+  assertEqStr(resEdge, "<r></r>", "xmlText boundary string matches")
+  ret 0
+
+pub fn test_xml_xmlAttr_16(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let arg_name = "<r></r>"
+  let edge_name = "<r></r>"
+  let resNom = xmlAttr(arg_node, arg_name)
+  let resEdge = xmlAttr(edge_node, edge_name)
+  assert(resNom.isSome() == false, "xmlAttr nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "xmlAttr boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_xml_formatXml_17(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let resNom = formatXml(arg_doc)
+  let resEdge = formatXml(edge_doc)
+  assertEqInt(resNom.len(), 22, "formatXml nominal string length == 22")
+  assertEqInt(resEdge.len(), 46, "formatXml boundary string length == 46")
+  ret 0
+
+pub fn test_xml_stringifyXml_18(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let resNom = stringifyXml(arg_doc)
+  let resEdge = stringifyXml(edge_doc)
+  assertEqStr(resNom, "<r></r><!--<r></r>-->", "stringifyXml nominal string matches")
+  assertEqStr(resEdge, "<r></r><<r></r>>&lt;r&gt;&lt;/r&gt;</<r></r>>", "stringifyXml boundary string matches")
+  ret 0
+
+pub fn test_xml_toXml_19(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let resNom = toXml(arg_doc)
+  let resEdge = toXml(edge_doc)
+  assertEqStr(resNom, "<r></r><!--<r></r>-->", "toXml nominal string matches")
+  assertEqStr(resEdge, "<r></r><<r></r>>&lt;r&gt;&lt;/r&gt;</<r></r>>", "toXml boundary string matches")
+  ret 0

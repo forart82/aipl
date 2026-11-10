@@ -1,0 +1,71 @@
+// ============================================================================
+// Example 006: Enums, Match Expressions, Guards & Prefix Patterns CLI
+// Demonstrates: Pattern matching with multi-value arms (|), conditional guards
+//               (x if cond =>), string prefix(...) patterns, and std/prelude.
+// ============================================================================
+module Ex006EnumsAndPatternMatchingCli
+
+import { clampInt } from "../std/prelude"
+
+pub struct RouteMatchReport:
+  routeTag: str
+  statusClass: str
+  backoffMs: int
+
+pub fn classifyHttpStatusCode(statusCode: int): str:
+  mut label = "HTTP:UNKNOWN"
+  match statusCode:
+    200 | 201 | 204 =>
+      label = "HTTP:SUCCESS"
+    301 | 302 | 304 =>
+      label = "HTTP:REDIRECT"
+    404 =>
+      label = "HTTP:NOT_FOUND"
+    code if code >= 500 =>
+      label = "HTTP:SERVER_FAULT"
+    code if code >= 400 =>
+      label = "HTTP:CLIENT_ERROR"
+    _ =>
+      label = "HTTP:INFO"
+  ret label
+
+pub fn matchRequestCommand(reqLine: str): str:
+  mut route = "ROUTE:UNMAPPED"
+  match reqLine:
+    prefix("GET ") =>
+      route = "ROUTE:READ_ENDPOINT"
+    prefix("POST ") =>
+      route = "ROUTE:WRITE_ENDPOINT"
+    prefix("DELETE ") =>
+      route = "ROUTE:DELETE_ENDPOINT"
+    "PING" | "HEALTH" =>
+      route = "ROUTE:HEALTH_CHECK"
+    _ =>
+      route = "ROUTE:UNMAPPED"
+  ret route
+
+pub fn computeRetryBackoffMs(statusCode: int, attempt: int): int:
+  let clampedAttempt = clampInt(attempt, 1, 10)
+  mut delayMs = 0
+  match statusCode:
+    429 =>
+      delayMs = clampedAttempt * 500
+    code if code >= 500 =>
+      delayMs = clampedAttempt * 250
+    _ =>
+      delayMs = 0
+  ret delayMs
+
+pub fn buildRouteMatchReport(reqLine: str, statusCode: int, attempt: int): RouteMatchReport:
+  ret RouteMatchReport(
+    routeTag = matchRequestCommand(reqLine),
+    statusClass = classifyHttpStatusCode(statusCode),
+    backoffMs = computeRetryBackoffMs(statusCode, attempt)
+  )
+
+pub fn main(): int:
+  let repOk = buildRouteMatchReport("GET /api/v4/status", 200, 1)
+  let repFault = buildRouteMatchReport("POST /api/v4/jobs", 503, 3)
+  println("[ex_006_enums_and_pattern_matching_cli] GET -> " + repOk.routeTag + " | " + repOk.statusClass + " | backoff=" + str(repOk.backoffMs) + "ms")
+  println("[ex_006_enums_and_pattern_matching_cli] POST -> " + repFault.routeTag + " | " + repFault.statusClass + " | backoff=" + str(repFault.backoffMs) + "ms")
+  ret 0

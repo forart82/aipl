@@ -1,0 +1,85 @@
+/// # Module: `std/particle/sub_emitter` (`SubEmitterMod`)
+///
+/// ## Purpose & Domain Scope
+/// Event-driven secondary particle bursts triggered upon parent particle
+/// birth, distance threshold, collision, or expiration.
+module SubEmitterMod
+
+import { TAU, maxFloat } from "std/math/consts"
+import { sin, cos } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { ColorRgba8 } from "std/gfx/color"
+import { Particle3D, ParticlePool3D, spawnParticle3D } from "std/particle/emitter3d"
+
+pub let SUB_TRIGGER_BIRTH: int = 0
+pub let SUB_TRIGGER_UPDATE_DISTANCE: int = 1
+pub let SUB_TRIGGER_COLLISION: int = 2
+pub let SUB_TRIGGER_DEATH: int = 3
+
+pub struct SubEmitterBinding(triggerEvent: int, childPoolId: int, burstCount: int, inheritVelocityFactor: float)
+
+pub fn bindSubEmitter(trigger: int, childPoolId: int, count: int, inheritVel: float = 0.0): SubEmitterBinding:
+  ret SubEmitterBinding(
+    triggerEvent = trigger,
+    childPoolId = childPoolId,
+    burstCount = if count >= 0: count else: 0,
+    inheritVelocityFactor = inheritVel
+  )
+
+pub fn dispatchSubEmitterEvent(binding: SubEmitterBinding, parentPos: Vec3, parentVel: Vec3): [Particle3D]:
+  mut spawned: [Particle3D] = []
+  let count = binding.burstCount
+  if count <= 0:
+    ret spawned
+
+  let baseVel = parentVel.scale(binding.inheritVelocityFactor)
+  mut i = 0
+  while i < count:
+    let angle = (float(i) / float(count)) * TAU
+    let radial = Vec3(x = cos(angle), y = 0.5, z = sin(angle))
+    spawned.push(Particle3D(
+      pos = parentPos,
+      vel = baseVel.add(radial),
+      color = ColorRgba8(r = 255, g = 255, b = 255, a = 255),
+      size = 1.0,
+      ageSec = 0.0,
+      lifetimeSec = 1.0,
+      isAlive = true
+    ))
+    i = i + 1
+  ret spawned
+
+pub fn shouldTriggerSubEmitter(binding: SubEmitterBinding, eventKind: int): bool:
+  ret binding.triggerEvent == eventKind and binding.burstCount > 0
+
+pub fn dispatchSubEmitterCone(binding: SubEmitterBinding, parentPos: Vec3, dir: Vec3, speed: float, lifetimeSec: float): [Particle3D]:
+  mut spawned: [Particle3D] = []
+  let count = binding.burstCount
+  if count <= 0:
+    ret spawned
+  let spd = maxFloat(speed, 0.0)
+  let life = maxFloat(lifetimeSec, 0.01)
+  mut i = 0
+  while i < count:
+    let angle = (float(i) / float(count)) * TAU
+    let spread = Vec3(x = cos(angle) * 0.25, y = 0.0, z = sin(angle) * 0.25)
+    let v = dir.add(spread).scale(spd)
+    spawned.push(Particle3D(
+      pos = parentPos,
+      vel = v,
+      color = ColorRgba8(r = 255, g = 220, b = 120, a = 255),
+      size = 1.0,
+      ageSec = 0.0,
+      lifetimeSec = life,
+      isAlive = true
+    ))
+    i = i + 1
+  ret spawned
+
+pub fn mergeSubEmitterSpawn3D(pool: ParticlePool3D, spawned: [Particle3D]): ParticlePool3D:
+  mut cur = pool
+  mut i = 0
+  while i < spawned.len:
+    cur = spawnParticle3D(cur, spawned[i])
+    i = i + 1
+  ret cur

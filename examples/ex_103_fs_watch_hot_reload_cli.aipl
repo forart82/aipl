@@ -1,0 +1,54 @@
+// ============================================================================
+// Example 103: File Watcher Inotify Debounce & Hot-Reload Trigger (CLI)
+// Demonstrates: WatchEvent, WatchEventKind, fsWatcherNew, fsWatcherAddPath,
+//               fsWatcherRemovePath, fsWatcherPushRawEvent, and
+//               fsWatcherFlushDebounced from std/fs.
+// ============================================================================
+module Ex103FsWatchHotReloadCli
+
+import {
+  WatchEvent,
+  WatchEventKind,
+  fsWatcherNew,
+  fsWatcherAddPath,
+  fsWatcherRemovePath,
+  fsWatcherPushRawEvent,
+  fsWatcherFlushDebounced
+} from "../std/fs"
+
+// Pushes three rapid file modification events into a 100ms debounced watcher and returns the coalesced count.
+pub fn evaluateCoalescedWatchEventCount(): int:
+  mut watcher = fsWatcherNew(100)
+  watcher = fsWatcherAddPath(watcher, "/src")
+  watcher = fsWatcherPushRawEvent(watcher, WatchEvent(kind = WatchEventKind::Modified, path = "/src/main.aipl", oldPath = "", timestampMs = 1000))
+  watcher = fsWatcherPushRawEvent(watcher, WatchEvent(kind = WatchEventKind::Modified, path = "/src/main.aipl", oldPath = "", timestampMs = 1040))
+  watcher = fsWatcherPushRawEvent(watcher, WatchEvent(kind = WatchEventKind::Modified, path = "/src/lexer.aipl", oldPath = "", timestampMs = 1050))
+  let debounced = fsWatcherFlushDebounced(watcher)
+  ret debounced.len()
+
+// Verifies path registration/removal and that edits separated beyond the debounce window emit distinct events.
+pub fn verifyWatcherSubscriptionAndBurstWindow(): int:
+  mut watcher = fsWatcherNew(100)
+  watcher = fsWatcherAddPath(watcher, "/src")
+  watcher = fsWatcherAddPath(watcher, "/tmp")
+  watcher = fsWatcherRemovePath(watcher, "/tmp")
+
+  watcher = fsWatcherPushRawEvent(watcher, WatchEvent(kind = WatchEventKind::Modified, path = "/src/main.aipl", oldPath = "", timestampMs = 1000))
+  watcher = fsWatcherPushRawEvent(watcher, WatchEvent(kind = WatchEventKind::Modified, path = "/src/main.aipl", oldPath = "", timestampMs = 1250))
+  let separated = fsWatcherFlushDebounced(watcher)
+  if watcher.watchedRoots.len() == 1 and separated.len() == 2:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a hot-reload file watcher debounce policy.
+pub fn describeHotReloadTriggerPolicy(debounceMs: int): str:
+  if debounceMs == 100:
+    ret "WATCH:INOTIFY_DEBOUNCE_100MS"
+  ret "WATCH:IMMEDIATE_RAW_EVENTS"
+
+pub fn main(): int:
+  let coalesced = evaluateCoalescedWatchEventCount()
+  let burstOk = verifyWatcherSubscriptionAndBurstWindow()
+  let policy = describeHotReloadTriggerPolicy(100)
+  println("ex_103_fs_watch_hot_reload_cli: coalesced=" + str(coalesced) + " burstOk=" + str(burstOk) + " policy=" + policy)
+  ret 0

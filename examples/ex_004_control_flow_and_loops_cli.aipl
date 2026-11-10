@@ -1,0 +1,59 @@
+// ============================================================================
+// Example 004: Control Flow, Range Loops, Collatz & Euclidean GCD CLI
+// Demonstrates: if/elif/else branching, while loops (Collatz sequence),
+//               for-in range loops, inRangeInt from std/prelude, and
+//               gcdInt / lcmInt / remEuclid from std/math/consts.
+// ============================================================================
+module Ex004ControlFlowAndLoopsCli
+
+import { inRangeInt, maxInt } from "../std/prelude"
+import { gcdInt, lcmInt, remEuclid } from "../std/math/consts"
+
+pub struct LoopExecutionStats:
+  collatzSteps: int
+  commonGcd: int
+  commonLcm: int
+  rangeSum: int
+
+pub fn countCollatzSteps(startN: int): int:
+  mut n = maxInt(startN, 1)
+  mut steps = 0
+  while n > 1 and steps < 1000:
+    if remEuclid(n, 2) == 0:
+      n = n / 2
+    else:
+      n = 3 * n + 1
+    steps = steps + 1
+  ret steps
+
+pub fn sumMultiplesInRange(limitExclusive: int): int:
+  mut total = 0
+  for i in 1..limitExclusive:
+    if remEuclid(i, 3) == 0 or remEuclid(i, 5) == 0:
+      total = total + i
+  ret total
+
+pub fn classifyCyclePeriod(periodA: int, periodB: int): str:
+  let g = gcdInt(periodA, periodB)
+  let l = lcmInt(periodA, periodB)
+  if g == 1:
+    ret "FLOW:COPRIME_LCM_" + str(l)
+  elif inRangeInt(l, 1, 64):
+    ret "FLOW:HARMONIC_LCM_" + str(l)
+  else:
+    ret "FLOW:LONG_CYCLE_" + str(l)
+
+pub fn buildLoopExecutionStats(seedN: int, periodA: int, periodB: int): LoopExecutionStats:
+  ret LoopExecutionStats(
+    collatzSteps = countCollatzSteps(seedN),
+    commonGcd = gcdInt(periodA, periodB),
+    commonLcm = lcmInt(periodA, periodB),
+    rangeSum = sumMultiplesInRange(10)
+  )
+
+pub fn main(): int:
+  let stats = buildLoopExecutionStats(6, 12, 18)
+  let tag = classifyCyclePeriod(12, 18)
+  println("[ex_004_control_flow_and_loops_cli] LoopExecutionStats(collatzSteps=" + str(stats.collatzSteps) + ", gcd=" + str(stats.commonGcd) + ", lcm=" + str(stats.commonLcm) + ", rangeSum=" + str(stats.rangeSum) + ")")
+  println("[ex_004_control_flow_and_loops_cli] cycleTag=" + tag)
+  ret 0

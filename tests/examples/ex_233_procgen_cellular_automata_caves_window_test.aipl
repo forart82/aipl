@@ -1,0 +1,48 @@
+module Ex233ProcgenCellularAutomataCavesWindowTest
+
+import {
+  GrayScottConfig, CellularGrid2D, ScalarField2D,
+  caveAutomataInit, caveAutomataStep, conwayStep2D, grayScottStep2D
+} from "../../std/procgen/cellular_automata"
+import {
+  CellularCaveScene, createCellularCaveScene, stepScene, auditProcgenCellularCaves
+} from "../../examples/ex_233_procgen_cellular_automata_caves_window"
+
+pub fn test_procgen_cellular_automata_caves(): void:
+  let grid = caveAutomataInit(16, 16, 0.45, 123)
+  assert(grid.width == 16 and grid.height == 16, "caveAutomataInit dimensions")
+  let smoothed = caveAutomataStep(grid, 4, 3)
+  let conway = conwayStep2D(smoothed)
+  assert(conway.cells.len() == 256, "caveAutomataStep and conwayStep2D")
+  mut gu = ScalarField2D(width = 3, height = 3, values = [1.0, 1.0, 1.0, 1.0, 0.5, 1.0, 1.0, 1.0, 1.0])
+  mut gv = ScalarField2D(width = 3, height = 3, values = [0.0, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0])
+  let gsCfg = GrayScottConfig(feedRate = 0.055, killRate = 0.062, diffusionU = 0.16, diffusionV = 0.08)
+  grayScottStep2D(gu, gv, gsCfg, 0.1)
+  assert(gu.values[4] != 0.5, "grayScottStep2D evolved center concentration")
+
+  mut scene: CellularCaveScene = createCellularCaveScene()
+  let u0 = scene.grayU.values[4]
+  stepScene(scene, 0, 0.1)
+  let u1 = scene.grayU.values[4]
+  assert(u1 != u0 and scene.generation == 1, "t=0 -> t=1 evolves Gray-Scott PDE and cellular automata")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let u20 = scene.grayU.values[4]
+  assert(u20 != u1 and scene.generation == 21, "t=1 -> t=20 progresses cellular automata and reaction-diffusion")
+
+  while f <= 100:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let u100 = scene.grayU.values[4]
+  assert(scene.caveEpoch >= 2 and scene.generation == 101 and u100 != u20, "t=20 -> t=100 periodically re-seeds converged cave grid and evolves Gray-Scott PDE")
+
+  let audit = auditProcgenCellularCaves()
+  assert(audit == 257, "Cellular automata caves & Gray-Scott audit")
+
+pub fn main(): int:
+  test_procgen_cellular_automata_caves()
+  println("PASS: ex_233_procgen_cellular_automata_caves_window_test")
+  ret 0

@@ -1,0 +1,53 @@
+module Ex232ProcgenDungeonBspAndCorridorsWindowTest
+
+import {
+  DungeonRoom, DungeonCorridor, bspPartitionRooms,
+  delaunayTriangulateRooms, minimumSpanningTreeCorridors, carveDungeonGrid
+} from "../../std/procgen/dungeon_graph"
+import { Rect2D } from "../../std/math/geom2d"
+import {
+  DungeonScene, createDungeonScene, stepScene, auditProcgenDungeonBsp
+} from "../../examples/ex_232_procgen_dungeon_bsp_and_corridors_window"
+
+pub fn test_procgen_dungeon_bsp_and_corridors(): void:
+  let bounds = Rect2D(x = 0.0, y = 0.0, w = 200.0, h = 200.0, width = 200.0, height = 200.0)
+  let rooms = bspPartitionRooms(bounds, 30.0, 3, 777)
+  assert(rooms.len() >= 4, "bspPartitionRooms >= 4 rooms")
+  let edges = delaunayTriangulateRooms(rooms)
+  assert(edges.len() >= 6, "delaunayTriangulateRooms edges")
+  let corridors = minimumSpanningTreeCorridors(rooms, edges, 0.1, 777)
+  assert(corridors.len() >= rooms.len() - 1, "MST connects all rooms")
+  let dGrid = carveDungeonGrid(rooms, corridors, 60, 60)
+  assert(dGrid.cells.len() == 3600, "carveDungeonGrid 60x60")
+
+  mut scene: DungeonScene = createDungeonScene()
+  let r0Init: DungeonRoom = scene.rooms[0]
+  let cx0 = r0Init.center.x
+  stepScene(scene, 0, 0.1)
+  let r0Step1: DungeonRoom = scene.rooms[0]
+  let cx1 = r0Step1.center.x
+  assert(cx1 != cx0 or scene.seed != 777, "t=0 -> t=1 updates BSP dungeon layout")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let r0Step20: DungeonRoom = scene.rooms[0]
+  let cx20 = r0Step20.center.x
+  let cy20 = r0Step20.center.y
+  let seed20 = scene.seed
+  assert((cx20 != cx1 or cy20 != r0Step1.center.y) and scene.carvedCellCount == 900, "t=1 -> t=20 progresses BSP dungeon seed and carved grid")
+
+  while f <= 100:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let r0Step100: DungeonRoom = scene.rooms[0]
+  assert(scene.seed != seed20 and (r0Step100.center.x != cx20 or r0Step100.center.y != cy20), "t=20 -> t=100 continues evolving BSP dungeon layout without freezing")
+
+  let audit = auditProcgenDungeonBsp()
+  assert(audit >= 43, "Dungeon BSP and MST corridors audit")
+
+pub fn main(): int:
+  test_procgen_dungeon_bsp_and_corridors()
+  println("PASS: ex_232_procgen_dungeon_bsp_and_corridors_window_test")
+  ret 0

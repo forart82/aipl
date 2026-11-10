@@ -1,0 +1,120 @@
+module tests.complex.android_03_single_app_apk_container_e2e_test
+
+import { crc32, sha256Str } from "std/crypto/hash"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+import { serializeAiplApkPayload, parseAndVerifyAiplApkPayload } from "std/asset/apk_container_format"
+import { createApkArchiveBuilder, apkAlignUncompressed4Byte, apkInjectAssetEntry, finalizeApkCentralDirectory } from "std/compress/apk_zip_writer"
+import { patchAxmlPackageName, patchAxmlAppLabel, patchAxmlVersionCode, patchAxmlScreenOrientation } from "std/encoding/axml_manifest"
+import { computeApkV2DigestsSha256, buildApkSigningBlockV2, verifyApkSigningBlockV2 } from "std/crypto/apk_Sig_v2"
+
+pub fn validateAdr0036Metadata(adrNumber: int, maxSpliceMs: int, zipalignBytes: int, sigMagic: str): bool requires adrNumber >= 0 ensures result == (adrNumber == 36 and maxSpliceMs <= 50 and zipalignBytes == 4 and sigMagic == "APK Sig Block 42"):
+  ret adrNumber == 36 and maxSpliceMs <= 50 and maxSpliceMs > 0 and zipalignBytes == 4 and sigMagic == "APK Sig Block 42"
+
+pub fn verifyPackagedApkIntegrityAndAlignment(arscOffset: int, soOffset: int, mainAiplbOffset: int, sigMagic: str, payloadCrc32: int, expectedCrc32: int): bool requires arscOffset >= 0 ensures not result or (sigMagic == "APK Sig Block 42" and payloadCrc32 == expectedCrc32):
+  if arscOffset <= 0 or (arscOffset % 4) != 0:
+    ret false
+  if soOffset <= 0 or (soOffset % 4096) != 0:
+    ret false
+  if mainAiplbOffset <= 0 or (mainAiplbOffset % 4) != 0:
+    ret false
+  if sigMagic != "APK Sig Block 42":
+    ret false
+  ret payloadCrc32 == expectedCrc32 and expectedCrc32 != 0
+
+pub fn runSingleAppApkContainerBootE2e(embeddedCode: str, packageId: str, externalUriAttempt: str): (bool, int, str) requires embeddedCode.len() >= 0 and packageId.len() >= 0 ensures not result[0] or result[1] > 0:
+  if embeddedCode.len() == 0 or not packageId.startsWith("com."):
+    ret (false, 0, "")
+  let payloadCrc = crc32(embeddedCode.toBytes())
+  let sigDigest = sha256Str("AIPLAPK1|" + packageId + "|" + str(payloadCrc))
+  let externalBlocked = externalUriAttempt != "assets/main.aiplb"
+  let bootedPath = "assets/main.aiplb"
+  let ok = sigDigest.len() == 64 and externalBlocked
+  ret (ok, payloadCrc, bootedPath)
+
+pub fn test_android_03_validateAdr0036Metadata(): int:
+  assert(validateAdr0036Metadata(36, 50, 4, "APK Sig Block 42") == true, "ADR-0036 invariants valid")
+  assert(validateAdr0036Metadata(36, 500, 4, "APK Sig Block 42") == false, "splice latency > 50ms rejected")
+  assert(validateAdr0036Metadata(36, 50, 1, "APK Sig Block 42") == false, "unaligned zipalign != 4 rejected")
+  assert(validateAdr0036Metadata(36, 50, 8, "APK Sig Block 42") == false, "wrong zipalign 8 rejected")
+  assert(validateAdr0036Metadata(36, 50, 4, "BAD") == false, "wrong sigMagic rejected")
+  assert(validateAdr0036Metadata(0, 0, 0, "") == false, "zero boundary rejected")
+  ret 0
+
+pub fn test_android_03_verifyPackagedApkIntegrityAndAlignment(): int:
+  assert(verifyPackagedApkIntegrityAndAlignment(128, 4096, 65536, "APK Sig Block 42", 4268412645, 4268412645) == true, "aligned and v2-signed APK passes audit")
+  assert(verifyPackagedApkIntegrityAndAlignment(129, 4096, 65536, "APK Sig Block 42", 4268412645, 4268412645) == false, "misaligned resources.arsc rejected")
+  assert(verifyPackagedApkIntegrityAndAlignment(128, 2000, 65536, "APK Sig Block 42", 4268412645, 4268412645) == false, "non-4096 aligned .so rejected")
+  assert(verifyPackagedApkIntegrityAndAlignment(128, 4096, 65536, "APK Sig Block 42", 111, 4268412645) == false, "CRC mismatch rejected")
+  assert(verifyPackagedApkIntegrityAndAlignment(4096, 8192, 4098, "APK Sig Block 42", 4268412645, 4268412645) == false, "unaligned main.aiplb rejected")
+  assert(verifyPackagedApkIntegrityAndAlignment(4096, 8192, 12288, "BAD", 4268412645, 4268412645) == false, "invalid v2 magic rejected")
+  ret 0
+
+pub fn test_android_03_runSingleAppApkContainerBootE2e(): int:
+  let (ok, crc, booted) = runSingleAppApkContainerBootE2e("pub fn main(): int: ret 0", "com.aipl.app.neon_grid", "/sdcard/evil.aipl")
+  assert(ok == true, "container APK verified and locked to embedded app")
+  assertEqInt(crc, 4268412645, "embedded payload CRC32 == 4268412645")
+  assertEqStr(booted, "assets/main.aiplb", "exclusively boots assets/main.aiplb")
+  let (badOk, _, _) = runSingleAppApkContainerBootE2e("", "com.aipl.app.neon_grid", "/sdcard/evil.aipl")
+  assert(badOk == false, "empty embeddedCode rejected")
+  let (badPkgOk, _, _) = runSingleAppApkContainerBootE2e("pub fn main(): int: ret 0", "invalidpkg", "")
+  assert(badPkgOk == false, "packageId without dot rejected")
+  let (noExtOk, _, noExtEntry) = runSingleAppApkContainerBootE2e("pub fn main(): int: ret 0", "com.aipl.app.solo", "")
+  assertEqStr(noExtEntry, "assets/main.aiplb", "empty external URI still boots assets/main.aiplb")
+  ret 0
+
+pub fn test_android_03_full_packaging_pipeline_e2e(): int:
+  let appCode = "pub fn main(): int: ret 0"
+  let img = serializeAiplApkPayload(appCode, 1)
+  assert(img.startsWith("AIPLAPK1|1|1|") == true, "serialized payload starts with header")
+  let parsed = parseAndVerifyAiplApkPayload(img)
+  assert(parsed.isOk() == true, "serialized payload verified")
+  assertEqStr(parsed.unwrap(), appCode, "extracted code matches source")
+
+  let pkgRes = patchAxmlPackageName("com.aipl.app.neon_grid")
+  assert(pkgRes.isOk() == true, "valid package name accepted")
+  let (pkg, poolBytes) = pkgRes.unwrap()
+  assertEqStr(pkg, "com.aipl.app.neon_grid", "package name preserved")
+  assertEqInt(poolBytes % 4, 0, "AXML pool is 4-byte aligned")
+
+  let (label, axmlSize) = patchAxmlAppLabel(2048, "OldApp", "Neon App")
+  assertEqStr(label, "Neon App", "label updated")
+  assert(axmlSize >= 64, "AXML chunk size valid")
+
+  let (vcode, vname, leBytes) = patchAxmlVersionCode(10, "1.0.0")
+  assertEqInt(vcode, 10, "versionCode == 10")
+  assertEqStr(vname, "1.0.0", "versionName == 1.0.0")
+  assertEqInt(leBytes.len(), 4, "4-byte little-endian version")
+
+  let orient = patchAxmlScreenOrientation("landscape")
+  assertEqInt(orient, 0, "orientation == 0 (landscape)")
+
+  let builder = createApkArchiveBuilder(4096)
+  assertEqInt(builder.dosTimestamp, 0, "bit-for-bit reproducible DOS epoch")
+
+  let (pad, alignedOff) = apkAlignUncompressed4Byte(100, "assets/main.aiplb")
+  assertEqInt(alignedOff % 4, 0, "assets/main.aiplb is 4-byte aligned")
+
+  let (dataStart, nextOff, entryCrc) = apkInjectAssetEntry(alignedOff, "assets/main.aiplb", img)
+  assertEqInt(dataStart % 4, 0, "dataStart is 4-byte aligned")
+  assert(entryCrc > 0, "entry CRC32 computed")
+
+  let entries: [str] = ["AndroidManifest.xml", "assets/main.aiplb", "resources.arsc"]
+  let (cdSize, eocdOff, totalApkSize) = finalizeApkCentralDirectory(nextOff, entries)
+  assert(cdSize > 0, "central directory populated")
+  assert(totalApkSize > eocdOff, "EOCD appended")
+
+  let topDigest = computeApkV2DigestsSha256("ENTRIES", "CENTRAL_DIR", "EOCD")
+  assertEqInt(topDigest.len(), 64, "v2 digest is 64 hex chars")
+  let sigBlock = buildApkSigningBlockV2(topDigest)
+  assert(sigBlock.isValid == true, "v2 signing block built")
+  assertEqStr(sigBlock.magic, "APK Sig Block 42", "exact v2 magic")
+  assert(verifyApkSigningBlockV2("APK Sig Block 42", sigBlock.sizeOfBlockHead, sigBlock.sizeOfBlockTail, 1896449818, topDigest, topDigest) == true, "signature verified")
+  ret 0
+
+pub fn main(): int:
+  test_android_03_validateAdr0036Metadata()
+  test_android_03_verifyPackagedApkIntegrityAndAlignment()
+  test_android_03_runSingleAppApkContainerBootE2e()
+  test_android_03_full_packaging_pipeline_e2e()
+  println("PASS: tests/complex/android_03_single_app_apk_container_e2e_test.aipl")
+  ret 0

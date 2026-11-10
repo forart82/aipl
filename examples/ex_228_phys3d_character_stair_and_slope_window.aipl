@@ -1,0 +1,190 @@
+module Ex228Phys3dCharacterStairAndSlopeWindow
+
+import {
+  CharacterControllerSettings3D, KinematicCharacterController3D,
+  characterControllerNew, characterMoveAndSlide, computeAirAccelerateVelocity
+} from "../std/phys3d/character3d"
+import { PhysicsWorld3D, physWorld3dNew } from "../std/phys3d/phys_world3d"
+import { Vec3 } from "../std/math/vec_math"
+import { sin, cos } from "../std/math/trig"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct CharacterScene(world: PhysicsWorld3D, controller: KinematicCharacterController3D, airVel: Vec3, wishDir: Vec3, stairElevation: float)
+
+pub fn createCharacterScene(): CharacterScene:
+  let world = physWorld3dNew(Vec3(x = 0.0, y = -9.81, z = 0.0))
+  let cCfg = CharacterControllerSettings3D(
+    stepHeight = 0.4,
+    slopeLimitRadians = 0.78,
+    skinWidth = 0.02,
+    gravity = Vec3(x = 0.0, y = -9.81, z = 0.0),
+    groundFriction = 6.0,
+    airControl = 0.3
+  )
+  let cc = characterControllerNew(cCfg, 1.8, 0.4)
+  ret CharacterScene(
+    world = world,
+    controller = cc,
+    airVel = Vec3(x = 4.0, y = 0.0, z = 0.0),
+    wishDir = Vec3(x = 0.0, y = 0.0, z = 1.0),
+    stairElevation = 0.0
+  )
+
+pub fn stepScene(mut scene: CharacterScene, frame: int, dt: float): void:
+  mut cc = scene.controller
+  let finalPos: Vec3 = characterMoveAndSlide(cc, Vec3(x = 2.4, y = 0.0, z = 0.0), scene.world, dt)
+  if finalPos.x > 6.4:
+    cc.position = Vec3(x = 0.0, y = 0.0, z = 0.0)
+    scene.airVel = Vec3(x = 4.0, y = 0.0, z = 0.0)
+  scene.controller = cc
+
+  let ang = float(frame) * 0.07
+  let wDir = Vec3(x = sin(ang), y = 0.0, z = cos(ang))
+  scene.wishDir = wDir
+  let dampedAir = scene.airVel.scale(0.94)
+  scene.airVel = computeAirAccelerateVelocity(dampedAir, wDir, 10.0, 5.0, dt)
+
+  let px = scene.controller.position.x
+  let stepH = scene.controller.settings.stepHeight
+  if px < 1.2:
+    scene.stairElevation = 0.0
+  else:
+    if px < 3.7:
+      let stIdx = int((px - 1.2) / 0.5)
+      scene.stairElevation = float(stIdx + 1) * stepH * 70.0
+    else:
+      scene.stairElevation = (5.0 * stepH * 70.0) * (1.0 - (px - 3.7) / 2.7)
+
+pub fn auditPhys3dCharacterController(): int:
+  mut world = physWorld3dNew(Vec3(x = 0.0, y = -9.81, z = 0.0))
+  let cCfg = CharacterControllerSettings3D(
+    stepHeight = 0.4,
+    slopeLimitRadians = 0.78,
+    skinWidth = 0.02,
+    gravity = Vec3(x = 0.0, y = -9.81, z = 0.0),
+    groundFriction = 6.0,
+    airControl = 0.3
+  )
+  mut cc = characterControllerNew(cCfg, 1.8, 0.4)
+  let finalPos: Vec3 = characterMoveAndSlide(cc, Vec3(x = 5.0, y = 0.0, z = 0.0), world, 0.1)
+  let airVel: Vec3 = computeAirAccelerateVelocity(Vec3(x = 10.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 1.0), 10.0, 10.0, 0.1)
+  mut g = 0
+  if cc.isGrounded:
+    g = 1
+  ret int(finalPos.x * 10.0) + int(airVel.x) + g
+
+pub fn main(): int:
+  let audit = auditPhys3dCharacterController()
+  println("EX_228_PHYS3D_CHARACTER_AUDIT=" + str(audit))
+
+  mut scene = createCharacterScene()
+
+  initWindow(1280, 720, "AIPL ex_228: 3D Kinematic Character Stair & Slope Controller")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.05)
+    let cc: KinematicCharacterController3D = scene.controller
+    let airVel: Vec3 = scene.airVel
+    let wDir: Vec3 = scene.wishDir
+
+    beginDrawing()
+    clearScreen(rgb(10, 15, 28))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_228: 3D KINEMATIC CHARACTER CONTROLLER (STAIR STEP, SLOPE LIMIT & AIR STRAFE)", 52.0, 36.0, 21.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Pos.x=" + str(int(cc.position.x * 100.0)) + "cm | Elev=" + str(int(scene.stairElevation)) + "px | AirVel=(" + str(int(airVel.x * 10.0)) + "," + str(int(airVel.z * 10.0)) + ")dm/s", 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    // Left Panel: 3D Stair & Slope Course
+    drawRect(32.0, 108.0, 860.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(32.0, 108.0, 860.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("STAIRCASE STEP-UP (stepHeight=0.4m) & WALKABLE RAMP (slopeLimit=45 deg)", 56.0, 132.0, 16.0, rgb(125, 211, 252))
+
+    // Flat floor (x: 64..268, surface y = 550)
+    drawRect(64.0, 550.0, 204.0, 60.0, rgb(30, 41, 59))
+    drawRectOutline(64.0, 550.0, 204.0, 60.0, 2.0, rgb(71, 85, 105))
+    drawText("Flat Ground", 116.0, 572.0, 14.0, rgb(148, 163, 184))
+
+    // 5 Stairs (x: 268..548, each 56px wide, 28px step height)
+    mut st = 0
+    while st < 5:
+      let sx = 268.0 + float(st * 56)
+      let sy = 522.0 - float(st * 28)
+      let sh = 88.0 + float(st * 28)
+      drawRect(sx, sy, 56.0, sh, rgb(51, 65, 85))
+      drawRectOutline(sx, sy, 56.0, sh, 2.0, rgb(100, 116, 139))
+      // 3D depth top bevel
+      drawLine(sx, sy, sx + 12.0, sy - 10.0, rgb(148, 163, 184), 1.0)
+      drawLine(sx + 12.0, sy - 10.0, sx + 68.0, sy - 10.0, rgb(148, 163, 184), 1.0)
+      st = st + 1
+
+    // Walkable slope (x: 548..800, y: 410 -> 550)
+    drawLine(548.0, 410.0, 800.0, 550.0, rgb(16, 185, 129), 5.0)
+    drawLine(548.0, 610.0, 800.0, 610.0, rgb(51, 65, 85), 3.0)
+    drawLine(800.0, 550.0, 800.0, 610.0, rgb(51, 65, 85), 3.0)
+    drawText("Walkable Slope (<45 deg)", 576.0, 572.0, 15.0, rgb(110, 231, 183))
+
+    // Steep blocked slope (x: 800..868, y: 550 -> 260)
+    drawLine(800.0, 550.0, 868.0, 260.0, rgb(239, 68, 68), 5.0)
+    drawText("Steep Wall", 772.0, 236.0, 14.0, rgb(248, 113, 113))
+    drawText("(>45 deg)", 776.0, 254.0, 13.0, rgb(248, 113, 113))
+
+    // Map cc.position.x (0..6.4m) to course X (134..800)
+    let capX = 134.0 + cc.position.x * 104.0
+    let footY = 550.0 - scene.stairElevation
+    let capY = footY - 52.0
+    let capRad = cc.radius * 48.0
+    // 3D Character Capsule
+    drawRect(capX - capRad, capY - 32.0, capRad * 2.0, 64.0, rgb(14, 165, 233))
+    drawCircle(capX, capY - 32.0, capRad, rgb(56, 189, 248))
+    drawCircle(capX, capY + 32.0, capRad, rgb(56, 189, 248))
+    drawCircleOutline(capX, capY - 32.0, capRad, 2.0, rgb(186, 230, 253))
+    // Step-height clearance indicator bracket
+    let stepBracketH = cc.settings.stepHeight * 70.0
+    drawLine(capX + capRad + 8.0, footY, capX + capRad + 8.0, footY - stepBracketH, rgb(250, 204, 21), 2.0)
+    drawText("stepH", capX + capRad + 12.0, footY - stepBracketH - 4.0, 12.0, rgb(250, 204, 21))
+    // Ground normal arrow
+    drawLine(capX, footY, capX, footY - 36.0, rgb(52, 211, 153), 3.0)
+
+    drawText("Green: Ground Normal | Yellow Bracket: stepHeight (0.4m) | Capsule: r=0.4m, h=1.8m", 56.0, 648.0, 14.0, rgb(148, 163, 184))
+
+    // Right Panel: Air-Accelerate Vector Projection Radar
+    drawRect(912.0, 108.0, 336.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(912.0, 108.0, 336.0, 576.0, 2.0, rgb(168, 85, 247))
+    drawText("XZ AIR-STRAFE RADAR", 990.0, 132.0, 16.0, rgb(216, 180, 254))
+    drawText("computeAirAccelerateVelocity()", 964.0, 156.0, 14.0, rgb(148, 163, 184))
+
+    let rcx = 1080.0
+    let rcy = 310.0
+    drawCircle(rcx, rcy, 110.0, rgb(15, 23, 42))
+    drawCircleOutline(rcx, rcy, 110.0, 2.0, rgb(71, 85, 105))
+    drawCircleOutline(rcx, rcy, 55.0, 1.0, rgb(51, 65, 85))
+    drawLine(rcx - 110.0, rcy, rcx + 110.0, rcy, rgb(51, 65, 85), 1.0)
+    drawLine(rcx, rcy - 110.0, rcx, rcy + 110.0, rgb(51, 65, 85), 1.0)
+
+    // WishDir vector (cyan)
+    let wx = rcx + wDir.x * 85.0
+    let wz = rcy - wDir.z * 85.0
+    drawLine(rcx, rcy, wx, wz, rgb(56, 189, 248), 3.0)
+    drawCircle(wx, wz, 5.0, rgb(56, 189, 248))
+
+    // AirVel vector (yellow)
+    let vx = rcx + airVel.x * 7.5
+    let vz = rcy - airVel.z * 7.5
+    drawLine(rcx, rcy, vx, vz, rgb(250, 204, 21), 4.0)
+    drawCircle(vx, vz, 6.0, rgb(250, 204, 21))
+
+    drawText("Cyan: wishDir | Yellow: airVel", 968.0, 442.0, 14.0, rgb(203, 213, 225))
+    drawText("stepHeight: " + str(int(cc.settings.stepHeight * 100.0)) + " cm", 940.0, 490.0, 15.0, rgb(125, 211, 252))
+    drawText("slopeLimit: 0.78 rad (45 deg)", 940.0, 518.0, 15.0, rgb(110, 231, 183))
+    drawText("skinWidth:  2 cm", 940.0, 546.0, 15.0, rgb(216, 180, 254))
+    drawText("groundFric: " + str(int(cc.settings.groundFriction)) + ".0 | airCtrl: 0.3", 940.0, 574.0, 15.0, rgb(250, 204, 21))
+    drawText("isGrounded: " + str(cc.isGrounded), 940.0, 602.0, 15.0, rgb(248, 250, 252))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

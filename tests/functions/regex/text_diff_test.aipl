@@ -1,0 +1,112 @@
+module tests.functions.regex.text_diff_test
+
+import * from "std/prelude"
+import * from "std/regex/text_diff"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { splitLines, parseInt } from "std/fmt/fmt_mod"
+
+pub fn test_text_diff_myersDiffLines_1(): int:
+  let arg_oldLines = ["test"]
+  let edge_oldLines = []
+  let arg_newLines = ["test"]
+  let edge_newLines = []
+  let resNom = myersDiffLines(arg_oldLines, arg_newLines)
+  let resEdge = myersDiffLines(edge_oldLines, edge_newLines)
+  assertEqInt(resNom.len(), 1, "myersDiffLines nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "myersDiffLines boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_text_diff_buildUnifiedHunks_2(): int:
+  let arg_edits = [DiffEdit(op = "test", text = "test", oldLineNo = 4, newLineNo = 4)]
+  let edge_edits = []
+  let arg_contextRadius = 4
+  let edge_contextRadius = 1
+  let resNom = buildUnifiedHunks(arg_edits, arg_contextRadius)
+  let resEdge = buildUnifiedHunks(edge_edits, edge_contextRadius)
+  assertEqInt(resNom.len(), 1, "buildUnifiedHunks nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "buildUnifiedHunks boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_text_diff_formatUnifiedDiff_3(): int:
+  let arg_oldFile = "/tmp/aipl_test_path"
+  let edge_oldFile = "/tmp/aipl_test_path"
+  let arg_newFile = "/tmp/aipl_test_path"
+  let edge_newFile = "/tmp/aipl_test_path"
+  let arg_oldText = "test"
+  let edge_oldText = "a"
+  let arg_newText = "test"
+  let edge_newText = "a"
+  let arg_context = 4
+  let edge_context = 1
+  let resNom = formatUnifiedDiff(arg_oldFile, arg_newFile, arg_oldText, arg_newText, arg_context)
+  let resEdge = formatUnifiedDiff(edge_oldFile, edge_newFile, edge_oldText, edge_newText, edge_context)
+  assertEqInt(resNom.len(), 48, "formatUnifiedDiff nominal string length == 48")
+  assertEqInt(resEdge.len(), 48, "formatUnifiedDiff boundary string length == 48")
+  ret 0
+
+pub fn test_text_diff_parseRangeSpec_4(): int:
+  let arg_spec = "test"
+  let edge_spec = "a"
+  let resNom = parseRangeSpec(arg_spec)
+  let resEdge = parseRangeSpec(edge_spec)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0, 1, "parseRangeSpec nominal n_t0 == 1")
+  assertEqInt(e_t0, 1, "parseRangeSpec boundary e_t0 == 1")
+  ret 0
+
+pub fn test_text_diff_parseUnifiedPatch_5(): int:
+  let diffText = formatUnifiedDiff("a.txt", "b.txt", "line1\nold\nline3", "line1\nnew\nline3", 1)
+  let resNom = parseUnifiedPatch(diffText)
+  assert(resNom.isOk() == true, "parseUnifiedPatch nominal resNom.isOk() == true")
+  let p = resNom.unwrap()
+  assert(p.addedCount > 0, "parseUnifiedPatch addedCount > 0")
+  assert(p.deletedCount > 0, "parseUnifiedPatch deletedCount > 0")
+  let resEdge = parseUnifiedPatch("not a patch")
+  assert(resEdge.isOk() == false, "parseUnifiedPatch boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_text_diff_applyUnifiedPatch_6(): int:
+  let original = "line1\nold\nline3"
+  let target = "line1\nnew\nline3"
+  let diffText = formatUnifiedDiff("a.txt", "b.txt", original, target, 1)
+  let parsed = parseUnifiedPatch(diffText).unwrap()
+  let applied = applyUnifiedPatch(original, parsed)
+  assert(applied.isOk() == true, "applyUnifiedPatch nominal applied.isOk() == true")
+  assertEqStr(applied.unwrap(), target, "applyUnifiedPatch nominal matches target")
+  ret 0
+
+pub fn test_text_diff_threeWayMerge_7(): int:
+  let arg_baseText = "test"
+  let edge_baseText = "a"
+  let arg_ourText = "test"
+  let edge_ourText = "a"
+  let arg_theirText = "test"
+  let edge_theirText = "a"
+  let resNom = threeWayMerge(arg_baseText, arg_ourText, arg_theirText)
+  let resEdge = threeWayMerge(edge_baseText, edge_ourText, edge_theirText)
+  assert(resNom.isOk() == true, "threeWayMerge nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "threeWayMerge boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_text_diff_editDistance_8(): int:
+  let arg_a = "test"
+  let edge_a = "a"
+  let arg_b = "test"
+  let edge_b = "a"
+  let resNom = editDistance(arg_a, arg_b)
+  let resEdge = editDistance(edge_a, edge_b)
+  assertEqInt(resNom, 0, "editDistance nominal resNom == 0")
+  assertEqInt(resEdge, 0, "editDistance boundary resEdge == 0")
+  ret 0
+
+pub fn test_text_diff_similarityRatio_9(): int:
+  let arg_a = "test"
+  let edge_a = "a"
+  let arg_b = "test"
+  let edge_b = "a"
+  let resNom = similarityRatio(arg_a, arg_b)
+  let resEdge = similarityRatio(edge_a, edge_b)
+  assertApproxEq(resNom, 1.0, 0.001, "similarityRatio nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "similarityRatio boundary resEdge ~= 1.0")
+  ret 0

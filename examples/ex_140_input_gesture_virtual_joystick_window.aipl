@@ -1,0 +1,156 @@
+// ============================================================================
+// Canonical Example 140: Radial-Clamped Virtual Joystick & Gestures (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/input/gesture
+// ============================================================================
+module Ex140InputGestureVirtualJoystickWindow
+
+import {
+  PinchGesture,
+  VirtualJoystick,
+  createVirtualJoystick,
+  touchDownVirtualJoystick,
+  touchMoveVirtualJoystick,
+  touchUpVirtualJoystick,
+  computePinchDelta,
+  detectDoubleTap
+} from "../std/input/gesture.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { maxInt } from "../std/std_root.aipl"
+
+pub fn verifyVirtualJoystickPinchAndDoubleTap(): int:
+  mut stick = createVirtualJoystick(150.0, 600.0, 100.0, 0.15)
+  stick = touchDownVirtualJoystick(stick, 42, 150.0, 600.0)
+  stick = touchMoveVirtualJoystick(stick, 42, 350.0, 600.0)
+  let clampedX = int(stick.currentHandleX + 0.5)
+  stick = touchUpVirtualJoystick(stick, 42)
+  assert(not stick.isActive, "joystick deactivated on touch up")
+
+  let (dist, scale) = computePinchDelta(0.0, 0.0, 100.0, 0.0, 50.0)
+  assert(dist > 99.9 and scale > 1.99, "pinch delta 2.0x")
+  assert(detectDoubleTap(1000, 1200, 300), "double tap within 300ms")
+  ret clampedX
+
+pub fn computeFittsLawHitboxPaddingDp(visualDp: int, floorDp: int): int:
+  ret maxInt(0, floorDp - visualDp)
+
+pub fn describeVirtualJoystickState(pointerId: int): str:
+  if pointerId < 0:
+    ret "JOYSTICK:IDLE_UNBOUND"
+  ret "JOYSTICK:ACTIVE_POINTER_" + str(pointerId)
+
+pub fn stepVirtualJoystickForFrame(frameIndex: int): VirtualJoystick:
+  let ox = 280.0
+  let oy = 420.0
+  mut stick = createVirtualJoystick(ox, oy, 110.0, 0.15)
+  stick = touchDownVirtualJoystick(stick, 42, ox, oy)
+  let dragX = ox + float(((frameIndex * 7) % 283) - 140)
+  let dragY = oy + float(((frameIndex * 5) % 241) - 120)
+  stick = touchMoveVirtualJoystick(stick, 42, dragX, dragY)
+  ret stick
+
+pub fn stepPinchGestureForFrame(frameIndex: int): PinchGesture:
+  let cx = 680.0
+  let cy = 320.0
+  let halfSpan = 55.0 + float((frameIndex * 3) % 79)
+  let p1X = cx - halfSpan
+  let p2X = cx + halfSpan
+  let (curDist, scale) = computePinchDelta(p1X, cy, p2X, cy, 110.0)
+  ret PinchGesture(
+    scale = scale,
+    deltaScale = curDist - 110.0,
+    centerPointX = (p1X + p2X) * 0.5,
+    centerPointY = cy
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let stick = stepVirtualJoystickForFrame(frameIndex)
+  let pinch = stepPinchGestureForFrame(frameIndex)
+  ret int(stick.currentHandleX + 0.5) + int(pinch.scale * 100.0) + int(dt * 0.0)
+
+pub fn renderVirtualJoystickGestureScene(frameIndex: int): void:
+  let stick = stepVirtualJoystickForFrame(frameIndex)
+  let pinch = stepPinchGestureForFrame(frameIndex)
+  let dragX = stick.centerOriginX + float(((frameIndex * 7) % 283) - 140)
+  let dragY = stick.centerOriginY + float(((frameIndex * 5) % 241) - 120)
+  let tapGapMs = 160 + ((frameIndex * 31) % 270)
+  let isDoubleTapActive = detectDoubleTap(1000, 1000 + tapGapMs, 300)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(34, 197, 94))
+  drawText("EX_140 // MOBILE VIRTUAL JOYSTICK (RADIAL CLAMP + 15% DEADZONE) & GESTURES", 52.0, 38.0, 20.0, rgb(240, 253, 244))
+
+  // Left: Radial-Clamped Virtual Joystick Assembly driven by VirtualJoystick struct fields
+  drawCircle(stick.centerOriginX, stick.centerOriginY, stick.radiusPixels, rgb(16, 24, 42))
+  drawCircleOutline(stick.centerOriginX, stick.centerOriginY, stick.radiusPixels * 1.5, 1.5, rgb(51, 65, 85))
+  drawCircleOutline(stick.centerOriginX, stick.centerOriginY, stick.radiusPixels, 2.5, rgb(56, 189, 248))
+  drawCircleOutline(stick.centerOriginX, stick.centerOriginY, stick.radiusPixels * stick.deadzoneFraction, 1.5, rgb(244, 63, 94))
+
+  // Unclamped raw finger drag indicator vs radially-clamped thumbstick nub & outputVector
+  drawLine(stick.centerOriginX, stick.centerOriginY, dragX, dragY, rgb(71, 85, 105), 1.5)
+  drawCircleOutline(dragX, dragY, 10.0, 1.5, rgb(148, 163, 184))
+  drawLine(stick.centerOriginX, stick.centerOriginY, stick.currentHandleX, stick.currentHandleY, rgb(34, 197, 94), 4.0)
+  let outTipX = stick.centerOriginX + stick.outputVectorX * stick.radiusPixels
+  let outTipY = stick.centerOriginY + stick.outputVectorY * stick.radiusPixels
+  drawCircle(outTipX, outTipY, 6.0, rgb(250, 204, 21))
+  drawCircle(stick.currentHandleX, stick.currentHandleY, 32.0, rgb(34, 197, 94))
+  drawCircleOutline(stick.currentHandleX, stick.currentHandleY, 36.0, 2.0, rgb(187, 247, 208))
+  drawText("VIRTUAL THUMBSTICK (PID #" + toString(stick.boundPointerId) + ")", stick.centerOriginX - 115.0, stick.centerOriginY + 185.0, 16.0, rgb(56, 189, 248))
+
+  // Center: Pinch-to-Zoom Caliper driven by PinchGesture & computePinchDelta
+  let pinchHalfSpan = 55.0 * pinch.scale
+  drawCircle(pinch.centerPointX - pinchHalfSpan, pinch.centerPointY, 16.0, rgb(168, 85, 247))
+  drawCircle(pinch.centerPointX + pinchHalfSpan, pinch.centerPointY, 16.0, rgb(168, 85, 247))
+  drawLine(pinch.centerPointX - pinchHalfSpan, pinch.centerPointY, pinch.centerPointX + pinchHalfSpan, pinch.centerPointY, rgb(216, 180, 254), 2.5)
+  drawRectOutline(pinch.centerPointX - pinchHalfSpan, pinch.centerPointY - 40.0 * pinch.scale, pinchHalfSpan * 2.0, 80.0 * pinch.scale, 2.0, rgb(192, 132, 252))
+  drawText("PINCH SCALE: " + toString(int(pinch.scale * 100.0)) + "%", pinch.centerPointX - 85.0, pinch.centerPointY - 40.0 * pinch.scale - 24.0, 15.0, rgb(216, 180, 254))
+
+  // Fitts's Law >= 48dp Action Cluster driven by computeFittsLawHitboxPaddingDp & detectDoubleTap
+  let visualR = 36.0
+  let padDp = float(computeFittsLawHitboxPaddingDp(int(visualR), 48))
+  let dashFill = if isDoubleTapActive: rgb(250, 204, 21) else: rgb(249, 115, 22)
+  drawCircle(620.0, 520.0, visualR, dashFill)
+  drawCircleOutline(620.0, 520.0, visualR + padDp, 1.5, rgb(253, 186, 116))
+  drawText("DASH (48dp)", 578.0, 580.0, 14.0, rgb(253, 186, 116))
+
+  drawCircle(750.0, 490.0, visualR, rgb(14, 165, 233))
+  drawCircleOutline(750.0, 490.0, visualR + padDp, 1.5, rgb(125, 211, 252))
+  drawText("JUMP (48dp)", 708.0, 550.0, 14.0, rgb(125, 211, 252))
+
+  // Right Telemetry Panel
+  let rx = 910.0
+  drawRect(rx, 104.0, 330.0, 560.0, rgb(16, 24, 42))
+  drawRectOutline(rx, 104.0, 330.0, 560.0, 2.0, rgb(71, 85, 105))
+  drawText("GESTURE ERGONOMICS HUD", rx + 24.0, 136.0, 18.0, rgb(74, 222, 128))
+  drawText(describeVirtualJoystickState(stick.boundPointerId), rx + 24.0, 178.0, 14.0, rgb(56, 189, 248))
+  drawText("Radius Clamp: " + toString(int(stick.radiusPixels)) + " px", rx + 24.0, 218.0, 15.0, rgb(226, 232, 240))
+  drawText("Deadzone:     " + toString(int(stick.deadzoneFraction * 100.0)) + "%", rx + 24.0, 254.0, 15.0, rgb(244, 63, 94))
+  drawText("Hitbox Pad:   +" + str(int(padDp)) + " dp (48dp min)", rx + 24.0, 290.0, 15.0, rgb(250, 204, 21))
+  drawText("Double-Tap:   " + (if isDoubleTapActive: "TRIGGERED" else: "WAITING"), rx + 24.0, 326.0, 15.0, rgb(125, 211, 252))
+
+pub fn main(): int:
+  let cx = verifyVirtualJoystickPinchAndDoubleTap()
+  assert(cx == 250, "clamped handle X == 250")
+  initWindow(1280, 720, "AIPL ex_140 - Virtual Joystick & Touch Gestures")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderVirtualJoystickGestureScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

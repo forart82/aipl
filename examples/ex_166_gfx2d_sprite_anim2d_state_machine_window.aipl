@@ -1,0 +1,126 @@
+module Ex166Gfx2dSpriteAnim2dStateMachineWindow
+
+import { UvRect } from "../std/gfx2d/sprite2d"
+import {
+  SpriteAnimationFrame2D, SpriteAnimationClip2D,
+  createAnimator2D, stepAnimator2D, getCurrentFrameUv,
+  AnimClip, AnimStateMachine, animMachineNew, animSetState, animStep
+} from "../std/gfx2d/sprite_anim2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepAnimStateMachineFrame(smIn: AnimStateMachine, frame: int): AnimStateMachine:
+  mut sm = smIn
+  let phase = frame % 43
+  if phase == 14:
+    sm = animSetState(sm, "run")
+  if phase == 36:
+    sm = animSetState(sm, "attack")
+  sm = animStep(sm, 16.6)
+  ret sm
+
+pub fn buildSpriteAnimStateMachineAudit(): int:
+  let f0 = SpriteAnimationFrame2D(uv = UvRect(u0 = 0.0, v0 = 0.0, u1 = 0.25, v1 = 1.0), durationSec = 0.1, eventTrigger = "idle")
+  let f1 = SpriteAnimationFrame2D(uv = UvRect(u0 = 0.25, v0 = 0.0, u1 = 0.50, v1 = 1.0), durationSec = 0.1, eventTrigger = "footstep")
+  let clip = SpriteAnimationClip2D(name = "run_cycle", frames = [f0, f1], loopMode = 1)
+  mut anim = createAnimator2D(clip)
+  anim = stepAnimator2D(anim, 0.12)
+  let uv = getCurrentFrameUv(anim)
+  let cIdle = AnimClip(name = "idle", startFrame = 0, frameCount = 4, fps = 10.0, looping = true, fallbackState = "idle")
+  let cRun = AnimClip(name = "run", startFrame = 4, frameCount = 6, fps = 12.0, looping = true, fallbackState = "idle")
+  mut sm = animMachineNew("idle", [cIdle, cRun])
+  sm = animSetState(sm, "run")
+  sm = animStep(sm, 100.0)
+  ret int(uv.u0 * 100.0) + anim.currentFrameIdx + sm.transitionCount
+
+pub fn main(): int:
+  let f0 = SpriteAnimationFrame2D(uv = UvRect(u0 = 0.00, v0 = 0.0, u1 = 0.25, v1 = 1.0), durationSec = 0.12, eventTrigger = "pose_0")
+  let f1 = SpriteAnimationFrame2D(uv = UvRect(u0 = 0.25, v0 = 0.0, u1 = 0.50, v1 = 1.0), durationSec = 0.12, eventTrigger = "footstep_L")
+  let f2 = SpriteAnimationFrame2D(uv = UvRect(u0 = 0.50, v0 = 0.0, u1 = 0.75, v1 = 1.0), durationSec = 0.12, eventTrigger = "pose_2")
+  let f3 = SpriteAnimationFrame2D(uv = UvRect(u0 = 0.75, v0 = 0.0, u1 = 1.00, v1 = 1.0), durationSec = 0.12, eventTrigger = "footstep_R")
+  let clip = SpriteAnimationClip2D(name = "run_cycle", frames = [f0, f1, f2, f3], loopMode = 1)
+  mut anim = createAnimator2D(clip)
+
+  let cIdle = AnimClip(name = "idle", startFrame = 0, frameCount = 4, fps = 8.0, looping = true, fallbackState = "idle")
+  let cRun = AnimClip(name = "run", startFrame = 4, frameCount = 4, fps = 12.0, looping = true, fallbackState = "idle")
+  let cAtk = AnimClip(name = "attack", startFrame = 8, frameCount = 3, fps = 15.0, looping = false, fallbackState = "idle")
+  mut sm = animMachineNew("idle", [cIdle, cRun, cAtk])
+  let audit = buildSpriteAnimStateMachineAudit()
+
+  initWindow(1280, 720, "AIPL ex_166: 2D Sprite Animation State Machine & Event Timeline")
+  mut frame: int = 0
+  while not windowShouldClose():
+    anim = stepAnimator2D(anim, 0.016)
+    sm = stepAnimStateMachineFrame(sm, frame)
+    let curUv = getCurrentFrameUv(anim)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_166: 2D SPRITE ANIMATION STATE MACHINE & FRAME UV STEPPER", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/sprite_anim2d: stepAnimator2D | getCurrentFrameUv | animMachineNew | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: 4-Frame Spritesheet Strip & Active UV Window
+    drawRect(40.0, 96.0, 600.0, 380.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 380.0, 2.0, rgb(56, 189, 248))
+    drawText("SPRITESHEET UV STRIP (Clip='" + clip.name + "', Frame=" + str(anim.currentFrameIdx) + "/4)", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    mut fi: int = 0
+    while fi < 4:
+      let fx = 65.0 + float(fi) * 138.0
+      let isCur = fi == anim.currentFrameIdx
+      let strideOff = float((fi % 2) * 14 - 7)
+      drawRect(fx, 160.0, 124.0, 175.0, if isCur: rgb(14, 116, 144) else: rgb(30, 41, 59))
+      drawRectOutline(fx, 160.0, 124.0, 175.0, if isCur: 3.0 else: 1.5, if isCur: rgb(250, 204, 21) else: rgb(71, 85, 105))
+      // Stick pose silhouette inside each frame cell
+      drawCircle(fx + 62.0, 194.0, 12.0, if isCur: rgb(250, 204, 21) else: rgb(148, 163, 184))
+      drawLine(fx + 62.0, 206.0, fx + 62.0, 242.0, if isCur: rgb(248, 250, 252) else: rgb(148, 163, 184), 3.0)
+      drawLine(fx + 62.0, 216.0, fx + 44.0 - strideOff, 232.0, if isCur: rgb(56, 189, 248) else: rgb(100, 116, 139), 2.5)
+      drawLine(fx + 62.0, 216.0, fx + 80.0 + strideOff, 232.0, if isCur: rgb(56, 189, 248) else: rgb(100, 116, 139), 2.5)
+      drawLine(fx + 62.0, 242.0, fx + 48.0 + strideOff, 268.0, if isCur: rgb(34, 197, 94) else: rgb(100, 116, 139), 2.5)
+      drawLine(fx + 62.0, 242.0, fx + 76.0 - strideOff, 268.0, if isCur: rgb(244, 63, 94) else: rgb(100, 116, 139), 2.5)
+      drawText("Frame #" + str(fi), fx + 24.0, 282.0, 15.0, rgb(248, 250, 252))
+      drawText(clip.frames[fi].eventTrigger, fx + 18.0, 306.0, 13.0, rgb(253, 224, 71))
+      fi = fi + 1
+
+    drawText("Active UV Window: u0=" + str(curUv.u0) + " .. u1=" + str(curUv.u1), 65.0, 360.0, 16.0, rgb(134, 239, 172))
+    drawText("Active Event Trigger: " + clip.frames[anim.currentFrameIdx].eventTrigger, 65.0, 392.0, 16.0, rgb(253, 224, 71))
+    drawRect(65.0, 426.0, 540.0, 18.0, rgb(30, 41, 59))
+    drawRect(65.0, 426.0, (anim.elapsedTimeSec / 0.12) * 540.0, 18.0, rgb(56, 189, 248))
+
+    // Right Panel: Finite State Machine Graph (IDLE <-> RUN <-> ATTACK)
+    drawRect(660.0, 96.0, 580.0, 380.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 380.0, 2.0, rgb(168, 85, 247))
+    drawText("ANIMATION STATE MACHINE GRAPH (State='" + sm.currentState + "')", 680.0, 118.0, 16.0, rgb(216, 180, 254))
+
+    drawLine(780.0, 270.0, 950.0, 195.0, if sm.currentState == "run": rgb(56, 189, 248) else: rgb(100, 116, 139), 3.5)
+    drawLine(950.0, 195.0, 1110.0, 270.0, if sm.currentState == "attack": rgb(244, 63, 94) else: rgb(100, 116, 139), 3.5)
+    drawLine(1110.0, 270.0, 780.0, 270.0, if sm.currentState == "idle": rgb(34, 197, 94) else: rgb(100, 116, 139), 3.5)
+
+    drawCircle(780.0, 270.0, 48.0, if sm.currentState == "idle": rgb(34, 197, 94) else: rgb(30, 41, 59))
+    drawText("IDLE", 758.0, 264.0, 16.0, rgb(248, 250, 252))
+
+    drawCircle(950.0, 195.0, 48.0, if sm.currentState == "run": rgb(56, 189, 248) else: rgb(30, 41, 59))
+    drawText("RUN", 932.0, 189.0, 16.0, rgb(248, 250, 252))
+
+    drawCircle(1110.0, 270.0, 48.0, if sm.currentState == "attack": rgb(244, 63, 94) else: rgb(30, 41, 59))
+    drawText("ATTACK", 1076.0, 264.0, 16.0, rgb(248, 250, 252))
+
+    drawText("Transitions Count: " + str(sm.transitionCount) + " | Frame Offset: " + str(sm.currentFrameOffset), 700.0, 368.0, 16.0, rgb(226, 232, 240))
+    drawText("attack clip (non-looping) -> auto-fallbacks to 'idle' on finish", 700.0, 402.0, 14.0, rgb(148, 163, 184))
+
+    // Bottom Telemetry Panel
+    drawRect(40.0, 500.0, 1200.0, 175.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 500.0, 1200.0, 175.0, 2.0, rgb(51, 65, 85))
+    drawText("ANIMATION STATE & TIMELINE TELEMETRY", 60.0, 524.0, 18.0, rgb(56, 189, 248))
+    drawText("Clip Elapsed: " + str(anim.elapsedTimeSec) + " s | State Machine Accum: " + str(sm.accumMs) + " ms", 60.0, 562.0, 16.0, rgb(226, 232, 240))
+    drawText("Active State: '" + sm.currentState + "' | Transitions: " + str(sm.transitionCount) + " | Audit Checksum: " + str(audit), 60.0, 598.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

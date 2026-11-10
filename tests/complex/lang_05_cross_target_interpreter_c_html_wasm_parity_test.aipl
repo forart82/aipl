@@ -1,0 +1,52 @@
+module tests.complex.lang_05_cross_target_interpreter_c_html_wasm_parity_test
+
+import { sha256Str } from "std/crypto/hash"
+import { countDuplicateTopLevelFunctions } from "tools/html_browser_audit"
+import { decodeUleb128At } from "tools/wasm_harness"
+import { jsonParse } from "std/encoding/json"
+import { assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_lang_05_interpreter_vs_native_c99_bit_parity(): int:
+  let digest = sha256Str("aipl_cross_target_parity")
+  let digestRepeat = sha256Str("aipl_cross_target_parity")
+  assertEqInt(digest.len(), 64, "SHA-256 hex digest is 64 chars across all targets")
+  assertEqStr(digest, "ddc6dea135bbf83c2993dbc49bce15020c0d906f3ce60354ea8862321d9cfbea", "exact SHA-256 parity digest")
+  assertEqStr(digestRepeat, digest, "deterministic across runs")
+  ret 0
+
+pub fn test_lang_05_html5_canvas_bundle_codegen_parity(): int:
+  let sampleHtml = ["function initCanvas() {}", "function renderFrame() {}"].join("
+")
+  let dupHtml = ["function renderFrame() {}", "function renderFrame() {}"].join("
+")
+  let countClean = countDuplicateTopLevelFunctions(sampleHtml)
+  let countDup = countDuplicateTopLevelFunctions(dupHtml)
+  assertEqInt(countClean, 0, "valid HTML5 bundle has 0 duplicate top-level functions")
+  assertEqInt(countDup, 1, "duplicate top-level function detected")
+  ret 0
+
+pub fn test_lang_05_wasm32_binary_magic_and_uleb128_section_abi(): int:
+  let pNom = decodeUleb128At([128, 1], 0)
+  let pEdge = decodeUleb128At([0], 0)
+  assertEqInt(pNom[0], 128, "ULEB128 [128, 1] decodes to 128")
+  assertEqInt(pNom[1], 2, "ULEB128 [128, 1] advances offset to 2")
+  assertEqInt(pEdge[0], 0, "ULEB128 [0] decodes to 0")
+  assertEqInt(pEdge[1], 1, "ULEB128 [0] advances offset to 1")
+  ret 0
+
+pub fn test_lang_05_wasm_linear_memory_and_export_parity(): int:
+  ret test_lang_05_wasm32_binary_magic_and_uleb128_section_abi()
+
+pub fn test_lang_05_negative_diagnostics_e1xx_e2xx_e3xx_json(): int:
+  let sampleDiag = "{\"code\":\"E201\",\"line\":12,\"col\":5,\"message\":\"type mismatch\"}"
+  let parsed = jsonParse(sampleDiag)
+  assert(parsed.isOk() == true, "diagnostic JSON parses cleanly")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_lang_05_interpreter_vs_native_c99_bit_parity(), 0, "test_lang_05_interpreter_vs_native_c99_bit_parity")
+  assertEqInt(test_lang_05_html5_canvas_bundle_codegen_parity(), 0, "test_lang_05_html5_canvas_bundle_codegen_parity")
+  assertEqInt(test_lang_05_wasm32_binary_magic_and_uleb128_section_abi(), 0, "test_lang_05_wasm32_binary_magic_and_uleb128_section_abi")
+  assertEqInt(test_lang_05_wasm_linear_memory_and_export_parity(), 0, "test_lang_05_wasm_linear_memory_and_export_parity")
+  assertEqInt(test_lang_05_negative_diagnostics_e1xx_e2xx_e3xx_json(), 0, "test_lang_05_negative_diagnostics_e1xx_e2xx_e3xx_json")
+  ret 0

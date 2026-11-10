@@ -1,0 +1,1997 @@
+module CompilerHir
+
+import { Span, TypeNode, ExprNode, StmtNode, DeclNode, AstArena, emptySpan, arenaAllocStmt, arenaAllocExpr } from "./ast.aipl"
+
+// ============================================================================
+// Step 15.3 (Part 1): Self-Hosted Canonical HIR Lowering Pass
+// ============================================================================
+
+pub struct HirSymbol:
+  id: int
+  name: str
+  kind: str
+  tyName: str
+  isMut: bool
+  span: Span
+
+pub struct HirStruct:
+  name: str
+  isPub: bool
+  fieldNames: [str]
+  fieldTypes: [str]
+  docComment: str = ""
+  typeParams: [str] = []
+  typeParamBounds: [str] = []
+  span: Span
+
+pub struct HirEnum:
+  name: str
+  isPub: bool
+  variants: [str]
+  payloadTypes: [str]
+  docComment: str = ""
+  typeParams: [str] = []
+  typeParamBounds: [str] = []
+  span: Span
+
+pub struct HirContract:
+  fnName: str
+  kind: str
+  exprId: int
+  summary: str
+  span: Span
+
+pub struct HirFunction:
+  name: str
+  isPub: bool
+  paramNames: [str]
+  paramTypes: [str]
+  retType: str
+  agentName: str
+  capabilities: [str]
+  requiresExprs: [int]
+  ensuresExprs: [int]
+  bodyStmts: [int]
+  docComment: str = ""
+  typeParams: [str] = []
+  typeParamBounds: [str] = []
+  isHotLoop: bool = false
+  span: Span
+
+pub struct HirModule:
+  moduleName: str
+  arena: AstArena
+  symbols: [HirSymbol]
+  structs: [HirStruct]
+  enums: [HirEnum]
+  functions: [HirFunction]
+  contracts: [HirContract]
+  diagnostics: [str]
+  // C backend: user functions named like a runtime intrinsic but with a different arity
+  // (e.g. a module-local `isRectClicked(x, y, w, h, button)`) override the intrinsic mapping.
+  intrinsicOverrides: [str] = []
+  // Step 18.3: `#line` directives are only emitted for debug builds (aipl build -g).
+  emitLineDirectives: bool = false
+  // Step 20.5: Monomorphized generic function instances
+  monomorphizedInstances: [str] = []
+
+pub fn resolveTypeName(arena: AstArena, typeId: int): str:
+  if typeId < 0 or typeId >= arena.types.len:
+    ret "void"
+  let t = arena.types[typeId]
+  if t.kind == "Array":
+    let pfx = if t.name.startsWith("&"): "&" else: ""
+    if t.typeArgs.len > 0:
+      ret pfx + "Array[" + resolveTypeName(arena, t.typeArgs[0]) + "]"
+    ret pfx + "Array[any]"
+  if t.kind == "Generic":
+    mut argStrs: [str] = []
+    mut i = 0
+    while i < t.typeArgs.len:
+      argStrs.push(resolveTypeName(arena, t.typeArgs[i]))
+      i += 1
+    ret t.name + "[" + argStrs.join(", ") + "]"
+  if t.kind == "Tuple":
+    let pfx = if t.name.startsWith("&"): "&" else: ""
+    mut argStrs: [str] = []
+    mut i = 0
+    while i < t.typeArgs.len:
+      argStrs.push(resolveTypeName(arena, t.typeArgs[i]))
+      i += 1
+    ret pfx + "(" + argStrs.join(", ") + ")"
+  if t.kind == "Refinement":
+    mut baseName = "int"
+    if t.typeArgs.len > 0:
+      baseName = resolveTypeName(arena, t.typeArgs[0])
+    ret "{ " + t.refineVar + ": " + baseName + " | " + summarizeExpr(arena, t.refinePredExpr) + " }"
+  ret t.name
+
+pub fn summarizeExpr(arena: AstArena, exprId: int): str:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret ""
+  let e = arena.exprs[exprId]
+  if e.kind == "IntLit" or e.kind == "FloatLit" or e.kind == "BoolLit" or e.kind == "NilLit" or e.kind == "Ident":
+    ret e.strVal
+  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or e.kind == "StrLit":
+    ret "\"" + e.strVal + "\""
+  if e.kind == "Unary":
+    ret e.op + summarizeExpr(arena, e.left)
+  if e.kind == "Binary":
+    ret summarizeExpr(arena, e.left) + " " + e.op + " " + summarizeExpr(arena, e.right)
+  if e.kind == "Call":
+    mut args: [str] = []
+    mut i = 0
+    while i < e.children.len:
+      args.push(summarizeExpr(arena, e.children[i]))
+      i += 1
+    ret summarizeExpr(arena, e.left) + "(" + args.join(", ") + ")"
+  if e.kind == "Member":
+    ret summarizeExpr(arena, e.left) + "." + e.strVal
+  if e.kind == "Index":
+    ret summarizeExpr(arena, e.left) + "[" + summarizeExpr(arena, e.right) + "]"
+  if e.kind == "Cast":
+    ret summarizeExpr(arena, e.left) + " as " + e.strVal
+  if e.kind == "IsPattern":
+    ret summarizeExpr(arena, e.left) + " is " + e.strVal
+  if e.kind == "StructLit":
+    mut parts: [str] = []
+    if e.cond >= 0:
+      parts.push(".." + summarizeExpr(arena, e.cond))
+    elif e.left >= 0:
+      parts.push(".." + summarizeExpr(arena, e.left))
+    mut fi = 0
+    while fi < e.children.len:
+      let fnName = if fi < e.names.len: e.names[fi] else: "f" + str(fi)
+      parts.push(fnName + ": " + summarizeExpr(arena, e.children[fi]))
+      fi += 1
+    let sName = if e.strVal.len > 0: e.strVal + " " else: ""
+    ret sName + "{ " + parts.join(", ") + " }"
+  if e.kind == "ListComp":
+    ret "[" + summarizeExpr(arena, e.left) + " for " + e.strVal + " in " + summarizeExpr(arena, e.right) + (if e.cond >= 0: " if " + summarizeExpr(arena, e.cond) else: "") + "]"
+  ret e.kind
+
+pub fn stmtsHaveValueReturn(arena: AstArena, stmts: [int]): bool:
+  mut i = 0
+  while i < stmts.len:
+    let sid = stmts[i]
+    if sid >= 0 and sid < arena.stmts.len:
+      let st = arena.stmts[sid]
+      if st.kind == "Return" and st.exprId >= 0:
+        ret true
+      if stmtsHaveValueReturn(arena, st.bodyStmts) or stmtsHaveValueReturn(arena, st.elseStmts) or stmtsHaveValueReturn(arena, st.matchArms):
+        ret true
+    i += 1
+  ret false
+
+pub fn lowerToHir(arena: AstArena, moduleName: str): HirModule:
+  mut symbols: [HirSymbol] = []
+  mut structs: [HirStruct] = []
+  mut enums: [HirEnum] = []
+  mut functions: [HirFunction] = []
+  mut contracts: [HirContract] = []
+  mut diagnostics: [str] = []
+
+  mut di = 0
+  while di < arena.decls.len:
+    let d = arena.decls[di]
+    if d.kind == "Struct":
+      mut fTypes: [str] = []
+      mut fi = 0
+      while fi < d.fieldTypes.len:
+        let fTid = d.fieldTypes[fi]
+        fTypes.push(if fTid >= 0: resolveTypeName(arena, fTid) else: "any")
+        fi += 1
+      let newStruct = HirStruct(
+        name = d.name,
+        isPub = d.isPub,
+        fieldNames = d.fieldNames,
+        fieldTypes = fTypes,
+        docComment = d.docComment,
+        typeParams = d.typeParams,
+        typeParamBounds = d.typeParamBounds,
+        span = d.span
+      )
+      mut sIdx = -1
+      mut sk = 0
+      while sk < structs.len:
+        if structs[sk].name == d.name:
+          sIdx = sk
+          break
+        sk += 1
+      if sIdx >= 0:
+        let prev = structs[sIdx]
+        mut namesEqual = (newStruct.fieldNames.len == prev.fieldNames.len)
+        if namesEqual:
+          mut eqi = 0
+          while eqi < newStruct.fieldNames.len:
+            if newStruct.fieldNames[eqi] != prev.fieldNames[eqi]:
+              namesEqual = false
+              break
+            eqi += 1
+        if namesEqual:
+          if newStruct.isPub and not prev.isPub:
+            structs[sIdx].isPub = true
+          if newStruct.docComment.len > 0 and prev.docComment.len == 0:
+            structs[sIdx].docComment = newStruct.docComment
+        else:
+          mut mergedNames: [str] = []
+          mut mergedTypes: [str] = []
+          mut pi = 0
+          while pi < prev.fieldNames.len:
+            mergedNames.push(prev.fieldNames[pi])
+            mergedTypes.push(if pi < prev.fieldTypes.len: prev.fieldTypes[pi] else: "any")
+            pi += 1
+          mut mi = 0
+          while mi < newStruct.fieldNames.len:
+            let mName = newStruct.fieldNames[mi]
+            let mType = if mi < newStruct.fieldTypes.len: newStruct.fieldTypes[mi] else: "any"
+            mut matchIdx = -1
+            mut qi = 0
+            while qi < mergedNames.len:
+              if mergedNames[qi] == mName:
+                matchIdx = qi
+                break
+              qi += 1
+            if matchIdx < 0:
+              mergedNames.push(mName)
+              mergedTypes.push(mType)
+            else:
+              let curType = mergedTypes[matchIdx]
+              if mType != "" and mType != "any" and (curType == "int" or curType == "any" or newStruct.isPub):
+                mergedTypes[matchIdx] = mType
+            mi += 1
+          structs[sIdx] = HirStruct(
+            name = newStruct.name,
+            isPub = newStruct.isPub or prev.isPub,
+            fieldNames = mergedNames,
+            fieldTypes = mergedTypes,
+            docComment = if newStruct.docComment.len > 0: newStruct.docComment else: prev.docComment,
+            typeParams = newStruct.typeParams,
+            typeParamBounds = newStruct.typeParamBounds,
+            span = newStruct.span
+          )
+      else:
+        structs.push(newStruct)
+
+      mut symIdx = -1
+      mut syi = 0
+      while syi < symbols.len:
+        if symbols[syi].name == d.name:
+          symIdx = syi
+          break
+        syi += 1
+      let newSym = HirSymbol(
+        id = if symIdx >= 0: symbols[symIdx].id else: symbols.len,
+        name = d.name,
+        kind = "Struct",
+        tyName = d.name,
+        isMut = false,
+        span = d.span
+      )
+      if symIdx >= 0:
+        symbols[symIdx] = newSym
+      else:
+        symbols.push(newSym)
+    elif d.kind == "Enum":
+      mut pTypes: [str] = []
+      mut vi = 0
+      while vi < d.variantPayloadTypes.len:
+        pTypes.push(resolveTypeName(arena, d.variantPayloadTypes[vi]))
+        vi += 1
+      let newEnum = HirEnum(
+        name = d.name,
+        isPub = d.isPub,
+        variants = d.variants,
+        payloadTypes = pTypes,
+        docComment = d.docComment,
+        typeParams = d.typeParams,
+        typeParamBounds = d.typeParamBounds,
+        span = d.span
+      )
+      mut eIdx = -1
+      mut ek = 0
+      while ek < enums.len:
+        if enums[ek].name == d.name:
+          eIdx = ek
+          break
+        ek += 1
+      if eIdx >= 0:
+        enums[eIdx] = newEnum
+      else:
+        enums.push(newEnum)
+
+      mut symIdx = -1
+      mut syi = 0
+      while syi < symbols.len:
+        if symbols[syi].name == d.name:
+          symIdx = syi
+          break
+        syi += 1
+      let newSym = HirSymbol(
+        id = if symIdx >= 0: symbols[symIdx].id else: symbols.len,
+        name = d.name,
+        kind = "Enum",
+        tyName = d.name,
+        isMut = false,
+        span = d.span
+      )
+      if symIdx >= 0:
+        symbols[symIdx] = newSym
+      else:
+        symbols.push(newSym)
+
+      mut vj = 0
+      while vj < d.variants.len:
+        let vName = d.variants[vj]
+        mut varSymIdx = -1
+        mut vsyi = 0
+        while vsyi < symbols.len:
+          if symbols[vsyi].name == vName:
+            varSymIdx = vsyi
+            break
+          vsyi += 1
+        let newVarSym = HirSymbol(
+          id = if varSymIdx >= 0: symbols[varSymIdx].id else: symbols.len,
+          name = vName,
+          kind = "EnumVariant",
+          tyName = d.name,
+          isMut = false,
+          span = d.span
+        )
+        if varSymIdx >= 0:
+          symbols[varSymIdx] = newVarSym
+        else:
+          symbols.push(newVarSym)
+        vj += 1
+    elif d.kind == "Function":
+      mut fIdx = -1
+      mut fk = 0
+      while fk < functions.len:
+        if functions[fk].name == d.name:
+          fIdx = fk
+          break
+        fk += 1
+      if fIdx >= 0:
+        mut filteredContracts: [HirContract] = []
+        mut ci = 0
+        while ci < contracts.len:
+          if contracts[ci].fnName != d.name:
+            filteredContracts.push(contracts[ci])
+          ci += 1
+        contracts = filteredContracts
+
+      mut pTypes: [str] = []
+      mut pi = 0
+      while pi < d.paramTypes.len:
+        let tid = d.paramTypes[pi]
+        let pt = if tid >= 0: resolveTypeName(arena, tid) else: "any"
+        pTypes.push(pt)
+        if tid >= 0 and tid < arena.types.len and arena.types[tid].kind == "Refinement":
+          let tNode = arena.types[tid]
+          contracts.push(HirContract(
+            fnName = d.name,
+            kind = "requires",
+            exprId = tNode.refinePredExpr,
+            summary = summarizeExpr(arena, tNode.refinePredExpr),
+            span = tNode.span
+          ))
+        pi += 1
+      let rType = if d.retType >= 0: resolveTypeName(arena, d.retType) else: (if stmtsHaveValueReturn(arena, d.bodyStmts): "any" else: "void")
+      if d.retType >= 0 and d.retType < arena.types.len and arena.types[d.retType].kind == "Refinement":
+        let rNode = arena.types[d.retType]
+        contracts.push(HirContract(
+          fnName = d.name,
+          kind = "ensures",
+          exprId = rNode.refinePredExpr,
+          summary = summarizeExpr(arena, rNode.refinePredExpr),
+          span = rNode.span
+        ))
+
+      mut ri = 0
+      while ri < d.requiresExprs.len:
+        let reqId = d.requiresExprs[ri]
+        contracts.push(HirContract(
+          fnName = d.name,
+          kind = "requires",
+          exprId = reqId,
+          summary = summarizeExpr(arena, reqId),
+          span = d.span
+        ))
+        ri += 1
+
+      mut ei = 0
+      while ei < d.ensuresExprs.len:
+        let ensId = d.ensuresExprs[ei]
+        contracts.push(HirContract(
+          fnName = d.name,
+          kind = "ensures",
+          exprId = ensId,
+          summary = summarizeExpr(arena, ensId),
+          span = d.span
+        ))
+        ei += 1
+
+      let newFn = HirFunction(
+        name = d.name,
+        isPub = d.isPub,
+        paramNames = d.params,
+        paramTypes = pTypes,
+        retType = rType,
+        agentName = d.agentName,
+        capabilities = d.capabilities,
+        requiresExprs = d.requiresExprs,
+        ensuresExprs = d.ensuresExprs,
+        bodyStmts = d.bodyStmts,
+        docComment = d.docComment,
+        typeParams = d.typeParams,
+        typeParamBounds = d.typeParamBounds,
+        span = d.span
+      )
+      if fIdx >= 0:
+        functions[fIdx] = newFn
+      else:
+        functions.push(newFn)
+
+      mut symIdx = -1
+      mut syi = 0
+      while syi < symbols.len:
+        if symbols[syi].name == d.name:
+          symIdx = syi
+          break
+        syi += 1
+      let newSym = HirSymbol(
+        id = if symIdx >= 0: symbols[symIdx].id else: symbols.len,
+        name = d.name,
+        kind = "Function",
+        tyName = rType,
+        isMut = false,
+        span = d.span
+      )
+      if symIdx >= 0:
+        symbols[symIdx] = newSym
+      else:
+        symbols.push(newSym)
+    elif d.kind == "Const":
+      mut symIdx = -1
+      mut syi = 0
+      while syi < symbols.len:
+        if symbols[syi].name == d.name:
+          symIdx = syi
+          break
+        syi += 1
+      let newSym = HirSymbol(
+        id = if symIdx >= 0: symbols[symIdx].id else: symbols.len,
+        name = d.name,
+        kind = "Const",
+        tyName = if d.retType >= 0: resolveTypeName(arena, d.retType) else: "any",
+        isMut = false,
+        span = d.span
+      )
+      if symIdx >= 0:
+        symbols[symIdx] = newSym
+      else:
+        symbols.push(newSym)
+    di += 1
+
+  if arena.topStmts.len > 0:
+    mut mainIdx = -1
+    mut fi = 0
+    while fi < functions.len:
+      if functions[fi].name == "main":
+        mainIdx = fi
+        break
+      fi += 1
+    if mainIdx >= 0:
+      mut newBody: [int] = []
+      mut ti = 0
+      while ti < arena.topStmts.len:
+        newBody.push(arena.topStmts[ti])
+        ti += 1
+      let existing = functions[mainIdx]
+      mut bi = 0
+      while bi < existing.bodyStmts.len:
+        newBody.push(existing.bodyStmts[bi])
+        bi += 1
+      mut updatedFunctions: [HirFunction] = []
+      mut ui = 0
+      while ui < functions.len:
+        if ui == mainIdx:
+          updatedFunctions.push(HirFunction(
+            name = existing.name,
+            isPub = existing.isPub,
+            paramNames = existing.paramNames,
+            paramTypes = existing.paramTypes,
+            retType = existing.retType,
+            agentName = existing.agentName,
+            capabilities = existing.capabilities,
+            requiresExprs = existing.requiresExprs,
+            ensuresExprs = existing.ensuresExprs,
+            bodyStmts = newBody,
+            docComment = existing.docComment,
+            typeParams = existing.typeParams,
+            typeParamBounds = existing.typeParamBounds,
+            span = existing.span
+          ))
+        else:
+          updatedFunctions.push(functions[ui])
+        ui += 1
+      functions = updatedFunctions
+    else:
+      let emptyParams: [str] = []
+      let emptyParamTypes: [str] = []
+      let emptyReq: [int] = []
+      let emptyEns: [int] = []
+      let emptyCaps: [str] = []
+      let emptyTypeParams: [str] = []
+      let emptyTypeParamBounds: [str] = []
+      functions.push(HirFunction(
+        name = "main",
+        isPub = true,
+        paramNames = emptyParams,
+        paramTypes = emptyParamTypes,
+        retType = "int",
+        agentName = "",
+        capabilities = emptyCaps,
+        requiresExprs = emptyReq,
+        ensuresExprs = emptyEns,
+        bodyStmts = arena.topStmts,
+        docComment = "",
+        typeParams = emptyTypeParams,
+        typeParamBounds = emptyTypeParamBounds,
+        span = emptySpan()
+      ))
+      symbols.push(HirSymbol(
+        id = symbols.len,
+        name = "main",
+        kind = "Function",
+        tyName = "int",
+        isMut = false,
+        span = emptySpan()
+      ))
+
+  mut effModName = moduleName
+  if arena.moduleName.len > 0 and arena.moduleName != "Main":
+    effModName = arena.moduleName
+
+  mut ei = 0
+  while ei < arena.exprs.len:
+    if arena.exprs[ei].kind == "ListComp":
+      foldExprInArena(arena, ei)
+    ei += 1
+
+  let rawModule = HirModule(
+    moduleName = effModName,
+    arena = arena,
+    symbols = symbols,
+    structs = structs,
+    enums = enums,
+    functions = functions,
+    contracts = contracts,
+    diagnostics = diagnostics
+  )
+
+  ret optimizeHir(rawModule)
+
+// ============================================================================
+// Step 1.6: Constant Folding, Algebraic Simplification & DCE Pass
+// ============================================================================
+
+pub fn foldExprInArena(mut arena: AstArena, exprId: int): int:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret exprId
+
+  let e = arena.exprs[exprId]
+
+  mut leftId = e.left
+  if leftId >= 0:
+    leftId = foldExprInArena(arena, leftId)
+
+  mut rightId = e.right
+  if rightId >= 0:
+    rightId = foldExprInArena(arena, rightId)
+
+  mut condId = e.cond
+  if condId >= 0:
+    condId = foldExprInArena(arena, condId)
+
+  mut newChildren = e.children
+  mut childrenChanged = false
+  if e.kind != "DoBlock" and e.kind != "BlockIfExpr" and e.children.len > 0:
+    mut tmpChildren: [int] = []
+    mut ci = 0
+    while ci < e.children.len:
+      let chId = e.children[ci]
+      if chId >= 0:
+        let fId = foldExprInArena(arena, chId)
+        if fId != chId:
+          childrenChanged = true
+        tmpChildren.push(fId)
+      else:
+        tmpChildren.push(chId)
+      ci += 1
+    if childrenChanged:
+      newChildren = tmpChildren
+
+  if leftId != e.left or rightId != e.right or condId != e.cond or childrenChanged:
+    let updatedNode = ExprNode(
+      id = e.id,
+      kind = e.kind,
+      kindTag = e.kindTag,
+      op = e.op,
+      intVal = e.intVal,
+      floatVal = e.floatVal,
+      strVal = e.strVal,
+      boolVal = e.boolVal,
+      left = leftId,
+      right = rightId,
+      cond = condId,
+      children = newChildren,
+      names = e.names,
+      typeId = e.typeId,
+      span = e.span
+    )
+    arena.exprs[exprId] = updatedNode
+
+  let emptyInts: [int] = []
+  let emptyNames: [str] = []
+
+  if e.kind == "ListComp":
+    let iterVar = if e.strVal.len > 0: e.strVal else: (if e.names.len > 0: e.names[0] else: "_item")
+    let accName = "_comp_acc_" + str(e.id)
+
+    let emptyArrId = arenaAllocExpr(arena, "Array", "", 0, 0.0, "", false, -1, -1, -1, emptyInts, emptyNames, -1, e.span)
+    let varDeclId = arenaAllocStmt(arena, "VarDecl", accName, true, -1, emptyArrId, -1, emptyInts, emptyInts, emptyInts, e.span)
+
+    let accIdentId = arenaAllocExpr(arena, "Ident", "", 0, 0.0, accName, false, -1, -1, -1, emptyInts, emptyNames, -1, e.span)
+    let pushMemId = arenaAllocExpr(arena, "Member", "", 0, 0.0, "push", false, accIdentId, -1, -1, emptyInts, emptyNames, -1, e.span)
+    mut pushArgs: [int] = [leftId]
+    mut pushArgNames: [str] = [""]
+    let pushCallId = arenaAllocExpr(arena, "Call", "", 0, 0.0, "", false, pushMemId, -1, -1, pushArgs, pushArgNames, -1, e.span)
+    let pushStmtId = arenaAllocStmt(arena, "ExprStmt", "", false, -1, pushCallId, -1, emptyInts, emptyInts, emptyInts, e.span)
+
+    mut loopBodyStmts: [int] = []
+    if condId >= 0:
+      mut ifBody: [int] = [pushStmtId]
+      let ifStmtId = arenaAllocStmt(arena, "If", "", false, -1, -1, condId, ifBody, emptyInts, emptyInts, e.span)
+      loopBodyStmts.push(ifStmtId)
+    else:
+      loopBodyStmts.push(pushStmtId)
+
+    let forStmtId = arenaAllocStmt(arena, "For", iterVar, false, -1, rightId, -1, loopBodyStmts, emptyInts, emptyInts, e.span)
+
+    let resIdentId = arenaAllocExpr(arena, "Ident", "", 0, 0.0, accName, false, -1, -1, -1, emptyInts, emptyNames, -1, e.span)
+    let resStmtId = arenaAllocStmt(arena, "ExprStmt", "", false, -1, resIdentId, -1, emptyInts, emptyInts, emptyInts, e.span)
+
+    mut doStmts: [int] = [varDeclId, forStmtId, resStmtId]
+    let desugaredNode = ExprNode(
+      id = e.id,
+      kind = "DoBlock",
+      kindTag = 0,
+      op = "",
+      intVal = 0,
+      floatVal = 0.0,
+      strVal = "",
+      boolVal = false,
+      left = resIdentId,
+      right = -1,
+      cond = -1,
+      children = doStmts,
+      names = emptyNames,
+      typeId = -1,
+      span = e.span
+    )
+    arena.exprs[exprId] = desugaredNode
+    ret exprId
+
+  // 1. Unary folding
+  if e.kind == "Unary" and leftId >= 0 and leftId < arena.exprs.len:
+    let child = arena.exprs[leftId]
+    if (e.op == "not" or e.op == "!") and child.kind == "BoolLit":
+      let bVal = not child.boolVal
+      let folded = ExprNode(
+        id = e.id,
+        kind = "BoolLit",
+        op = "",
+        intVal = 0,
+        floatVal = 0.0,
+        strVal = if bVal: "true" else: "false",
+        boolVal = bVal,
+        left = -1,
+        right = -1,
+        cond = -1,
+        children = emptyInts,
+        names = emptyNames,
+        typeId = e.typeId,
+        span = e.span
+      )
+      arena.exprs[exprId] = folded
+      ret exprId
+    if e.op == "-" and (child.kind == "IntLit" or child.kind == "Int"):
+      let iVal = -child.intVal
+      let folded = ExprNode(
+        id = e.id,
+        kind = "IntLit",
+        op = "",
+        intVal = iVal,
+        floatVal = 0.0,
+        strVal = str(iVal),
+        boolVal = false,
+        left = -1,
+        right = -1,
+        cond = -1,
+        children = emptyInts,
+        names = emptyNames,
+        typeId = e.typeId,
+        span = e.span
+      )
+      arena.exprs[exprId] = folded
+      ret exprId
+    if e.op == "+" and (child.kind == "IntLit" or child.kind == "Int"):
+      ret leftId
+    if e.op == "~" and (child.kind == "IntLit" or child.kind == "Int"):
+      let iVal = ~child.intVal
+      let folded = ExprNode(
+        id = e.id,
+        kind = "IntLit",
+        op = "",
+        intVal = iVal,
+        floatVal = 0.0,
+        strVal = str(iVal),
+        boolVal = false,
+        left = -1,
+        right = -1,
+        cond = -1,
+        children = emptyInts,
+        names = emptyNames,
+        typeId = e.typeId,
+        span = e.span
+      )
+      arena.exprs[exprId] = folded
+      ret exprId
+
+  // 2. Conditional expressions (IfExpr / BlockIfExpr)
+  if (e.kind == "IfExpr" or e.kind == "BlockIfExpr") and condId >= 0 and condId < arena.exprs.len:
+    let c = arena.exprs[condId]
+    if c.kind == "BoolLit":
+      if c.boolVal and leftId >= 0:
+        ret leftId
+      if (not c.boolVal) and rightId >= 0:
+        ret rightId
+
+  // 3. Binary folding & algebraic simplifications
+  if e.kind == "Binary" and leftId >= 0 and leftId < arena.exprs.len and rightId >= 0 and rightId < arena.exprs.len:
+    let l = arena.exprs[leftId]
+    let r = arena.exprs[rightId]
+
+    let isLeftInt = (l.kind == "IntLit" or l.kind == "Int")
+    let isRightInt = (r.kind == "IntLit" or r.kind == "Int")
+    let isLeftBool = (l.kind == "BoolLit")
+    let isRightBool = (r.kind == "BoolLit")
+    let isLeftStr = (l.kind == "STRING" or l.kind == "RAW_STRING" or l.kind == "StrLit")
+    let isRightStr = (r.kind == "STRING" or r.kind == "RAW_STRING" or r.kind == "StrLit")
+
+    // Constant folding: Both operands are IntLit
+    if isLeftInt and isRightInt:
+      if e.op == "+":
+        let val = l.intVal + r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "-":
+        let val = l.intVal - r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "*":
+        let val = l.intVal * r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "/" and r.intVal != 0:
+        let val = l.intVal / r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "%" and r.intVal != 0:
+        let val = l.intVal % r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "<<" and r.intVal >= 0 and r.intVal < 64:
+        let val = l.intVal << r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == ">>" and r.intVal >= 0 and r.intVal < 64:
+        let val = l.intVal >> r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "&":
+        let val = l.intVal & r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "|":
+        let val = l.intVal | r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "^":
+        let val = l.intVal ^ r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "==" or e.op == "!=" or e.op == "<" or e.op == "<=" or e.op == ">" or e.op == ">=":
+        mut bVal = false
+        if e.op == "==":
+          bVal = (l.intVal == r.intVal)
+        elif e.op == "!=":
+          bVal = (l.intVal != r.intVal)
+        elif e.op == "<":
+          bVal = (l.intVal < r.intVal)
+        elif e.op == "<=":
+          bVal = (l.intVal <= r.intVal)
+        elif e.op == ">":
+          bVal = (l.intVal > r.intVal)
+        elif e.op == ">=":
+          bVal = (l.intVal >= r.intVal)
+        let folded = ExprNode(id = e.id, kind = "BoolLit", op = "", intVal = 0, floatVal = 0.0, strVal = if bVal: "true" else: "false", boolVal = bVal, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+
+    // Constant folding: Both operands are BoolLit
+    if isLeftBool and isRightBool:
+      mut bVal = false
+      mut canFold = false
+      if e.op == "and" or e.op == "&&":
+        bVal = (l.boolVal and r.boolVal)
+        canFold = true
+      elif e.op == "or" or e.op == "||":
+        bVal = (l.boolVal or r.boolVal)
+        canFold = true
+      elif e.op == "==":
+        bVal = (l.boolVal == r.boolVal)
+        canFold = true
+      elif e.op == "!=":
+        bVal = (l.boolVal != r.boolVal)
+        canFold = true
+      if canFold:
+        let folded = ExprNode(id = e.id, kind = "BoolLit", op = "", intVal = 0, floatVal = 0.0, strVal = if bVal: "true" else: "false", boolVal = bVal, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+
+    // Constant folding: Both operands are String Literals and op is "+"
+    if isLeftStr and isRightStr and e.op == "+":
+      let sVal = l.strVal + r.strVal
+      let folded = ExprNode(id = e.id, kind = "STRING", op = "", intVal = 0, floatVal = 0.0, strVal = sVal, boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+      arena.exprs[exprId] = folded
+      ret exprId
+
+    // Algebraic simplifications: Integer operations with 0 and 1
+    if isRightInt and r.intVal == 0:
+      if e.op == "+" or e.op == "-":
+        ret leftId
+      if e.op == "*":
+        ret rightId
+      if e.op == "<<" or e.op == ">>":
+        ret leftId
+    if isLeftInt and l.intVal == 0:
+      if e.op == "+":
+        ret rightId
+      if e.op == "*":
+        ret leftId
+    if isRightInt and r.intVal == 1:
+      if e.op == "*":
+        ret leftId
+    if isLeftInt and l.intVal == 1:
+      if e.op == "*":
+        ret rightId
+
+    // Algebraic simplifications: Boolean operations
+    if isLeftBool:
+      if e.op == "and" or e.op == "&&":
+        if not l.boolVal:
+          ret leftId
+        else:
+          ret rightId
+      if e.op == "or" or e.op == "||":
+        if l.boolVal:
+          ret leftId
+        else:
+          ret rightId
+    if isRightBool:
+      if e.op == "and" or e.op == "&&":
+        if not r.boolVal:
+          ret rightId
+      if e.op == "or" or e.op == "||":
+        if r.boolVal:
+          ret rightId
+
+  ret exprId
+
+pub fn optimizeStmtList(mut arena: AstArena, stmts: [int]): [int]:
+  mut outStmts: [int] = []
+  let emptyInts: [int] = []
+  mut terminated = false
+  mut i = 0
+  while i < stmts.len:
+    if terminated:
+      break
+    let sId = stmts[i]
+    if sId < 0 or sId >= arena.stmts.len:
+      i += 1
+      continue
+    let s = arena.stmts[sId]
+
+    if s.kind == "If":
+      let condId = foldExprInArena(arena, s.condExpr)
+      mut isFoldedBool = false
+      mut boolCond = false
+      if condId >= 0 and condId < arena.exprs.len:
+        let ce = arena.exprs[condId]
+        if ce.kind == "BoolLit":
+          isFoldedBool = true
+          boolCond = ce.boolVal
+
+      if isFoldedBool:
+        if boolCond:
+          // Condition is true: inline bodyStmts directly into output list
+          let optBody = optimizeStmtList(arena, s.bodyStmts)
+          mut bi = 0
+          while bi < optBody.len:
+            outStmts.push(optBody[bi])
+            let bStmt = arena.stmts[optBody[bi]]
+            if bStmt.kind == "Return" or bStmt.kind == "return" or bStmt.kind == "Break" or bStmt.kind == "break" or bStmt.kind == "Continue" or bStmt.kind == "continue":
+              terminated = true
+              break
+            bi += 1
+        else:
+          if s.elseStmts.len > 0:
+            mut hasElif = false
+            mut ei = 0
+            while ei < s.elseStmts.len:
+              let eid = s.elseStmts[ei]
+              if eid >= 0 and eid < arena.stmts.len and (arena.stmts[eid].kind == "Elif" or arena.stmts[eid].kind == "elif"):
+                hasElif = true
+                break
+              ei += 1
+            if not hasElif:
+              // Pure else block: inline elseStmts!
+              let optElse = optimizeStmtList(arena, s.elseStmts)
+              mut bi = 0
+              while bi < optElse.len:
+                outStmts.push(optElse[bi])
+                let bStmt = arena.stmts[optElse[bi]]
+                if bStmt.kind == "Return" or bStmt.kind == "return" or bStmt.kind == "Break" or bStmt.kind == "break" or bStmt.kind == "Continue" or bStmt.kind == "continue":
+                  terminated = true
+                  break
+                bi += 1
+            else:
+              // There is an Elif branch: turn first Elif into the new If statement in-place
+              let firstElifId = s.elseStmts[0]
+              let firstElif = arena.stmts[firstElifId]
+              mut remElse: [int] = []
+              mut rk = 1
+              while rk < s.elseStmts.len:
+                remElse.push(s.elseStmts[rk])
+                rk += 1
+              arena.stmts[sId] = StmtNode(
+                id = sId,
+                kind = "If",
+                kindTag = s.kindTag,
+                name = "",
+                isMut = false,
+                typeId = -1,
+                exprId = -1,
+                condExpr = firstElif.condExpr,
+                bodyStmts = firstElif.bodyStmts,
+                elseStmts = remElse,
+                matchArms = emptyInts,
+                span = firstElif.span
+              )
+              mut tempStmts: [int] = []
+              tempStmts.push(sId)
+              let optTemp = optimizeStmtList(arena, tempStmts)
+              mut ti = 0
+              while ti < optTemp.len:
+                outStmts.push(optTemp[ti])
+                let tStmt = arena.stmts[optTemp[ti]]
+                if tStmt.kind == "Return" or tStmt.kind == "return" or tStmt.kind == "Break" or tStmt.kind == "break" or tStmt.kind == "Continue" or tStmt.kind == "continue":
+                  terminated = true
+                  break
+                ti += 1
+      else:
+        // Dynamic condition: optimize bodyStmts and elseStmts
+        let optBody = optimizeStmtList(arena, s.bodyStmts)
+        let optElse = optimizeStmtList(arena, s.elseStmts)
+        let updatedStmt = StmtNode(
+          id = s.id,
+          kind = s.kind,
+          kindTag = s.kindTag,
+          name = s.name,
+          isMut = s.isMut,
+          typeId = s.typeId,
+          exprId = s.exprId,
+          condExpr = condId,
+          bodyStmts = optBody,
+          elseStmts = optElse,
+          matchArms = s.matchArms,
+          span = s.span
+        )
+        arena.stmts[sId] = updatedStmt
+        outStmts.push(sId)
+    elif s.kind == "Elif" or s.kind == "elif":
+      let condId = foldExprInArena(arena, s.condExpr)
+      let optBody = optimizeStmtList(arena, s.bodyStmts)
+      let updatedStmt = StmtNode(
+        id = s.id,
+        kind = s.kind,
+        kindTag = s.kindTag,
+        name = s.name,
+        isMut = s.isMut,
+        typeId = s.typeId,
+        exprId = s.exprId,
+        condExpr = condId,
+        bodyStmts = optBody,
+        elseStmts = s.elseStmts,
+        matchArms = s.matchArms,
+        span = s.span
+      )
+      arena.stmts[sId] = updatedStmt
+      outStmts.push(sId)
+    elif s.kind == "VarDecl":
+      mut newInitId = s.exprId
+      if s.exprId >= 0:
+        newInitId = foldExprInArena(arena, s.exprId)
+      if newInitId != s.exprId:
+        let updatedStmt = StmtNode(
+          id = s.id,
+          kind = s.kind,
+          kindTag = s.kindTag,
+          name = s.name,
+          isMut = s.isMut,
+          typeId = s.typeId,
+          exprId = newInitId,
+          condExpr = s.condExpr,
+          bodyStmts = s.bodyStmts,
+          elseStmts = s.elseStmts,
+          matchArms = s.matchArms,
+          span = s.span
+        )
+        arena.stmts[sId] = updatedStmt
+      outStmts.push(sId)
+    elif s.kind == "Assign":
+      let newLhs = if s.condExpr >= 0: foldExprInArena(arena, s.condExpr) else: -1
+      let newRhs = if s.exprId >= 0: foldExprInArena(arena, s.exprId) else: -1
+      if newLhs != s.condExpr or newRhs != s.exprId:
+        let updatedStmt = StmtNode(
+          id = s.id,
+          kind = s.kind,
+          kindTag = s.kindTag,
+          name = s.name,
+          isMut = s.isMut,
+          typeId = s.typeId,
+          exprId = newRhs,
+          condExpr = newLhs,
+          bodyStmts = s.bodyStmts,
+          elseStmts = s.elseStmts,
+          matchArms = s.matchArms,
+          span = s.span
+        )
+        arena.stmts[sId] = updatedStmt
+      outStmts.push(sId)
+    elif s.kind == "Return" or s.kind == "return":
+      let newRetId = if s.exprId >= 0: foldExprInArena(arena, s.exprId) else: -1
+      if newRetId != s.exprId:
+        let updatedStmt = StmtNode(
+          id = s.id,
+          kind = s.kind,
+          kindTag = s.kindTag,
+          name = s.name,
+          isMut = s.isMut,
+          typeId = s.typeId,
+          exprId = newRetId,
+          condExpr = s.condExpr,
+          bodyStmts = s.bodyStmts,
+          elseStmts = s.elseStmts,
+          matchArms = s.matchArms,
+          span = s.span
+        )
+        arena.stmts[sId] = updatedStmt
+      outStmts.push(sId)
+      terminated = true
+    elif s.kind == "Break" or s.kind == "break" or s.kind == "Continue" or s.kind == "continue":
+      outStmts.push(sId)
+      terminated = true
+    elif s.kind == "Pass":
+      outStmts.push(sId)
+    elif s.kind == "Discard":
+      let newExprId = if s.exprId >= 0: foldExprInArena(arena, s.exprId) else: -1
+      let updatedStmt = StmtNode(
+        id = s.id,
+        kind = "ExprStmt",
+        kindTag = s.kindTag,
+        name = s.name,
+        isMut = s.isMut,
+        typeId = s.typeId,
+        exprId = newExprId,
+        condExpr = s.condExpr,
+        bodyStmts = s.bodyStmts,
+        elseStmts = s.elseStmts,
+        matchArms = s.matchArms,
+        span = s.span
+      )
+      arena.stmts[sId] = updatedStmt
+      outStmts.push(sId)
+    elif s.kind == "ExprStmt":
+      let newExprId = if s.exprId >= 0: foldExprInArena(arena, s.exprId) else: -1
+      if newExprId != s.exprId:
+        let updatedStmt = StmtNode(
+          id = s.id,
+          kind = s.kind,
+          kindTag = s.kindTag,
+          name = s.name,
+          isMut = s.isMut,
+          typeId = s.typeId,
+          exprId = newExprId,
+          condExpr = s.condExpr,
+          bodyStmts = s.bodyStmts,
+          elseStmts = s.elseStmts,
+          matchArms = s.matchArms,
+          span = s.span
+        )
+        arena.stmts[sId] = updatedStmt
+      outStmts.push(sId)
+    elif s.kind == "While":
+      let condId = foldExprInArena(arena, s.condExpr)
+      let isDeadWhile = (condId >= 0 and condId < arena.exprs.len and arena.exprs[condId].kind == "BoolLit" and not arena.exprs[condId].boolVal)
+      if not isDeadWhile:
+        let optBody = optimizeStmtList(arena, s.bodyStmts)
+        let updatedStmt = StmtNode(
+          id = s.id,
+          kind = s.kind,
+          kindTag = s.kindTag,
+          name = s.name,
+          isMut = s.isMut,
+          typeId = s.typeId,
+          exprId = s.exprId,
+          condExpr = condId,
+          bodyStmts = optBody,
+          elseStmts = s.elseStmts,
+          matchArms = s.matchArms,
+          span = s.span
+        )
+        arena.stmts[sId] = updatedStmt
+        outStmts.push(sId)
+    elif s.kind == "For":
+      let newIterId = if s.exprId >= 0: foldExprInArena(arena, s.exprId) else: -1
+      let optBody = optimizeStmtList(arena, s.bodyStmts)
+      let updatedStmt = StmtNode(
+        id = s.id,
+        kind = s.kind,
+        kindTag = s.kindTag,
+        name = s.name,
+        isMut = s.isMut,
+        typeId = s.typeId,
+        exprId = newIterId,
+        condExpr = s.condExpr,
+        bodyStmts = optBody,
+        elseStmts = s.elseStmts,
+        matchArms = s.matchArms,
+        span = s.span
+      )
+      arena.stmts[sId] = updatedStmt
+      outStmts.push(sId)
+    elif s.kind == "Match":
+      let newTargetId = if s.exprId >= 0: foldExprInArena(arena, s.exprId) else: -1
+      mut newArms: [int] = []
+      mut ai = 0
+      while ai < s.matchArms.len:
+        let armId = s.matchArms[ai]
+        if armId >= 0 and armId < arena.stmts.len:
+          let arm = arena.stmts[armId]
+          let newGuardId = if arm.exprId >= 0: foldExprInArena(arena, arm.exprId) else: -1
+          let optArmBody = optimizeStmtList(arena, arm.bodyStmts)
+          let newArmNode = StmtNode(
+            id = arm.id,
+            kind = arm.kind,
+            kindTag = arm.kindTag,
+            name = arm.name,
+            isMut = arm.isMut,
+            typeId = arm.typeId,
+            exprId = newGuardId,
+            condExpr = arm.condExpr,
+            bodyStmts = optArmBody,
+            elseStmts = arm.elseStmts,
+            matchArms = arm.matchArms,
+            span = arm.span
+          )
+          arena.stmts[armId] = newArmNode
+          newArms.push(armId)
+        ai += 1
+      let updatedStmt = StmtNode(
+        id = s.id,
+        kind = s.kind,
+        kindTag = s.kindTag,
+        name = s.name,
+        isMut = s.isMut,
+        typeId = s.typeId,
+        exprId = newTargetId,
+        condExpr = s.condExpr,
+        bodyStmts = s.bodyStmts,
+        elseStmts = s.elseStmts,
+        matchArms = newArms,
+        span = s.span
+      )
+      arena.stmts[sId] = updatedStmt
+      outStmts.push(sId)
+    elif s.kind == "Block":
+      let optBody = optimizeStmtList(arena, s.bodyStmts)
+      let updatedStmt = StmtNode(
+        id = s.id,
+        kind = s.kind,
+        kindTag = s.kindTag,
+        name = s.name,
+        isMut = s.isMut,
+        typeId = s.typeId,
+        exprId = s.exprId,
+        condExpr = s.condExpr,
+        bodyStmts = optBody,
+        elseStmts = s.elseStmts,
+        matchArms = s.matchArms,
+        span = s.span
+      )
+      arena.stmts[sId] = updatedStmt
+      outStmts.push(sId)
+    else:
+      outStmts.push(sId)
+
+    i += 1
+
+  ret outStmts
+
+fn stmtContainsLoop(arena: AstArena, stmtId: int): bool:
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret false
+  let s = arena.stmts[stmtId]
+  if s.kind == "While" or s.kind == "For":
+    ret true
+  mut bi = 0
+  while bi < s.bodyStmts.len:
+    if stmtContainsLoop(arena, s.bodyStmts[bi]):
+      ret true
+    bi += 1
+  mut ei = 0
+  while ei < s.elseStmts.len:
+    if stmtContainsLoop(arena, s.elseStmts[ei]):
+      ret true
+    ei += 1
+  mut mi = 0
+  while mi < s.matchArms.len:
+    if stmtContainsLoop(arena, s.matchArms[mi]):
+      ret true
+    mi += 1
+  ret false
+
+pub fn detectHotLoopOsrCandidatesHir(hir: HirModule): [str]:
+  mut candidates: [str] = []
+  mut fi = 0
+  while fi < hir.functions.len:
+    let fnNode = hir.functions[fi]
+    mut hasLoop = false
+    mut bi = 0
+    while bi < fnNode.bodyStmts.len:
+      if stmtContainsLoop(hir.arena, fnNode.bodyStmts[bi]):
+        hasLoop = true
+        break
+      bi += 1
+    if hasLoop:
+      candidates.push(fnNode.name)
+    fi += 1
+  ret candidates
+
+pub fn optimizeHirFunctionsStride(mut hir: HirModule, startIdx: int, stride: int): HirModule:
+  mut fi = startIdx
+  let step = if stride > 0: stride else: 1
+  while fi < hir.functions.len:
+    let fnNode = hir.functions[fi]
+    let optBody = optimizeStmtList(hir.arena, fnNode.bodyStmts)
+
+    mut optReq: [int] = []
+    mut ri = 0
+    while ri < fnNode.requiresExprs.len:
+      optReq.push(foldExprInArena(hir.arena, fnNode.requiresExprs[ri]))
+      ri += 1
+
+    mut optEns: [int] = []
+    mut ei = 0
+    while ei < fnNode.ensuresExprs.len:
+      optEns.push(foldExprInArena(hir.arena, fnNode.ensuresExprs[ei]))
+      ei += 1
+
+    hir.functions[fi] = HirFunction(
+      name = fnNode.name,
+      isPub = fnNode.isPub,
+      paramNames = fnNode.paramNames,
+      paramTypes = fnNode.paramTypes,
+      retType = fnNode.retType,
+      agentName = fnNode.agentName,
+      capabilities = fnNode.capabilities,
+      requiresExprs = optReq,
+      ensuresExprs = optEns,
+      bodyStmts = optBody,
+      docComment = fnNode.docComment,
+      typeParams = fnNode.typeParams,
+      typeParamBounds = fnNode.typeParamBounds,
+      span = fnNode.span
+    )
+    fi += step
+  ret hir
+
+pub fn optimizeHirFunctionsParallel(hir: HirModule): HirModule:
+  ret optimizeHirFunctionsStride(hir, 0, 1)
+
+pub fn optimizeHir(mut hir: HirModule): HirModule:
+  hir = optimizeHirFunctionsParallel(hir)
+
+  mut optContracts: [HirContract] = []
+  mut ci = 0
+  while ci < hir.contracts.len:
+    let c = hir.contracts[ci]
+    let optExprId = foldExprInArena(hir.arena, c.exprId)
+    optContracts.push(HirContract(
+      fnName = c.fnName,
+      kind = c.kind,
+      exprId = optExprId,
+      summary = summarizeExpr(hir.arena, optExprId),
+      span = c.span
+    ))
+    ci += 1
+  hir.contracts = optContracts
+
+  mut di = 0
+  while di < hir.arena.decls.len:
+    let d = hir.arena.decls[di]
+    if d.kind == "Const" and d.bodyStmts.len > 0 and d.bodyStmts[0] >= 0:
+      let foldedExprId = foldExprInArena(hir.arena, d.bodyStmts[0])
+      d.bodyStmts[0] = foldedExprId
+    di += 1
+
+  if hir.arena.topStmts.len > 0:
+    hir.arena.topStmts = optimizeStmtList(hir.arena, hir.arena.topStmts)
+
+  // Step 15.8 & Step 20.5: Hot-loop OSR candidate detection & HirFunction tagging
+  let hotCandidates = detectHotLoopOsrCandidatesHir(hir)
+  if hotCandidates.len > 0:
+    mut hMap: Map[str, bool] = Map.new()
+    mut hci = 0
+    while hci < hotCandidates.len:
+      hMap.set(hotCandidates[hci], true)
+      hci += 1
+    mut hfi = 0
+    while hfi < hir.functions.len:
+      let hf = hir.functions[hfi]
+      if hMap.containsKey(hf.name):
+        hir.functions[hfi] = HirFunction(
+          name = hf.name,
+          isPub = hf.isPub,
+          paramNames = hf.paramNames,
+          paramTypes = hf.paramTypes,
+          retType = hf.retType,
+          agentName = hf.agentName,
+          capabilities = hf.capabilities,
+          requiresExprs = hf.requiresExprs,
+          ensuresExprs = hf.ensuresExprs,
+          bodyStmts = hf.bodyStmts,
+          docComment = hf.docComment,
+          typeParams = hf.typeParams,
+          typeParamBounds = hf.typeParamBounds,
+          isHotLoop = true,
+          span = hf.span
+        )
+      hfi += 1
+
+  // Step 20.5: Collect concrete generic instantiations into hir.monomorphizedInstances
+  mut genericFns: Map[str, int] = Map.new()
+  mut gfi = 0
+  while gfi < hir.functions.len:
+    if hir.functions[gfi].typeParams.len > 0:
+      genericFns.set(hir.functions[gfi].name, gfi)
+    gfi += 1
+  if genericFns.len > 0:
+    mut monoInsts: [str] = []
+    mut mci = 0
+    while mci < hir.monomorphizedInstances.len:
+      monoInsts.push(hir.monomorphizedInstances[mci])
+      mci += 1
+    mut exi = 0
+    while exi < hir.arena.exprs.len:
+      let ex = hir.arena.exprs[exi]
+      if ex.kind == "Call":
+        mut cName = ex.strVal
+        if cName.len == 0 and ex.left >= 0 and ex.left < hir.arena.exprs.len:
+          let ce = hir.arena.exprs[ex.left]
+          if ce.kind == "Ident":
+            cName = ce.strVal
+        if cName.len > 0 and genericFns.containsKey(cName):
+          let gf = hir.functions[genericFns.get(cName).unwrap()]
+          if ex.children.len >= gf.typeParams.len:
+            mut tArgs: [str] = []
+            mut tai = 0
+            mut allConcrete = true
+            while tai < gf.typeParams.len:
+              let argExprId = ex.children[tai]
+              mut argTy = ""
+              if argExprId >= 0 and argExprId < hir.arena.exprs.len:
+                let ae = hir.arena.exprs[argExprId]
+                if ae.kind == "IntLit":
+                  argTy = "int"
+                elif ae.kind == "FloatLit":
+                  argTy = "float"
+                elif ae.kind == "BoolLit":
+                  argTy = "bool"
+                elif ae.kind == "STRING" or ae.kind == "StrLit" or ae.kind == "RAW_STRING" or ae.kind == "INTERP_STRING":
+                  argTy = "str"
+                elif ae.kind == "StructLit" and ae.strVal.len > 0:
+                  argTy = ae.strVal
+              if argTy.len == 0:
+                allConcrete = false
+              else:
+                tArgs.push(argTy)
+              tai += 1
+            if allConcrete and tArgs.len == gf.typeParams.len:
+              let mName = gf.name + "__mono_" + tArgs.join("_")
+              mut hasM = false
+              mut mki = 0
+              while mki < monoInsts.len:
+                if monoInsts[mki] == mName:
+                  hasM = true
+                  break
+                mki += 1
+              if not hasM:
+                monoInsts.push(mName)
+      exi += 1
+    hir.monomorphizedInstances = monoInsts
+
+  ret eliminateDeadFunctionsHir(hir)
+
+// ============================================================================
+// Step 14.1a: Call-Graph Reachability Dead-Code Elimination
+// ============================================================================
+
+fn markReachable(name: str, fnMap: Map[str, int], mut reachable: Map[str, bool], mut worklist: [str]):
+  if not fnMap.containsKey(name):
+    ret
+  if reachable.containsKey(name):
+    ret
+  reachable.set(name, true)
+  worklist.push(name)
+  if name == "emitCFunctionsParallel":
+    if fnMap.containsKey("emitCFunctionsStride") and not reachable.containsKey("emitCFunctionsStride"):
+      reachable.set("emitCFunctionsStride", true)
+      worklist.push("emitCFunctionsStride")
+  if name == "verifyHirSmt" or name == "verifyHirSmtParallel":
+    if fnMap.containsKey("verifyHirSmtStride") and not reachable.containsKey("verifyHirSmtStride"):
+      reachable.set("verifyHirSmtStride", true)
+      worklist.push("verifyHirSmtStride")
+  if name == "optimizeHirFunctionsParallel":
+    if fnMap.containsKey("optimizeHirFunctionsStride") and not reachable.containsKey("optimizeHirFunctionsStride"):
+      reachable.set("optimizeHirFunctionsStride", true)
+      worklist.push("optimizeHirFunctionsStride")
+  if name == "typecheckHirBatch":
+    if fnMap.containsKey("typecheckHirStride") and not reachable.containsKey("typecheckHirStride"):
+      reachable.set("typecheckHirStride", true)
+      worklist.push("typecheckHirStride")
+  if name == "compileFrontendParallel":
+    if fnMap.containsKey("parseModuleChunk") and not reachable.containsKey("parseModuleChunk"):
+      reachable.set("parseModuleChunk", true)
+      worklist.push("parseModuleChunk")
+  if name == "prepareTestFilesParallel":
+    if fnMap.containsKey("prepareSingleTestFileC") and not reachable.containsKey("prepareSingleTestFileC"):
+      reachable.set("prepareSingleTestFileC", true)
+      worklist.push("prepareSingleTestFileC")
+
+fn scanInterpStringForReachability(raw: str, fnMap: Map[str, int], mut reachable: Map[str, bool], mut worklist: [str]):
+  mut i = 0
+  let n = raw.len
+  while i < n:
+    let c = raw.charCodeAt(i)
+    if c == 92 and i + 1 < n:
+      i += 2
+      continue
+    if c == 123:
+      mut depth = 1
+      i += 1
+      while i < n and depth > 0:
+        let ic = raw.charCodeAt(i)
+        if ic == 123:
+          depth += 1
+          i += 1
+        elif ic == 125:
+          depth -= 1
+          i += 1
+        elif (ic >= 65 and ic <= 90) or (ic >= 97 and ic <= 122) or ic == 95:
+          let start = i
+          i += 1
+          while i < n:
+            let nc = raw.charCodeAt(i)
+            if (nc >= 65 and nc <= 90) or (nc >= 97 and nc <= 122) or (nc >= 48 and nc <= 57) or nc == 95:
+              i += 1
+            else:
+              break
+          let ident = raw.slice(start, i)
+          if fnMap.containsKey(ident):
+            markReachable(ident, fnMap, reachable, worklist)
+        else:
+          i += 1
+    else:
+      i += 1
+
+fn walkExprForReachability(arena: AstArena, exprId: int, fnMap: Map[str, int], mut reachable: Map[str, bool], mut worklist: [str], mut visitedStmts: [bool], mut visitedExprs: [bool]):
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret
+  if visitedExprs[exprId]:
+    ret
+  visitedExprs[exprId] = true
+
+  let e = arena.exprs[exprId]
+
+  // Phase 18 Step 18.3: Call-Graph DCE StrLit leak fix.
+  // Treat e.strVal as a potential function reference ONLY when e.kind denotes an identifier,
+  // call or function reference. Never treat string literals (STRING, RAW_STRING, StrLit,
+  // String), interpolated strings, or numeric/boolean/nil literals as function references,
+  // preventing string constants that happen to match function names from keeping dead code alive.
+  // For unknown kinds, be conservative and only exclude literal kinds and known non-callee AST nodes.
+  let isLiteralKind = (
+    e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or
+    e.kind == "StrLit" or e.kind == "String" or e.kind == "IntLit" or
+    e.kind == "FloatLit" or e.kind == "BoolLit" or e.kind == "Bool" or e.kind == "NilLit"
+  )
+  // `Member` stays a reference kind: `alias.fn()` module-qualified calls and free-function UFCS
+  // (`xs.helper()` -> `helper(xs)`) name their callee through e.strVal.
+  let isKnownNonFnKind = e.kind == "Directive" or e.kind == "Error"
+  let isFnRefKind = (
+    e.kind == "Ident" or e.kind == "Call" or e.kind == "FnRef" or
+    (not isLiteralKind and not isKnownNonFnKind)
+  )
+
+  if e.strVal.len > 0:
+    if isFnRefKind and fnMap.containsKey(e.strVal):
+      markReachable(e.strVal, fnMap, reachable, worklist)
+    if e.kind == "INTERP_STRING" and e.strVal.contains("{"):
+      scanInterpStringForReachability(e.strVal, fnMap, reachable, worklist)
+
+  if e.op.len > 0:
+    if fnMap.containsKey(e.op):
+      markReachable(e.op, fnMap, reachable, worklist)
+
+  if e.kind == "Member" and e.strVal.len > 0:
+    if e.left >= 0 and e.left < arena.exprs.len:
+      let lhs = arena.exprs[e.left]
+      if lhs.kind == "Ident" and lhs.strVal.len > 0:
+        let combined = lhs.strVal + "_" + e.strVal
+        if fnMap.containsKey(combined):
+          markReachable(combined, fnMap, reachable, worklist)
+    mut sdi = 0
+    while sdi < arena.decls.len:
+      let sd = arena.decls[sdi]
+      if sd.kind == "Struct" and sd.name.len > 0:
+        let ufcsName = sd.name + "_" + e.strVal
+        if fnMap.containsKey(ufcsName):
+          markReachable(ufcsName, fnMap, reachable, worklist)
+      sdi += 1
+
+  mut ni = 0
+  while ni < e.names.len:
+    let n = e.names[ni]
+    if n.len > 0 and fnMap.containsKey(n):
+      markReachable(n, fnMap, reachable, worklist)
+    ni += 1
+
+  if e.left >= 0:
+    walkExprForReachability(arena, e.left, fnMap, reachable, worklist, visitedStmts, visitedExprs)
+  if e.right >= 0:
+    walkExprForReachability(arena, e.right, fnMap, reachable, worklist, visitedStmts, visitedExprs)
+  if e.cond >= 0:
+    walkExprForReachability(arena, e.cond, fnMap, reachable, worklist, visitedStmts, visitedExprs)
+
+  if e.kind == "DoBlock" or e.kind == "MatchExpr" or e.kind == "BlockIfExpr":
+    mut sci = 0
+    while sci < e.children.len:
+      let sch = e.children[sci]
+      if sch >= 0:
+        walkStmtForReachability(arena, sch, fnMap, reachable, worklist, visitedStmts, visitedExprs)
+      sci += 1
+  else:
+    mut ci = 0
+    while ci < e.children.len:
+      let ch = e.children[ci]
+      if ch >= 0:
+        walkExprForReachability(arena, ch, fnMap, reachable, worklist, visitedStmts, visitedExprs)
+      ci += 1
+
+fn walkStmtForReachability(arena: AstArena, stmtId: int, fnMap: Map[str, int], mut reachable: Map[str, bool], mut worklist: [str], mut visitedStmts: [bool], mut visitedExprs: [bool]):
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret
+  if visitedStmts[stmtId]:
+    ret
+  visitedStmts[stmtId] = true
+
+  let s = arena.stmts[stmtId]
+  if s.exprId >= 0:
+    walkExprForReachability(arena, s.exprId, fnMap, reachable, worklist, visitedStmts, visitedExprs)
+  if s.condExpr >= 0:
+    walkExprForReachability(arena, s.condExpr, fnMap, reachable, worklist, visitedStmts, visitedExprs)
+
+  mut bi = 0
+  while bi < s.bodyStmts.len:
+    walkStmtForReachability(arena, s.bodyStmts[bi], fnMap, reachable, worklist, visitedStmts, visitedExprs)
+    bi += 1
+
+  mut ei = 0
+  while ei < s.elseStmts.len:
+    walkStmtForReachability(arena, s.elseStmts[ei], fnMap, reachable, worklist, visitedStmts, visitedExprs)
+    ei += 1
+
+  mut mi = 0
+  while mi < s.matchArms.len:
+    walkStmtForReachability(arena, s.matchArms[mi], fnMap, reachable, worklist, visitedStmts, visitedExprs)
+    mi += 1
+
+fn collectIdentTokens(text: str, mut tokens: Map[str, bool]):
+  mut i = 0
+  let n = text.len
+  while i < n:
+    let c = text.charCodeAt(i)
+    if (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95:
+      let start = i
+      i += 1
+      while i < n:
+        let nc = text.charCodeAt(i)
+        if (nc >= 65 and nc <= 90) or (nc >= 97 and nc <= 122) or (nc >= 48 and nc <= 57) or nc == 95:
+          i += 1
+        else:
+          break
+      let tok = text.slice(start, i)
+      if tok.len > 0:
+        tokens.set(tok, true)
+    else:
+      i += 1
+
+pub fn eliminateDeadFunctionsHir(hir: HirModule): HirModule:
+  // Step 14.1a: Call-Graph Reachability Dead-Code Elimination
+  // Small unit/diagnostic tests keep all functions
+  if hir.functions.len <= 25:
+    ret hir
+
+  // Standalone library modules without main() or topStmts keep all functions
+  mut hasMain = false
+  mut fi = 0
+  while fi < hir.functions.len:
+    if hir.functions[fi].name == "main":
+      hasMain = true
+      break
+    fi += 1
+
+  if not hasMain and hir.arena.topStmts.len == 0:
+    ret hir
+
+  // Build name-to-index map
+  mut fnMap: Map[str, int] = Map.new()
+  mut i = 0
+  while i < hir.functions.len:
+    fnMap.set(hir.functions[i].name, i)
+    i += 1
+
+  mut reachable: Map[str, bool] = Map.new()
+  mut worklist: [str] = []
+
+  mut visitedExprs: [bool] = []
+  mut vei = 0
+  while vei < hir.arena.exprs.len:
+    visitedExprs.push(false)
+    vei += 1
+
+  mut visitedStmts: [bool] = []
+  mut vsi = 0
+  while vsi < hir.arena.stmts.len:
+    visitedStmts.push(false)
+    vsi += 1
+
+  // Seed Reachable Roots:
+  // 1. "main"
+  if hasMain:
+    markReachable("main", fnMap, reachable, worklist)
+
+  // 2. Test functions: "test*", "__test_*", and "@test"
+  mut ti = 0
+  while ti < hir.functions.len:
+    let tf = hir.functions[ti]
+    let fname = tf.name
+    mut isTestCap = false
+    mut tci = 0
+    while tci < tf.capabilities.len:
+      if tf.capabilities[tci] == "@test" or tf.capabilities[tci] == "test":
+        isTestCap = true
+      tci += 1
+    if fname.startsWith("test") or fname.startsWith("__test_") or isTestCap:
+      markReachable(fname, fnMap, reachable, worklist)
+    ti += 1
+
+  // 3. Contracts
+  mut ci = 0
+  while ci < hir.contracts.len:
+    let c = hir.contracts[ci]
+    markReachable(c.fnName, fnMap, reachable, worklist)
+    if c.exprId >= 0:
+      walkExprForReachability(hir.arena, c.exprId, fnMap, reachable, worklist, visitedStmts, visitedExprs)
+    ci += 1
+
+  // 4. Runtime / parallel dispatch roots
+  if fnMap.containsKey("emitCFunctionsStride"):
+    markReachable("emitCFunctionsStride", fnMap, reachable, worklist)
+  if fnMap.containsKey("emitCFunctionsParallel"):
+    markReachable("emitCFunctionsParallel", fnMap, reachable, worklist)
+  if fnMap.containsKey("compileCSourceParallel"):
+    markReachable("compileCSourceParallel", fnMap, reachable, worklist)
+  if fnMap.containsKey("compileCSourceSharded"):
+    markReachable("compileCSourceSharded", fnMap, reachable, worklist)
+  if fnMap.containsKey("verifyHirSmtStride"):
+    markReachable("verifyHirSmtStride", fnMap, reachable, worklist)
+  if fnMap.containsKey("optimizeHirFunctionsStride"):
+    markReachable("optimizeHirFunctionsStride", fnMap, reachable, worklist)
+  if fnMap.containsKey("optimizeHirFunctionsParallel"):
+    markReachable("optimizeHirFunctionsParallel", fnMap, reachable, worklist)
+  if fnMap.containsKey("typecheckHirStride"):
+    markReachable("typecheckHirStride", fnMap, reachable, worklist)
+  if fnMap.containsKey("parseModuleChunk"):
+    markReachable("parseModuleChunk", fnMap, reachable, worklist)
+  if fnMap.containsKey("compileFrontendParallel"):
+    markReachable("compileFrontendParallel", fnMap, reachable, worklist)
+  if fnMap.containsKey("prepareSingleTestFileC"):
+    markReachable("prepareSingleTestFileC", fnMap, reachable, worklist)
+  if fnMap.containsKey("prepareTestFilesParallel"):
+    markReachable("prepareTestFilesParallel", fnMap, reachable, worklist)
+
+  // 5. Arena topStmts
+  mut topI = 0
+  while topI < hir.arena.topStmts.len:
+    walkStmtForReachability(hir.arena, hir.arena.topStmts[topI], fnMap, reachable, worklist, visitedStmts, visitedExprs)
+    topI += 1
+
+  // 6. Const initializers and Struct/Function default expressions
+  mut di = 0
+  while di < hir.arena.decls.len:
+    let d = hir.arena.decls[di]
+    if d.kind == "Const":
+      mut bi = 0
+      while bi < d.bodyStmts.len:
+        walkExprForReachability(hir.arena, d.bodyStmts[bi], fnMap, reachable, worklist, visitedStmts, visitedExprs)
+        bi += 1
+    if d.kind == "Struct" or d.kind == "Function" or d.kind == "Fn":
+      mut vpi = 0
+      while vpi < d.variantPayloadTypes.len:
+        let defExprId = d.variantPayloadTypes[vpi]
+        if defExprId >= 0:
+          walkExprForReachability(hir.arena, defExprId, fnMap, reachable, worklist, visitedStmts, visitedExprs)
+        vpi += 1
+    di += 1
+
+  // Worklist traversal (BFS)
+  mut head = 0
+  while head < worklist.len:
+    let currName = worklist[head]
+    head += 1
+
+    let fIdxOpt = fnMap.get(currName)
+    if fIdxOpt.isNone():
+      continue
+    let fIdx = fIdxOpt.unwrap()
+    if fIdx < 0 or fIdx >= hir.functions.len:
+      continue
+    let f = hir.functions[fIdx]
+
+    mut reqI = 0
+    while reqI < f.requiresExprs.len:
+      walkExprForReachability(hir.arena, f.requiresExprs[reqI], fnMap, reachable, worklist, visitedStmts, visitedExprs)
+      reqI += 1
+
+    mut ensI = 0
+    while ensI < f.ensuresExprs.len:
+      walkExprForReachability(hir.arena, f.ensuresExprs[ensI], fnMap, reachable, worklist, visitedStmts, visitedExprs)
+      ensI += 1
+
+    mut bodyI = 0
+    while bodyI < f.bodyStmts.len:
+      walkStmtForReachability(hir.arena, f.bodyStmts[bodyI], fnMap, reachable, worklist, visitedStmts, visitedExprs)
+      bodyI += 1
+
+  // Filter hir.functions
+  mut reachableFunctions: [HirFunction] = []
+  mut rfi = 0
+  while rfi < hir.functions.len:
+    let f = hir.functions[rfi]
+    if reachable.containsKey(f.name):
+      reachableFunctions.push(f)
+    rfi += 1
+
+  // Fail-safe: if reachability yielded 0 functions, keep original
+  if reachableFunctions.len == 0:
+    ret hir
+
+  // Filter hir.contracts to match reachable functions
+  mut reachableContracts: [HirContract] = []
+  mut rci = 0
+  while rci < hir.contracts.len:
+    let c = hir.contracts[rci]
+    if reachable.containsKey(c.fnName):
+      reachableContracts.push(c)
+    rci += 1
+
+  // Step 18.3: Dead Struct & Enum Elimination
+  // Prune unreachable HirStruct and HirEnum declarations.
+  // A struct/enum is kept if its name (or enum variant) appears in reachable expressions,
+  // statements, function param/return types, consts, or compiler contracts (transitive closure).
+  mut usedTokens: Map[str, bool] = Map.new()
+
+  mut vei2 = 0
+  while vei2 < hir.arena.exprs.len:
+    if visitedExprs[vei2]:
+      let e = hir.arena.exprs[vei2]
+      if e.strVal.len > 0:
+        collectIdentTokens(e.strVal, usedTokens)
+      if e.op.len > 0:
+        collectIdentTokens(e.op, usedTokens)
+      mut ni = 0
+      while ni < e.names.len:
+        collectIdentTokens(e.names[ni], usedTokens)
+        ni += 1
+      if e.typeId >= 0 and e.typeId < hir.arena.types.len:
+        let tyStr = resolveTypeName(hir.arena, e.typeId)
+        collectIdentTokens(tyStr, usedTokens)
+    vei2 += 1
+
+  mut vsi2 = 0
+  while vsi2 < hir.arena.stmts.len:
+    if visitedStmts[vsi2]:
+      let s = hir.arena.stmts[vsi2]
+      if s.name.len > 0:
+        collectIdentTokens(s.name, usedTokens)
+      if s.typeId >= 0 and s.typeId < hir.arena.types.len:
+        let tyStr = resolveTypeName(hir.arena, s.typeId)
+        collectIdentTokens(tyStr, usedTokens)
+    vsi2 += 1
+
+  mut rfi2 = 0
+  while rfi2 < reachableFunctions.len:
+    let f = reachableFunctions[rfi2]
+    mut pti = 0
+    while pti < f.paramTypes.len:
+      collectIdentTokens(f.paramTypes[pti], usedTokens)
+      pti += 1
+    if f.retType.len > 0:
+      collectIdentTokens(f.retType, usedTokens)
+    mut tpi = 0
+    while tpi < f.typeParams.len:
+      collectIdentTokens(f.typeParams[tpi], usedTokens)
+      tpi += 1
+    mut tpbi = 0
+    while tpbi < f.typeParamBounds.len:
+      collectIdentTokens(f.typeParamBounds[tpbi], usedTokens)
+      tpbi += 1
+    rfi2 += 1
+
+  mut cdi = 0
+  while cdi < hir.arena.decls.len:
+    let d = hir.arena.decls[cdi]
+    if d.kind == "Const":
+      if d.retType >= 0 and d.retType < hir.arena.types.len:
+        let tyStr = resolveTypeName(hir.arena, d.retType)
+        collectIdentTokens(tyStr, usedTokens)
+    cdi += 1
+
+  // Fixed-point transitive closure for struct field types, enum payload types, and type aliases
+  mut keptStructs: Map[str, bool] = Map.new()
+  mut keptEnums: Map[str, bool] = Map.new()
+
+  mut changed = true
+  while changed:
+    changed = false
+
+    mut si = 0
+    while si < hir.structs.len:
+      let st = hir.structs[si]
+      if not keptStructs.containsKey(st.name):
+        mut keep = false
+        if usedTokens.containsKey(st.name) or st.name.startsWith("Aipl") or st.name == "Color" or st.name == "Rect" or st.name == "Vec2" or st.name == "Vec3":
+          keep = true
+        if keep:
+          keptStructs.set(st.name, true)
+          changed = true
+          mut fti = 0
+          while fti < st.fieldTypes.len:
+            collectIdentTokens(st.fieldTypes[fti], usedTokens)
+            fti += 1
+          mut tpi = 0
+          while tpi < st.typeParams.len:
+            collectIdentTokens(st.typeParams[tpi], usedTokens)
+            tpi += 1
+          mut tpbi = 0
+          while tpbi < st.typeParamBounds.len:
+            collectIdentTokens(st.typeParamBounds[tpbi], usedTokens)
+            tpbi += 1
+      si += 1
+
+    mut ei = 0
+    while ei < hir.enums.len:
+      let en = hir.enums[ei]
+      if not keptEnums.containsKey(en.name):
+        mut keep = false
+        if usedTokens.containsKey(en.name):
+          keep = true
+        else:
+          mut vi = 0
+          while vi < en.variants.len:
+            if usedTokens.containsKey(en.variants[vi]):
+              keep = true
+              break
+            vi += 1
+        if keep:
+          keptEnums.set(en.name, true)
+          changed = true
+          mut pti = 0
+          while pti < en.payloadTypes.len:
+            collectIdentTokens(en.payloadTypes[pti], usedTokens)
+            pti += 1
+          mut tpi = 0
+          while tpi < en.typeParams.len:
+            collectIdentTokens(en.typeParams[tpi], usedTokens)
+            tpi += 1
+          mut tpbi = 0
+          while tpbi < en.typeParamBounds.len:
+            collectIdentTokens(en.typeParamBounds[tpbi], usedTokens)
+            tpbi += 1
+      ei += 1
+
+    mut tai = 0
+    while tai < hir.arena.decls.len:
+      let d = hir.arena.decls[tai]
+      if (d.kind == "TypeAlias" or d.kind == "Type") and usedTokens.containsKey(d.name):
+        if d.retType >= 0 and d.retType < hir.arena.types.len:
+          let tyStr = resolveTypeName(hir.arena, d.retType)
+          collectIdentTokens(tyStr, usedTokens)
+      tai += 1
+
+  // Filter structs and enums
+  mut reachableStructs: [HirStruct] = []
+  mut rsi = 0
+  while rsi < hir.structs.len:
+    let st = hir.structs[rsi]
+    if keptStructs.containsKey(st.name):
+      reachableStructs.push(st)
+    rsi += 1
+
+  mut reachableEnums: [HirEnum] = []
+  mut rei = 0
+  while rei < hir.enums.len:
+    let en = hir.enums[rei]
+    if keptEnums.containsKey(en.name):
+      reachableEnums.push(en)
+    rei += 1
+
+  ret HirModule(
+    moduleName = hir.moduleName,
+    arena = hir.arena,
+    symbols = hir.symbols,
+    structs = reachableStructs,
+    enums = reachableEnums,
+    functions = reachableFunctions,
+    contracts = reachableContracts,
+    diagnostics = hir.diagnostics,
+    intrinsicOverrides = hir.intrinsicOverrides,
+    emitLineDirectives = hir.emitLineDirectives
+  )
+
+pub fn eliminateUnreachableHir(hir: HirModule): HirModule:
+  ret eliminateDeadFunctionsHir(hir)

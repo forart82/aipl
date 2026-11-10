@@ -1,0 +1,84 @@
+// ============================================================================
+// Example 020: Runtime Pointers, Endianness, PtrSlice & ByteCursor CLI
+// Demonstrates: ptrAlloc/ptrFree, ptrWriteU32LE/ReadU32LE,
+//               ptrWriteU32BE/ReadU32BE, ptrSliceNew/ptrSliceSub/ptrSliceIsValid,
+//               and rtByteCursorNew/rtByteCursorWriteU8/rtByteCursorReadU8 from
+//               std/rt/rt_ptr.
+// ============================================================================
+module Ex020RtPtrAndSliceBoundsCli
+
+import {
+  ptrAlloc,
+  ptrFree,
+  ptrWriteU32LE,
+  ptrReadU32LE,
+  ptrWriteU32BE,
+  ptrReadU32BE,
+  ptrSliceNew,
+  ptrSliceIsValid,
+  ptrSliceSub,
+  ptrSliceWriteU8,
+  ptrSliceReadU8,
+  rtByteCursorNew,
+  rtByteCursorRemaining,
+  rtByteCursorWriteU8,
+  rtByteCursorReadU8
+} from "../std/rt/rt_ptr"
+
+pub struct PtrSliceReport:
+  subSliceLen: int
+  cursorRemaining: int
+  readBackSum: int
+  statusTag: str
+
+pub fn roundtripEndianU32(word32: int, littleEndian: bool): int:
+  let buf = ptrAlloc(16)
+  mut out = 0
+  if littleEndian:
+    ptrWriteU32LE(buf, 0, word32)
+    out = ptrReadU32LE(buf, 0)
+  else:
+    ptrWriteU32BE(buf, 0, word32)
+    out = ptrReadU32BE(buf, 0)
+  ptrFree(buf)
+  ret out
+
+pub fn verifySliceAndCursorReadWrite(sliceByte: int, cursorByte: int): int:
+  let buf = ptrAlloc(32)
+  let sl = ptrSliceNew(buf, 16, 32)
+  let _ = ptrSliceWriteU8(sl, 0, sliceByte)
+  let v1 = ptrSliceReadU8(sl, 0)
+  mut wcur = rtByteCursorNew(buf + 16, 16)
+  let _ = rtByteCursorWriteU8(wcur, cursorByte)
+  mut rcur = rtByteCursorNew(buf + 16, 16)
+  let v2 = rtByteCursorReadU8(rcur)
+  ptrFree(buf)
+  ret v1 + v2
+
+pub fn classifySliceValidity(valid: bool, subLen: int): str:
+  if valid and subLen > 0:
+    ret "SLICE:VALID_SUBVIEW"
+  ret "SLICE:OUT_OF_BOUNDS"
+
+pub fn buildPtrSliceReport(totalBytes: int, subStart: int, subEnd: int): PtrSliceReport:
+  let buf = ptrAlloc(totalBytes)
+  let sl = ptrSliceNew(buf, totalBytes, totalBytes)
+  let valid = ptrSliceIsValid(sl)
+  let sub = ptrSliceSub(sl, subStart, subEnd)
+  mut cur = rtByteCursorNew(buf, 16)
+  let _ = rtByteCursorWriteU8(cur, 88)
+  let rem = rtByteCursorRemaining(cur)
+  ptrFree(buf)
+  ret PtrSliceReport(
+    subSliceLen = sub.len,
+    cursorRemaining = rem,
+    readBackSum = verifySliceAndCursorReadWrite(42, 88),
+    statusTag = classifySliceValidity(valid, sub.len)
+  )
+
+pub fn main(): int:
+  let rep = buildPtrSliceReport(32, 4, 12)
+  let u32Le = roundtripEndianU32(305419896, true)
+  println("[ex_020_rt_ptr_and_slice_bounds_cli] PtrSliceReport(subLen=" + str(rep.subSliceLen) + ", cursorRem=" + str(rep.cursorRemaining) + ", sum=" + str(rep.readBackSum) + ")")
+  println("[ex_020_rt_ptr_and_slice_bounds_cli] u32Le=" + str(u32Le) + " | status=" + rep.statusTag)
+  ret 0

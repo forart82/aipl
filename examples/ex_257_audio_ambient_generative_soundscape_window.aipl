@@ -1,0 +1,101 @@
+// ============================================================================
+// Canonical Example 257: Audio Ambient Generative Soundscape (WINDOW)
+// Target Profile: WINDOW | Brian Eno / Lydian Wind-Chime Generative Studio
+// ============================================================================
+module Ex257AudioAmbientGenerativeSoundscapeWindow
+
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawEllipse,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { playToneEx } from "../std/audio/audio_device.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub fn computeLydianHarmonicOrbFreqHz(orbIdx: int): float:
+  // F Lydian / Cmaj9 Harmonic Series: F3, C4, G4, A4, B4, D5, E5, G5
+  let lydian = [174.61, 261.63, 392.00, 440.00, 493.88, 587.33, 659.25, 783.99]
+  ret lydian[clampInt(orbIdx % 8, 0, 7)]
+
+pub fn describeGenerativeSoundscapeMode(): str:
+  ret "GENERATIVE:LYDIAN_MAJ9_CHIME_SOUNDSCAPE"
+
+pub fn triggerGenerativeAmbientSwells(frameIndex: int): int:
+  mut voices = 0
+  if frameIndex % 32 == 0:
+    let baseIdx = (frameIndex / 32) % 8
+    let f1 = computeLydianHarmonicOrbFreqHz(baseIdx)
+    let f2 = computeLydianHarmonicOrbFreqHz((baseIdx + 2) % 8)
+    let f3 = computeLydianHarmonicOrbFreqHz((baseIdx + 4) % 8)
+    let _ = playToneEx(f1 * 0.5, 950.0, 0.34, "warm_pad")
+    let _ = playToneEx(f2, 900.0, 0.28, "warm_pad")
+    let _ = playToneEx(f3, 850.0, 0.22, "warm_pad")
+    voices = voices + 3
+  if frameIndex % 14 == 0:
+    let chimeIdx = ((frameIndex / 14) * 3) % 8
+    let cHz = computeLydianHarmonicOrbFreqHz(chimeIdx)
+    let _ = playToneEx(cHz, 420.0, 0.26, "bell")
+    voices = voices + 1
+  ret voices
+
+pub fn renderAmbientGenerativeSoundscapeScene(frameIndex: int): int:
+  clearScreen(rgb(8, 13, 24))
+  drawRect(24.0, 16.0, 1232.0, 50.0, rgb(16, 25, 44))
+  drawRectOutline(24.0, 16.0, 1232.0, 50.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_257 // GENERATIVE AMBIENT SOUNDSCAPE STUDIO (LYDIAN / MAJOR-9TH ORB RIPPLES)", 44.0, 34.0, 19.0, rgb(240, 249, 255))
+
+  mut rippleMetric = 0
+  mut i = 0
+  while i < 8:
+    let ox = 150.0 + float(i * 140)
+    let bob = float(((frameIndex * (i + 2)) % 80) - 40)
+    let oy = 350.0 + bob * 1.6
+    let rippleR = 24.0 + float(((frameIndex * 3 + i * 29) % 110))
+    let hz = int(computeLydianHarmonicOrbFreqHz(i))
+    let orbCol = if i % 2 == 0: rgb(56, 189, 248) else: rgb(168, 85, 247)
+    drawCircleOutline(ox, oy, rippleR, 2.0, orbCol)
+    drawCircleOutline(ox, oy, rippleR * 0.6, 1.5, rgb(34, 197, 94))
+    drawEllipse(ox, oy, 22.0, 22.0, orbCol)
+    drawCircle(ox, oy, 8.0, rgb(240, 249, 255))
+    drawText(str(hz) + "Hz", ox - 20.0, oy + 32.0, 13.0, rgb(226, 232, 240))
+    if i > 0:
+      let prevX = 150.0 + float((i - 1) * 140)
+      let prevBob = float(((frameIndex * (i + 1)) % 80) - 40)
+      let prevY = 350.0 + prevBob * 1.6
+      drawLine(prevX, prevY, ox, oy, rgb(51, 65, 85), 1.5)
+    rippleMetric = rippleMetric + int(oy) + int(rippleR)
+    i = i + 1
+
+  drawRect(24.0, 648.0, 1232.0, 50.0, rgb(16, 25, 44))
+  drawRectOutline(24.0, 648.0, 1232.0, 50.0, 1.5, rgb(56, 189, 248))
+  drawText(describeGenerativeSoundscapeMode() + " | 8 Lydian Harmonic Orbs | Ripple Sum=" + str(rippleMetric), 44.0, 666.0, 15.0, rgb(134, 239, 172))
+
+  ret rippleMetric
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let v = triggerGenerativeAmbientSwells(frameIndex)
+  let m = renderAmbientGenerativeSoundscapeScene(frameIndex)
+  ret m + v * 10 + int(dt * 0.0)
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_257 - Generative Ambient Lydian Soundscape Studio")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let _ = triggerGenerativeAmbientSwells(frame)
+    beginDrawing()
+    let _ = renderAmbientGenerativeSoundscapeScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

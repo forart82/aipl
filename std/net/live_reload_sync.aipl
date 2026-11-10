@@ -1,0 +1,44 @@
+/// # Module: `std/net/live_reload_sync` (`NetLiveReloadSync`)
+///
+/// ## Purpose & Domain Scope
+/// Zero-Config Wi-Fi/LAN WebSocket & UDP Broadcast Live-Reload Receiver (`< 15ms`)
+/// frame parsing, delta patching, and UDP discovery beacons.
+module NetLiveReloadSync
+
+import { crc32 } from "std/crypto/hash"
+import { Result, Ok, Err } from "std/prelude"
+
+pub struct WatcherSyncPacket(seq: int, filePath: str, expectedCrc32: int, actualCrc32: int, payload: str, isValid: bool)
+
+pub fn parseWatcherSyncPacket(rawFrame: str): WatcherSyncPacket requires rawFrame.len() >= 0 ensures not result.isValid or result.seq >= 0:
+  let parts = rawFrame.split("|")
+  if parts.len() < 6 or parts[0] != "AIPLSYNC" or parts[1] != "v1":
+    ret WatcherSyncPacket(seq = 0, filePath = "", expectedCrc32 = 0, actualCrc32 = 0, payload = "", isValid = false)
+  let seq = int(parts[2])
+  let path = parts[3]
+  let expCrc = int(parts[4])
+  mut body = parts[5]
+  mut i = 6
+  while i < parts.len():
+    body = body + "|" + parts[i]
+    i = i + 1
+  let actCrc = crc32(body.toBytes())
+  let ok = seq >= 0 and path.endsWith(".aipl") and body.len() > 0 and expCrc == actCrc
+  ret WatcherSyncPacket(seq = seq, filePath = path, expectedCrc32 = expCrc, actualCrc32 = actCrc, payload = body, isValid = ok)
+
+pub fn applyLiveReloadDeltaPatch(baseSource: str, startOffset: int, deleteLen: int, insertText: str, expectedPostCrc32: int): Result[str, str] requires baseSource.len() >= 0 and insertText.len() >= 0 ensures (startOffset >= 0 and deleteLen >= 0) or result.isErr():
+  let n = baseSource.len()
+  if startOffset < 0 or deleteLen < 0 or startOffset + deleteLen > n:
+    ret Err("E_DELTA_OUT_OF_BOUNDS")
+  let prefix = baseSource.slice(0, startOffset)
+  let suffix = baseSource.slice(startOffset + deleteLen, n)
+  let patched = prefix + insertText + suffix
+  if crc32(patched.toBytes()) != expectedPostCrc32:
+    ret Err("E_DELTA_CRC_MISMATCH")
+  ret Ok(patched)
+
+pub fn buildUdpDiscoveryBeacon(deviceName: str, wsPort: int): str requires deviceName.len() >= 0 ensures result.startsWith("AIPL_WATCHER_BEACON|") and result.endsWith("|v1"):
+  let cleanName = deviceName.trim().replace("|", "_")
+  let safeName = if cleanName.len() > 0: cleanName else: "Android-AIPL-Player"
+  let safePort = if wsPort >= 1024 and wsPort <= 65535: wsPort else: 9477
+  ret "AIPL_WATCHER_BEACON|" + safeName + "|" + str(safePort) + "|v1"

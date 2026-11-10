@@ -1,0 +1,91 @@
+// ============================================================================
+// Step 3.12: Exhaustive Per-Function Unit Tests for std/rt/rt_canvas_x11.aipl (16)
+// Target: tests/functions/rt/rt_canvas_x11_test.aipl
+// ============================================================================
+module RtCanvasX11Test
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  RtCanvasX11,
+  RtFramebuffer,
+  rtCanvasNew,
+  rtCanvasClear,
+  rtCanvasSetPixel,
+  rtCanvasGetPixel,
+  rtCanvasBlitRect,
+  rtCanvasPresentX11,
+  rtCanvasFree,
+  rtFbNew,
+  rtFbSetPixel,
+  rtFbGetPixel,
+  rtFbClear,
+  rtFbDrawRect,
+  rtFbDrawLineBresenham,
+  rtFbDrawCircleMidpoint,
+  rtFbDrawCircleFilled,
+  rtFbFree
+} from "../../../std/rt/rt_canvas_x11.aipl"
+import { setWindowMode, getWindowMode } from "../../../std/gfx2d/shape2d.aipl"
+
+pub fn test_rt_canvas_x11_ops(): int:
+  mut canvas = rtCanvasNew(32, 32)
+  assert(canvas.pixelsPtr > 0, "canvas pixelsPtr > 0")
+  assertEqInt(canvas.width, 32, "width 32")
+  assertEqInt(canvas.height, 32, "height 32")
+
+  rtCanvasClear(canvas, 123456)
+  assertEqInt(rtCanvasGetPixel(canvas, 0, 0), 123456, "cleared pixel 0,0")
+
+  rtCanvasSetPixel(canvas, 5, 5, 654321)
+  assertEqInt(rtCanvasGetPixel(canvas, 5, 5), 654321, "set pixel 5,5")
+
+  rtCanvasBlitRect(canvas, 10, 10, 4, 4, 999999)
+  assertEqInt(rtCanvasGetPixel(canvas, 10, 10), 999999, "blit rect pixel")
+
+  let bytes = rtCanvasPresentX11(canvas)
+  assertEqInt(bytes, 32 * 32 * 4, "presentX11 byte count")
+
+  rtCanvasFree(canvas)
+  assertEqInt(canvas.pixelsPtr, 0, "canvas pixelsPtr 0 after free")
+  ret 0
+
+pub fn test_rt_framebuffer_ops(): int:
+  mut fb = rtFbNew(64, 64)
+  assert(fb.bufferAddr > 0, "fb bufferAddr > 0")
+
+  rtFbClear(fb, 0xFF00FF00) // packed ARGB or RGBA
+
+  rtFbSetPixel(fb, 10, 10, 0x12345678)
+  assertEqInt(rtFbGetPixel(fb, 10, 10), 0x12345678, "fb pixel matches")
+
+  rtFbDrawRect(fb, 20, 20, 5, 5, 0x11223344)
+  assertEqInt(rtFbGetPixel(fb, 20, 20), 0x11223344, "fb rect pixel matches")
+
+  rtFbDrawLineBresenham(fb, 0, 0, 10, 10, 0x55667788)
+  assertEqInt(rtFbGetPixel(fb, 0, 0), 0x55667788, "line start pixel")
+  assertEqInt(rtFbGetPixel(fb, 10, 10), 0x55667788, "line end pixel")
+
+  rtFbDrawCircleMidpoint(fb, 30, 30, 5, 0x99887766)
+  assertEqInt(rtFbGetPixel(fb, 35, 30), 0x99887766, "circle perimeter pixel")
+
+  rtFbDrawCircleFilled(fb, 45, 45, 3, 0xAABBCCDD)
+  assertEqInt(rtFbGetPixel(fb, 45, 45), 0xAABBCCDD, "filled circle center pixel")
+
+  rtFbFree(fb)
+  assertEqInt(fb.bufferAddr, 0, "fb bufferAddr 0 after free")
+  ret 0
+
+pub fn main(): int:
+  setWindowMode("x11")
+  assert(getWindowMode() == "x11", "rt_canvas_x11_test verifies x11 mode")
+  setWindowMode("glx")
+  assert(getWindowMode() == "glx", "rt_canvas_x11_test verifies glx mode")
+  setWindowMode("x11")
+  test_rt_canvas_x11_ops()
+  test_rt_framebuffer_ops()
+  println("PASS: rt_canvas_x11_test")
+  ret 0

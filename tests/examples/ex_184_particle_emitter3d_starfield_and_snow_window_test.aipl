@@ -1,0 +1,53 @@
+module Ex184ParticleEmitter3dStarfieldAndSnowWindowTest
+
+import {
+  buildParticleEmitter3dStarfieldAudit, stepStarParticle3D
+} from "../../examples/ex_184_particle_emitter3d_starfield_and_snow_window"
+import { Vec3 } from "../../std/math/vec_math"
+import { ColorRgba8 } from "../../std/gfx/color"
+import {
+  EmissionShape3D, Particle3D, createParticlePool3D,
+  sampleEmissionPosition3D, spawnParticle3D, stepParticlePool3D,
+  emitParticleBurst3D, particleNormalizedAge3D
+} from "../../std/particle/emitter3d"
+import { createGravityAffector } from "../../std/particle/affector"
+
+pub fn test_particle_emitter3d_starfield_and_snow(): void:
+  let sphShape = EmissionShape3D(shapeType = 1, radius = 10.0, coneAngleRad = 0.5, boxExtents = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let pt3d = sampleEmissionPosition3D(sphShape, 0.25, 0.5, 0.5)
+  assert(pt3d.lenSq() <= 100.01, "3D spherical emission point within radius 10")
+
+  let white = ColorRgba8(r = 255, g = 255, b = 255, a = 255)
+  mut pool3d = createParticlePool3D(64, 25.0)
+  let p0 = Particle3D(
+    pos = Vec3(x = 0.0, y = 20.0, z = 0.0),
+    vel = Vec3(x = 0.0, y = 0.0, z = 12.0),
+    color = white,
+    size = 4.0,
+    ageSec = 0.0,
+    lifetimeSec = 2.0,
+    isAlive = true
+  )
+  pool3d = spawnParticle3D(pool3d, p0)
+  let grav = createGravityAffector(Vec3(x = 0.0, y = -10.0, z = 0.0))
+  pool3d = stepParticlePool3D(pool3d, 0.5, [grav])
+  assert(pool3d.liveCount == 1 and pool3d.particles[0].pos.z == 6.0, "Particle3D Z advected to 6.0")
+  assert(particleNormalizedAge3D(pool3d.particles[0]) == 0.25, "Normalized age 0.5 / 2.0 == 0.25")
+
+  pool3d = emitParticleBurst3D(pool3d, Vec3(x = 0.0, y = 0.0, z = 0.0), 5, 8.0, 1.5, white)
+  assert(pool3d.liveCount == 6, "1 initial + 5 burst == 6 live 3D particles")
+  assert(buildParticleEmitter3dStarfieldAudit() == 76, "buildParticleEmitter3dStarfieldAudit returns 64 + 6 + 6 == 76")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let st0 = stepStarParticle3D(0, sphShape)
+  let st1 = stepStarParticle3D(1, sphShape)
+  let st20 = stepStarParticle3D(20, sphShape)
+  let st100 = stepStarParticle3D(100, sphShape)
+  assert(st0.pos.x != st1.pos.x or st0.pos.y != st1.pos.y, "Star emission position advances from t=0 to t=1")
+  assert(st1.pos.x != st20.pos.x or st1.pos.y != st20.pos.y, "Star emission position advances from t=1 to t=20")
+  assert(st20.pos.x != st100.pos.x or st20.pos.y != st100.pos.y, "Star emission position advances from t=20 to t=100 without freezing")
+
+pub fn main(): int:
+  test_particle_emitter3d_starfield_and_snow()
+  println("PASS: ex_184_particle_emitter3d_starfield_and_snow_window_test")
+  ret 0

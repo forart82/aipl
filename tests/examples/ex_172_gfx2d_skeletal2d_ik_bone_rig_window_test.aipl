@@ -1,0 +1,36 @@
+module Ex172Gfx2dSkeletal2dIkBoneRigWindowTest
+
+import {
+  buildSkeletal2dIkAudit, stepSkeletalTarget2D
+} from "../../examples/ex_172_gfx2d_skeletal2d_ik_bone_rig_window"
+import { Vec2 } from "../../std/math/vec_math"
+import {
+  Bone2D, Skeleton2D, updateSkeletonTransforms2D, solveTwoBoneIk2D
+} from "../../std/gfx2d/skeletal2d"
+
+pub fn test_gfx2d_skeletal2d_ik_bone_rig(): void:
+  let b0 = Bone2D(name = "shoulder", length = 100.0, localAngleRad = 0.0, worldPosition = Vec2(x = 0.0, y = 0.0), worldAngleRad = 0.0, parentIdx = -1)
+  let b1 = Bone2D(name = "forearm", length = 80.0, localAngleRad = 0.0, worldPosition = Vec2(x = 0.0, y = 0.0), worldAngleRad = 0.0, parentIdx = 0)
+  let skel = updateSkeletonTransforms2D(Skeleton2D(bones = [b0, b1]))
+  assert(skel.bones[1].worldPosition.x > 99.9, "Child forearm bone starts at x=100 after FK propagation")
+
+  let ikSol = solveTwoBoneIk2D(Vec2(x = 0.0, y = 0.0), Vec2(x = 140.0, y = 0.0), 100.0, 80.0, false)
+  assert(ikSol.isReachable, "Distance 140 is reachable by arm lengths 100 + 80 = 180")
+  assert(ikSol.joint1Angle != 0.0 and ikSol.joint2Angle != 0.0, "Law of cosines bends shoulder and elbow")
+
+  let ikOut = solveTwoBoneIk2D(Vec2(x = 0.0, y = 0.0), Vec2(x = 240.0, y = 0.0), 100.0, 80.0, false)
+  assert(not ikOut.isReachable, "Distance 240 exceeds max reach 180")
+  assert(buildSkeletal2dIkAudit() == 101, "buildSkeletal2dIkAudit returns 100 + 1 + 0 == 101")
+
+  let root = Vec2(x = 340.0, y = 322.0)
+  let t0 = stepSkeletalTarget2D(0, root)
+  let t1 = stepSkeletalTarget2D(1, root)
+  let t20 = stepSkeletalTarget2D(20, root)
+  let t100 = stepSkeletalTarget2D(100, root)
+  assert(t0.x != t1.x or t0.y != t1.y, "IK target advances from frame 0 to 1")
+  assert(t1.x != t20.x and t20.x != t100.x, "IK target evolves continuously across frames 1, 20, and 100")
+
+pub fn main(): int:
+  test_gfx2d_skeletal2d_ik_bone_rig()
+  println("PASS: ex_172_gfx2d_skeletal2d_ik_bone_rig_window_test")
+  ret 0

@@ -1,0 +1,97 @@
+module Ex155GfxFramebufferSoftwareRasterizerWindow
+
+import { GpuDevice, createGpuDevice } from "../std/gfx/gpu_device"
+import { Framebuffer, createFramebuffer, resizeFramebuffer } from "../std/gfx/framebuffer"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawTriangle, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepFramebufferResize(dev: GpuDevice, fb: Framebuffer, frame: int): Framebuffer:
+  let tier = ((frame / 7) + (frame / 23)) % 4
+  let fineOffset = (frame * 3) % 19
+  let targetW = 800 + tier * 160 + fineOffset * 4
+  let targetH = 450 + tier * 90 + fineOffset * 2
+  ret resizeFramebuffer(dev, fb, targetW, targetH)
+
+pub fn buildFramebufferRasterAudit(): int:
+  let dev = createGpuDevice(4)
+  mut fb = createFramebuffer(dev, 800, 600, true, 4)
+  fb = resizeFramebuffer(dev, fb, 1280, 720)
+  ret fb.width + fb.height + fb.sampleCount
+
+pub fn main(): int:
+  let dev = createGpuDevice(4)
+  let fbLow = createFramebuffer(dev, 640, 360, true, 1)
+  mut fbHd = createFramebuffer(dev, 800, 600, true, 4)
+  let audit = buildFramebufferRasterAudit()
+
+  initWindow(1280, 720, "AIPL ex_155: Offscreen Framebuffer & Software Rasterizer")
+  mut frame: int = 0
+  while not windowShouldClose():
+    fbHd = stepFramebufferResize(dev, fbHd, frame)
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_155: OFFSCREEN FRAMEBUFFER & MSAA SOFTWARE RASTERIZER", 40.0, 28.0, 22.0, rgb(248, 250, 252))
+    drawText("std/gfx/framebuffer: createFramebuffer | resizeFramebuffer | Color + Depth Attachments | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left panel: Color Attachment Software Raster Grid
+    drawRect(40.0, 96.0, 580.0, 380.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 580.0, 380.0, 2.0, rgb(56, 189, 248))
+    drawText("COLOR ATTACHMENT (" + str(fbHd.width) + "x" + str(fbHd.height) + ", RGBA8, " + str(fbHd.sampleCount) + "x MSAA)", 56.0, 114.0, 16.0, rgb(125, 211, 252))
+
+    let cols = fbHd.width / 80
+    let rows = fbHd.height / 60
+    mut gy: int = 0
+    while gy < rows and gy < 12:
+      mut gx: int = 0
+      while gx < cols and gx < 20:
+        let px = 64.0 + float(gx) * 26.0
+        let py = 148.0 + float(gy) * 25.0
+        let insideTri = (gx >= 3 and gx <= cols - 3) and (gy >= 2 and (gx - 3) <= gy * 2)
+        let tileCol = if insideTri: rgb(14, 165, 233) else: rgb(30, 41, 59)
+        drawRect(px, py, 23.0, 22.0, tileCol)
+        gx = gx + 1
+      gy = gy + 1
+
+    let pulseOffset = float((frame * 5) % 73) * 1.2
+    drawTriangle(168.0, 198.0, 454.0, 420.0, 168.0, 420.0, rgb(56, 189, 248))
+    drawLine(168.0, 198.0, 454.0, 420.0, rgb(250, 204, 21), 2.5)
+    drawCircle(168.0 + pulseOffset, 198.0 + pulseOffset * 0.75, 6.0, rgb(244, 63, 94))
+
+    // Right panel: Depth Attachment Z-Buffer Heatmap + 4x MSAA RGSS Subpixel Pattern
+    drawRect(650.0, 96.0, 590.0, 380.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 96.0, 590.0, 380.0, 2.0, rgb(168, 85, 247))
+    drawText("DEPTH ATTACHMENT Z-BUFFER (" + str(fbHd.depthAttachment.width) + "x" + str(fbHd.depthAttachment.height) + ", D32F)", 668.0, 114.0, 16.0, rgb(216, 180, 254))
+
+    mut dz: int = 0
+    while dz < 10:
+      let depthVal = 25 + dz * 22
+      let barX = 674.0 + float(dz) * 54.0
+      drawRect(barX, 152.0, 46.0, 170.0, rgb(depthVal, depthVal / 2, 180))
+      drawText("z." + str(dz), barX + 8.0, 332.0, 13.0, rgb(203, 213, 225))
+      dz = dz + 1
+
+    // 4x MSAA Subpixel Sample Pattern Box
+    drawRect(674.0, 360.0, 540.0, 98.0, rgb(30, 41, 59))
+    drawText("4x RGSS MSAA Subpixel Sample Offsets (SampleCount=" + str(fbHd.sampleCount) + ")", 690.0, 376.0, 15.0, rgb(248, 250, 252))
+    drawCircle(740.0, 422.0, 8.0, rgb(34, 197, 94))
+    drawCircle(830.0, 410.0, 8.0, rgb(56, 189, 248))
+    drawCircle(920.0, 430.0, 8.0, rgb(250, 204, 21))
+    drawCircle(1010.0, 416.0, 8.0, rgb(244, 63, 94))
+
+    // Bottom Telemetry Strip: Low-res vs Resized HD Framebuffer Comparison
+    drawRect(40.0, 500.0, 1200.0, 175.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 500.0, 1200.0, 175.0, 2.0, rgb(51, 65, 85))
+    drawText("DYNAMIC FRAMEBUFFER RESIZE & ATTACHMENT TELEMETRY", 60.0, 522.0, 18.0, rgb(56, 189, 248))
+    drawText("Initial Low Target: " + str(fbLow.width) + "x" + str(fbLow.height) + " (" + str(fbLow.sampleCount) + "x MSAA, BPP=" + str(fbLow.colorAttachment.format.bytesPerPixel) + ")", 60.0, 560.0, 16.0, rgb(226, 232, 240))
+    drawText("Resized HD Target : " + str(fbHd.width) + "x" + str(fbHd.height) + " (" + str(fbHd.sampleCount) + "x MSAA, Depth=" + str(fbHd.depthAttachment.format.isDepth) + ")", 60.0, 592.0, 16.0, rgb(134, 239, 172))
+    drawText("Color Tex ID=" + str(fbHd.colorAttachment.textureId) + " | Depth Tex ID=" + str(fbHd.depthAttachment.textureId) + " | Raster Audit=" + str(audit), 60.0, 624.0, 16.0, rgb(253, 224, 71))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

@@ -1,0 +1,303 @@
+// ============================================================================
+// Module: std/time/duration (DurationMod)
+// Layer 1 (Core Primitives & Math) — Signed Nanosecond Duration Arithmetic
+// ============================================================================
+module DurationMod
+
+pub const NANOS_PER_MICRO: int = 1000
+pub const NANOS_PER_MILLI: int = 1000000
+pub const NANOS_PER_SECOND: int = 1000000000
+pub const NANOS_PER_MINUTE: int = 60000000000
+pub const NANOS_PER_HOUR: int = 3600000000000
+pub const NANOS_PER_DAY: int = 86400000000000
+
+pub struct Duration:
+  nanos: int
+
+pub fn durationZero(): Duration:
+  ret Duration(nanos = 0)
+
+pub fn durationFromNanos(nanos: int): Duration:
+  ret Duration(nanos = nanos)
+
+pub fn durationFromMicros(micros: int): Duration:
+  ret Duration(nanos = micros * NANOS_PER_MICRO)
+
+pub fn durationFromMillis(millis: int): Duration:
+  ret Duration(nanos = millis * NANOS_PER_MILLI)
+
+pub fn durationFromMs(ms: int): Duration:
+  ret Duration(nanos = ms * NANOS_PER_MILLI)
+
+pub fn durationFromSeconds(secs: int): Duration:
+  ret Duration(nanos = secs * NANOS_PER_SECOND)
+
+pub fn durationFromSecondsFloat(secs: float): Duration:
+  let ns = int(secs * 1000000000.0)
+  ret Duration(nanos = ns)
+
+pub fn durationFromMinutes(mins: int): Duration:
+  ret Duration(nanos = mins * NANOS_PER_MINUTE)
+
+pub fn durationFromHours(hours: int): Duration:
+  ret Duration(nanos = hours * NANOS_PER_HOUR)
+
+pub fn durationFromDays(days: int): Duration:
+  ret Duration(nanos = days * NANOS_PER_DAY)
+
+pub fn (self: Duration) toNanos(): int:
+  ret self.nanos
+
+pub fn (self: Duration) toMicros(): int:
+  ret self.nanos / NANOS_PER_MICRO
+
+pub fn (self: Duration) toMillis(): int:
+  ret self.nanos / NANOS_PER_MILLI
+
+pub fn (self: Duration) toMs(): int:
+  ret self.nanos / NANOS_PER_MILLI
+
+pub fn (self: Duration) toSeconds(): int:
+  ret self.nanos / NANOS_PER_SECOND
+
+pub fn (self: Duration) toSecondsFloat(): float:
+  ret float(self.nanos) / 1000000000.0
+
+pub fn (self: Duration) toMinutes(): int:
+  ret self.nanos / NANOS_PER_MINUTE
+
+pub fn (self: Duration) toHours(): int:
+  ret self.nanos / NANOS_PER_HOUR
+
+pub fn (self: Duration) subsecNanos(): int:
+  mut r = self.nanos % NANOS_PER_SECOND
+  if r < 0:
+    r = -r
+  ret r
+
+pub fn (self: Duration) subsecMillis(): int:
+  ret self.subsecNanos() / NANOS_PER_MILLI
+
+pub fn (self: Duration) subsecMicros(): int:
+  ret self.subsecNanos() / NANOS_PER_MICRO
+
+pub fn (self: Duration) isZero(): bool:
+  ret self.nanos == 0
+
+pub fn (self: Duration) isNegative(): bool:
+  ret self.nanos < 0
+
+pub fn (self: Duration) isPositive(): bool:
+  ret self.nanos > 0
+
+pub fn (self: Duration) abs(): Duration:
+  if self.nanos < 0:
+    ret Duration(nanos = -self.nanos)
+  ret self
+
+pub fn (self: Duration) add(other: Duration): Duration:
+  ret Duration(nanos = self.nanos + other.nanos)
+
+pub fn (self: Duration) sub(other: Duration): Duration:
+  ret Duration(nanos = self.nanos - other.nanos)
+
+pub fn (self: Duration) saturatingSub(other: Duration): Duration:
+  let diff = self.nanos - other.nanos
+  if diff < 0:
+    ret Duration(nanos = 0)
+  ret Duration(nanos = diff)
+
+pub fn (self: Duration) mul(factor: int): Duration:
+  ret Duration(nanos = self.nanos * factor)
+
+pub fn (self: Duration) mulFloat(factor: float): Duration:
+  ret Duration(nanos = int(float(self.nanos) * factor))
+
+pub fn (self: Duration) div(divisor: int): Duration:
+  if divisor == 0:
+    ret Duration(nanos = 0)
+  ret Duration(nanos = self.nanos / divisor)
+
+pub fn (self: Duration) clamp(minDur: Duration, maxDur: Duration): Duration:
+  if self.nanos < minDur.nanos:
+    ret minDur
+  if self.nanos > maxDur.nanos:
+    ret maxDur
+  ret self
+
+pub fn (self: Duration) min(other: Duration): Duration:
+  if self.nanos <= other.nanos:
+    ret self
+  ret other
+
+pub fn (self: Duration) max(other: Duration): Duration:
+  if self.nanos >= other.nanos:
+    ret self
+  ret other
+
+pub fn (self: Duration) format(): str:
+  mut ns = self.nanos
+  mut prefix = ""
+  if ns < 0:
+    prefix = "-"
+    ns = -ns
+  if ns < NANOS_PER_MICRO:
+    ret "{prefix}{ns}ns"
+  if ns < NANOS_PER_MILLI:
+    let us = ns / NANOS_PER_MICRO
+    let remNs = (ns % NANOS_PER_MICRO) / 100
+    if remNs == 0:
+      ret "{prefix}{us}us"
+    ret "{prefix}{us}.{remNs}us"
+  if ns < NANOS_PER_SECOND:
+    let ms = ns / NANOS_PER_MILLI
+    let remUs = (ns % NANOS_PER_MILLI) / 100000
+    if remUs == 0:
+      ret "{prefix}{ms}ms"
+    ret "{prefix}{ms}.{remUs}ms"
+  if ns < NANOS_PER_MINUTE:
+    let secs = ns / NANOS_PER_SECOND
+    let csec = (ns % NANOS_PER_SECOND) / 10000000
+    if csec == 0:
+      ret "{prefix}{secs}s"
+    if csec % 10 == 0:
+      let dsec = csec / 10
+      ret "{prefix}{secs}.{dsec}s"
+    let cStr = if csec < 10: "0{csec}" else: "{csec}"
+    ret "{prefix}{secs}.{cStr}s"
+  if ns < NANOS_PER_HOUR:
+    let mins = ns / NANOS_PER_MINUTE
+    let secs = (ns % NANOS_PER_MINUTE) / NANOS_PER_SECOND
+    if secs == 0:
+      ret "{prefix}{mins}m"
+    ret "{prefix}{mins}m {secs}s"
+  let hrs = ns / NANOS_PER_HOUR
+  let mins = (ns % NANOS_PER_HOUR) / NANOS_PER_MINUTE
+  if mins == 0:
+    ret "{prefix}{hrs}h"
+  ret "{prefix}{hrs}h {mins}m"
+
+fn parseUnsignedDigits(s: str): Result[int, str]:
+  if s.len == 0:
+    ret Err("empty duration number")
+  let digits = "0123456789"
+  mut acc = 0
+  mut i = 0
+  while i < s.len:
+    let dig = digits.indexOf(s.charAt(i))
+    if dig < 0:
+      ret Err("invalid digit in duration: {s}")
+    acc = acc * 10 + dig
+    i += 1
+  ret Ok(acc)
+
+pub fn parseDuration(spec: str): Result[Duration, str]:
+  let s = spec.trim()
+  if s.len == 0:
+    ret Err("Empty duration specifier")
+  if s.endsWith("ns"):
+    let numStr = s.slice(0, s.len - 2)
+    match parseUnsignedDigits(numStr):
+      Ok(v) => ret Ok(durationFromNanos(v))
+      Err(e) => ret Err(e)
+  if s.endsWith("us"):
+    let numStr = s.slice(0, s.len - 2)
+    match parseUnsignedDigits(numStr):
+      Ok(v) => ret Ok(durationFromMicros(v))
+      Err(e) => ret Err(e)
+  if s.endsWith("ms"):
+    let numStr = s.slice(0, s.len - 2)
+    match parseUnsignedDigits(numStr):
+      Ok(v) => ret Ok(durationFromMillis(v))
+      Err(e) => ret Err(e)
+  if s.endsWith("s"):
+    let numStr = s.slice(0, s.len - 1)
+    match parseUnsignedDigits(numStr):
+      Ok(v) => ret Ok(durationFromSeconds(v))
+      Err(e) => ret Err(e)
+  if s.endsWith("m"):
+    let numStr = s.slice(0, s.len - 1)
+    match parseUnsignedDigits(numStr):
+      Ok(v) => ret Ok(durationFromMinutes(v))
+      Err(e) => ret Err(e)
+  if s.endsWith("h"):
+    let numStr = s.slice(0, s.len - 1)
+    match parseUnsignedDigits(numStr):
+      Ok(v) => ret Ok(durationFromHours(v))
+      Err(e) => ret Err(e)
+  if s.endsWith("d"):
+    let numStr = s.slice(0, s.len - 1)
+    match parseUnsignedDigits(numStr):
+      Ok(v) => ret Ok(durationFromDays(v))
+      Err(e) => ret Err(e)
+  match parseUnsignedDigits(s):
+    Ok(v) => ret Ok(durationFromMillis(v))
+    Err(e) => ret Err(e)
+
+pub fn parseDurationMs(spec: str): Result[int, str]:
+  match parseDuration(spec):
+    Ok(dur) => ret Ok(dur.toMillis())
+    Err(e) => ret Err(e)
+
+pub fn formatDurationMs(ms: int): str:
+  mut total = ms
+  if total < 0:
+    total = 0
+  if total < 1000:
+    ret "{total}ms"
+  if total < 60000:
+    let sec = total / 1000
+    ret "{sec}s"
+  if total < 3600000:
+    let mins = total / 60000
+    let sec = (total % 60000) / 1000
+    if sec == 0:
+      ret "{mins}m"
+    ret "{mins}m {sec}s"
+  let hrs = total / 3600000
+  let mins = (total % 3600000) / 60000
+  if mins == 0:
+    ret "{hrs}h"
+  ret "{hrs}h {mins}m"
+
+pub fn formatDuration(ms: int): str:
+  ret formatDurationMs(ms)
+
+pub fn formatMmSs(sec: int): str:
+  mut total = sec
+  if total < 0:
+    total = 0
+  let m = total / 60
+  let s = total % 60
+  let mStr = if m < 10: "0{m}" else: "{m}"
+  let sStr = if s < 10: "0{s}" else: "{s}"
+  ret "{mStr}:{sStr}"
+
+pub fn formatDurationMS(totalSeconds: int): str:
+  ret formatMmSs(totalSeconds)
+
+pub fn formatDurationHMS(totalSeconds: int): str:
+  mut total = totalSeconds
+  if total < 0:
+    total = 0
+  let h = total / 3600
+  let rem = total % 3600
+  let m = rem / 60
+  let s = rem % 60
+  let hStr = if h < 10: "0{h}" else: "{h}"
+  let mStr = if m < 10: "0{m}" else: "{m}"
+  let sStr = if s < 10: "0{s}" else: "{s}"
+  ret "{hStr}:{mStr}:{sStr}"
+
+pub fn formatDurationHhMmSsMs(ms: int): str:
+  mut total = ms
+  if total < 0:
+    total = 0
+  let remMs = total % 1000
+  let hms = formatDurationHMS(total / 1000)
+  mut msStr = "{remMs}"
+  if remMs < 10:
+    msStr = "00{remMs}"
+  elif remMs < 100:
+    msStr = "0{remMs}"
+  ret "{hms}.{msStr}"

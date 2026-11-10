@@ -1,0 +1,44 @@
+// ============================================================================
+// Twin Test Suite 055: 2D Spatial Hash Grid Crowd Neighborhood Radar Window
+// Verifies examples/ex_055_collections_spatial_hash_crowd_window.aipl
+// ============================================================================
+module Ex055CollectionsSpatialHashCrowdWindowTest
+
+import {
+  SpatialCrowdState,
+  buildDemoCrowdSpatialHash,
+  evaluateSpatialHashRadiusNeighbors,
+  describeSpatialHashBucketMode,
+  buildSpatialCrowdState,
+  renderFrameStep
+} from "../../examples/ex_055_collections_spatial_hash_crowd_window"
+
+pub fn test_spatial_hash_radius_neighbors(): int:
+  // 3 agents near (25, 25) within r=15 and 1 distant agent at (180, 180) -> sum of 3 nearby IDs (10+20+30) == 60
+  assert(evaluateSpatialHashRadiusNeighbors() == 60, "3 nearby agents (10+20+30) sum to 60 while distant agent is excluded")
+  let sh = buildDemoCrowdSpatialHash()
+  assert(sh.entries.len == 12 and sh.cellSize == 100.0, "buildDemoCrowdSpatialHash indexes 12 crowd agents in 100px cells")
+  assert(describeSpatialHashBucketMode(32) == "SPATIAL_HASH:UNIFORM_CELL_32PX_O1", "32px cell")
+  ret 0
+
+pub fn test_spatial_crowd_window_state_and_step(): int:
+  let st0 = buildSpatialCrowdState(0)
+  let st1 = buildSpatialCrowdState(1)
+  let st20 = buildSpatialCrowdState(20)
+  let st100 = buildSpatialCrowdState(100)
+  assert(st0.nearbySum == 60, "nearbySum == 60")
+  assert(st0.cellHashNonZero == 1, "cellHashNonZero == 1")
+  assert(st1.radarX > st0.radarX, "radarX advances from frame 0 to 1")
+  assert(st20.radarX != st100.radarX, "radarX varies between frame 20 and 100")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m0 < m1 and m1 < m20 and m20 < m100, "renderFrameStep progresses across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_spatial_hash_radius_neighbors()
+  test_spatial_crowd_window_state_and_step()
+  println("PASS: ex_055_collections_spatial_hash_crowd_window_test")
+  ret 0

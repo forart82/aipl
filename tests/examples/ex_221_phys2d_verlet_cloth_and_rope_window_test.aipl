@@ -1,0 +1,40 @@
+module Ex221Phys2dVerletClothAndRopeWindowTest
+
+import {
+  buildPhys2dVerletClothAudit, stepClothWindVec, stepRopeWinchPos
+} from "../../examples/ex_221_phys2d_verlet_cloth_and_rope_window"
+import { Vec2 } from "../../std/math/vec_math"
+import {
+  VerletParticle2D, verletParticleNew, verletClothGridNew, verletStepSimulation
+} from "../../std/phys2d/verlet2d"
+
+pub fn test_phys2d_verlet_cloth_and_rope(): void:
+  let vp = verletParticleNew(Vec2(x = 1.0, y = 2.0), false)
+  assert(not vp.isPinned and vp.position.x == 1.0, "verletParticleNew initializes free particle")
+
+  mut cloth = verletClothGridNew(3, 3, 10.0)
+  assert(cloth.particles.len() == 9 and cloth.sticks.len() == 12, "3x3 cloth has 9 particles and 12 sticks")
+
+  let pTop: VerletParticle2D = cloth.particles[0]
+  assert(pTop.isPinned, "Top row particles are pinned")
+
+  verletStepSimulation(cloth, Vec2(x = 0.0, y = -9.8), 2, 0.1)
+  let pBottom: VerletParticle2D = cloth.particles[8]
+  assert(pBottom.position.y < 20.0, "Unpinned bottom row sags under gravity")
+  assert(buildPhys2dVerletClothAudit() == 22, "buildPhys2dVerletClothAudit returns 9 + 12 + 1 == 22")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let w0 = stepClothWindVec(0)
+  let w1 = stepClothWindVec(1)
+  let w20 = stepClothWindVec(20)
+  let w100 = stepClothWindVec(100)
+  assert(w0.x != w1.x and w1.x != w20.x and w20.x != w100.x, "wind vector progresses across t=0,1,20,100")
+  let rw5 = stepRopeWinchPos(5)
+  let rw45 = stepRopeWinchPos(45)
+  let rw105 = stepRopeWinchPos(105)
+  assert(rw5.x != rw45.x and rw45.x != rw105.x, "catenary rope winch anchor moves across snapshot frames 5, 45, 105")
+
+pub fn main(): int:
+  test_phys2d_verlet_cloth_and_rope()
+  println("PASS: ex_221_phys2d_verlet_cloth_and_rope_window_test")
+  ret 0

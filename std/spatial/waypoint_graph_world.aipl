@@ -1,0 +1,139 @@
+/// # Module: `std/spatial/waypoint_graph_world` (`WaypointGraphWorldMod`)
+///
+/// ## Purpose & Domain Scope
+/// Abstract topological graph world supporting weighted bidirectional edges,
+/// Dijkstra shortest path search, and spatial radius queries.
+module WaypointGraphWorldMod
+
+import { Vec3 } from "std/math/vec_math"
+
+pub struct WaypointNode(id: int, name: str, position: Vec3, tags: [str])
+
+pub struct WaypointEdge(fromId: int, toId: int, weight: float, bidirectional: bool, isTraversable: bool)
+
+pub struct WaypointGraphWorld(nodes: [WaypointNode], edges: [WaypointEdge])
+
+pub fn waypointGraphWorldNew(): WaypointGraphWorld:
+  mut ns: [WaypointNode] = []
+  mut es: [WaypointEdge] = []
+  ret WaypointGraphWorld(nodes = ns, edges = es)
+
+pub fn waypointAddNode(mut world: WaypointGraphWorld, id: int, name: str, pos: Vec3): bool:
+  mut i = 0
+  while i < world.nodes.len:
+    let existing: WaypointNode = world.nodes[i]
+    if existing.id == id:
+      ret false
+    i = i + 1
+  mut ns = world.nodes
+  mut emptyTags: [str] = []
+  ns.push(WaypointNode(id = id, name = name, position = pos, tags = emptyTags))
+  world.nodes = ns
+  ret true
+
+pub fn waypointAddEdge(mut world: WaypointGraphWorld, fromId: int, toId: int, weight: float, bidirectional: bool): bool:
+  mut es = world.edges
+  es.push(WaypointEdge(
+    fromId = fromId,
+    toId = toId,
+    weight = weight,
+    bidirectional = bidirectional,
+    isTraversable = true
+  ))
+  world.edges = es
+  ret true
+
+fn findNodeIndex(world: WaypointGraphWorld, id: int): int:
+  mut i = 0
+  while i < world.nodes.len:
+    let nd: WaypointNode = world.nodes[i]
+    if nd.id == id:
+      ret i
+    i = i + 1
+  ret -1
+
+pub fn waypointShortestPathDijkstra(world: WaypointGraphWorld, startId: int, goalId: int): Option[[int]]:
+  let n = world.nodes.len
+  let startIdx = findNodeIndex(world, startId)
+  let goalIdx = findNodeIndex(world, goalId)
+  if startIdx < 0 or goalIdx < 0:
+    ret None
+
+  let inf = 1000000000.0
+  mut dist: [float] = []
+  mut prev: [int] = []
+  mut visited: [bool] = []
+  mut i = 0
+  while i < n:
+    dist.push(inf)
+    prev.push(-1)
+    visited.push(false)
+    i = i + 1
+  dist[startIdx] = 0.0
+
+  mut step = 0
+  while step < n:
+    mut u = -1
+    mut bestD = inf
+    mut k = 0
+    while k < n:
+      if (not visited[k]) and dist[k] < bestD:
+        bestD = dist[k]
+        u = k
+      k = k + 1
+
+    if u < 0 or u == goalIdx:
+      step = n
+    else:
+      visited[u] = true
+      let uNode: WaypointNode = world.nodes[u]
+      let uId = uNode.id
+      mut eIdx = 0
+      while eIdx < world.edges.len:
+        let edge: WaypointEdge = world.edges[eIdx]
+        if edge.isTraversable:
+          mut targetId = -1
+          if edge.fromId == uId:
+            targetId = edge.toId
+          else:
+            if edge.bidirectional and edge.toId == uId:
+              targetId = edge.fromId
+          if targetId >= 0:
+            let v = findNodeIndex(world, targetId)
+            if v >= 0 and (not visited[v]):
+              let alt = dist[u] + edge.weight
+              if alt < dist[v]:
+                dist[v] = alt
+                prev[v] = u
+        eIdx = eIdx + 1
+      step = step + 1
+
+  if dist[goalIdx] >= inf:
+    ret None
+
+  mut revPath: [int] = []
+  mut curr = goalIdx
+  while curr >= 0:
+    let nd: WaypointNode = world.nodes[curr]
+    revPath.push(nd.id)
+    curr = prev[curr]
+
+  mut path: [int] = []
+  mut p = revPath.len - 1
+  while p >= 0:
+    path.push(revPath[p])
+    p = p - 1
+  ret Some(path)
+
+pub fn waypointNodesInRadius(world: WaypointGraphWorld, center: Vec3, radius: float): [int]:
+  mut out: [int] = []
+  let rSq = radius * radius
+  mut i = 0
+  while i < world.nodes.len:
+    let nd: WaypointNode = world.nodes[i]
+    let pos: Vec3 = nd.position
+    let diff: Vec3 = pos.sub(center)
+    if diff.lenSq() <= rSq:
+      out.push(nd.id)
+    i = i + 1
+  ret out

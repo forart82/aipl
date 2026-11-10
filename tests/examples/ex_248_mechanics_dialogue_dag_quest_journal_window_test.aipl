@@ -1,0 +1,68 @@
+module Ex248MechanicsDialogueDagQuestJournalWindowTest
+
+import { DialogueChoice, DialogueNode, dialogueGraphNew, dialogueAddNode, dialogueNodeCount, dialogueGetAvailableChoices, dialogueAdvanceChoice, objectiveDagNew, objectiveAddPrerequisite, objectiveIsUnlocked, objectiveComplete } from "../../std/mechanics/dialogue_dag"
+import { DialogueQuestScene, initScene, stepScene, auditMechanicsDialogueAndQuestDag } from "../../examples/ex_248_mechanics_dialogue_dag_quest_journal_window"
+
+fn test_mechanics_dialogue_dag_quest_journal(): void:
+  mut graph = dialogueGraphNew(1)
+  let choice1 = DialogueChoice(choiceId = 101, text = "Enter Vault", targetNodeId = 2, requiredFlags = ["has_key"])
+  let choice2 = DialogueChoice(choiceId = 102, text = "Leave", targetNodeId = 3, requiredFlags = [])
+  let n1 = DialogueNode(nodeId = 1, speaker = "Gatekeeper", content = "State your purpose.", choices = [choice1, choice2])
+  let n2 = DialogueNode(nodeId = 2, speaker = "Gatekeeper", content = "Welcome inside.", choices = [])
+  dialogueAddNode(graph, n1)
+  dialogueAddNode(graph, n2)
+  assert(dialogueNodeCount(graph) == 2, "dialogueNodeCount")
+  let choicesWithKey = dialogueGetAvailableChoices(graph, 1, ["has_key"])
+  assert(choicesWithKey.len() == 2, "both choices unlocked when key flag is present")
+  assert(dialogueAdvanceChoice(graph, 1, 101, ["has_key"]).unwrap().nodeId == 2, "dialogueAdvanceChoice")
+
+  mut dag = objectiveDagNew()
+  objectiveAddPrerequisite(dag, "forge_sword", "gather_iron")
+  objectiveAddPrerequisite(dag, "forge_sword", "gather_coal")
+  assert(not objectiveIsUnlocked(dag, "forge_sword"), "forge_sword locked without materials")
+  objectiveComplete(dag, "gather_iron")
+  objectiveComplete(dag, "gather_coal")
+  assert(objectiveIsUnlocked(dag, "forge_sword"), "forge_sword unlocked once all prereqs completed")
+
+  mut scene = initScene()
+  let ratio0 = scene.completionRatio
+  let choices0 = scene.availableChoices.len()
+  let node0 = scene.currentNode.nodeId
+  assert(choices0 == 1, "initially only choice 102 is unlocked without has_key")
+  assert(not scene.forgeUnlocked, "initially forge_sword is locked")
+
+  scene = stepScene(scene, 0, 0.1)
+  let ratio1 = scene.completionRatio
+  assert(ratio1 > ratio0, "t=0 -> t=1 completing gather_iron increases quest completion ratio")
+
+  mut f = 1
+  while f < 20:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  assert(scene.forgeUnlocked, "t=20 forge_sword is unlocked after prerequisites complete")
+  assert(scene.currentNode.nodeId != node0, "t=1 -> t=20 dialogue graph advances to vault/forge node")
+  assert(scene.completionRatio > ratio1, "t=1 -> t=20 quest completion ratio reaches 1.0")
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  mut sawNode1Again = false
+  mut sawNode2Again = false
+  mut sawNode3 = false
+  while f < 100:
+    scene = stepScene(scene, f, 0.1)
+    if scene.currentNode.nodeId == 1:
+      sawNode1Again = true
+    if scene.currentNode.nodeId == 2:
+      sawNode2Again = true
+    if scene.currentNode.nodeId == 3:
+      sawNode3 = true
+    f = f + 1
+  assert(sawNode1Again and sawNode2Again and sawNode3, "t=20 -> t=100 dialogue graph cycles perpetually across all 3 dialogue nodes and quest stages")
+  assert(scene.stepCount == 100, "scene tracks 100 steps")
+
+  let audit = auditMechanicsDialogueAndQuestDag()
+  assert(audit == 23, "Dialogue DAG and Quest Journal audit")
+
+pub fn main(): int:
+  test_mechanics_dialogue_dag_quest_journal()
+  println("PASS: ex_248_mechanics_dialogue_dag_quest_journal_window_test")
+  ret 0

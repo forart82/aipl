@@ -1,0 +1,69 @@
+// ============================================================================
+// Example 016: Host PCM Audio Stream, Ring Latency & Frame Write CLI
+// Demonstrates: sysAudioOpenStream, sysAudioWriteFrames,
+//               sysAudioGetLatencyFrames, sysAudioPauseStream,
+//               sysAudioResumeStream, and sysAudioCloseStream from
+//               std/sys/sys_audio.
+// ============================================================================
+module Ex016SysAudioPcmRingCli
+
+import { maxInt } from "../std/prelude"
+import { sysPtrAlloc, sysPtrFree } from "../std/sys/sys_mem"
+import {
+  sysAudioOpenStream,
+  sysAudioCloseStream,
+  sysAudioWriteFrames,
+  sysAudioGetLatencyFrames,
+  sysAudioPauseStream,
+  sysAudioResumeStream
+} from "../std/sys/sys_audio"
+
+pub struct AudioStreamProbe:
+  framesWritten: int
+  latencyFrames: int
+  latencyMs: int
+  pauseResumeOk: bool
+
+pub fn streamPcmBurstFrames(channels: int, sampleRate: int, frameCount: int): int:
+  let streamId = sysAudioOpenStream(channels, sampleRate, 512)
+  let pcmBuf = sysPtrAlloc(frameCount * channels * 2)
+  let written = sysAudioWriteFrames(streamId, pcmBuf, frameCount)
+  let _ = sysAudioCloseStream(streamId)
+  sysPtrFree(pcmBuf)
+  ret written
+
+pub fn computeLatencyMillis(latencyFrames: int, sampleRate: int): int:
+  let rate = maxInt(sampleRate, 1000)
+  ret (latencyFrames * 1000) / rate
+
+pub fn classifyAudioLatency(latencyMs: int): str:
+  if latencyMs <= 10:
+    ret "AUDIO:ULTRA_LOW_LATENCY"
+  elif latencyMs <= 30:
+    ret "AUDIO:REALTIME_NOMINAL"
+  else:
+    ret "AUDIO:HIGH_BUFFER_LAG"
+
+pub fn buildAudioStreamProbe(channels: int, sampleRate: int, bufferFrames: int, burstFrames: int): AudioStreamProbe:
+  let streamId = sysAudioOpenStream(channels, sampleRate, bufferFrames)
+  let pcmBuf = sysPtrAlloc(burstFrames * channels * 2)
+  let written = sysAudioWriteFrames(streamId, pcmBuf, burstFrames)
+  let latFrames = sysAudioGetLatencyFrames(streamId)
+  let paused = sysAudioPauseStream(streamId)
+  let resumed = sysAudioResumeStream(streamId)
+  let closed = sysAudioCloseStream(streamId)
+  sysPtrFree(pcmBuf)
+  let latMs = computeLatencyMillis(latFrames, sampleRate)
+  ret AudioStreamProbe(
+    framesWritten = written,
+    latencyFrames = latFrames,
+    latencyMs = latMs,
+    pauseResumeOk = (paused == 0 and resumed == 0 and closed == 0)
+  )
+
+pub fn main(): int:
+  let probe = buildAudioStreamProbe(2, 48000, 512, 16)
+  let tag = classifyAudioLatency(probe.latencyMs)
+  println("[ex_016_sys_audio_pcm_ring_cli] AudioStreamProbe(written=" + str(probe.framesWritten) + ", latencyFrames=" + str(probe.latencyFrames) + ", latencyMs=" + str(probe.latencyMs) + ", ok=" + str(probe.pauseResumeOk) + ")")
+  println("[ex_016_sys_audio_pcm_ring_cli] class=" + tag)
+  ret 0

@@ -1,0 +1,42 @@
+module Ex156GfxGpuDeviceAndSwapchainWindowTest
+
+import {
+  buildGpuDeviceSwapchainAudit,
+  stepDeviceWatchdog,
+  renderFrameStep
+} from "../../examples/ex_156_gfx_gpu_device_and_swapchain_window"
+import {
+  createGpuDevice, getStandardGpuLimits, isDeviceLost, destroyGpuDevice
+} from "../../std/gfx/gpu_device"
+
+pub fn test_gfx_gpu_device_and_swapchain(): void:
+  let hwDev = createGpuDevice(1)
+  assert(hwDev.isAlive and not isDeviceLost(hwDev), "Hardware GPU device alive")
+  assert(hwDev.adapter.name == "AIPL Unified GPU Adapter", "Hardware adapter name")
+  assert(not hwDev.adapter.isSoftware, "Backend 1 is hardware")
+
+  let swDev = createGpuDevice(4)
+  assert(swDev.adapter.isSoftware, "Backend 4 is software fallback")
+
+  let limits = getStandardGpuLimits()
+  assert(limits.maxTextureDimension2D == 8192, "maxTextureDimension2D == 8192")
+  assert(limits.maxVertexBuffers == 8, "maxVertexBuffers == 8")
+
+  let lostDev = destroyGpuDevice(hwDev)
+  assert(isDeviceLost(lostDev), "Destroyed device reports isDeviceLost")
+  let d0 = stepDeviceWatchdog(hwDev, 0)
+  let d20 = stepDeviceWatchdog(d0, 20)
+  let d45 = stepDeviceWatchdog(d20, 45)
+  let d100 = stepDeviceWatchdog(d45, 100)
+  assert(not isDeviceLost(d0) and isDeviceLost(d20) and not isDeviceLost(d45) and not isDeviceLost(d100), "Watchdog detects device loss and recreates device across frames")
+  let f0 = renderFrameStep(0)
+  let f1 = renderFrameStep(1)
+  let f20 = renderFrameStep(20)
+  let f100 = renderFrameStep(100)
+  assert(f0 != f1 and f1 != f20 and f20 != f100, "Swapchain present slot, VSync progress, and watchdog state advance across frames 0, 1, 20, 100")
+  assert(buildGpuDeviceSwapchainAudit() == 8201, "buildGpuDeviceSwapchainAudit returns 8192 + 8 + 1 == 8201")
+
+pub fn main(): int:
+  test_gfx_gpu_device_and_swapchain()
+  println("PASS: ex_156_gfx_gpu_device_and_swapchain_window_test")
+  ret 0

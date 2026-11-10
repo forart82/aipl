@@ -1,0 +1,77 @@
+module Bench12SuperMarioPlatformer
+
+struct EnemyGoomba(x: float, y: float, vx: float, alive: bool)
+struct MarioWorld(playerX: float, playerY: float, playerVx: float, playerVy: float, onGround: bool, powerUpState: int, coins: int, score: int, lives: int, cameraX: float, goalX: float, status: str, coinPositions: [float], mushroomX: float, mushroomTaken: bool, enemies: [EnemyGoomba])
+
+fn createMarioLevel(): MarioWorld:
+  ret MarioWorld(0.0, 0.0, 0.0, 0.0, true, 0, 0, 0, 3, 0.0, 120.0, "PLAYING", [30.0, 60.0, 90.0], 40.0, false, [EnemyGoomba(50.0, 0.0, -1.0, true)])
+
+fn stepMarioFrame(mut w: MarioWorld, moveDir: float, jumpPressed: bool, dt: float): MarioWorld:
+  if w.status != "PLAYING":
+    ret w
+  w.playerVx = moveDir * 20.0
+  if jumpPressed and w.onGround:
+    w.playerVy = 18.0
+    w.onGround = false
+  w.playerVy -= 30.0 * dt
+  w.playerX += w.playerVx * dt
+  w.playerY += w.playerVy * dt
+  if w.playerY <= 0.0:
+    w.playerY = 0.0
+    w.playerVy = 0.0
+    w.onGround = true
+
+  if not w.mushroomTaken and w.playerX >= w.mushroomX - 2.0 and w.playerX <= w.mushroomX + 2.0:
+    w.mushroomTaken = true
+    w.powerUpState = 1
+    w.score += 1000
+
+  mut remCoins: [float] = []
+  for cx in w.coinPositions:
+    if w.playerX >= cx - 2.0 and w.playerX <= cx + 2.0:
+      w.coins += 1
+      w.score += 200
+    else:
+      remCoins.push(cx)
+  w.coinPositions = remCoins
+
+  mut i = 0
+  while i < w.enemies.len:
+    if w.enemies[i].alive:
+      w.enemies[i].x += w.enemies[i].vx * dt
+      let ex = w.enemies[i].x
+      let hitX = w.playerX >= ex - 2.5 and w.playerX <= ex + 2.5
+      if hitX and w.playerY > 0.5 and w.playerVy < 0.0:
+        w.score += 500
+        w.playerVy = 10.0
+        w.enemies[i].alive = false
+      else if hitX and w.playerY <= 0.5:
+        if w.powerUpState > 0:
+          w.powerUpState = 0
+        else:
+          w.lives -= 1
+          if w.lives <= 0:
+            w.status = "GAME_OVER"
+    i += 1
+
+  w.cameraX = if w.playerX - 20.0 > 0.0: w.playerX - 20.0 else: 0.0
+  if w.playerX >= w.goalX:
+    w.status = "LEVEL_CLEAR"
+    w.score += 2000
+  ret w
+
+fn main(): void:
+  mut world = createMarioLevel()
+  mut frame = 0
+  while frame < 40 and world.status == "PLAYING":
+    let jump = (frame == 8)
+    world = stepMarioFrame(world, 1.0, jump, 0.2)
+    frame += 1
+  assert(world.status == "LEVEL_CLEAR")
+  assert(world.mushroomTaken and world.powerUpState == 1)
+  assert(world.coins == 3)
+  assert(not world.enemies[0].alive)
+  assert(world.score == 4100)
+  assert(world.cameraX > 80.0)
+  println("Mario Status={world.status} Score={world.score} Coins={world.coins}")
+  println("BENCH_12_OK")

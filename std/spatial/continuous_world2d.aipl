@@ -1,0 +1,146 @@
+/// # Module: `std/spatial/continuous_world2d` (`ContinuousWorld2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Tileless continuous 2D space world supporting radius queries, AABB queries,
+/// and 2D circle raycasts.
+module ContinuousWorld2DMod
+
+import { sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { Rect2D } from "std/math/geom2d"
+
+pub struct SpatialObject2D(id: int, position: Vec2, radius: float, layerMask: int, bounds: Rect2D)
+
+pub struct SpatialRayHit2D(objectId: int, distance: float, point: Vec2, normal: Vec2)
+
+pub struct ContinuousSpaceWorld2D(worldBounds: Rect2D, cellSize: float, objects: [SpatialObject2D], alive: [bool])
+
+pub fn continuousWorld2dNew(bounds: Rect2D, cellSize: float): ContinuousSpaceWorld2D:
+  mut objs: [SpatialObject2D] = []
+  mut alv: [bool] = []
+  ret ContinuousSpaceWorld2D(
+    worldBounds = bounds,
+    cellSize = cellSize,
+    objects = objs,
+    alive = alv
+  )
+
+pub fn continuousWorld2dInsert(mut world: ContinuousSpaceWorld2D, obj: SpatialObject2D): int:
+  mut objs = world.objects
+  mut alv = world.alive
+  objs.push(obj)
+  alv.push(true)
+  world.objects = objs
+  world.alive = alv
+  ret obj.id
+
+pub fn continuousWorld2dUpdate(mut world: ContinuousSpaceWorld2D, id: int, newPos: Vec2): bool:
+  mut objs = world.objects
+  mut i = 0
+  while i < objs.len:
+    if world.alive[i]:
+      let obj: SpatialObject2D = objs[i]
+      if obj.id == id:
+        let rw = if obj.bounds.w > 0.0: obj.bounds.w else: obj.bounds.width
+        let rh = if obj.bounds.h > 0.0: obj.bounds.h else: obj.bounds.height
+        let updatedBounds = Rect2D(
+          x = newPos.x - rw * 0.5,
+          y = newPos.y - rh * 0.5,
+          w = rw,
+          h = rh,
+          width = rw,
+          height = rh
+        )
+        objs[i] = SpatialObject2D(
+          id = obj.id,
+          position = newPos,
+          radius = obj.radius,
+          layerMask = obj.layerMask,
+          bounds = updatedBounds
+        )
+        world.objects = objs
+        ret true
+    i = i + 1
+  ret false
+
+pub fn continuousWorld2dRemove(mut world: ContinuousSpaceWorld2D, id: int): bool:
+  mut alv = world.alive
+  mut i = 0
+  while i < world.objects.len:
+    if alv[i]:
+      let obj: SpatialObject2D = world.objects[i]
+      if obj.id == id:
+        alv[i] = false
+        world.alive = alv
+        ret true
+    i = i + 1
+  ret false
+
+pub fn continuousWorld2dQueryRadius(world: ContinuousSpaceWorld2D, center: Vec2, radius: float, layerMask: int): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < world.objects.len:
+    if world.alive[i]:
+      let obj: SpatialObject2D = world.objects[i]
+      if (obj.layerMask & layerMask) != 0:
+        let dx = obj.position.x - center.x
+        let dy = obj.position.y - center.y
+        let combinedR = radius + obj.radius
+        if dx * dx + dy * dy <= combinedR * combinedR:
+          out.push(obj.id)
+    i = i + 1
+  ret out
+
+pub fn continuousWorld2dQueryAABB(world: ContinuousSpaceWorld2D, aabb: Rect2D, layerMask: int): [int]:
+  mut out: [int] = []
+  let aw = if aabb.w > 0.0: aabb.w else: aabb.width
+  let ah = if aabb.h > 0.0: aabb.h else: aabb.height
+  mut i = 0
+  while i < world.objects.len:
+    if world.alive[i]:
+      let obj: SpatialObject2D = world.objects[i]
+      if (obj.layerMask & layerMask) != 0:
+        let b: Rect2D = obj.bounds
+        let bw = if b.w > 0.0: b.w else: b.width
+        let bh = if b.h > 0.0: b.h else: b.height
+        let overlaps = aabb.x <= b.x + bw and aabb.x + aw >= b.x and aabb.y <= b.y + bh and aabb.y + ah >= b.y
+        if overlaps:
+          out.push(obj.id)
+    i = i + 1
+  ret out
+
+pub fn continuousWorld2dRaycast(world: ContinuousSpaceWorld2D, origin: Vec2, direction: Vec2, maxDist: float, layerMask: int): Option[SpatialRayHit2D]:
+  let dirLen = sqrt(direction.x * direction.x + direction.y * direction.y)
+  if dirLen <= 0.000001:
+    ret None
+  let dx = direction.x / dirLen
+  let dy = direction.y / dirLen
+
+  mut bestDist = maxDist + 1.0
+  mut bestHit: Option[SpatialRayHit2D] = None
+
+  mut i = 0
+  while i < world.objects.len:
+    if world.alive[i]:
+      let obj: SpatialObject2D = world.objects[i]
+      if (obj.layerMask & layerMask) != 0:
+        let ox = origin.x - obj.position.x
+        let oy = origin.y - obj.position.y
+        let b = ox * dx + oy * dy
+        let c = ox * ox + oy * oy - obj.radius * obj.radius
+        let disc = b * b - c
+        if disc >= 0.0:
+          let t = -b - sqrt(disc)
+          if t >= 0.0 and t <= maxDist and t < bestDist:
+            bestDist = t
+            let hitPt = Vec2(x = origin.x + dx * t, y = origin.y + dy * t)
+            let nx = (hitPt.x - obj.position.x) / (if obj.radius > 0.0: obj.radius else: 1.0)
+            let ny = (hitPt.y - obj.position.y) / (if obj.radius > 0.0: obj.radius else: 1.0)
+            bestHit = Some(SpatialRayHit2D(
+              objectId = obj.id,
+              distance = t,
+              point = hitPt,
+              normal = Vec2(x = nx, y = ny)
+            ))
+    i = i + 1
+  ret bestHit

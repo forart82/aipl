@@ -1,0 +1,76 @@
+/// # Module: `std/io/io_traits` (`IoTraits`)
+///
+/// ## Purpose & Domain Scope
+/// Foundational I/O error taxonomy (`IoErrorKind`, `IoError`), stream seek origins
+/// (`SeekFrom`), error constructors, and bounds-checked seek position resolution.
+module IoTraits
+
+pub enum IoErrorKind:
+  NotFound
+  PermissionDenied
+  ConnectionRefused
+  ConnectionReset
+  BrokenPipe
+  AlreadyExists
+  WouldBlock
+  InvalidInput
+  InvalidData
+  TimedOut
+  WriteZero
+  Interrupted
+  UnexpectedEof
+  Other
+
+pub struct IoError:
+  kind: IoErrorKind
+  message: str
+  code: int = 0
+
+pub enum SeekFrom:
+  Start(int)
+  End(int)
+  Current(int)
+
+pub fn ioErrNew(kind: IoErrorKind, message: str): IoError:
+  ret IoError(kind: kind, message: message, code: 0)
+
+pub fn ioErrNotFound(msg: str): IoError:
+  ret IoError(kind: IoErrorKind::NotFound, message: msg, code: 2)
+
+pub fn ioErrUnexpectedEof(msg: str): IoError:
+  ret IoError(kind: IoErrorKind::UnexpectedEof, message: msg, code: 100)
+
+pub fn ioErrInvalidData(msg: str): IoError:
+  ret IoError(kind: IoErrorKind::InvalidData, message: msg, code: 22)
+
+pub fn ioErrWriteZero(msg: str): IoError:
+  ret IoError(kind: IoErrorKind::WriteZero, message: msg, code: 101)
+
+pub fn ioErrToString(err: IoError): str:
+  let kindName = match err.kind:
+    IoErrorKind::NotFound => "NotFound"
+    IoErrorKind::PermissionDenied => "PermissionDenied"
+    IoErrorKind::ConnectionRefused => "ConnectionRefused"
+    IoErrorKind::ConnectionReset => "ConnectionReset"
+    IoErrorKind::BrokenPipe => "BrokenPipe"
+    IoErrorKind::AlreadyExists => "AlreadyExists"
+    IoErrorKind::WouldBlock => "WouldBlock"
+    IoErrorKind::InvalidInput => "InvalidInput"
+    IoErrorKind::InvalidData => "InvalidData"
+    IoErrorKind::TimedOut => "TimedOut"
+    IoErrorKind::WriteZero => "WriteZero"
+    IoErrorKind::Interrupted => "Interrupted"
+    IoErrorKind::UnexpectedEof => "UnexpectedEof"
+    IoErrorKind::Other => "Other"
+  ret "IoError(" + kindName + ", code=" + str(err.code) + "): " + err.message
+
+pub fn ioSeekResolve(currentPos: int, totalLen: int, from: SeekFrom): Result[int, IoError]:
+  let target = match from:
+    SeekFrom::Start(offset) => offset
+    SeekFrom::End(offset) => totalLen + offset
+    SeekFrom::Current(offset) => currentPos + offset
+  if target < 0:
+    ret Err(IoError(kind: IoErrorKind::InvalidInput, message: "ioSeekResolve: negative seek offset", code: 22))
+  if target > totalLen:
+    ret Err(IoError(kind: IoErrorKind::InvalidInput, message: "ioSeekResolve: seek beyond buffer limit", code: 22))
+  ret Ok(target)

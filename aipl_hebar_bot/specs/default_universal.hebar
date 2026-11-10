@@ -1,0 +1,32 @@
+strategy "UniversalZeroConfigExplorer"
+  seat: auto
+  reaction_ms: 250
+  max_rate_hz: 15.0
+  max_turn_rad_s: 6.2831853
+  max_cursor_px_s: 780.0
+  max_idle_frames: 110
+
+  selector "Root"
+    sequence "HandleModalOrAlert"
+      condition: ui.modalVisible == true
+      action: click_smooth(ui.modalDismissBtn)
+
+    sequence "MultiplayerTurnGuard"
+      condition: env.activeSeat > 0 and env.activeSeat != bot.seatId
+      action: wait_turn(env.activeSeat)
+
+    sequence "TacticalDodgeAndEngage"
+      condition: env.nearestHazardDist < 48.0
+      action: evade_vector(env.nearestHazardAngle)
+
+    sequence "ExploreUnvisitedTabs"
+      condition: ui.unvisitedTabsCount > 0
+      action: click_smooth(ui.nextUnvisitedTab)
+
+    sequence "AdvanceBoardPiece"
+      condition: env.legalActionsCount > 0
+      action: select_best_board_move()
+
+    sequence "FallbackHeartbeatExploration"
+      condition: bot.idleFrames > 60
+      action: click_smooth(ui.primaryInteractiveNode)

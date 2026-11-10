@@ -1,0 +1,33 @@
+// ============================================================================
+// Twin Test Suite 133: Multi-Monitor Topology & HiDPI Coordinate Scaling (WINDOW)
+// Verifies examples/ex_133_window_display_multi_monitor_dpi_window.aipl
+// ============================================================================
+module Ex133WindowDisplayMultiMonitorDpiWindowTest
+
+import {
+  verifyMultiMonitorModeSelectionAndDpi,
+  computeTotalVirtualDesktopWidthPx,
+  describeMonitorRefreshClass,
+  renderFrameStep
+} from "../../examples/ex_133_window_display_multi_monitor_dpi_window.aipl"
+
+pub fn test_window_display_multi_monitor_dpi_window(): int:
+  assert(verifyMultiMonitorModeSelectionAndDpi() == 294, "144Hz closest video mode + 150px scaled physical coordinate == 294")
+  assert(computeTotalVirtualDesktopWidthPx(2560, 1920) == 4480, "2560 + 1920 == 4480px virtual desktop span")
+  assert(describeMonitorRefreshClass(144) == "DISPLAY:HIGH_REFRESH_144HZ", "144Hz refresh class label")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  let f75 = renderFrameStep(75, 0.016)
+  let f100 = renderFrameStep(100, 0.016)
+  assert(f0 == 414, "frame 0 on primary 1.5x monitor (144Hz + 270px physical width == 414)")
+  assert(f1 > f0, "frame 1 advances client window travel")
+  assert(f20 > f1, "frame 20 advances client window travel")
+  assert(f75 != f20, "frame 75 crosses onto secondary 1.0x monitor")
+  assert(f100 > f75, "frame 100 advances on secondary monitor")
+  ret 0
+
+pub fn main(): int:
+  test_window_display_multi_monitor_dpi_window()
+  println("PASS: ex_133_window_display_multi_monitor_dpi_window_test")
+  ret 0

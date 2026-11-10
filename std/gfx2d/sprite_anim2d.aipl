@@ -1,0 +1,173 @@
+module Gfx2dSpriteAnimMod
+
+// ============================================================================
+// std/gfx2d/sprite_anim2d.aipl — Frame-Based 2D Sprite Animation State Machine
+// ============================================================================
+
+import { UvRect } from "./sprite2d"
+
+pub struct SpriteAnimationFrame2D(uv: UvRect, durationSec: float, eventTrigger: str)
+
+pub struct SpriteAnimationClip2D(name: str, frames: [SpriteAnimationFrame2D], loopMode: int)
+
+pub struct SpriteAnimator2D(currentClip: SpriteAnimationClip2D, currentFrameIdx: int, elapsedTimeSec: float, isPlaying: bool, isFinished: bool)
+
+pub fn createAnimator2D(clip: SpriteAnimationClip2D): SpriteAnimator2D:
+  ret SpriteAnimator2D(
+    currentClip = clip,
+    currentFrameIdx = 0,
+    elapsedTimeSec = 0.0,
+    isPlaying = true,
+    isFinished = false
+  )
+
+pub fn stepAnimator2D(anim: SpriteAnimator2D, dt: float): SpriteAnimator2D:
+  if not anim.isPlaying or anim.isFinished or anim.currentClip.frames.len == 0:
+    ret anim
+  mut idx = anim.currentFrameIdx
+  mut elapsed = anim.elapsedTimeSec + dt
+  mut finished = false
+  mut playing = anim.isPlaying
+  let count = anim.currentClip.frames.len
+  let curDur = if anim.currentClip.frames[idx].durationSec > 0.001: anim.currentClip.frames[idx].durationSec else: 0.1
+  if elapsed >= curDur:
+    elapsed = elapsed - curDur
+    idx += 1
+    if idx >= count:
+      if anim.currentClip.loopMode == 1:
+        idx = 0
+      else:
+        idx = count - 1
+        finished = true
+        playing = false
+  ret SpriteAnimator2D(
+    currentClip = anim.currentClip,
+    currentFrameIdx = idx,
+    elapsedTimeSec = elapsed,
+    isPlaying = playing,
+    isFinished = finished
+  )
+
+pub fn getCurrentFrameUv(anim: SpriteAnimator2D): UvRect:
+  if anim.currentClip.frames.len == 0:
+    ret UvRect(u0 = 0.0, v0 = 0.0, u1 = 1.0, v1 = 1.0)
+  let idx = if anim.currentFrameIdx >= 0 and anim.currentFrameIdx < anim.currentClip.frames.len: anim.currentFrameIdx else: 0
+  ret anim.currentClip.frames[idx].uv
+
+pub struct AnimClip(name: str, startFrame: int, frameCount: int, fps: float, looping: bool, fallbackState: str)
+
+/// State machine tracking current animation clip, frame progression, and transitions.
+pub struct AnimStateMachine(currentState: str, currentFrameOffset: int, accumMs: float, clips: [AnimClip], transitionCount: int)
+
+/// Creates a new animation state machine with an initial state and clip library.
+pub fn animMachineNew(initialState: str, clips: [AnimClip]): AnimStateMachine:
+  ret AnimStateMachine(
+    currentState = initialState,
+    currentFrameOffset = 0,
+    accumMs = 0.0,
+    clips = clips,
+    transitionCount = 0
+  )
+
+/// Transitions to a new animation state. If state changes, resets frame offset and accumulator.
+pub fn animSetState(sm: AnimStateMachine, newState: str): AnimStateMachine:
+  if newState == sm.currentState:
+    ret sm
+  ret AnimStateMachine(
+    currentState = newState,
+    currentFrameOffset = 0,
+    accumMs = 0.0,
+    clips = sm.clips,
+    transitionCount = sm.transitionCount + 1
+  )
+
+/// Advances state machine by dtMs milliseconds, advancing frames and handling looping/fallbacks.
+pub fn animStep(sm: AnimStateMachine, dtMs: float): AnimStateMachine:
+  mut activeIdx = -1
+  for i in 0..sm.clips.len():
+    if sm.clips[i].name == sm.currentState:
+      activeIdx = i
+      break
+  if activeIdx < 0:
+    ret sm
+
+  let clip = sm.clips[activeIdx]
+  let fps = if clip.fps > 0.0: clip.fps else: 30.0
+  let frameDurMs = 1000.0 / fps
+
+  mut accum = sm.accumMs + dtMs
+  mut frameOffset = sm.currentFrameOffset
+  mut state = sm.currentState
+  mut transCount = sm.transitionCount
+
+  for step in 0..100:
+    if accum < frameDurMs:
+      break
+    accum -= frameDurMs
+    frameOffset += 1
+    if frameOffset >= clip.frameCount:
+      if clip.looping:
+        if clip.frameCount > 0:
+          frameOffset = frameOffset % clip.frameCount
+        else:
+          frameOffset = 0
+      else:
+        state = clip.fallbackState
+        frameOffset = 0
+        accum = 0.0
+        transCount += 1
+        break
+
+  ret AnimStateMachine(
+    currentState = state,
+    currentFrameOffset = frameOffset,
+    accumMs = accum,
+    clips = sm.clips,
+    transitionCount = transCount
+  )
+
+/// Returns the absolute sprite frame index for the current state and frame offset.
+pub fn animCurrentSpriteFrame(sm: AnimStateMachine): int:
+  for i in 0..sm.clips.len():
+    if sm.clips[i].name == sm.currentState:
+      ret sm.clips[i].startFrame + sm.currentFrameOffset
+  ret sm.currentFrameOffset
+
+// ============================================================================
+// 2D Skeletal FK & 2-Bone Analytical IK
+
+pub fn animModeOnce(): int:
+  ret 0
+
+pub fn animModeLoop(): int:
+  ret 1
+
+pub fn animModePingPong(): int:
+  ret 2
+
+pub struct AnimClipEx(name: str, startFrame: int, frameCount: int, fps: float, mode: int)
+
+pub fn animClipToEx(clip: AnimClip, pingPong: bool = false): AnimClipEx:
+  let m = if pingPong: 2 elif clip.looping: 1 else: 0
+  ret AnimClipEx(name = clip.name, startFrame = clip.startFrame, frameCount = clip.frameCount, fps = clip.fps, mode = m)
+
+pub fn animClipFromEx(clipEx: AnimClipEx, fallbackState: str = "idle"): AnimClip:
+  ret AnimClip(name = clipEx.name, startFrame = clipEx.startFrame, frameCount = clipEx.frameCount, fps = clipEx.fps, looping = (clipEx.mode != 0), fallbackState = fallbackState)
+
+pub fn sampleAnimClipEx(clip: AnimClipEx, elapsedSec: float): int:
+  let count = if clip.frameCount < 1: 1 else: clip.frameCount
+  if count == 1 or clip.fps <= 0.0:
+    ret clip.startFrame
+  let rawFrame = int(maxFloat(0.0, elapsedSec) * clip.fps)
+  if clip.mode == 0:
+    let clamped = if rawFrame >= count: count - 1 else: rawFrame
+    ret clip.startFrame + clamped
+  if clip.mode == 2 and count > 1:
+    let period = (count - 1) * 2
+    let m = rawFrame % period
+    let offset = if m < count: m else: period - m
+    ret clip.startFrame + offset
+  ret clip.startFrame + (rawFrame % count)
+
+pub fn sampleAnimClip(clip: AnimClip, elapsedSec: float, pingPong: bool = false): int:
+  ret sampleAnimClipEx(animClipToEx(clip, pingPong), elapsedSec)

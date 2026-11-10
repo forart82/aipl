@@ -1,0 +1,69 @@
+// Test suite for compiler/bytecode.aipl hot-reload snapshot functions (step_22.4)
+module tests.functions.rt.vm_hot_reload_snapshot_test
+
+import * from "compiler/bytecode"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_vm_hot_reload_snapshot_snapshotVmGlobalState(): int:
+  mut live: Map[str, int] = Map.new()
+  live.set("playerScore", 420)
+  live.set("playerHp", 95)
+  let snap = snapshotVmGlobalState(live, 360, 1)
+  assertEqInt(snap.frameTick, 360, "frameTick == 360")
+  assertEqInt(snap.moduleGen, 1, "moduleGen == 1")
+  assertEqInt(snap.varCount, 2, "2 variables captured")
+  assertEqInt(snap.savedVars.get("playerScore").unwrap(), 420, "playerScore == 420")
+  assertEqInt(snap.savedVars.get("playerHp").unwrap(), 95, "playerHp == 95")
+  let emptyMap: Map[str, int] = Map.new()
+  let emptySnap = snapshotVmGlobalState(emptyMap, 0, 0)
+  assertEqInt(emptySnap.varCount, 0, "empty state snapshot has 0 vars")
+  assertEqInt(emptySnap.frameTick, 0, "empty state snapshot frameTick == 0")
+  assertEqInt(emptySnap.moduleGen, 0, "empty state snapshot moduleGen == 0")
+  ret 0
+
+pub fn test_vm_hot_reload_snapshot_restoreVmGlobalState(): int:
+  mut saved: Map[str, int] = Map.new()
+  saved.set("playerScore", 420)
+  saved.set("obsoleteVar", 99)
+  mut nextDefaults: Map[str, int] = Map.new()
+  nextDefaults.set("playerScore", 0)
+  nextDefaults.set("newShieldBonus", 50)
+  let restored = restoreVmGlobalState(saved, nextDefaults)
+  assertEqInt(restored.get("playerScore").unwrap(), 420, "existing variable playerScore preserved as 420")
+  assertEqInt(restored.get("newShieldBonus").unwrap(), 50, "newly added variable initialized to default 50")
+  assertEqInt(restored.keys().len, 2, "obsolete variable pruned cleanly")
+  mut emptySaved: Map[str, int] = Map.new()
+  mut defs2: Map[str, int] = Map.new()
+  defs2.set("hp", 100)
+  let r2 = restoreVmGlobalState(emptySaved, defs2)
+  assertEqInt(r2.get("hp").unwrap(), 100, "empty savedVars retains default 100")
+  mut emptyDefs: Map[str, int] = Map.new()
+  let r3 = restoreVmGlobalState(saved, emptyDefs)
+  assertEqInt(r3.keys().len, 0, "empty newModuleDefaults yields 0 keys")
+  ret 0
+
+pub fn test_vm_hot_reload_snapshot_hotSwapBytecodeModule(): int:
+  let (g1, fn1, ok1) = hotSwapBytecodeModule(1, 12, 14, 0)
+  assert(ok1 == true, "0 compile errors swaps bytecode")
+  assertEqInt(g1, 2, "generation incremented to 2")
+  assertEqInt(fn1, 14, "new function count == 14")
+  let (gErr, fnErr, okErr) = hotSwapBytecodeModule(g1, fn1, 0, 1)
+  assert(okErr == false, "syntax error rolls back to active bytecode")
+  assertEqInt(gErr, 2, "generation stays at 2")
+  assertEqInt(fnErr, 14, "active 14 functions remain live")
+  // Zero candidate functions also rejected even if compileErrorCount == 0
+  let (gZero, fnZero, okZero) = hotSwapBytecodeModule(gErr, fnErr, 0, 0)
+  assert(okZero == false, "candidateFnCount <= 0 rejected")
+  assertEqInt(gZero, 2, "generation stays at 2 on 0 candidate functions")
+  assertEqInt(fnZero, 14, "active fnCount preserved on 0 candidate functions")
+  // Negative candidate functions also rejected
+  let (gNeg, fnNeg, okNeg) = hotSwapBytecodeModule(gZero, fnZero, -5, 0)
+  assert(okNeg == false, "negative candidateFnCount rejected")
+  assertEqInt(gNeg, 2, "generation stays at 2")
+  assertEqInt(fnNeg, 14, "active fnCount preserved")
+  // Negative compileErrorCount (e.g. fatal exit code) also rejected
+  let (gNegErr, fnNegErr, okNegErr) = hotSwapBytecodeModule(gNeg, fnNeg, 15, -1)
+  assert(okNegErr == false, "negative compileErrorCount rejected")
+  assertEqInt(gNegErr, 2, "generation stays at 2 on negative error count")
+  assertEqInt(fnNegErr, 14, "active fnCount preserved on negative error count")
+  ret 0

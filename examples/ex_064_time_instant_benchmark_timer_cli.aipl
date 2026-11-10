@@ -1,0 +1,60 @@
+// ============================================================================
+// Example 064: Monotonic Instant & Stopwatch Benchmark Timer (CLI)
+// Demonstrates: instantFromMillis, instantNow, durationFromMillis,
+//               stopwatchNew, nowMonoNs, and epochMillis from std/time.
+// ============================================================================
+module Ex064TimeInstantBenchmarkTimerCli
+
+import {
+  instantFromMillis,
+  instantNow,
+  durationFromMillis,
+  stopwatchNew,
+  nowMonoNs,
+  epochMillis
+} from "../std/time"
+
+// Computes the elapsed milliseconds between two monotonic instants and validates Instant arithmetic.
+pub fn measureSyntheticBenchmarkMs(startMs: int, endMs: int): int:
+  let t0 = instantFromMillis(startMs)
+  let t1 = instantFromMillis(endMs)
+  assert(t1.isAfter(t0), "end instant must be after start")
+  assert(t0.isBefore(t1), "start instant must be before end")
+  let delta = t1.durationSince(t0)
+  let reconstructed = t0.addDuration(delta)
+  assert(reconstructed.equals(t1), "t0 + delta must equal t1")
+  ret delta.toMillis()
+
+// Exercises Stopwatch split timing across deterministic start, lap, and stop instants.
+pub fn runStopwatchSplitAudit(tStartMs: int, tLapMs: int, tStopMs: int): int:
+  let iStart = instantFromMillis(tStartMs)
+  let iLap = instantFromMillis(tLapMs)
+  let iStop = instantFromMillis(tStopMs)
+
+  mut sw = stopwatchNew()
+  sw.startAt(iStart)
+  let lapElapsed = sw.elapsedAt(iLap).toMillis()
+  assert(lapElapsed == (tLapMs - tStartMs), "stopwatch lap matches delta")
+  sw.stopAt(iStop)
+  ret sw.elapsed().toMillis()
+
+// Classifies a benchmark run duration into human-readable throughput tiers.
+pub fn describeBenchmarkThroughputTier(elapsedMs: int): str:
+  let d = durationFromMillis(elapsedMs)
+  if d.toMillis() < 200:
+    ret "BENCH:ULTRA_FAST_SUB200MS"
+  if d.toMillis() <= 1000:
+    ret "BENCH:NOMINAL_THROUGHPUT"
+  ret "BENCH:HEAVY_BATCH_WORKLOAD"
+
+pub fn main(): int:
+  assert(nowMonoNs() >= 0, "monotonic clock active")
+  assert(epochMillis() > 0, "wall clock active")
+  let liveInst = instantNow()
+  assert(liveInst.elapsedNanos() >= 0, "live instant elapsed non-negative")
+
+  let benchMs = measureSyntheticBenchmarkMs(1000, 1250)
+  let splitMs = runStopwatchSplitAudit(5000, 5120, 5350)
+  let tier = describeBenchmarkThroughputTier(120)
+  println("ex_064_time_instant_benchmark_timer_cli: benchMs=" + str(benchMs) + " splitMs=" + str(splitMs) + " tier=" + tier)
+  ret 0

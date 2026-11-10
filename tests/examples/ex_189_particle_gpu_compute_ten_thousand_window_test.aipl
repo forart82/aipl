@@ -1,0 +1,41 @@
+module Ex189ParticleGpuComputeTenThousandWindowTest
+
+import {
+  buildGpuComputeParticleAudit, stepGpuEmitterOriginX
+} from "../../examples/ex_189_particle_gpu_compute_ten_thousand_window"
+import {
+  createGpuParticleSoA, spawnGpuParticleSoA,
+  stepGpuParticleSoACpuFallback, buildComputeParticleShaderWgsl,
+  createComputeParticlePipeline
+} from "../../std/particle/gpu_compute_particles"
+
+pub fn test_particle_gpu_compute_ten_thousand(): void:
+  mut soa = createGpuParticleSoA(10000)
+  assert(soa.capacity == 10000 and soa.posX.len() == 10000, "10,000-element SoA arrays allocated")
+
+  soa = spawnGpuParticleSoA(soa, 1.0, 2.0, 3.0, 4.0, 0.0, 0.0, 2.0, -1)
+  assert(soa.liveCount == 1, "spawnGpuParticleSoA increments liveCount")
+
+  soa = stepGpuParticleSoACpuFallback(soa, 0.5, -10.0)
+  assert(soa.liveCount == 1 and soa.posX[0] == 3.0, "CPU fallback advects posX = 1.0 + 4.0*0.5 == 3.0")
+
+  let wgsl = buildComputeParticleShaderWgsl(64)
+  assert(wgsl.contains("@compute") and wgsl.contains("@workgroup_size(64)"), "WGSL compute shader generated")
+
+  let pipe = createComputeParticlePipeline(10000, 64)
+  assert(pipe.maxParticles == 10000 and pipe.workgroupSizeX == 64, "Compute particle pipeline configured")
+  assert(buildGpuComputeParticleAudit() == 10068, "buildGpuComputeParticleAudit returns 10000 + 64 + 3 + 1 == 10068")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let x0 = stepGpuEmitterOriginX(0)
+  let x1 = stepGpuEmitterOriginX(1)
+  let x20 = stepGpuEmitterOriginX(20)
+  let x100 = stepGpuEmitterOriginX(100)
+  assert(x0 != x1, "GPU emitter origin advances from t=0 to t=1")
+  assert(x1 != x20, "GPU emitter origin advances from t=1 to t=20")
+  assert(x20 != x100 and x0 != x100, "GPU emitter origin advances from t=20 to t=100 without freezing")
+
+pub fn main(): int:
+  test_particle_gpu_compute_ten_thousand()
+  println("PASS: ex_189_particle_gpu_compute_ten_thousand_window_test")
+  ret 0

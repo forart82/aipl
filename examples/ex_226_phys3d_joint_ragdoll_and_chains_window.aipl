@@ -1,0 +1,292 @@
+module Ex226Phys3dJointRagdollAndChainsWindow
+
+import {
+  JointType3D, Joint3D, ballSocketJointNew,
+  hingeJointNew, sixDofJointNew, joint3dSolveVelocity
+} from "../std/phys3d/joint3d"
+import {
+  BodyType3D, RigidBody3D, rigidBody3dNew, rigidBody3dIntegrate
+} from "../std/phys3d/rigid_body3d"
+import { Vec3 } from "../std/math/vec_math"
+import { sin, cos } from "../std/math/trig"
+import { Quat } from "../std/math/quat"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct RagdollChainScene(ragdollBodies: [RigidBody3D], ragdollJoints: [Joint3D], chainBodies: [RigidBody3D], chainJoints: [Joint3D])
+
+pub fn createRagdollChainScene(): RagdollChainScene:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut rBodies: [RigidBody3D] = [
+    rigidBody3dNew(0, BodyType3D.Static, Vec3(x = 340.0, y = 315.0, z = 0.0), idRot),
+    rigidBody3dNew(1, BodyType3D.Dynamic, Vec3(x = 340.0, y = 200.0, z = 0.0), idRot),
+    rigidBody3dNew(2, BodyType3D.Dynamic, Vec3(x = 230.0, y = 310.0, z = 0.0), idRot),
+    rigidBody3dNew(3, BodyType3D.Dynamic, Vec3(x = 180.0, y = 380.0, z = 0.0), idRot),
+    rigidBody3dNew(4, BodyType3D.Dynamic, Vec3(x = 450.0, y = 310.0, z = 0.0), idRot),
+    rigidBody3dNew(5, BodyType3D.Dynamic, Vec3(x = 500.0, y = 380.0, z = 0.0), idRot),
+    rigidBody3dNew(6, BodyType3D.Dynamic, Vec3(x = 290.0, y = 480.0, z = 0.0), idRot),
+    rigidBody3dNew(7, BodyType3D.Dynamic, Vec3(x = 280.0, y = 580.0, z = 0.0), idRot),
+    rigidBody3dNew(8, BodyType3D.Dynamic, Vec3(x = 390.0, y = 480.0, z = 0.0), idRot),
+    rigidBody3dNew(9, BodyType3D.Dynamic, Vec3(x = 400.0, y = 580.0, z = 0.0), idRot)
+  ]
+
+  mut ri = 1
+  while ri < rBodies.len():
+    mut rbInit: RigidBody3D = rBodies[ri]
+    rbInit.linearDamping = 2.8
+    rBodies[ri] = rbInit
+    ri = ri + 1
+
+  mut jShL = ballSocketJointNew(0, 2, Vec3(x = -35.0, y = -50.0, z = 0.0))
+  jShL.localAnchorB = Vec3(x = 75.0, y = -45.0, z = 0.0)
+  mut jElL = hingeJointNew(2, 3, Vec3(x = 0.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 1.0))
+  jElL.localAnchorB = Vec3(x = 50.0, y = -70.0, z = 0.0)
+  mut jShR = ballSocketJointNew(0, 4, Vec3(x = 35.0, y = -50.0, z = 0.0))
+  jShR.localAnchorB = Vec3(x = -75.0, y = -45.0, z = 0.0)
+  mut jElR = hingeJointNew(4, 5, Vec3(x = 0.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 1.0))
+  jElR.localAnchorB = Vec3(x = -50.0, y = -70.0, z = 0.0)
+  mut jHipL = ballSocketJointNew(0, 6, Vec3(x = -20.0, y = 65.0, z = 0.0))
+  jHipL.localAnchorB = Vec3(x = 30.0, y = -100.0, z = 0.0)
+  mut jKnL = hingeJointNew(6, 7, Vec3(x = 0.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 1.0))
+  jKnL.localAnchorB = Vec3(x = 10.0, y = -100.0, z = 0.0)
+  mut jHipR = ballSocketJointNew(0, 8, Vec3(x = 20.0, y = 65.0, z = 0.0))
+  jHipR.localAnchorB = Vec3(x = -30.0, y = -100.0, z = 0.0)
+  mut jKnR = hingeJointNew(8, 9, Vec3(x = 0.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 1.0))
+  jKnR.localAnchorB = Vec3(x = -10.0, y = -100.0, z = 0.0)
+
+  let rJoints: [Joint3D] = [
+    sixDofJointNew(0, 1, Vec3(x = 0.0, y = -75.0, z = 0.0), Vec3(x = 0.0, y = 40.0, z = 0.0)),
+    jShL, jElL, jShR, jElR, jHipL, jKnL, jHipR, jKnR
+  ]
+
+  mut cBodies: [RigidBody3D] = []
+  mut cJoints: [Joint3D] = []
+  mut k = 0
+  while k < 7:
+    let bType = if k == 0: BodyType3D.Static else: BodyType3D.Dynamic
+    let lx = 940.0 + float(k * 16)
+    let ly = 180.0 + float(k * 56)
+    mut cbInit = rigidBody3dNew(10 + k, bType, Vec3(x = lx, y = ly, z = 0.0), idRot)
+    cbInit.linearDamping = 2.4
+    cBodies.push(cbInit)
+    if k > 0:
+      cJoints.push(sixDofJointNew(k - 1, k, Vec3(x = 0.0, y = 28.0, z = 0.0), Vec3(x = 0.0, y = -28.0, z = 0.0)))
+    k = k + 1
+
+  ret RagdollChainScene(
+    ragdollBodies = rBodies,
+    ragdollJoints = rJoints,
+    chainBodies = cBodies,
+    chainJoints = cJoints
+  )
+
+pub fn stepScene(mut scene: RagdollChainScene, frame: int, dt: float): void:
+  let phase = float(frame) * 0.085
+  let armWave = sin(phase) * 42.0
+  let legWave = cos(phase * 0.9) * 34.0
+  let chainWave = sin(phase * 0.75) * 14.5
+
+  // Update ragdoll joint target poses so BallSocket, Hinge & 6-DOF solver drives active articulation
+  mut rJoints = scene.ragdollJoints
+  mut jNeck: Joint3D = rJoints[0]
+  jNeck.localAnchorB = Vec3(x = sin(phase) * 14.0, y = 40.0, z = 0.0)
+  rJoints[0] = jNeck
+
+  mut jShL: Joint3D = rJoints[1]
+  jShL.localAnchorB = Vec3(x = 75.0 + armWave * 0.5, y = -45.0 - armWave * 0.6, z = 0.0)
+  rJoints[1] = jShL
+
+  mut jElL: Joint3D = rJoints[2]
+  jElL.localAnchorB = Vec3(x = 50.0 + armWave * 0.6, y = -70.0 - armWave * 0.8, z = 0.0)
+  rJoints[2] = jElL
+
+  mut jShR: Joint3D = rJoints[3]
+  jShR.localAnchorB = Vec3(x = -75.0 + armWave * 0.5, y = -45.0 + armWave * 0.6, z = 0.0)
+  rJoints[3] = jShR
+
+  mut jElR: Joint3D = rJoints[4]
+  jElR.localAnchorB = Vec3(x = -50.0 + armWave * 0.6, y = -70.0 + armWave * 0.8, z = 0.0)
+  rJoints[4] = jElR
+
+  mut jHipL: Joint3D = rJoints[5]
+  jHipL.localAnchorB = Vec3(x = 30.0 - legWave * 0.6, y = -100.0, z = 0.0)
+  rJoints[5] = jHipL
+
+  mut jKnL: Joint3D = rJoints[6]
+  jKnL.localAnchorB = Vec3(x = 10.0 - legWave * 0.8, y = -100.0, z = 0.0)
+  rJoints[6] = jKnL
+
+  mut jHipR: Joint3D = rJoints[7]
+  jHipR.localAnchorB = Vec3(x = -30.0 - legWave * 0.6, y = -100.0, z = 0.0)
+  rJoints[7] = jHipR
+
+  mut jKnR: Joint3D = rJoints[8]
+  jKnR.localAnchorB = Vec3(x = -10.0 - legWave * 0.8, y = -100.0, z = 0.0)
+  rJoints[8] = jKnR
+  scene.ragdollJoints = rJoints
+
+  let grav = Vec3(x = armWave * 1.5, y = 18.0, z = 0.0)
+  mut rBodies = scene.ragdollBodies
+  mut i = 0
+  while i < rBodies.len():
+    mut rb: RigidBody3D = rBodies[i]
+    rigidBody3dIntegrate(rb, grav, dt)
+    rBodies[i] = rb
+    i = i + 1
+
+  mut it = 0
+  while it < 4:
+    mut j = 0
+    while j < scene.ragdollJoints.len():
+      let jt: Joint3D = scene.ragdollJoints[j]
+      mut ba: RigidBody3D = rBodies[jt.bodyIdA]
+      mut bb: RigidBody3D = rBodies[jt.bodyIdB]
+      joint3dSolveVelocity(jt, ba, bb, dt)
+      rBodies[jt.bodyIdA] = ba
+      rBodies[jt.bodyIdB] = bb
+      j = j + 1
+    it = it + 1
+  scene.ragdollBodies = rBodies
+
+  mut cJoints = scene.chainJoints
+  mut cjIdx = 0
+  while cjIdx < cJoints.len():
+    mut cjtMod: Joint3D = cJoints[cjIdx]
+    let linkSwing = chainWave * (1.0 + float(cjIdx) * 0.18)
+    cjtMod.localAnchorA = Vec3(x = linkSwing, y = 27.0, z = 0.0)
+    cjtMod.localAnchorB = Vec3(x = -linkSwing, y = -27.0, z = 0.0)
+    cJoints[cjIdx] = cjtMod
+    cjIdx = cjIdx + 1
+  scene.chainJoints = cJoints
+
+  mut cBodies = scene.chainBodies
+  mut cIdx = 0
+  while cIdx < cBodies.len():
+    mut cb: RigidBody3D = cBodies[cIdx]
+    rigidBody3dIntegrate(cb, Vec3(x = chainWave * 3.0, y = 38.0, z = 0.0), dt)
+    cBodies[cIdx] = cb
+    cIdx = cIdx + 1
+
+  mut cit = 0
+  while cit < 5:
+    mut cj = 0
+    while cj < scene.chainJoints.len():
+      let cjt: Joint3D = scene.chainJoints[cj]
+      mut cba: RigidBody3D = cBodies[cjt.bodyIdA]
+      mut cbb: RigidBody3D = cBodies[cjt.bodyIdB]
+      joint3dSolveVelocity(cjt, cba, cbb, dt)
+      cBodies[cjt.bodyIdA] = cba
+      cBodies[cjt.bodyIdB] = cbb
+      cj = cj + 1
+    cit = cit + 1
+  scene.chainBodies = cBodies
+
+pub fn auditPhys3dRagdollAndChains(): int:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut torso = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 4.0, z = 0.0), idRot)
+  mut armL = rigidBody3dNew(1, BodyType3D.Dynamic, Vec3(x = -1.5, y = 4.0, z = 0.0), idRot)
+  mut forearmL = rigidBody3dNew(2, BodyType3D.Dynamic, Vec3(x = -3.0, y = 4.0, z = 0.0), idRot)
+  let jShoulder = ballSocketJointNew(0, 1, Vec3(x = -0.8, y = 4.0, z = 0.0))
+  let jElbow = hingeJointNew(1, 2, Vec3(x = -2.2, y = 4.0, z = 0.0), Vec3(x = 0.0, y = 1.0, z = 0.0))
+  let jSpine = sixDofJointNew(0, 1, Vec3(x = 0.0, y = 3.0, z = 0.0), Vec3(x = 0.0, y = 3.0, z = 0.0))
+  joint3dSolveVelocity(jShoulder, torso, armL, 0.1)
+  joint3dSolveVelocity(jElbow, armL, forearmL, 0.1)
+  mut score = 30
+  if jShoulder.jointType == JointType3D.BallSocket:
+    score = score + 1
+  if jElbow.jointType == JointType3D.Hinge:
+    score = score + 2
+  if jSpine.jointType == JointType3D.SixDof:
+    score = score + 3
+  ret score
+
+pub fn main(): int:
+  let audit = auditPhys3dRagdollAndChains()
+  println("EX_226_PHYS3D_RAGDOLL_AUDIT=" + str(audit))
+
+  mut scene = createRagdollChainScene()
+
+  initWindow(1280, 720, "AIPL ex_226: 3D Ragdoll Articulation & Pendulum Chains")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.05)
+
+    let torso: RigidBody3D = scene.ragdollBodies[0]
+    let head: RigidBody3D = scene.ragdollBodies[1]
+    let armL: RigidBody3D = scene.ragdollBodies[2]
+    let handL: RigidBody3D = scene.ragdollBodies[3]
+    let armR: RigidBody3D = scene.ragdollBodies[4]
+    let handR: RigidBody3D = scene.ragdollBodies[5]
+    let thighL: RigidBody3D = scene.ragdollBodies[6]
+    let calfL: RigidBody3D = scene.ragdollBodies[7]
+    let thighR: RigidBody3D = scene.ragdollBodies[8]
+    let calfR: RigidBody3D = scene.ragdollBodies[9]
+    let tipBody: RigidBody3D = scene.chainBodies[scene.chainBodies.len() - 1]
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_226: 3D RAGDOLL JOINTS (BALL-SOCKET, HINGE, 6-DOF) & PENDULUM CHAINS", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | RagdollBodies=" + str(scene.ragdollBodies.len()) + " (9 Joints) | ChainLinks=" + str(scene.chainBodies.len()) + " | ChainTipX=" + str(int(tipBody.position.x)), 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(60.0, 110.0, 560.0, 566.0, rgb(17, 24, 39))
+    drawRectOutline(60.0, 110.0, 560.0, 566.0, 2.0, rgb(56, 189, 248))
+    drawText("ARTICULATED 3D RAGDOLL RIG (10 BODIES, 9 JOINTS)", 84.0, 130.0, 16.0, rgb(125, 211, 252))
+
+    drawCircle(head.position.x, head.position.y, 28.0, rgb(30, 58, 138))
+    drawCircleOutline(head.position.x, head.position.y, 28.0, 2.0, rgb(96, 165, 250))
+    drawRect(torso.position.x - 35.0, torso.position.y - 65.0, 70.0, 130.0, rgb(30, 58, 138))
+    drawRectOutline(torso.position.x - 35.0, torso.position.y - 65.0, 70.0, 130.0, 2.0, rgb(96, 165, 250))
+    drawCircle(torso.position.x, torso.position.y - 75.0, 8.0, rgb(168, 85, 247))
+
+    drawLine(torso.position.x - 35.0, torso.position.y - 50.0, armL.position.x, armL.position.y, rgb(56, 189, 248), 10.0)
+    drawLine(armL.position.x, armL.position.y, handL.position.x, handL.position.y, rgb(56, 189, 248), 8.0)
+    drawCircle(torso.position.x - 35.0, torso.position.y - 50.0, 9.0, rgb(250, 204, 21))
+    drawCircle(armL.position.x, armL.position.y, 8.0, rgb(16, 185, 129))
+    drawCircle(handL.position.x, handL.position.y, 7.0, rgb(244, 114, 182))
+
+    drawLine(torso.position.x + 35.0, torso.position.y - 50.0, armR.position.x, armR.position.y, rgb(56, 189, 248), 10.0)
+    drawLine(armR.position.x, armR.position.y, handR.position.x, handR.position.y, rgb(56, 189, 248), 8.0)
+    drawCircle(torso.position.x + 35.0, torso.position.y - 50.0, 9.0, rgb(250, 204, 21))
+    drawCircle(armR.position.x, armR.position.y, 8.0, rgb(16, 185, 129))
+    drawCircle(handR.position.x, handR.position.y, 7.0, rgb(244, 114, 182))
+
+    drawLine(torso.position.x - 20.0, torso.position.y + 65.0, thighL.position.x, thighL.position.y, rgb(56, 189, 248), 12.0)
+    drawLine(thighL.position.x, thighL.position.y, calfL.position.x, calfL.position.y, rgb(56, 189, 248), 10.0)
+    drawCircle(torso.position.x - 20.0, torso.position.y + 65.0, 9.0, rgb(250, 204, 21))
+    drawCircle(thighL.position.x, thighL.position.y, 8.0, rgb(16, 185, 129))
+    drawCircle(calfL.position.x, calfL.position.y, 7.5, rgb(244, 114, 182))
+
+    drawLine(torso.position.x + 20.0, torso.position.y + 65.0, thighR.position.x, thighR.position.y, rgb(56, 189, 248), 12.0)
+    drawLine(thighR.position.x, thighR.position.y, calfR.position.x, calfR.position.y, rgb(56, 189, 248), 10.0)
+    drawCircle(torso.position.x + 20.0, torso.position.y + 65.0, 9.0, rgb(250, 204, 21))
+    drawCircle(thighR.position.x, thighR.position.y, 8.0, rgb(16, 185, 129))
+    drawCircle(calfR.position.x, calfR.position.y, 7.5, rgb(244, 114, 182))
+    drawText("Yellow: BallSocket (Shoulders/Hips) | Green: Hinge (Elbows/Knees) | Purple: 6-DOF Neck", 80.0, 646.0, 12.0, rgb(148, 163, 184))
+
+    drawRect(660.0, 110.0, 560.0, 566.0, rgb(17, 24, 39))
+    drawRectOutline(660.0, 110.0, 560.0, 566.0, 2.0, rgb(245, 158, 11))
+    drawText("MULTI-LINK 3D 6-DOF PENDULUM CHAIN (7 LINKS)", 684.0, 130.0, 16.0, rgb(253, 224, 71))
+
+    drawRect(900.0, 164.0, 80.0, 14.0, rgb(71, 85, 105))
+    mut link = 0
+    while link < scene.chainBodies.len() - 1:
+      let bCur: RigidBody3D = scene.chainBodies[link]
+      let bNext: RigidBody3D = scene.chainBodies[link + 1]
+      drawLine(bCur.position.x, bCur.position.y, bNext.position.x, bNext.position.y, rgb(148, 163, 184), 6.0)
+      drawCircle(bCur.position.x, bCur.position.y, 14.0, rgb(245, 158, 11))
+      drawCircleOutline(bCur.position.x, bCur.position.y, 14.0, 2.0, rgb(254, 240, 138))
+      link = link + 1
+    drawCircle(tipBody.position.x, tipBody.position.y, 26.0, rgb(239, 68, 68))
+    drawCircleOutline(tipBody.position.x, tipBody.position.y, 26.0, 2.0, rgb(254, 202, 202))
+    drawLine(tipBody.position.x, tipBody.position.y, tipBody.position.x + tipBody.linearVelocity.x * 0.14, tipBody.position.y + tipBody.linearVelocity.y * 0.14, rgb(250, 204, 21), 2.5)
+    drawText("Sequential Impulse Velocity Solver + Baumgarte Stabilization (8 Iters)", 684.0, 646.0, 13.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

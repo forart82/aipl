@@ -1,0 +1,67 @@
+module GfxGpuTextureMod
+
+// ============================================================================
+// std/gfx/gpu_texture.aipl — GPU 2D/3D/Cube Textures, Samplers & Mipmaps
+// ============================================================================
+
+import { GpuDevice } from "./gpu_device"
+
+pub struct TextureFormat(id: int, bytesPerPixel: int, hasAlpha: bool, isDepth: bool, isCompressed: bool)
+
+pub struct SamplerState(filterMin: int, filterMag: int, filterMip: int, wrapU: int, wrapV: int, wrapW: int, maxAnisotropy: int)
+
+pub struct GpuTexture(textureId: int, width: int, height: int, depth: int, mipLevels: int, format: TextureFormat, dimension: int)
+
+pub fn createTexture2D(dev: GpuDevice, w: int, h: int, fmt: TextureFormat, mipLevels: int = 1): GpuTexture:
+  let id = if dev.isAlive: 1 else: 0
+  let safeW = if w > 0: w else: 1
+  let safeH = if h > 0: h else: 1
+  let safeMips = if mipLevels > 0: mipLevels else: 1
+  ret GpuTexture(
+    textureId = id,
+    width = safeW,
+    height = safeH,
+    depth = 1,
+    mipLevels = safeMips,
+    format = fmt,
+    dimension = 2
+  )
+
+pub fn computeMaxMipLevels(w: int, h: int): int:
+  mut m = if w > h: w else: h
+  if m <= 1:
+    ret 1
+  mut levels = 1
+  while m > 1:
+    m = m >> 1
+    levels += 1
+  ret levels
+
+pub fn computeMipDimension(baseDim: int, mipLevel: int): int:
+  if baseDim <= 1 or mipLevel <= 0:
+    ret if baseDim > 1: baseDim else: 1
+  let shifted = baseDim >> mipLevel
+  ret if shifted > 1: shifted else: 1
+
+pub fn createLinearSampler(): SamplerState:
+  ret SamplerState(
+    filterMin = 1,
+    filterMag = 1,
+    filterMip = 1,
+    wrapU = 0,
+    wrapV = 0,
+    wrapW = 0,
+    maxAnisotropy = 1
+  )
+
+pub fn createAnisotropicSampler(maxAniso: int = 16): SamplerState:
+  let safeAniso = if maxAniso >= 1: maxAniso else: 1
+  ret SamplerState(
+    filterMin = 1,
+    filterMag = 1,
+    filterMip = 1,
+    wrapU = 1,
+    wrapV = 1,
+    wrapW = 1,
+    maxAnisotropy = safeAniso
+  )

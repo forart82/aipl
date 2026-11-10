@@ -1,0 +1,57 @@
+/// # Module: `std/io/stdio` (`IoStdio`)
+///
+/// ## Purpose & Domain Scope
+/// Standard input, output, and error descriptor handles (`StdioHandle`) with deterministic
+/// buffered capture and line-oriented mock reading.
+module IoStdio
+
+import "io_traits.aipl"
+
+pub struct StdioHandle:
+  fd: int
+  isTty: bool = false
+  mut buffer: [str]
+
+pub fn stdioStdin(): StdioHandle:
+  ret StdioHandle(fd: 0, isTty: false, buffer: [])
+
+pub fn stdioStdout(): StdioHandle:
+  ret StdioHandle(fd: 1, isTty: false, buffer: [])
+
+pub fn stdioStderr(): StdioHandle:
+  ret StdioHandle(fd: 2, isTty: false, buffer: [])
+
+pub fn stdioPrint(text: str): int:
+  ret text.len()
+
+pub fn stdioPrintln(text: str): int:
+  ret text.len() + 1
+
+pub fn stdioEprint(text: str): int:
+  ret text.len()
+
+pub fn stdioEprintln(text: str): int:
+  ret text.len() + 1
+
+pub fn stdioWriteBytes(mut handle: StdioHandle, data: [int]): int:
+  mut s = ""
+  mut i = 0
+  while i < data.len():
+    s = s + chr(data[i] & 255)
+    i = i + 1
+  handle.buffer.push(s)
+  ret data.len()
+
+pub fn stdioReadLineMock(mut handle: StdioHandle): Option[str]:
+  if handle.buffer.len() == 0:
+    ret None
+  let first = handle.buffer[0]
+  mut k = 0
+  while k + 1 < handle.buffer.len():
+    handle.buffer[k] = handle.buffer[k + 1]
+    k = k + 1
+  let _ = handle.buffer.pop()
+  ret Some(first)
+
+pub fn stdioFlush(mut handle: StdioHandle): bool:
+  ret handle.fd >= 0

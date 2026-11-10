@@ -1,0 +1,218 @@
+strategy "TacticalFPSAgent"
+  seat: 1
+  reaction_ms: 170
+  max_rate_hz: 15.0
+  max_turn_rad_s: 6.2831853
+  max_cursor_px_s: 780.0
+  max_idle_frames: 90
+
+  selector "Root"
+    sequence "SpectatorTargetCycling"
+      condition: bot.isDead == true
+      cooldown_ms: 200
+      action: key("SPACE")
+
+    sequence "BuyMenuEquipmentPhase"
+      condition: round.isBuyPhase == true and player.money >= 3100
+      cooldown_ms: 80
+      action: key("B")
+
+    sequence "MR15HalftimeSideAndEconomySwap"
+      condition: match.isHalftimeSwapped == true and round.phase == "FreezeTime"
+      cooldown_ms: 100
+      action: key("B")
+
+    sequence "MR3OvertimeEngagement"
+      condition: match.phase == "OvertimeFirstHalf" or match.phase == "OvertimeSecondHalf"
+      cooldown_ms: 70
+      action: pursue_and_attack(env.nearestEnemy)
+
+    sequence "PreMatchKnifeRoundDuel"
+      condition: match.phase == "KnifeRound" and env.nearestEnemyDist < 120.0
+      cooldown_ms: 50
+      action: key("MOUSE1")
+
+    sequence "RecoilKickBackSprayCompensation"
+      condition: weapons.clipFiredCount > 3 and env.nearestEnemyDist < 450.0
+      cooldown_ms: 40
+      action: pursue_and_attack(env.nearestEnemy)
+
+    sequence "WorldWeaponDropAndPickup"
+      condition: (weapons.emptySlotAvailable == true and env.nearestDroppedWeaponDist < 64.0) or (env.tossWeaponRequested == true)
+      cooldown_ms: 150
+      action: key("G")
+
+    sequence "PlayerSprayDecalImpulse201"
+      condition: env.nearSpraySurface == true and env.sprayCooldownRemaining <= 0.0
+      cooldown_ms: 500
+      action: key("T")
+
+    sequence "CompetitiveMapPoolRotationCycle"
+      condition: match.matchCompleted == true or env.mapVoteActive == true
+      cooldown_ms: 200
+      action: key("M")
+
+    sequence "C4ExponentialBeepAndFalloffEvasion"
+      condition: bomb.status == "Planted" and bomb.countdown < 3.0
+      cooldown_ms: 50
+      action: evade_vector(bomb.angle)
+
+    sequence "DualElitesAlternatingFireAndReload"
+      condition: weapons.activeWeapon == "Dual Beretta 96G Elites" and env.nearestEnemyDist < 250.0
+      cooldown_ms: 70
+      action: pursue_and_attack(env.nearestEnemy)
+
+    sequence "TacticalShieldDeployStance"
+      condition: weapons.hasShield == true and env.underSniperFire == true
+      cooldown_ms: 100
+      action: key("MOUSE2")
+
+    sequence "AutoSniperG3SG1DualZoomCycling"
+      condition: (weapons.activeWeapon == "H&K G3SG1" or weapons.activeWeapon == "SG-550 Commando") and env.nearestEnemyDist > 400.0
+      cooldown_ms: 120
+      action: key("MOUSE2")
+
+    sequence "NightvisionGogglesToggle"
+      condition: player.hasNVG == true and env.isDarkArea == true and env.nvgActive == false
+      cooldown_ms: 200
+      action: key("N")
+
+    sequence "FamasBurstFireModeToggle"
+      condition: weapons.activeWeapon == "Clarion 5.56" and weapons.burstModeActive == false and env.nearestEnemyDist > 300.0
+      cooldown_ms: 120
+      action: key("MOUSE2")
+
+    sequence "TacticalRadioSquadCommands"
+      condition: round.phase == "ActiveRound" and env.squadCallNeeded == true
+      cooldown_ms: 250
+      action: key("Z")
+
+    sequence "LadderClimbMove"
+      condition: env.onLadder == true
+      cooldown_ms: 50
+      action: key("W")
+
+    sequence "AirStrafeVelocityGain"
+      condition: env.isAirborne == true
+      cooldown_ms: 40
+      action: key("D")
+
+    sequence "HostageEscortInteraction"
+      condition: env.nearestHostageDist < 64.0 and player.isCT == true
+      cooldown_ms: 100
+      action: key("E")
+
+    sequence "EvadeIncomingFire"
+      condition: env.nearestProjectileDist < 60.0
+      cooldown_ms: 60
+      action: strafe_perpendicular(env.nearestProjectileAngle)
+
+    sequence "HostileEngagementBurstFire"
+      condition: env.nearestEnemyDist < 400.0
+      cooldown_ms: 70
+      action: pursue_and_attack(env.nearestEnemy)
+
+    sequence "DefuseBombInteractivity"
+      condition: player.isCT == true and env.bombTargetActive == true and env.bombDist < 64.0
+      cooldown_ms: 100
+      action: key("E")
+
+    sequence "BombPlantDefuseObjective"
+      condition: env.bombTargetActive == true
+      cooldown_ms: 100
+      action: move_toward(env.bombSitePos)
+
+    sequence "TacticalWaypointPatrol"
+      condition: env.objectiveDist > 20.0
+      cooldown_ms: 80
+      action: move_toward(env.nextWaypoint)
+
+    sequence "FlashbangAvoidanceTurn"
+      condition: env.nearestIncomingFlashDist < 350.0 and env.nearestIncomingFlashArmed == true
+      cooldown_ms: 80
+      action: turn_angle(180.0)
+
+    sequence "TacticalFlashbangDeployment"
+      condition: env.nearestEnemyDist > 150.0 and env.nearestEnemyDist < 600.0 and player.hasFlashbang == true
+      cooldown_ms: 250
+      action: key("4")
+
+    sequence "TacticalSmokeGrenadeDeployment"
+      condition: env.activeSmokeClouds == 0 and env.nearestEnemyDist < 300.0 and player.hasSmoke == true
+      cooldown_ms: 300
+      action: key("4")
+
+    sequence "RadioTacticalCommandFeedback"
+      condition: env.objectiveDist < 60.0
+      cooldown_ms: 500
+      action: key("X")
+
+    sequence "QuickSaveStateCheckpoint"
+      condition: round.isRoundEnd == true and bot.hasSavedThisRound == false
+      cooldown_ms: 1000
+      action: key("F5")
+
+    sequence "QuickLoadCheckpointProgression"
+      condition: round.isMatchFinished == true and bot.hasLoadedProgression == false
+      cooldown_ms: 1000
+      action: key("F8")
+
+    sequence "VipEscortObjective"
+      condition: vip.isVipMode == true and player.isVip == false and player.isCT == true
+      cooldown_ms: 90
+      action: move_toward(vip.position)
+
+    sequence "VipHelipadEscapeZoneSprint"
+      condition: player.isVip == true and env.helipadEscapeDist > 10.0
+      cooldown_ms: 80
+      action: move_toward(vip.helipadEscapePos)
+
+    sequence "HostageCrouchNavigation"
+      condition: env.nearestWaypointNeedsCrouch == true and bot.isEscortingHostage == true
+      cooldown_ms: 70
+      action: key("CTRL")
+
+    sequence "KillfeedHudMonitor"
+      condition: hud.killfeedActiveEntries > 0
+      cooldown_ms: 500
+      action: track_telemetry("killfeed_event", hud.latestKillfeedWeapon)
+
+    sequence "Hrtf3DPositionalAudioTracking"
+      condition: audio.bombBeepPan != 0.0
+      cooldown_ms: 100
+      action: turn_toward(audio.bombBeepSource)
+
+    sequence "RayIntersectsCylinderSmokeOcclusion"
+      condition: env.smokeOccluded == true
+      cooldown_ms: 100
+      action: move_toward(env.tacticalCoverPos)
+
+    sequence "FallbackHeartbeatExploration"
+      condition: bot.idleFrames > 60
+      cooldown_ms: 80
+      action: click_smooth(ui.primaryInteractiveNode)
+
+    sequence "ScoreboardTabTacticalInspection"
+      condition: bot.inspectScoreboardNeeded == true or round.isFreezeTime == true
+      cooldown_ms: 300
+      action: key("TAB")
+
+    sequence "WallbangCoverPenetrationFire"
+      condition: env.targetBehindPenetrableCover == true and player.hasHighPenetrationWeapon == true
+      cooldown_ms: 100
+      action: fire_wallbang(env.targetCoverPos)
+
+    sequence "SteyrScoutSniperMobilityEngage"
+      condition: player.hasScout == true and env.nearestEnemyDist > 500.0
+      cooldown_ms: 120
+      action: secondary_zoom_and_fire(env.nearestEnemy)
+
+    sequence "AugSg552ScopedTacticalZoom"
+      condition: player.hasScopedRifle == true and player.isScoped == false and env.nearestEnemyDist > 300.0
+      cooldown_ms: 150
+      action: click_secondary()
+
+    sequence "SeamlessMapRotationProgression"
+      condition: round.isMatchFinished == true and bot.hasTriggeredMapRotation == false
+      cooldown_ms: 1000
+      action: key("M")

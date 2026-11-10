@@ -1,0 +1,56 @@
+// ============================================================================
+// Example 062: Myers Diff, Unified Patch & 3-Way Merge (CLI)
+// Demonstrates: myersDiffLines, buildUnifiedHunks, formatUnifiedDiff,
+//               parseUnifiedPatch, applyUnifiedPatch, and threeWayMerge
+//               from std/regex.
+// ============================================================================
+module Ex062RegexTextDiffMyersPatchCli
+
+import {
+  myersDiffLines,
+  buildUnifiedHunks,
+  formatUnifiedDiff,
+  parseUnifiedPatch,
+  applyUnifiedPatch,
+  threeWayMerge
+} from "../std/regex"
+
+pub fn computeMyersEditDistance(insertions: int, deletions: int): int:
+  ret insertions + deletions
+
+pub fn computePostPatchLineCount(originalLines: int, netDelta: int): int:
+  ret originalLines + netDelta
+
+pub fn describeDiffChangeKind(editKind: int): str:
+  if editKind == 0:
+    ret "DIFF:IDENTICAL"
+  if editKind == 1:
+    ret "DIFF:INSERTION_HUNK"
+  ret "DIFF:DELETION_HUNK"
+
+pub fn verifyUnifiedPatchRoundtripAndMerge(): int:
+  let oldText = "alpha\nbeta\ngamma\ndelta\n"
+  let newText = "alpha\nbeta_modified\ngamma\ndelta\nepsilon\n"
+  let edits = myersDiffLines(["alpha", "beta"], ["alpha", "beta_mod"])
+  let hunks = buildUnifiedHunks(edits, 1)
+  let diffStr = formatUnifiedDiff("old.txt", "new.txt", oldText, newText, 2)
+  let parsedPatch = parseUnifiedPatch(diffStr).unwrap()
+  let patched = applyUnifiedPatch(oldText, parsedPatch).unwrap()
+
+  let base = "line1\ncommon\nline3\n"
+  let ours = "line1_ours\ncommon\nline3\n"
+  let theirs = "line1\ncommon\nline3_theirs\n"
+  let merged = threeWayMerge(base, ours, theirs).unwrap()
+
+  if patched == newText and merged == "line1_ours\ncommon\nline3_theirs\n":
+    ret edits.len + hunks.len
+  ret -1
+
+pub fn main(): int:
+  let dist = computeMyersEditDistance(18, 7)
+  let postLines = computePostPatchLineCount(400, 11)
+  let kind = describeDiffChangeKind(0)
+  let patchMetric = verifyUnifiedPatchRoundtripAndMerge()
+  println("Myers Edit Distance (18 + 7): " + str(dist) + " | Post-Patch Lines: " + str(postLines))
+  println("Unified Patch & 3-Way Merge Metric: " + str(patchMetric) + " | Kind: " + kind)
+  ret 0

@@ -1,0 +1,69 @@
+// ============================================================================
+// Module: std/regex/regex_mod
+// Layer 1: Regular Expression Engine & Text Diffing Barrel
+// ============================================================================
+module RegexMod
+
+pub import std.regex.regex_compile
+pub import std.regex.regex_vm
+pub import std.regex.text_diff
+
+import { Regex, regexCompile } from "./regex_compile.aipl"
+import { RegexMatch } from "./regex_vm.aipl"
+import { formatUnifiedDiff, parseUnifiedPatch, applyUnifiedPatch, editDistance, similarityRatio } from "./text_diff.aipl"
+
+pub fn regexMatch(pattern: str, text: str): bool:
+  let reRes = regexCompile(pattern)
+  if reRes.isErr():
+    ret false
+  ret reRes.unwrap().isMatch(text)
+
+pub fn regexIsMatch(re: Regex, text: str): bool:
+  ret re.isMatch(text)
+
+pub fn regexSplit(re: Regex, text: str): [str]:
+  ret re.split(text)
+
+pub fn regexFind(pattern: str, text: str): Option[RegexMatch]:
+  let reRes = regexCompile(pattern)
+  if reRes.isErr():
+    ret None
+  ret reRes.unwrap().find(text)
+
+pub fn regexFindAll(pattern: str, text: str): [RegexMatch]:
+  let reRes = regexCompile(pattern)
+  if reRes.isErr():
+    mut empty: [RegexMatch] = []
+    ret empty
+  ret reRes.unwrap().findAll(text)
+
+pub fn regexReplace(pattern: any, text: str, replacement: str): str:
+  let pField = pattern.pattern
+  if str(pField) != "nil" and str(pField) != "":
+    let reObj: Regex = pattern
+    ret reObj.replace(text, replacement)
+  let patStr = str(pattern)
+  let reRes = regexCompile(patStr)
+  if reRes.isErr():
+    ret text
+  ret reRes.unwrap().replace(text, replacement)
+
+pub fn regexReplaceAll(pattern: any, text: str, replacement: str): str:
+  let pField = pattern.pattern
+  if str(pField) != "nil" and str(pField) != "":
+    let reObj: Regex = pattern
+    ret reObj.replaceAll(text, replacement)
+  let patStr = str(pattern)
+  let reRes = regexCompile(patStr)
+  if reRes.isErr():
+    ret text
+  ret reRes.unwrap().replaceAll(text, replacement)
+
+pub fn diffTexts(oldText: str, newText: str, contextRadius: int = 3): str:
+  ret formatUnifiedDiff("a", "b", oldText, newText, contextRadius)
+
+pub fn applyPatch(originalText: str, patchText: str): Result[str, str]:
+  let pRes = parseUnifiedPatch(patchText)
+  if pRes.isErr():
+    ret Err(pRes.unwrapErr())
+  ret applyUnifiedPatch(originalText, pRes.unwrap())

@@ -1,0 +1,552 @@
+module AudioSynthMod
+
+// ============================================================================
+// std/audio/audio_synth.aipl — Anti-Click ADSR, Oscillators, 4-Op FM & Pentatonic
+// ============================================================================
+
+import { absFloat, clampFloat, maxFloat, maxInt, floor } from "../math/consts"
+import { sin, pow, lnFloat } from "../math/trig"
+
+pub const OSC_SINE: int = 0
+pub const OSC_SQUARE: int = 1
+pub const OSC_TRIANGLE: int = 2
+pub const OSC_SAWTOOTH: int = 3
+pub const OSC_NOISE: int = 4
+
+pub struct AdsrEnvelope(attackSec: float, decaySec: float, sustainLevel: float, releaseSec: float, antiClickRampSec: float)
+
+pub struct FmOperator(ratio: float, modulationIndex: float, phase: float, detuneHz: float)
+
+pub fn createAdsr(attack: float, decay: float, sustain: float, release: float, antiClickRamp: float = 0.005): AdsrEnvelope:
+  let minRamp = if antiClickRamp >= 0.001: antiClickRamp else: 0.005
+  let safeAttack = if attack >= minRamp: attack else: minRamp
+  let safeDecay = if decay >= 0.001: decay else: 0.001
+  let safeSustain = if sustain < 0.0: 0.0 else: (if sustain > 1.0: 1.0 else: sustain)
+  let safeRelease = if release >= minRamp: release else: minRamp
+  ret AdsrEnvelope(
+    attackSec = safeAttack,
+    decaySec = safeDecay,
+    sustainLevel = safeSustain,
+    releaseSec = safeRelease,
+    antiClickRampSec = minRamp
+  )
+
+fn evaluateNoteOnLevel(adsr: AdsrEnvelope, t: float): float:
+  if t <= 0.0:
+    ret 0.0
+  if t < adsr.attackSec:
+    ret t / adsr.attackSec
+  let td = t - adsr.attackSec
+  if td < adsr.decaySec:
+    let frac = td / adsr.decaySec
+    ret 1.0 - (1.0 - adsr.sustainLevel) * frac
+  ret adsr.sustainLevel
+
+pub fn adsrDefault(): AdsrEnvelope:
+  ret AdsrEnvelope(
+    attackSec = 0.01,
+    decaySec = 0.05,
+    sustainLevel = 0.7,
+    releaseSec = 0.1,
+    antiClickRampSec = 0.005
+  )
+
+pub fn evaluateAdsr(adsr: AdsrEnvelope, timeSec: float, isNoteOnOrTotalDur: any = true, noteReleaseTimeSec: float = -1.0): float:
+  if timeSec <= 0.0:
+    ret 0.0
+  if noteReleaseTimeSec < 0.0:
+    let totalDur = float(isNoteOnOrTotalDur)
+    if timeSec >= totalDur:
+      ret 0.0
+    let relStart = totalDur - adsr.releaseSec
+    if timeSec < relStart:
+      ret evaluateNoteOnLevel(adsr, timeSec)
+    let relElapsed0 = timeSec - relStart
+    if relElapsed0 >= adsr.releaseSec:
+      ret 0.0
+    let lvlAtRel0 = evaluateNoteOnLevel(adsr, relStart)
+    ret lvlAtRel0 * (1.0 - (relElapsed0 / adsr.releaseSec))
+  let isNoteOn = bool(isNoteOnOrTotalDur)
+  if isNoteOn:
+    ret evaluateNoteOnLevel(adsr, timeSec)
+  if timeSec <= noteReleaseTimeSec:
+    ret evaluateNoteOnLevel(adsr, timeSec)
+  let relElapsed = timeSec - noteReleaseTimeSec
+  if relElapsed >= adsr.releaseSec:
+    ret 0.0
+  let levelAtRelease = evaluateNoteOnLevel(adsr, noteReleaseTimeSec)
+  ret levelAtRelease * (1.0 - (relElapsed / adsr.releaseSec))
+
+pub fn generateWaveformSample(oscType: int, phase: float): float:
+  let p = phase - float(int(phase))
+  let normP = if p < 0.0: p + 1.0 else: p
+  if oscType == OSC_SINE:
+    ret sin(2.0 * 3.141592653589793 * normP)
+  if oscType == OSC_SQUARE:
+    ret if normP < 0.5: 1.0 else: -1.0
+  if oscType == OSC_TRIANGLE:
+    ret if normP < 0.5: (4.0 * normP - 1.0) else: (3.0 - 4.0 * normP)
+  if oscType == OSC_SAWTOOTH:
+    ret 2.0 * normP - 1.0
+  // Deterministic pseudo-noise from phase
+  let v = sin(normP * 12989.8) * 43758.5453
+  let frac = v - float(int(v))
+  ret 2.0 * (if frac < 0.0: -frac else: frac) - 1.0
+
+fn absFloatSynth(v: float): float:
+  if v < 0.0:
+    ret -v
+  ret v
+
+pub fn quantizeToPentatonicLadder(continuousFreqHz: float, baseKeyNoteHz: float = 261.63): float:
+  let base = if baseKeyNoteHz > 10.0: baseKeyNoteHz else: 261.63
+  // 5-note major pentatonic intervals (C, D, E, G, A in 12-TET ratios)
+  let intervals = [1.0, 1.122462048, 1.259921050, 1.498307077, 1.681792831]
+  let octaves = [0.25, 0.5, 1.0, 2.0, 4.0]
+  mut bestFreq = base
+  mut bestDiff = 1000000.0
+  mut oi = 0
+  while oi < octaves.len:
+    let oct = octaves[oi]
+    mut ii = 0
+    while ii < intervals.len:
+      let candidate = base * oct * intervals[ii]
+      let diff = absFloatSynth(continuousFreqHz - candidate)
+      if diff < bestDiff:
+        bestDiff = diff
+        bestFreq = candidate
+      ii += 1
+    oi += 1
+  ret bestFreq
+
+pub fn synthesizeToneBuffer(frequency: float, durationMs: float, volume: float = 0.5, oscTypeOrWaveform: any = 0, sampleRate: int = 44100): [float]:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let totalSamples = int((durationMs / 1000.0) * float(sr))
+  let rampSamples = int(0.005 * float(sr))
+  let wStr = toString(oscTypeOrWaveform)
+  mut oscType = OSC_SINE
+  if wStr == "1" or wStr == "square":
+    oscType = OSC_SQUARE
+  elif wStr == "2" or wStr == "triangle":
+    oscType = OSC_TRIANGLE
+  elif wStr == "3" or wStr == "saw" or wStr == "sawtooth":
+    oscType = OSC_SAWTOOTH
+  elif wStr == "4" or wStr == "noise":
+    oscType = OSC_NOISE
+  mut out: [float] = []
+  mut i = 0
+  while i < totalSamples:
+    let phase = (float(i) * frequency) / float(sr)
+    mut env = 1.0
+    if rampSamples > 0:
+      if i < rampSamples:
+        env = float(i) / float(rampSamples)
+      elif totalSamples - i < rampSamples:
+        env = float(totalSamples - i) / float(rampSamples)
+    let raw = generateWaveformSample(oscType, phase)
+    out.push(raw * volume * env)
+    i += 1
+  ret out
+
+pub fn renderFmPatch4Op(baseFreq: float, durationSec: float, ops: [FmOperator], sampleRate: int = 44100): [float]:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let totalSamples = int(durationSec * float(sr))
+  mut out: [float] = []
+  let twoPi = 2.0 * 3.141592653589793
+  mut i = 0
+  while i < totalSamples:
+    let t = float(i) / float(sr)
+    mut modSignal = 0.0
+    mut k = ops.len - 1
+    while k >= 0:
+      let op = ops[k]
+      let freq = baseFreq * op.ratio + op.detuneHz
+      let angle = twoPi * freq * t + op.phase + modSignal
+      let sig = sin(angle)
+      if k > 0:
+        modSignal = sig * op.modulationIndex
+      else:
+        modSignal = sig
+      k -= 1
+    out.push(modSignal)
+    i += 1
+  ret out
+
+pub fn midiNoteToFreqHz(midiNote: int): float:
+  let diff = float(midiNote - 69)
+  ret 440.0 * pow(2.0, diff / 12.0)
+
+pub fn freqHzToMidiNote(freqHz: float): int:
+  let f = if freqHz > 1.0: freqHz else: 440.0
+  let semi = 12.0 * (lnFloat(f / 440.0) / 0.6931471805599453)
+  ret int(69.0 + semi + 0.5)
+
+pub fn evalAdsrEnvelope(t: float, attack: float, decay: float, sustainLevel: float, releaseTime: float, noteDuration: float): float:
+  if t < 0.0:
+    ret 0.0
+  if t < attack:
+    ret if attack > 0.0001: t / attack else: 1.0
+  if t < attack + decay:
+    let dt = (t - attack) / (if decay > 0.0001: decay else: 0.0001)
+    ret 1.0 + (sustainLevel - 1.0) * dt
+  if t < noteDuration:
+    ret sustainLevel
+  let rt = t - noteDuration
+  if rt >= releaseTime:
+    ret 0.0
+  ret sustainLevel * (1.0 - rt / (if releaseTime > 0.0001: releaseTime else: 0.0001))
+
+pub fn polyBlep(t: float, dt: float): float:
+  if dt <= 0.0000001:
+    ret 0.0
+  if t < dt:
+    let u = t / dt
+    ret u + u - u * u - 1.0
+  if t > 1.0 - dt:
+    let u = (t - 1.0) / dt
+    ret u * u + u + u + 1.0
+  ret 0.0
+
+pub fn oscSamplePolyBlep(waveform: str, phase: float, dt: float, pulseWidth: float): float:
+  let p = phase - floor(phase)
+  let pw = if pulseWidth < 0.05: 0.05 elif pulseWidth > 0.95: 0.95 else: pulseWidth
+  if waveform == "saw" or waveform == "sawtooth":
+    let naive = 2.0 * p - 1.0
+    ret naive - polyBlep(p, dt)
+  if waveform == "square":
+    let naive = if p < 0.5: 1.0 else: -1.0
+    let p2 = p + 0.5 - floor(p + 0.5)
+    ret naive + polyBlep(p, dt) - polyBlep(p2, dt)
+  if waveform == "pulse":
+    let naive = if p < pw: 1.0 else: -1.0
+    let pShift = p + (1.0 - pw) - floor(p + (1.0 - pw))
+    ret naive + polyBlep(p, dt) - polyBlep(pShift, dt)
+  if waveform == "triangle":
+    ret 1.0 - 4.0 * absFloat(p - 0.5)
+  ret sin(p * 6.283185307179586)
+
+pub fn renderOscillatorBuffer(waveform: str, freqHz: float, durationSec: float, sampleRate: int, pulseWidth: float): [float]:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let dur = if durationSec > 0.0: durationSec else: 0.05
+  let n = int(dur * float(sr))
+  let dt = (if freqHz > 0.0: freqHz else: 440.0) / float(sr)
+  mut out: [float] = []
+  mut phase = 0.0
+  mut i = 0
+  while i < n:
+    out.push(oscSamplePolyBlep(waveform, phase, dt, pulseWidth))
+    phase = phase + dt
+    if phase >= 1.0:
+      phase = phase - floor(phase)
+    i += 1
+  ret out
+
+pub struct PinkNoiseState(seed: int, b0: float, b1: float, b2: float, b3: float, b4: float, b5: float, b6: float, brownLast: float)
+
+pub fn pinkNoiseStateNew(seed: int): PinkNoiseState:
+  ret PinkNoiseState(
+    seed = if seed != 0: seed else: 1234567,
+    b0 = 0.0, b1 = 0.0, b2 = 0.0, b3 = 0.0, b4 = 0.0, b5 = 0.0, b6 = 0.0,
+    brownLast = 0.0
+  )
+
+pub fn nextWhiteNoise(seed: int): [float]:
+  mut s = (seed * 1664525 + 1013904223) & 0x7fffffff
+  if s == 0:
+    s = 9876543
+  let mixed = ((s ^ (s >> 13)) * 1274126177) & 0x7fffffff
+  let val = (float(mixed % 65536) / 32767.5) - 1.0
+  ret [val, float(s)]
+
+pub fn renderNoiseBuffer(kind: str, numSamples: int, seed: int): [float]:
+  let n = if numSamples > 0: numSamples else: 64
+  mut st = pinkNoiseStateNew(seed)
+  mut curSeed = st.seed
+  mut b0 = st.b0
+  mut b1 = st.b1
+  mut b2 = st.b2
+  mut b3 = st.b3
+  mut b4 = st.b4
+  mut b5 = st.b5
+  mut b6 = st.b6
+  mut brownLast = st.brownLast
+  mut out: [float] = []
+  mut i = 0
+  while i < n:
+    let wn = nextWhiteNoise(curSeed)
+    let white = wn[0]
+    curSeed = int(wn[1])
+    if kind == "pink":
+      b0 = 0.99886 * b0 + white * 0.0555179
+      b1 = 0.99332 * b1 + white * 0.0750759
+      b2 = 0.96900 * b2 + white * 0.1538520
+      b3 = 0.86650 * b3 + white * 0.3104856
+      b4 = 0.55000 * b4 + white * 0.5329522
+      b5 = -0.7616 * b5 - white * 0.0168980
+      let pink = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11
+      b6 = white * 0.115926
+      out.push(clampFloat(pink, -1.0, 1.0))
+    elif kind == "brown":
+      let nextBrown = (brownLast + 0.02 * white) / 1.02
+      brownLast = nextBrown
+      let scaled = nextBrown * 3.5
+      out.push(clampFloat(scaled, -1.0, 1.0))
+    else:
+      out.push(white)
+    i += 1
+  ret out
+
+pub struct AhdsrEnvelope(attackSec: float, holdSec: float, decaySec: float, sustainLevel: float, releaseSec: float, curvePower: float)
+
+pub fn ahdsrNew(attackSec: float, holdSec: float, decaySec: float, sustainLevel: float, releaseSec: float, curvePower: float): AhdsrEnvelope:
+  ret AhdsrEnvelope(
+    attackSec = if attackSec > 0.0: attackSec else: 0.005,
+    holdSec = if holdSec >= 0.0: holdSec else: 0.0,
+    decaySec = if decaySec > 0.0: decaySec else: 0.05,
+    sustainLevel = clampFloat(sustainLevel, 0.0, 1.0),
+    releaseSec = if releaseSec > 0.0: releaseSec else: 0.08,
+    curvePower = if curvePower > 0.1: curvePower else: 1.0
+  )
+
+pub fn evalAhdsrEnvelope(env: AhdsrEnvelope, t: float, noteOnDuration: float): float:
+  if t < 0.0:
+    ret 0.0
+  if t < env.attackSec:
+    let u = t / (if env.attackSec > 0.00001: env.attackSec else: 0.00001)
+    ret pow(u, env.curvePower)
+  if t < env.attackSec + env.holdSec:
+    ret 1.0
+  if t < env.attackSec + env.holdSec + env.decaySec:
+    let u = (t - env.attackSec - env.holdSec) / (if env.decaySec > 0.00001: env.decaySec else: 0.00001)
+    ret 1.0 - (1.0 - env.sustainLevel) * pow(u, env.curvePower)
+  if t < noteOnDuration:
+    ret env.sustainLevel
+  let rt = t - noteOnDuration
+  if rt >= env.releaseSec:
+    ret 0.0
+  let u = rt / (if env.releaseSec > 0.00001: env.releaseSec else: 0.00001)
+  ret env.sustainLevel * (1.0 - pow(u, env.curvePower))
+
+pub struct FmOperatorPatch(ratio: float, modIndex: float, feedback: float, attackSec: float, decaySec: float, sustainLevel: float, releaseSec: float)
+
+pub struct Fm4OpPatch(algorithm: int, op1: FmOperatorPatch, op2: FmOperatorPatch, op3: FmOperatorPatch, op4: FmOperatorPatch)
+
+pub fn renderFm4OpNote(patch: Fm4OpPatch, baseFreqHz: float, durationSec: float, sampleRate: int): [float]:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let n = int((if durationSec > 0.0: durationSec else: 0.1) * float(sr))
+  let twoPi = 6.283185307179586
+  mut out: [float] = []
+  mut fbState = 0.0
+  mut i = 0
+  while i < n:
+    let t = float(i) / float(sr)
+    let e1 = evalAdsrEnvelope(t, patch.op1.attackSec, patch.op1.decaySec, patch.op1.sustainLevel, patch.op1.releaseSec, durationSec * 0.8)
+    let e2 = evalAdsrEnvelope(t, patch.op2.attackSec, patch.op2.decaySec, patch.op2.sustainLevel, patch.op2.releaseSec, durationSec * 0.8)
+    let e3 = evalAdsrEnvelope(t, patch.op3.attackSec, patch.op3.decaySec, patch.op3.sustainLevel, patch.op3.releaseSec, durationSec * 0.8)
+    let e4 = evalAdsrEnvelope(t, patch.op4.attackSec, patch.op4.decaySec, patch.op4.sustainLevel, patch.op4.releaseSec, durationSec * 0.8)
+
+    let p4 = twoPi * baseFreqHz * patch.op4.ratio * t + fbState * patch.op4.feedback
+    let out4 = sin(p4) * e4
+    fbState = out4
+
+    let p3 = twoPi * baseFreqHz * patch.op3.ratio * t + out4 * patch.op4.modIndex
+    let out3 = sin(p3) * e3
+
+    let p2 = twoPi * baseFreqHz * patch.op2.ratio * t + out3 * patch.op3.modIndex
+    let out2 = sin(p2) * e2
+
+    mut sample = 0.0
+    if patch.algorithm == 1:
+      let p1Par = twoPi * baseFreqHz * patch.op1.ratio * t + out2 * patch.op2.modIndex
+      sample = (sin(p1Par) * e1 + out3) * 0.5
+    else:
+      let p1Ser = twoPi * baseFreqHz * patch.op1.ratio * t + out2 * patch.op2.modIndex
+      sample = sin(p1Ser) * e1
+    out.push(clampFloat(sample, -1.0, 1.0))
+    i += 1
+  ret out
+
+pub fn renderKarplusStrong(freqHz: float, durationSec: float, damping: float, brightness: float, sampleRate: int, seed: int): [float]:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let f = if freqHz > 20.0: freqHz else: 220.0
+  let period = maxInt(2, int(float(sr) / f + 0.5))
+  let totalSamples = maxInt(period, int((if durationSec > 0.0: durationSec else: 0.25) * float(sr)))
+  let damp = clampFloat(damping, 0.90, 0.9999)
+  let bright = clampFloat(brightness, 0.0, 1.0)
+  mut ring = renderNoiseBuffer("white", period, seed)
+  mut out: [float] = []
+  mut idx = 0
+  mut i = 0
+  while i < totalSamples:
+    let cur = ring[idx]
+    let nextIdx = (idx + 1) % period
+    let nxt = ring[nextIdx]
+    let avg = cur * (0.5 * (1.0 + bright)) + nxt * (0.5 * (1.0 - bright))
+    ring[idx] = avg * damp
+    out.push(cur)
+    idx = nextIdx
+    i += 1
+  ret out
+
+pub struct SfxPatch(waveform: str, volume: float, baseFreqHz: float, freqLimitHz: float, freqSlide: float, freqDeltaSlide: float, attackSec: float, holdSec: float, decaySec: float, sustainLevel: float, vibratoDepth: float, vibratoSpeedHz: float, arpModMult: float, arpSpeedSec: float, dutyCycle: float, dutySweep: float, phaserOffset: float, lpfCutoffHz: float, hpfCutoffHz: float, bitCrushBits: int)
+
+pub fn sfxPatchDefault(): SfxPatch:
+  ret SfxPatch(
+    waveform = "square",
+    volume = 0.6,
+    baseFreqHz = 440.0,
+    freqLimitHz = 20.0,
+    freqSlide = 0.0,
+    freqDeltaSlide = 0.0,
+    attackSec = 0.005,
+    holdSec = 0.05,
+    decaySec = 0.12,
+    sustainLevel = 0.5,
+    vibratoDepth = 0.0,
+    vibratoSpeedHz = 0.0,
+    arpModMult = 1.0,
+    arpSpeedSec = 0.0,
+    dutyCycle = 0.5,
+    dutySweep = 0.0,
+    phaserOffset = 0.0,
+    lpfCutoffHz = 18000.0,
+    hpfCutoffHz = 0.0,
+    bitCrushBits = 16
+  )
+
+pub fn mutateSfxPatch(p: SfxPatch, amount: float, seed: int): SfxPatch:
+  let wn = nextWhiteNoise(seed)
+  let jit = wn[0] * (if amount > 0.0: amount else: 0.05)
+  ret SfxPatch(
+    waveform = p.waveform,
+    volume = p.volume,
+    baseFreqHz = maxFloat(30.0, p.baseFreqHz * (1.0 + jit)),
+    freqLimitHz = p.freqLimitHz,
+    freqSlide = p.freqSlide + jit * 0.25,
+    freqDeltaSlide = p.freqDeltaSlide,
+    attackSec = p.attackSec,
+    holdSec = p.holdSec,
+    decaySec = maxFloat(0.01, p.decaySec * (1.0 + jit * 0.5)),
+    sustainLevel = p.sustainLevel,
+    vibratoDepth = p.vibratoDepth,
+    vibratoSpeedHz = p.vibratoSpeedHz,
+    arpModMult = p.arpModMult,
+    arpSpeedSec = p.arpSpeedSec,
+    dutyCycle = p.dutyCycle,
+    dutySweep = p.dutySweep,
+    phaserOffset = p.phaserOffset,
+    lpfCutoffHz = p.lpfCutoffHz,
+    hpfCutoffHz = p.hpfCutoffHz,
+    bitCrushBits = p.bitCrushBits
+  )
+
+pub fn renderSfxPatch(p: SfxPatch, sampleRate: int): [float]:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let totalDur = maxFloat(0.01, p.attackSec + p.holdSec + p.decaySec)
+  let n = maxInt(16, int(totalDur * float(sr)))
+  mut out: [float] = []
+  mut phase = 0.0
+  mut curFreq = p.baseFreqHz
+  mut curSlide = p.freqSlide
+  mut curDuty = p.dutyCycle
+  mut lpfState = 0.0
+  mut noiseSeed = int(p.baseFreqHz * 100.0) + 1337
+
+  let rc = 1.0 / (6.283185307179586 * maxFloat(80.0, p.lpfCutoffHz))
+  let dtSec = 1.0 / float(sr)
+  let lpfAlpha = dtSec / (rc + dtSec)
+
+  mut i = 0
+  while i < n:
+    let t = float(i) * dtSec
+    mut env = 1.0
+    if t < p.attackSec:
+      env = t / maxFloat(0.0001, p.attackSec)
+    elif t < p.attackSec + p.holdSec:
+      env = 1.0
+    else:
+      let dtDecay = (t - p.attackSec - p.holdSec) / maxFloat(0.0001, p.decaySec)
+      env = maxFloat(0.0, 1.0 - dtDecay)
+
+    curSlide = curSlide + p.freqDeltaSlide * dtSec
+    curFreq = curFreq + curSlide * dtSec * 400.0
+    if p.arpSpeedSec > 0.0 and t >= p.arpSpeedSec:
+      curFreq = p.baseFreqHz * p.arpModMult + curSlide * dtSec * 400.0
+    if curFreq < p.freqLimitHz:
+      curFreq = p.freqLimitHz
+
+    mut effFreq = curFreq
+    if p.vibratoDepth > 0.0 and p.vibratoSpeedHz > 0.0:
+      effFreq = effFreq * (1.0 + p.vibratoDepth * sin(6.283185307179586 * p.vibratoSpeedHz * t))
+
+    curDuty = clampFloat(curDuty + p.dutySweep * dtSec, 0.05, 0.95)
+    let normDt = effFreq * dtSec
+
+    mut raw = 0.0
+    if p.waveform == "noise":
+      let wn = nextWhiteNoise(noiseSeed)
+      raw = wn[0]
+      noiseSeed = int(wn[1])
+    else:
+      raw = oscSamplePolyBlep(p.waveform, phase, normDt, curDuty)
+
+    phase = phase + normDt
+    if phase >= 1.0:
+      phase = phase - floor(phase)
+
+    lpfState = lpfState + lpfAlpha * (raw - lpfState)
+    mut sample = lpfState * env * p.volume
+    if p.bitCrushBits > 0 and p.bitCrushBits < 16:
+      let levels = float(1 << p.bitCrushBits)
+      sample = floor(sample * levels + 0.5) / levels
+    out.push(clampFloat(sample, -1.0, 1.0))
+    i += 1
+  ret out
+
+pub fn sfxCoin(): SfxPatch:
+  let p = sfxPatchDefault()
+  ret SfxPatch(
+    waveform = "square", volume = p.volume, baseFreqHz = 987.77, freqLimitHz = p.freqLimitHz,
+    freqSlide = p.freqSlide, freqDeltaSlide = p.freqDeltaSlide, attackSec = p.attackSec,
+    holdSec = 0.06, decaySec = 0.16, sustainLevel = p.sustainLevel,
+    vibratoDepth = p.vibratoDepth, vibratoSpeedHz = p.vibratoSpeedHz,
+    arpModMult = 1.3348, arpSpeedSec = 0.06, dutyCycle = p.dutyCycle, dutySweep = p.dutySweep,
+    phaserOffset = p.phaserOffset, lpfCutoffHz = p.lpfCutoffHz, hpfCutoffHz = p.hpfCutoffHz,
+    bitCrushBits = p.bitCrushBits
+  )
+
+pub fn sfxLaser(): SfxPatch:
+  let p = sfxPatchDefault()
+  ret SfxPatch(
+    waveform = "saw", volume = p.volume, baseFreqHz = 1280.0, freqLimitHz = 140.0,
+    freqSlide = -2.4, freqDeltaSlide = p.freqDeltaSlide, attackSec = p.attackSec,
+    holdSec = 0.03, decaySec = 0.10, sustainLevel = p.sustainLevel,
+    vibratoDepth = p.vibratoDepth, vibratoSpeedHz = p.vibratoSpeedHz,
+    arpModMult = p.arpModMult, arpSpeedSec = p.arpSpeedSec, dutyCycle = p.dutyCycle, dutySweep = p.dutySweep,
+    phaserOffset = p.phaserOffset, lpfCutoffHz = p.lpfCutoffHz, hpfCutoffHz = p.hpfCutoffHz,
+    bitCrushBits = p.bitCrushBits
+  )
+
+pub fn sfxExplosion(): SfxPatch:
+  let p = sfxPatchDefault()
+  ret SfxPatch(
+    waveform = "noise", volume = p.volume, baseFreqHz = 110.0, freqLimitHz = p.freqLimitHz,
+    freqSlide = p.freqSlide, freqDeltaSlide = p.freqDeltaSlide, attackSec = 0.005,
+    holdSec = 0.08, decaySec = 0.28, sustainLevel = p.sustainLevel,
+    vibratoDepth = p.vibratoDepth, vibratoSpeedHz = p.vibratoSpeedHz,
+    arpModMult = p.arpModMult, arpSpeedSec = p.arpSpeedSec, dutyCycle = p.dutyCycle, dutySweep = p.dutySweep,
+    phaserOffset = p.phaserOffset, lpfCutoffHz = 900.0, hpfCutoffHz = p.hpfCutoffHz,
+    bitCrushBits = p.bitCrushBits
+  )
+
+pub fn sfxJump(): SfxPatch:
+  let p = sfxPatchDefault()
+  ret SfxPatch(
+    waveform = "square", volume = p.volume, baseFreqHz = 280.0, freqLimitHz = p.freqLimitHz,
+    freqSlide = 1.6, freqDeltaSlide = p.freqDeltaSlide, attackSec = p.attackSec,
+    holdSec = 0.05, decaySec = 0.12, sustainLevel = p.sustainLevel,
+    vibratoDepth = p.vibratoDepth, vibratoSpeedHz = p.vibratoSpeedHz,
+    arpModMult = p.arpModMult, arpSpeedSec = p.arpSpeedSec, dutyCycle = p.dutyCycle, dutySweep = p.dutySweep,
+    phaserOffset = p.phaserOffset, lpfCutoffHz = p.lpfCutoffHz, hpfCutoffHz = p.hpfCutoffHz,
+    bitCrushBits = p.bitCrushBits
+  )

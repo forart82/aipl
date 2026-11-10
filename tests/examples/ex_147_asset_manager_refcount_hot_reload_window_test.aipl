@@ -1,0 +1,31 @@
+// ============================================================================
+// Twin Test Suite 147: Asset Manager Reference Counting & Hot-Reload (WINDOW)
+// Verifies examples/ex_147_asset_manager_refcount_hot_reload_window.aipl
+// ============================================================================
+module Ex147AssetManagerRefcountHotReloadWindowTest
+
+import {
+  verifyAssetRefCountAndHotReload,
+  computeEvictedAssetCount,
+  describeAssetHotReloadStatus,
+  renderFrameStep
+} from "../../examples/ex_147_asset_manager_refcount_hot_reload_window.aipl"
+
+pub fn test_asset_manager_refcount_hot_reload_window(): int:
+  assert(verifyAssetRefCountAndHotReload() == 1001, "notifyAssetFileChanged('textures/albedo.qoi') bumps revision ID from 1 to 1001")
+  assert(computeEvictedAssetCount(12, 9) == 3, "12 registered - 9 retained == 3 evicted")
+  assert(describeAssetHotReloadStatus(1) == "ASSET:HOT_RELOAD_WATCH_ACTIVE", "hot-reload active label")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  let f100 = renderFrameStep(100, 0.016)
+  assert(f0 > 1000, "frame 0 evaluates hot-reloaded revision and active refCount sum")
+  assert(f0 != f1, "hot-reloaded revision and refCount sum advance between frame 0 and frame 1")
+  assert(f1 != f20, "hot-reloaded slot and refCount sum advance between frame 1 and frame 20")
+  assert(f20 != f100, "hot-reloaded slot and refCount sum advance between frame 20 and frame 100")
+  ret 0
+
+pub fn main(): int:
+  test_asset_manager_refcount_hot_reload_window()
+  println("PASS: ex_147_asset_manager_refcount_hot_reload_window_test")
+  ret 0

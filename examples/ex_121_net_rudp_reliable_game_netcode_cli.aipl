@@ -1,0 +1,58 @@
+// ============================================================================
+// Canonical Example 121: Reliable UDP (RUDP) Bitfield ACK & Game Netcode (CLI)
+// Target Profile: CLI | Standard Library Module: std/net
+// ============================================================================
+module Ex121NetRudpReliableGameNetcodeCli
+
+import {
+  parseSocketAddr,
+  rudpCreateConnection,
+  rudpBuildPacket,
+  rudpParsePacket,
+  rudpProcessAck,
+  rudpCalculateRtt,
+  rudpFragmentPayload,
+  rudpTryReassemble
+} from "../std/net/net_mod.aipl"
+import { maxInt } from "../std/std_root.aipl"
+
+pub fn verifyRudpAckBitfieldAndFragmentation(): int:
+  let addr = parseSocketAddr("127.0.0.1:9002").unwrap()
+  mut rconn = rudpCreateConnection(addr)
+  let pkt = rudpBuildPacket(rconn, 0, 1, [9, 8, 7])
+  assert(rudpParsePacket(pkt).unwrap().sequence == 1, "RUDP sequence 1 parsed")
+  let ackCount = rudpProcessAck(rconn, 105, 5)
+  assert(ackCount == 3, "bitfield 5 + latest acks 3 packets")
+  rconn = rudpCalculateRtt(rconn, 40.0)
+  assert(rconn.rttMs < 50.0, "EWMA RTT smoothed")
+
+  mut payload: [int] = []
+  mut i = 0
+  while i < 250:
+    payload.push((i * 7 + 3) & 255)
+    i = i + 1
+  let frags = rudpFragmentPayload(42, payload, 100)
+  assert(frags.len() == 3, "3 RUDP fragments")
+  let reassembled = rudpTryReassemble(frags, 3).unwrap()
+  assert(reassembled.len() == 250, "250 bytes reassembled")
+  ret ackCount + reassembled.len()
+
+pub fn computeRudpFragmentCount(payloadBytes: int, mtuBytes: int): int:
+  let m = maxInt(1, mtuBytes)
+  let p = maxInt(0, payloadBytes)
+  ret (p + m - 1) / m
+
+pub fn describeRudpNetworkQuality(rttMs: int): str:
+  let r = maxInt(0, rttMs)
+  if r <= 50:
+    ret "RUDP:LOW_PING_" + str(r) + "MS_COMPETITIVE"
+  ret "RUDP:HIGH_LATENCY_" + str(r) + "MS_INTERPOLATED"
+
+pub fn main(): int:
+  let metric = verifyRudpAckBitfieldAndFragmentation()
+  let fragCount = computeRudpFragmentCount(250, 100)
+  let tag = describeRudpNetworkQuality(40)
+  assert(metric == 253, "3 ACKs + 250 bytes == 253")
+  assert(fragCount == 3, "3 fragments")
+  println(tag + " | frags=" + str(fragCount) + " | metric=" + str(metric))
+  ret 0

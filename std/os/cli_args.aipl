@@ -1,0 +1,467 @@
+/// # Module: `std/os/cli_args` (`OsCliArgs`)
+///
+/// ## Purpose & Domain Scope
+/// Declarative CLI argument parser (`CliApp`) with short/long flags, key-value options,
+/// positional arguments, nested subcommands, automated `--help` formatting, and Bash/Zsh
+/// completion script generation.
+module OsCliArgs
+
+pub struct CliFlag:
+  shortName: str
+  longName: str
+  description: str
+  mut isSet: bool = false
+
+pub struct CliOption:
+  shortName: str
+  longName: str
+  description: str
+  defaultValue: str
+  required: bool
+  mut value: str
+
+pub struct CliArg:
+  name: str
+  description: str
+  required: bool
+  mut value: str
+
+pub struct CliCommand:
+  name: str
+  description: str
+  mut flags: [CliFlag]
+  mut options: [CliOption]
+  mut args: [CliArg]
+  mut subcommands: [CliCommand]
+
+pub struct CliApp:
+  name: str
+  mut version: str
+  mut description: str
+  mut flags: [CliFlag]
+  mut options: [CliOption]
+  mut args: [CliArg]
+  mut subcommands: [CliCommand]
+
+pub struct CliParseResult:
+  activeSubcommand: str
+  flags: [str]
+  options: [[str]]
+  positionals: [str]
+  errors: [str]
+
+pub struct CliError:
+  kind: int
+  message: str
+
+pub fn cliAppNew(name: str): CliApp:
+  ret CliApp(
+    name: name,
+    version: "0.1.0",
+    description: "",
+    flags: [],
+    options: [],
+    args: [],
+    subcommands: []
+  )
+
+pub fn cliAppVersion(mut app: CliApp, version: str): CliApp:
+  app.version = version
+  ret app
+
+pub fn cliAppDescription(mut app: CliApp, desc: str): CliApp:
+  app.description = desc
+  ret app
+
+pub fn cliAddFlag(mut app: CliApp, shortName: str, longName: str, desc: str): CliApp:
+  app.flags.push(CliFlag(shortName: shortName, longName: longName, description: desc, isSet: false))
+  ret app
+
+pub fn cliAddOption(mut app: CliApp, shortName: str, longName: str, desc: str, defaultVal: str, required: bool): CliApp:
+  app.options.push(CliOption(
+    shortName: shortName,
+    longName: longName,
+    description: desc,
+    defaultValue: defaultVal,
+    required: required,
+    value: defaultVal
+  ))
+  ret app
+
+pub fn cliAddPositional(mut app: CliApp, name: str, desc: str, required: bool): CliApp:
+  app.args.push(CliArg(name: name, description: desc, required: required, value: ""))
+  ret app
+
+pub fn cliAddSubcommand(mut app: CliApp, cmd: CliCommand): CliApp:
+  app.subcommands.push(cmd)
+  ret app
+
+fn findFlagByToken(flags: [CliFlag], tok: str): int:
+  mut i = 0
+  while i < flags.len():
+    let f = flags[i]
+    if tok == "--" + f.longName or (f.shortName.len() > 0 and tok == "-" + f.shortName):
+      ret i
+    i = i + 1
+  ret -1
+
+fn findOptionByName(options: [CliOption], name: str): int:
+  mut i = 0
+  while i < options.len():
+    let o = options[i]
+    if o.longName == name or o.shortName == name:
+      ret i
+    i = i + 1
+  ret -1
+
+pub fn cliParse(app: CliApp, argv: [str]): Result[CliParseResult, str]:
+  mut activeSub = ""
+  mut activeFlags: [str] = []
+  mut optPairs: [[str]] = []
+  mut posArgs: [str] = []
+  mut errs: [str] = []
+
+  mut oi = 0
+  while oi < app.options.len():
+    let opt = app.options[oi]
+    if opt.defaultValue.len() > 0:
+      optPairs.push([opt.longName, opt.defaultValue])
+    oi = oi + 1
+
+  mut i = 0
+  mut forcePositional = false
+  while i < argv.len():
+    let tok = argv[i]
+    if forcePositional:
+      posArgs.push(tok)
+      i = i + 1
+      continue
+    if tok == "--":
+      forcePositional = true
+      i = i + 1
+      continue
+    if tok.startsWith("--"):
+      let eqIdx = tok.indexOf("=")
+      if eqIdx >= 0:
+        let optKey = tok.slice(2, eqIdx)
+        let optVal = tok.slice(eqIdx + 1, tok.len())
+        let foundOpt = findOptionByName(app.options, optKey)
+        if foundOpt >= 0:
+          let canonName = app.options[foundOpt].longName
+          mut updated = false
+          mut k = 0
+          while k < optPairs.len():
+            if optPairs[k][0] == canonName:
+              optPairs[k] = [canonName, optVal]
+              updated = true
+            k = k + 1
+          if not updated:
+            optPairs.push([canonName, optVal])
+        else:
+          errs.push("Unknown option: --" + optKey)
+      else:
+        let fIdx = findFlagByToken(app.flags, tok)
+        if fIdx >= 0:
+          activeFlags.push(app.flags[fIdx].longName)
+        else:
+          let optKey = tok.slice(2, tok.len())
+          let foundOpt = findOptionByName(app.options, optKey)
+          if foundOpt >= 0 and i + 1 < argv.len():
+            let canonName = app.options[foundOpt].longName
+            let optVal = argv[i + 1]
+            i = i + 1
+            mut updated = false
+            mut k = 0
+            while k < optPairs.len():
+              if optPairs[k][0] == canonName:
+                optPairs[k] = [canonName, optVal]
+                updated = true
+              k = k + 1
+            if not updated:
+              optPairs.push([canonName, optVal])
+          else:
+            errs.push("Unknown flag or missing option value: " + tok)
+      i = i + 1
+      continue
+    if tok.startsWith("-") and tok.len() > 1:
+      let fIdx = findFlagByToken(app.flags, tok)
+      if fIdx >= 0:
+        activeFlags.push(app.flags[fIdx].longName)
+      else:
+        let shortKey = tok.slice(1, tok.len())
+        let foundOpt = findOptionByName(app.options, shortKey)
+        if foundOpt >= 0 and i + 1 < argv.len():
+          let canonName = app.options[foundOpt].longName
+          let optVal = argv[i + 1]
+          i = i + 1
+          mut updated = false
+          mut k = 0
+          while k < optPairs.len():
+            if optPairs[k][0] == canonName:
+              optPairs[k] = [canonName, optVal]
+              updated = true
+            k = k + 1
+          if not updated:
+            optPairs.push([canonName, optVal])
+        else:
+          errs.push("Unknown short flag: " + tok)
+      i = i + 1
+      continue
+    if activeSub.len() == 0 and posArgs.len() == 0:
+      mut sIdx = 0
+      mut matchedSub = false
+      while sIdx < app.subcommands.len():
+        if app.subcommands[sIdx].name == tok:
+          activeSub = tok
+          matchedSub = true
+          break
+        sIdx = sIdx + 1
+      if matchedSub:
+        i = i + 1
+        continue
+    posArgs.push(tok)
+    i = i + 1
+
+  if errs.len() > 0:
+    ret Err(errs.join("; "))
+  ret Ok(CliParseResult(
+    activeSubcommand: activeSub,
+    flags: activeFlags,
+    options: optPairs,
+    positionals: posArgs,
+    errors: errs
+  ))
+
+pub fn cliGetBool(res: CliParseResult, flagName: str): bool:
+  mut i = 0
+  while i < res.flags.len():
+    if res.flags[i] == flagName:
+      ret true
+    i = i + 1
+  ret false
+
+pub fn cliGetStr(res: CliParseResult, optionName: str): Option[str]:
+  mut i = 0
+  while i < res.options.len():
+    let pair = res.options[i]
+    if pair.len() >= 2 and pair[0] == optionName:
+      ret Some(pair[1])
+    i = i + 1
+  ret None
+
+pub fn cliGetInt(res: CliParseResult, optionName: str): Option[int]:
+  let sOpt = cliGetStr(res, optionName)
+  if sOpt.isNone():
+    ret None
+  let s = sOpt.unwrap()
+  ret s.toInt()
+
+pub fn cliGetFloat(res: CliParseResult, optionName: str): Option[float]:
+  let sOpt = cliGetStr(res, optionName)
+  if sOpt.isNone():
+    ret None
+  let s = sOpt.unwrap()
+  ret s.toFloat()
+
+pub fn cliGetRemainingArgs(res: CliParseResult): [str]:
+  ret res.positionals
+
+pub fn cliSubcommandName(res: CliParseResult): Option[str]:
+  if res.activeSubcommand.len() == 0:
+    ret None
+  ret Some(res.activeSubcommand)
+
+pub fn cliGenerateHelp(app: CliApp): str:
+  mut lines: [str] = []
+  lines.push(app.name + " " + app.version)
+  if app.description.len() > 0:
+    lines.push(app.description)
+  lines.push("")
+  lines.push("USAGE:")
+  lines.push("  " + app.name + " [FLAGS] [OPTIONS] [ARGS]")
+  if app.flags.len() > 0:
+    lines.push("")
+    lines.push("FLAGS:")
+    mut i = 0
+    while i < app.flags.len():
+      let f = app.flags[i]
+      lines.push("  -" + f.shortName + ", --" + f.longName + "    " + f.description)
+      i = i + 1
+  if app.options.len() > 0:
+    lines.push("")
+    lines.push("OPTIONS:")
+    mut i = 0
+    while i < app.options.len():
+      let o = app.options[i]
+      lines.push("  -" + o.shortName + ", --" + o.longName + " <val>    " + o.description)
+      i = i + 1
+  if app.subcommands.len() > 0:
+    lines.push("")
+    lines.push("SUBCOMMANDS:")
+    mut i = 0
+    while i < app.subcommands.len():
+      let sub = app.subcommands[i]
+      lines.push("  " + sub.name + "    " + sub.description)
+      i = i + 1
+  ret lines.join("\n")
+
+pub fn cliGenerateBashCompletion(app: CliApp): str:
+  mut words: [str] = ["--help", "--version"]
+  mut i = 0
+  while i < app.flags.len():
+    words.push("--" + app.flags[i].longName)
+    i = i + 1
+  i = 0
+  while i < app.options.len():
+    words.push("--" + app.options[i].longName)
+    i = i + 1
+  i = 0
+  while i < app.subcommands.len():
+    words.push(app.subcommands[i].name)
+    i = i + 1
+  ret "complete -W \"" + words.join(" ") + "\" " + app.name
+
+pub fn cliGenerateZshCompletion(app: CliApp): str:
+  mut out = "#compdef " + app.name + "\n_arguments"
+  mut i = 0
+  while i < app.flags.len():
+    let f = app.flags[i]
+    out = out + " '--" + f.longName + "[" + f.description + "]'"
+    i = i + 1
+  ret out
+
+pub fn newCliParser(appName: str, description: str): CliApp:
+  let app = cliAppNew(appName)
+  ret cliAppDescription(app, description)
+
+pub fn cliFormatHelp(app: CliApp): str:
+  ret cliGenerateHelp(app)
+
+pub fn parseCliArgs(rawArgs: [str]): CliParseResult:
+  mut activeFlags: [str] = []
+  mut optPairs: [[str]] = []
+  mut posArgs: [str] = []
+  mut stopFlags = false
+  mut i = 0
+  while i < rawArgs.len():
+    let arg = rawArgs[i]
+    if stopFlags:
+      posArgs.push(arg)
+      i = i + 1
+    elif arg == "--":
+      stopFlags = true
+      i = i + 1
+    elif arg.startsWith("--"):
+      let body = arg.slice(2, arg.len())
+      let eqIdx = body.indexOf("=")
+      if eqIdx >= 0:
+        let k = body.slice(0, eqIdx)
+        let v = body.slice(eqIdx + 1, body.len())
+        optPairs.push([k, v])
+        activeFlags.push(k)
+        i = i + 1
+      elif i + 1 < rawArgs.len() and not rawArgs[i + 1].startsWith("-"):
+        optPairs.push([body, rawArgs[i + 1]])
+        activeFlags.push(body)
+        i = i + 2
+      else:
+        activeFlags.push(body)
+        i = i + 1
+    elif arg.startsWith("-") and arg.len() > 1:
+      let body = arg.slice(1, arg.len())
+      let eqIdx = body.indexOf("=")
+      if eqIdx >= 0:
+        let k = body.slice(0, eqIdx)
+        let v = body.slice(eqIdx + 1, body.len())
+        optPairs.push([k, v])
+        activeFlags.push(k)
+        i = i + 1
+      elif body.len() == 1 and i + 1 < rawArgs.len() and not rawArgs[i + 1].startsWith("-"):
+        optPairs.push([body, rawArgs[i + 1]])
+        activeFlags.push(body)
+        i = i + 2
+      elif body.len() == 1:
+        activeFlags.push(body)
+        i = i + 1
+      else:
+        mut cIdx = 0
+        while cIdx < body.len():
+          activeFlags.push(body.charAt(cIdx))
+          cIdx = cIdx + 1
+        i = i + 1
+    else:
+      posArgs.push(arg)
+      i = i + 1
+  ret CliParseResult(
+    activeSubcommand: "",
+    flags: activeFlags,
+    options: optPairs,
+    positionals: posArgs,
+    errors: []
+  )
+
+pub fn cliHasFlag(parsed: CliParseResult, shortOrLong: str): bool:
+  let clean = if shortOrLong.startsWith("--"):
+    shortOrLong.slice(2, shortOrLong.len())
+  elif shortOrLong.startsWith("-"):
+    shortOrLong.slice(1, shortOrLong.len())
+  else:
+    shortOrLong
+  ret cliGetBool(parsed, clean)
+
+pub fn cliGetOption(parsed: CliParseResult, key: str, defaultVal: str = ""): str:
+  let clean = if key.startsWith("--"):
+    key.slice(2, key.len())
+  elif key.startsWith("-"):
+    key.slice(1, key.len())
+  else:
+    key
+  let opt = cliGetStr(parsed, clean)
+  if opt.isSome():
+    ret opt.unwrap()
+  ret defaultVal
+
+pub fn formatCliHelp(appName: str, description: str, options: [str]): str:
+  mut out = appName + " - " + description + "\n\nOptions:\n"
+  mut i = 0
+  while i < options.len():
+    out = out + "  " + options[i] + "\n"
+    i = i + 1
+  ret out
+
+fn parseCliDecimalInt(s: str): int:
+  let digits = "0123456789"
+  mut acc = 0
+  mut i = 0
+  while i < s.len():
+    let d = digits.indexOf(s.charAt(i))
+    if d >= 0:
+      acc = acc * 10 + d
+    i = i + 1
+  ret acc
+
+pub fn parseRangeSpec(spec: str, maxVal: int = 100): [int]:
+  mut out: [int] = []
+  if spec.trim().len() == 0:
+    ret out
+  let parts = spec.split(",")
+  mut i = 0
+  while i < parts.len():
+    let seg = parts[i].trim()
+    let dashIdx = seg.indexOf("-")
+    if dashIdx >= 0:
+      let sStr = seg.slice(0, dashIdx).trim()
+      let eStr = seg.slice(dashIdx + 1, seg.len()).trim()
+      let startVal = if sStr.len() > 0: parseCliDecimalInt(sStr) else: 1
+      let endVal = if eStr.len() > 0: parseCliDecimalInt(eStr) else: maxVal
+      mut cur = startVal
+      while cur <= endVal:
+        out.push(cur)
+        cur = cur + 1
+    elif seg.len() > 0:
+      out.push(parseCliDecimalInt(seg))
+    i = i + 1
+  ret out
+
+pub fn parseIntRanges(spec: str): [int]:
+  ret parseRangeSpec(spec, 100)

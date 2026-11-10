@@ -1,0 +1,544 @@
+module tests.functions.procgen.noise_poisson_wfc_automata_dungeon_lsystem_and_marching_test
+
+import * from "std/procgen/cellular_automata"
+import { clampFloat } from "std/math/consts"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import * from "std/procgen/dungeon_graph"
+import { minInt, maxInt, clampInt } from "std/math/consts"
+import { floor, sqrt } from "std/math/trig"
+import { Vec2, IVec2 } from "std/math/vec_math"
+import { Rect2D } from "std/math/geom2d"
+import { CellularGrid2D } from "std/procgen/cellular_automata"
+import * from "std/procgen/lsystem"
+import { DEG2RAD } from "std/math/consts"
+import { sin, cos } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import * from "std/procgen/marching_isosurface"
+import { absFloat, clampFloat } from "std/math/consts"
+import { Vec2, Vec3 } from "std/math/vec_math"
+import { ScalarField2D } from "std/procgen/cellular_automata"
+import * from "std/procgen/noise_field"
+import { SQRT3, clampFloat } from "std/math/consts"
+import { floor, sqrt, sin, cos } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import * from "std/procgen/poisson_disc"
+import { TAU } from "std/math/consts"
+import { AABB3D } from "std/math/geom3d"
+import * from "std/procgen/wfc_solver"
+
+pub fn test_cellular_automata_lcgRandFloat_1(): int:
+  let arg_state = 1
+  let edge_state = 0
+  let resNom = lcgRandFloat(arg_state)
+  let resEdge = lcgRandFloat(edge_state)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0, 1103527590, "lcgRandFloat nominal n_t0 == 1103527590")
+  assertEqInt(e_t0, 12345, "lcgRandFloat boundary e_t0 == 12345")
+  ret 0
+
+pub fn test_cellular_automata_caveAutomataInit_2(): int:
+  let arg_width = 4
+  let edge_width = 1
+  let arg_height = 4
+  let edge_height = 1
+  let arg_fillProb = 1.0
+  let edge_fillProb = 0.5
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = caveAutomataInit(arg_width, arg_height, arg_fillProb, arg_seed)
+  let resEdge = caveAutomataInit(edge_width, edge_height, edge_fillProb, edge_seed)
+  assertEqInt(resNom.width, 4, "caveAutomataInit nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "caveAutomataInit boundary resEdge.width == 1")
+  ret 0
+
+pub fn test_cellular_automata_countMooreNeighbors_3(): int:
+  let arg_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let arg_cx = 1
+  let edge_cx = 0
+  let arg_cy = 1
+  let edge_cy = 0
+  let arg_outOfBoundsSolid = true
+  let edge_outOfBoundsSolid = false
+  let resNom = countMooreNeighbors(arg_grid, arg_cx, arg_cy, arg_outOfBoundsSolid)
+  let resEdge = countMooreNeighbors(edge_grid, edge_cx, edge_cy, edge_outOfBoundsSolid)
+  assertEqInt(resNom, 8, "countMooreNeighbors nominal resNom == 8")
+  assertEqInt(resEdge, 3, "countMooreNeighbors boundary resEdge == 3")
+  ret 0
+
+pub fn test_cellular_automata_caveAutomataStep_4(): int:
+  let arg_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let arg_birthLimit = 4
+  let edge_birthLimit = 1
+  let arg_deathLimit = 4
+  let edge_deathLimit = 1
+  let resNom = caveAutomataStep(arg_grid, arg_birthLimit, arg_deathLimit)
+  let resEdge = caveAutomataStep(edge_grid, edge_birthLimit, edge_deathLimit)
+  assertEqInt(resNom.width, 4, "caveAutomataStep nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "caveAutomataStep boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_cellular_automata_conwayStep2D_5(): int:
+  let arg_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularGrid2D(width = 4, height = 4, cells = [])
+  let resNom = conwayStep2D(arg_grid)
+  let resEdge = conwayStep2D(edge_grid)
+  assertEqInt(resNom.width, 4, "conwayStep2D nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 4, "conwayStep2D boundary resEdge.width == 4")
+  ret 0
+
+pub fn test_cellular_automata_grayScottStep2D_6(): int:
+  let arg_gridU = ScalarField2D(width = 4, height = 4, values = [])
+  let edge_gridU = ScalarField2D(width = 4, height = 4, values = [])
+  let arg_gridV = ScalarField2D(width = 4, height = 4, values = [])
+  let edge_gridV = ScalarField2D(width = 4, height = 4, values = [])
+  let arg_config = GrayScottConfig(feedRate = 2.0, killRate = 2.0, diffusionU = 1.0, diffusionV = 1.0)
+  let edge_config = GrayScottConfig(feedRate = 1.0, killRate = 1.0, diffusionU = 0.5, diffusionV = 0.5)
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  grayScottStep2D(arg_gridU, arg_gridV, arg_config, arg_dt)
+  grayScottStep2D(edge_gridU, edge_gridV, edge_config, edge_dt)
+  assertEqInt(arg_gridU.values.len(), 16, "grayScottStep2D nominal arg_gridU.values.len() == 16")
+  assertEqInt(edge_gridU.values.len(), 16, "grayScottStep2D boundary edge_gridU.values.len() == 16")
+  ret 0
+
+pub fn test_dungeon_graph_bspPartitionRooms_1(): int:
+  let arg_area = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0)
+  let edge_area = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0)
+  let arg_minRoomSize = 0.0
+  let edge_minRoomSize = 0.0
+  let arg_maxDepth = 4
+  let edge_maxDepth = 1
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = bspPartitionRooms(arg_area, arg_minRoomSize, arg_maxDepth, arg_seed)
+  let resEdge = bspPartitionRooms(edge_area, edge_minRoomSize, edge_maxDepth, edge_seed)
+  assertEqInt(resNom.len(), 16, "bspPartitionRooms nominal resNom.len() == 16")
+  assertEqInt(resEdge.len(), 2, "bspPartitionRooms boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_dungeon_graph_delaunayTriangulateRooms_2(): int:
+  let arg_rooms = [DungeonRoom(id = 1, bounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), center = Vec2(x = 1.0, y = 1.0), connectedRooms = [])]
+  let edge_rooms = []
+  let resNom = delaunayTriangulateRooms(arg_rooms)
+  let resEdge = delaunayTriangulateRooms(edge_rooms)
+  assertEqInt(resNom.len(), 0, "delaunayTriangulateRooms nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "delaunayTriangulateRooms boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dungeon_graph_minimumSpanningTreeCorridors_3(): int:
+  let arg_rooms = [DungeonRoom(id = 1, bounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), center = Vec2(x = 1.0, y = 1.0), connectedRooms = [])]
+  let edge_rooms = []
+  let arg_edges = [IVec2(x = 1, y = 1)]
+  let edge_edges = []
+  let arg_extraEdgeProbability = 1.0
+  let edge_extraEdgeProbability = 0.5
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = minimumSpanningTreeCorridors(arg_rooms, arg_edges, arg_extraEdgeProbability, arg_seed)
+  let resEdge = minimumSpanningTreeCorridors(edge_rooms, edge_edges, edge_extraEdgeProbability, edge_seed)
+  assertEqInt(resNom.len(), 1, "minimumSpanningTreeCorridors nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "minimumSpanningTreeCorridors boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dungeon_graph_carveDungeonGrid_4(): int:
+  let arg_rooms = [DungeonRoom(id = 1, bounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), center = Vec2(x = 1.0, y = 1.0), connectedRooms = [])]
+  let edge_rooms = []
+  let arg_corridors = [DungeonCorridor(roomA = 4, roomB = 4, waypoints = [], width = 2.0)]
+  let edge_corridors = []
+  let arg_gridWidth = 4
+  let edge_gridWidth = 1
+  let arg_gridHeight = 4
+  let edge_gridHeight = 1
+  let resNom = carveDungeonGrid(arg_rooms, arg_corridors, arg_gridWidth, arg_gridHeight)
+  let resEdge = carveDungeonGrid(edge_rooms, edge_corridors, edge_gridWidth, edge_gridHeight)
+  assertEqInt(resNom.width, 4, "carveDungeonGrid nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "carveDungeonGrid boundary resEdge.width == 1")
+  ret 0
+
+pub fn test_lsystem_lsystemGrammarNew_1(): int:
+  let arg_axiom = "test"
+  let edge_axiom = "a"
+  let arg_angleDegrees = 1.0
+  let edge_angleDegrees = 0.5
+  let arg_length = 2.0
+  let edge_length = 1.0
+  let resNom = lsystemGrammarNew(arg_axiom, arg_angleDegrees, arg_length)
+  let resEdge = lsystemGrammarNew(edge_axiom, edge_angleDegrees, edge_length)
+  assertEqStr(resNom.axiom, "test", "lsystemGrammarNew nominal string matches")
+  assertEqStr(resEdge.axiom, "a", "lsystemGrammarNew boundary string matches")
+  ret 0
+
+pub fn test_lsystem_lsystemAddRule_2(): int:
+  let arg_grammar = LSystemGrammar(axiom = "test", rules = [], defaultAngleDegrees = 1.0, defaultLength = 2.0)
+  let edge_grammar = LSystemGrammar(axiom = "a", rules = [], defaultAngleDegrees = 0.5, defaultLength = 1.0)
+  let arg_pred = "test"
+  let edge_pred = "a"
+  let arg_succ = "test"
+  let edge_succ = "a"
+  let arg_weight = 2.0
+  let edge_weight = 1.0
+  lsystemAddRule(arg_grammar, arg_pred, arg_succ, arg_weight)
+  lsystemAddRule(edge_grammar, edge_pred, edge_succ, edge_weight)
+  assertEqInt(arg_grammar.rules.len(), 1, "lsystemAddRule nominal arg_grammar.rules.len() == 1")
+  assertEqInt(edge_grammar.rules.len(), 1, "lsystemAddRule boundary edge_grammar.rules.len() == 1")
+  ret 0
+
+pub fn test_lsystem_lsystemEvaluate_3(): int:
+  let arg_grammar = LSystemGrammar(axiom = "test", rules = [], defaultAngleDegrees = 1.0, defaultLength = 2.0)
+  let edge_grammar = LSystemGrammar(axiom = "a", rules = [], defaultAngleDegrees = 0.5, defaultLength = 1.0)
+  let arg_iterations = 4
+  let edge_iterations = 1
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = lsystemEvaluate(arg_grammar, arg_iterations, arg_seed)
+  let resEdge = lsystemEvaluate(edge_grammar, edge_iterations, edge_seed)
+  assertEqStr(resNom, "test", "lsystemEvaluate nominal string matches")
+  assertEqStr(resEdge, "a", "lsystemEvaluate boundary string matches")
+  ret 0
+
+pub fn test_lsystem_lsystemInterpretTurtle3D_4(): int:
+  let arg_sentence = "42"
+  let edge_sentence = "0"
+  let arg_angleDegrees = 1.0
+  let edge_angleDegrees = 0.5
+  let arg_length = 2.0
+  let edge_length = 1.0
+  let resNom = lsystemInterpretTurtle3D(arg_sentence, arg_angleDegrees, arg_length)
+  let resEdge = lsystemInterpretTurtle3D(edge_sentence, edge_angleDegrees, edge_length)
+  assertEqInt(resNom.len(), 0, "lsystemInterpretTurtle3D nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "lsystemInterpretTurtle3D boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_marching_isosurface_interpIso_1(): int:
+  let arg_vA = 1.0
+  let edge_vA = 0.5
+  let arg_vB = 1.0
+  let edge_vB = 0.5
+  let arg_iso = 1.0
+  let edge_iso = 0.5
+  let resNom = interpIso(arg_vA, arg_vB, arg_iso)
+  let resEdge = interpIso(edge_vA, edge_vB, edge_iso)
+  assertApproxEq(resNom, 0.5, 0.001, "interpIso nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.5, 0.001, "interpIso boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_marching_isosurface_marchingSquaresExtract_2(): int:
+  let arg_field = ScalarField2D(width = 4, height = 4, values = [])
+  let edge_field = ScalarField2D(width = 4, height = 4, values = [])
+  let arg_isoLevel = 1.0
+  let edge_isoLevel = 0.5
+  let arg_cellSize = 1.0
+  let edge_cellSize = 0.5
+  let resNom = marchingSquaresExtract(arg_field, arg_isoLevel, arg_cellSize)
+  let resEdge = marchingSquaresExtract(edge_field, edge_isoLevel, edge_cellSize)
+  assertEqInt(resNom.len(), 0, "marchingSquaresExtract nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "marchingSquaresExtract boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_marching_isosurface_marchingCubesExtract_3(): int:
+  let arg_densityGrid = ScalarField3D(width = 4, height = 4, depth = 0, values = [])
+  let edge_densityGrid = ScalarField3D(width = 4, height = 4, depth = 0, values = [])
+  let arg_isoLevel = 1.0
+  let edge_isoLevel = 0.5
+  let arg_voxelSize = 1.0
+  let edge_voxelSize = 0.5
+  let resNom = marchingCubesExtract(arg_densityGrid, arg_isoLevel, arg_voxelSize)
+  let resEdge = marchingCubesExtract(edge_densityGrid, edge_isoLevel, edge_voxelSize)
+  assertEqInt(resNom.len(), 0, "marchingCubesExtract nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "marchingCubesExtract boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_noise_field_hash2D_1(): int:
+  let arg_ix = 1
+  let edge_ix = 0
+  let arg_iy = 1
+  let edge_iy = 0
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = hash2D(arg_ix, arg_iy, arg_seed)
+  let resEdge = hash2D(edge_ix, edge_iy, edge_seed)
+  assertEqInt(resNom, 630946, "hash2D nominal resNom == 630946")
+  assertEqInt(resEdge, 0, "hash2D boundary resEdge == 0")
+  ret 0
+
+pub fn test_noise_field_hash3D_2(): int:
+  let arg_ix = 1
+  let edge_ix = 0
+  let arg_iy = 1
+  let edge_iy = 0
+  let arg_iz = 1
+  let edge_iz = 0
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = hash3D(arg_ix, arg_iy, arg_iz, arg_seed)
+  let resEdge = hash3D(edge_ix, edge_iy, edge_iz, edge_seed)
+  assertEqInt(resNom, 2110963333, "hash3D nominal resNom == 2110963333")
+  assertEqInt(resEdge, 0, "hash3D boundary resEdge == 0")
+  ret 0
+
+pub fn test_noise_field_quinticFade_3(): int:
+  let arg_t = 1.0
+  let edge_t = 0.5
+  let resNom = quinticFade(arg_t)
+  let resEdge = quinticFade(edge_t)
+  assertApproxEq(resNom, 1.0, 0.001, "quinticFade nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "quinticFade boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_noise_field_lerpScalar_4(): int:
+  let arg_a = 1.0
+  let edge_a = 0.5
+  let arg_b = 1.0
+  let edge_b = 0.5
+  let arg_t = 1.0
+  let edge_t = 0.5
+  let resNom = lerpScalar(arg_a, arg_b, arg_t)
+  let resEdge = lerpScalar(edge_a, edge_b, edge_t)
+  assertApproxEq(resNom, 1.0, 0.001, "lerpScalar nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "lerpScalar boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_noise_field_gradDot2D_5(): int:
+  let arg_ix = 1
+  let edge_ix = 0
+  let arg_iy = 1
+  let edge_iy = 0
+  let arg_dx = 1.0
+  let edge_dx = 0.5
+  let arg_dy = 1.0
+  let edge_dy = 0.5
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = gradDot2D(arg_ix, arg_iy, arg_dx, arg_dy, arg_seed)
+  let resEdge = gradDot2D(edge_ix, edge_iy, edge_dx, edge_dy, edge_seed)
+  assertApproxEq(resNom, 0.0, 0.001, "gradDot2D nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "gradDot2D boundary resEdge ~= 1.0")
+  ret 0
+
+pub fn test_noise_field_samplePerlin2D_6(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_y = 1.0
+  let edge_y = 0.5
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = samplePerlin2D(arg_x, arg_y, arg_seed)
+  let resEdge = samplePerlin2D(edge_x, edge_y, edge_seed)
+  assertApproxEq(resNom, 0.0, 0.001, "samplePerlin2D nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "samplePerlin2D boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_noise_field_gradDot3D_7(): int:
+  let arg_ix = 1
+  let edge_ix = 0
+  let arg_iy = 1
+  let edge_iy = 0
+  let arg_iz = 1
+  let edge_iz = 0
+  let arg_dx = 1.0
+  let edge_dx = 0.5
+  let arg_dy = 1.0
+  let edge_dy = 0.5
+  let arg_dz = 1.0
+  let edge_dz = 0.5
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = gradDot3D(arg_ix, arg_iy, arg_iz, arg_dx, arg_dy, arg_dz, arg_seed)
+  let resEdge = gradDot3D(edge_ix, edge_iy, edge_iz, edge_dx, edge_dy, edge_dz, edge_seed)
+  assertApproxEq(resNom, 0.0, 0.001, "gradDot3D nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "gradDot3D boundary resEdge ~= 1.0")
+  ret 0
+
+pub fn test_noise_field_samplePerlin3D_8(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_y = 1.0
+  let edge_y = 0.5
+  let arg_z = 1.0
+  let edge_z = 0.5
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = samplePerlin3D(arg_x, arg_y, arg_z, arg_seed)
+  let resEdge = samplePerlin3D(edge_x, edge_y, edge_z, edge_seed)
+  assertApproxEq(resNom, 0.0, 0.001, "samplePerlin3D nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.144338, 0.001, "samplePerlin3D boundary resEdge ~= 0.144338")
+  ret 0
+
+pub fn test_noise_field_sampleSimplex2D_9(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_y = 1.0
+  let edge_y = 0.5
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = sampleSimplex2D(arg_x, arg_y, arg_seed)
+  let resEdge = sampleSimplex2D(edge_x, edge_y, edge_seed)
+  assertApproxEq(resNom, -0.581847, 0.001, "sampleSimplex2D nominal resNom ~= -0.581847")
+  assertApproxEq(resEdge, -0.394916, 0.001, "sampleSimplex2D boundary resEdge ~= -0.394916")
+  ret 0
+
+pub fn test_noise_field_sampleWorley2D_10(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_y = 1.0
+  let edge_y = 0.5
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = sampleWorley2D(arg_x, arg_y, arg_seed)
+  let resEdge = sampleWorley2D(edge_x, edge_y, edge_seed)
+  assertApproxEq(resNom.f1, 0.501577, 0.001, "sampleWorley2D nominal resNom.f1 ~= 0.501577")
+  assertApproxEq(resEdge.f1, 0.591113, 0.001, "sampleWorley2D boundary resEdge.f1 ~= 0.591113")
+  ret 0
+
+pub fn test_noise_field_sampleFbm2D_11(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_y = 1.0
+  let edge_y = 0.5
+  let arg_config = FbmConfig(octaves = 2, lacunarity = 1.0, persistence = 1.0, seed = 0)
+  let edge_config = FbmConfig(octaves = 0, lacunarity = 0.5, persistence = 0.5, seed = 0)
+  let resNom = sampleFbm2D(arg_x, arg_y, arg_config)
+  let resEdge = sampleFbm2D(edge_x, edge_y, edge_config)
+  assertApproxEq(resNom, 0.0, 0.001, "sampleFbm2D nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "sampleFbm2D boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_noise_field_sampleDomainWarpedFbm2D_12(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_y = 1.0
+  let edge_y = 0.5
+  let arg_config = FbmConfig(octaves = 2, lacunarity = 1.0, persistence = 1.0, seed = 0)
+  let edge_config = FbmConfig(octaves = 0, lacunarity = 0.5, persistence = 0.5, seed = 0)
+  let arg_warpStrength = 2.0
+  let edge_warpStrength = 1.0
+  let resNom = sampleDomainWarpedFbm2D(arg_x, arg_y, arg_config, arg_warpStrength)
+  let resEdge = sampleDomainWarpedFbm2D(edge_x, edge_y, edge_config, edge_warpStrength)
+  assertApproxEq(resNom, 0.442805, 0.001, "sampleDomainWarpedFbm2D nominal resNom ~= 0.442805")
+  assertApproxEq(resEdge, 0.0, 0.001, "sampleDomainWarpedFbm2D boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_poisson_disc_poissonDiscSample2D_1(): int:
+  let arg_config = PoissonDiscConfig2D(bounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), minDistance = 0.0, maxCandidates = 4, seed = 0)
+  let edge_config = PoissonDiscConfig2D(bounds = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0), minDistance = 0.0, maxCandidates = 1, seed = 0)
+  let resNom = poissonDiscSample2D(arg_config)
+  let resEdge = poissonDiscSample2D(edge_config)
+  assertEqInt(resNom.len(), 256, "poissonDiscSample2D nominal resNom.len() == 256")
+  assertEqInt(resEdge.len(), 256, "poissonDiscSample2D boundary resEdge.len() == 256")
+  ret 0
+
+pub fn test_poisson_disc_poissonDiscSample3D_2(): int:
+  let arg_bounds = AABB3D(min = Vec3(x = 1.0, y = 1.0, z = 1.0), max = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let edge_bounds = AABB3D(min = Vec3(x = 0.5, y = 0.5, z = 0.5), max = Vec3(x = 0.5, y = 0.5, z = 0.5))
+  let arg_minDistance = 0.0
+  let edge_minDistance = 0.0
+  let arg_k = 4
+  let edge_k = 1
+  let arg_seed = 1
+  let edge_seed = 0
+  let resNom = poissonDiscSample3D(arg_bounds, arg_minDistance, arg_k, arg_seed)
+  let resEdge = poissonDiscSample3D(edge_bounds, edge_minDistance, edge_k, edge_seed)
+  assertEqInt(resNom.len(), 128, "poissonDiscSample3D nominal resNom.len() == 128")
+  assertEqInt(resEdge.len(), 128, "poissonDiscSample3D boundary resEdge.len() == 128")
+  ret 0
+
+pub fn test_wfc_solver_wfcSolver2dNew_1(): int:
+  let arg_width = 4
+  let edge_width = 1
+  let arg_height = 4
+  let edge_height = 1
+  let arg_numPatterns = 4
+  let edge_numPatterns = 1
+  let resNom = wfcSolver2dNew(arg_width, arg_height, arg_numPatterns)
+  let resEdge = wfcSolver2dNew(edge_width, edge_height, edge_numPatterns)
+  assertEqInt(resNom.width, 4, "wfcSolver2dNew nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "wfcSolver2dNew boundary resEdge.width == 1")
+  ret 0
+
+pub fn test_wfc_solver_wfcAddPattern_2(): int:
+  let arg_solver = WfcSolver2D(width = 4, height = 4, numPatterns = 4, patterns = [], waveMasks = [], collapsedGrid = [], isSolved = true)
+  let edge_solver = WfcSolver2D(width = 4, height = 4, numPatterns = 1, patterns = [], waveMasks = [], collapsedGrid = [], isSolved = false)
+  let arg_pattern = WfcPattern(id = 1, weight = 2.0, compatibleNeighbors = [])
+  let edge_pattern = WfcPattern(id = 0, weight = 1.0, compatibleNeighbors = [])
+  wfcAddPattern(arg_solver, arg_pattern)
+  wfcAddPattern(edge_solver, edge_pattern)
+  assertEqInt(arg_solver.patterns.len(), 1, "wfcAddPattern nominal arg_solver.patterns.len() == 1")
+  assertEqInt(edge_solver.patterns.len(), 1, "wfcAddPattern boundary edge_solver.patterns.len() == 1")
+  ret 0
+
+pub fn test_wfc_solver_countSetBits_3(): int:
+  let arg_mask = 4
+  let edge_mask = 1
+  let arg_maxBits = 4
+  let edge_maxBits = 1
+  let resNom = countSetBits(arg_mask, arg_maxBits)
+  let resEdge = countSetBits(edge_mask, edge_maxBits)
+  assertEqInt(resNom, 1, "countSetBits nominal resNom == 1")
+  assertEqInt(resEdge, 1, "countSetBits boundary resEdge == 1")
+  ret 0
+
+pub fn test_wfc_solver_wfcStep_4(): int:
+  mut solver = wfcSolver2dNew(2, 2, 2)
+  let pat0 = WfcPattern(id = 0, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  let pat1 = WfcPattern(id = 1, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  wfcAddPattern(solver, pat0)
+  wfcAddPattern(solver, pat1)
+  let ok = wfcStep(solver, 42)
+  assert(ok == true, "wfcStep succeeds on valid 2x2 grid")
+  assertEqInt(solver.collapsedGrid.len, 4, "solver has 4 collapsed cells")
+  ret 0
+
+pub fn test_wfc_solver_wfcSolve_5(): int:
+  mut solver = wfcSolver2dNew(3, 3, 2)
+  let pat0 = WfcPattern(id = 0, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  let pat1 = WfcPattern(id = 1, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  wfcAddPattern(solver, pat0)
+  wfcAddPattern(solver, pat1)
+  let solved = wfcSolve(solver, 5, 123)
+  assert(solved == true, "wfcSolve finds valid solution on 3x3 grid")
+  assert(solver.isSolved == true, "solver marked as solved")
+  assert(solver.collapsedGrid[0] >= 0, "first cell collapsed to valid pattern index")
+  assert(solver.collapsedGrid[8] >= 0, "last cell collapsed to valid pattern index")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_cellular_automata_lcgRandFloat_1(), 0, "test_cellular_automata_lcgRandFloat_1")
+  assertEqInt(test_cellular_automata_caveAutomataInit_2(), 0, "test_cellular_automata_caveAutomataInit_2")
+  assertEqInt(test_cellular_automata_countMooreNeighbors_3(), 0, "test_cellular_automata_countMooreNeighbors_3")
+  assertEqInt(test_cellular_automata_caveAutomataStep_4(), 0, "test_cellular_automata_caveAutomataStep_4")
+  assertEqInt(test_cellular_automata_conwayStep2D_5(), 0, "test_cellular_automata_conwayStep2D_5")
+  assertEqInt(test_cellular_automata_grayScottStep2D_6(), 0, "test_cellular_automata_grayScottStep2D_6")
+  assertEqInt(test_dungeon_graph_bspPartitionRooms_1(), 0, "test_dungeon_graph_bspPartitionRooms_1")
+  assertEqInt(test_dungeon_graph_delaunayTriangulateRooms_2(), 0, "test_dungeon_graph_delaunayTriangulateRooms_2")
+  assertEqInt(test_dungeon_graph_minimumSpanningTreeCorridors_3(), 0, "test_dungeon_graph_minimumSpanningTreeCorridors_3")
+  assertEqInt(test_dungeon_graph_carveDungeonGrid_4(), 0, "test_dungeon_graph_carveDungeonGrid_4")
+  assertEqInt(test_lsystem_lsystemGrammarNew_1(), 0, "test_lsystem_lsystemGrammarNew_1")
+  assertEqInt(test_lsystem_lsystemAddRule_2(), 0, "test_lsystem_lsystemAddRule_2")
+  assertEqInt(test_lsystem_lsystemEvaluate_3(), 0, "test_lsystem_lsystemEvaluate_3")
+  assertEqInt(test_lsystem_lsystemInterpretTurtle3D_4(), 0, "test_lsystem_lsystemInterpretTurtle3D_4")
+  assertEqInt(test_marching_isosurface_interpIso_1(), 0, "test_marching_isosurface_interpIso_1")
+  assertEqInt(test_marching_isosurface_marchingSquaresExtract_2(), 0, "test_marching_isosurface_marchingSquaresExtract_2")
+  assertEqInt(test_marching_isosurface_marchingCubesExtract_3(), 0, "test_marching_isosurface_marchingCubesExtract_3")
+  assertEqInt(test_noise_field_hash2D_1(), 0, "test_noise_field_hash2D_1")
+  assertEqInt(test_noise_field_hash3D_2(), 0, "test_noise_field_hash3D_2")
+  assertEqInt(test_noise_field_quinticFade_3(), 0, "test_noise_field_quinticFade_3")
+  assertEqInt(test_noise_field_lerpScalar_4(), 0, "test_noise_field_lerpScalar_4")
+  assertEqInt(test_noise_field_gradDot2D_5(), 0, "test_noise_field_gradDot2D_5")
+  assertEqInt(test_noise_field_samplePerlin2D_6(), 0, "test_noise_field_samplePerlin2D_6")
+  assertEqInt(test_noise_field_gradDot3D_7(), 0, "test_noise_field_gradDot3D_7")
+  assertEqInt(test_noise_field_samplePerlin3D_8(), 0, "test_noise_field_samplePerlin3D_8")
+  assertEqInt(test_noise_field_sampleSimplex2D_9(), 0, "test_noise_field_sampleSimplex2D_9")
+  assertEqInt(test_noise_field_sampleWorley2D_10(), 0, "test_noise_field_sampleWorley2D_10")
+  assertEqInt(test_noise_field_sampleFbm2D_11(), 0, "test_noise_field_sampleFbm2D_11")
+  assertEqInt(test_noise_field_sampleDomainWarpedFbm2D_12(), 0, "test_noise_field_sampleDomainWarpedFbm2D_12")
+  assertEqInt(test_poisson_disc_poissonDiscSample2D_1(), 0, "test_poisson_disc_poissonDiscSample2D_1")
+  assertEqInt(test_poisson_disc_poissonDiscSample3D_2(), 0, "test_poisson_disc_poissonDiscSample3D_2")
+  assertEqInt(test_wfc_solver_wfcSolver2dNew_1(), 0, "test_wfc_solver_wfcSolver2dNew_1")
+  assertEqInt(test_wfc_solver_wfcAddPattern_2(), 0, "test_wfc_solver_wfcAddPattern_2")
+  assertEqInt(test_wfc_solver_countSetBits_3(), 0, "test_wfc_solver_countSetBits_3")
+  assertEqInt(test_wfc_solver_wfcStep_4(), 0, "test_wfc_solver_wfcStep_4")
+  assertEqInt(test_wfc_solver_wfcSolve_5(), 0, "test_wfc_solver_wfcSolve_5")
+  ret 0

@@ -1,0 +1,63 @@
+module WindowDisplay
+
+// ============================================================================
+// std/window/display.aipl — Multi-Monitor Enumeration & HiDPI Scaling
+// ============================================================================
+
+pub const FULLSCREEN_WINDOWED: int = 0
+pub const FULLSCREEN_BORDERLESS: int = 1
+pub const FULLSCREEN_EXCLUSIVE: int = 2
+
+pub struct VideoMode(width: int, height: int, refreshRateHz: int, bitDepth: int)
+
+pub struct MonitorInfo(id: int, name: str, isPrimary: bool, positionX: int, positionY: int, currentMode: VideoMode, supportedModes: [VideoMode], dpiScale: float)
+
+pub fn getPrimaryMonitor(): MonitorInfo:
+  let mode60 = VideoMode(width = 1920, height = 1080, refreshRateHz = 60, bitDepth = 32)
+  let mode120 = VideoMode(width = 1920, height = 1080, refreshRateHz = 120, bitDepth = 32)
+  let mode1440 = VideoMode(width = 2560, height = 1440, refreshRateHz = 144, bitDepth = 32)
+  ret MonitorInfo(
+    id = 1,
+    name = "Primary Display",
+    isPrimary = true,
+    positionX = 0,
+    positionY = 0,
+    currentMode = mode60,
+    supportedModes = [mode60, mode120, mode1440],
+    dpiScale = 1.0
+  )
+
+pub fn enumerateMonitors(): [MonitorInfo]:
+  let primary = getPrimaryMonitor()
+  ret [primary]
+
+fn absIntLocal(x: int): int:
+  if x < 0:
+    ret -x
+  ret x
+
+pub fn findClosestVideoMode(monitor: MonitorInfo, targetW: int, targetH: int, targetHz: int): VideoMode:
+  if monitor.supportedModes.len == 0:
+    ret monitor.currentMode
+  mut best = monitor.supportedModes[0]
+  mut bestResCost = absIntLocal(best.width - targetW) + absIntLocal(best.height - targetH)
+  mut bestHzCost = absIntLocal(best.refreshRateHz - targetHz)
+  mut i = 1
+  while i < monitor.supportedModes.len:
+    let m = monitor.supportedModes[i]
+    let resCost = absIntLocal(m.width - targetW) + absIntLocal(m.height - targetH)
+    let hzCost = absIntLocal(m.refreshRateHz - targetHz)
+    if resCost < bestResCost or (resCost == bestResCost and hzCost < bestHzCost):
+      best = m
+      bestResCost = resCost
+      bestHzCost = hzCost
+    i += 1
+  ret best
+
+pub fn scaleLogicalToPhysical(logicalPx: float, dpiScale: float): int:
+  let scale = if dpiScale > 0.0: dpiScale else: 1.0
+  ret int(logicalPx * scale + 0.5)
+
+pub fn scalePhysicalToLogical(physicalPx: int, dpiScale: float): float:
+  let scale = if dpiScale > 0.0: dpiScale else: 1.0
+  ret float(physicalPx) / scale

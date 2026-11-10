@@ -1,0 +1,43 @@
+// ============================================================================
+// Twin Test Suite 006: Enums, Match Expressions, Guards & Prefix Patterns CLI
+// Verifies examples/ex_006_enums_and_pattern_matching_cli.aipl
+// ============================================================================
+module Ex006EnumsAndPatternMatchingCliTest
+
+import {
+  RouteMatchReport,
+  classifyHttpStatusCode,
+  matchRequestCommand,
+  computeRetryBackoffMs,
+  buildRouteMatchReport
+} from "../../examples/ex_006_enums_and_pattern_matching_cli.aipl"
+
+pub fn test_multi_pattern_and_guard_matching(): int:
+  assert(classifyHttpStatusCode(200) == "HTTP:SUCCESS", "200 matches 200 | 201 | 204")
+  assert(classifyHttpStatusCode(204) == "HTTP:SUCCESS", "204 matches 200 | 201 | 204")
+  assert(classifyHttpStatusCode(404) == "HTTP:NOT_FOUND", "404 exact arm")
+  assert(classifyHttpStatusCode(503) == "HTTP:SERVER_FAULT", "503 matches guard code >= 500")
+  assert(classifyHttpStatusCode(418) == "HTTP:CLIENT_ERROR", "418 matches guard code >= 400")
+  ret 0
+
+pub fn test_prefix_pattern_and_retry_backoff(): int:
+  assert(matchRequestCommand("GET /api/v4/status") == "ROUTE:READ_ENDPOINT", "prefix('GET ') matched")
+  assert(matchRequestCommand("POST /api/v4/jobs") == "ROUTE:WRITE_ENDPOINT", "prefix('POST ') matched")
+  assert(matchRequestCommand("PING") == "ROUTE:HEALTH_CHECK", "exact PING matched")
+  assert(computeRetryBackoffMs(503, 3) == 750, "server error retry backoff")
+  assert(computeRetryBackoffMs(200, 3) == 0, "success needs 0ms retry backoff")
+  ret 0
+
+pub fn test_build_route_match_report(): int:
+  let rep = buildRouteMatchReport("GET /api/v4/items", 200, 2)
+  assert(rep.routeTag == "ROUTE:READ_ENDPOINT", "routeTag")
+  assert(rep.statusClass == "HTTP:SUCCESS", "statusClass")
+  assert(rep.backoffMs == 0, "backoffMs == 0")
+  ret 0
+
+pub fn main(): int:
+  test_multi_pattern_and_guard_matching()
+  test_prefix_pattern_and_retry_backoff()
+  test_build_route_match_report()
+  println("PASS: ex_006_enums_and_pattern_matching_cli_test")
+  ret 0

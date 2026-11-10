@@ -1,0 +1,63 @@
+module Ex242AiNavmeshFunnelPathSmoothingWindowTest
+
+import { NavMeshPortalEdge, NavMeshPoly2D, navMeshNew, navMeshFindPath, navFunnelSmoothPortals, navBresenhamLineOfSight } from "../../std/ai/navmesh"
+import { Vec2 } from "../../std/math/vec_math"
+import { NavMeshScene, initScene, stepScene, auditAiNavmeshFunnelSmoothing } from "../../examples/ex_242_ai_navmesh_funnel_path_smoothing_window"
+
+fn test_ai_navmesh_funnel_path_smoothing(): void:
+  let p0 = NavMeshPoly2D(
+    id = 0,
+    vertices = [Vec2(x = 0.0, y = 0.0), Vec2(x = 10.0, y = 0.0), Vec2(x = 10.0, y = 10.0), Vec2(x = 0.0, y = 10.0)],
+    center = Vec2(x = 5.0, y = 5.0),
+    portals = [NavMeshPortalEdge(leftVertex = Vec2(x = 10.0, y = 0.0), rightVertex = Vec2(x = 10.0, y = 10.0), neighborPolyIdx = 1)]
+  )
+  let p1 = NavMeshPoly2D(
+    id = 1,
+    vertices = [Vec2(x = 10.0, y = 0.0), Vec2(x = 20.0, y = 0.0), Vec2(x = 20.0, y = 10.0), Vec2(x = 10.0, y = 10.0)],
+    center = Vec2(x = 15.0, y = 5.0),
+    portals = [NavMeshPortalEdge(leftVertex = Vec2(x = 10.0, y = 10.0), rightVertex = Vec2(x = 10.0, y = 0.0), neighborPolyIdx = 0)]
+  )
+  let mesh = navMeshNew([p0, p1])
+  let pathOpt = navMeshFindPath(mesh, Vec2(x = 2.0, y = 5.0), Vec2(x = 18.0, y = 5.0))
+  assert(pathOpt.isSome(), "navMeshFindPath finds path across portal")
+  let pts = pathOpt.unwrap()
+  assert(pts.len() == 3, "path includes start, portal midpoint, and goal")
+  let funPts = navFunnelSmoothPortals([0.0, 0.0, 5.0, 2.0, 10.0, 0.0], [0.0, 0.0, 5.0, -2.0, 10.0, 0.0])
+  assert(funPts.len() >= 4, "navFunnelSmoothPortals")
+  assert(navBresenhamLineOfSight(0, 0, 10, 10, 25, 25, 2), "navBresenhamLineOfSight")
+
+  mut scene = initScene()
+  assert(scene.mesh.polygons.len() == 3, "scene has 3 convex navmesh polygons")
+  let ax0 = scene.agentPos.x
+  let ay0 = scene.agentPos.y
+  let gy0 = scene.goal.y
+  scene = stepScene(scene, 1, 0.05)
+  let ax1 = scene.agentPos.x
+  let ay1 = scene.agentPos.y
+  let gy1 = scene.goal.y
+  assert((ax1 != ax0) or (ay1 != ay0), "t=0 -> t=1 agent moves along smoothed funnel path")
+  assert(gy1 != gy0, "t=0 -> t=1 dynamic goal shifts and re-solves funnel")
+
+  mut f = 2
+  while f <= 20:
+    scene = stepScene(scene, f, 0.05)
+    f = f + 1
+  let ax20 = scene.agentPos.x
+  let gy20 = scene.goal.y
+  assert(ax20 > ax1, "t=1 -> t=20 agent advances across navmesh portals")
+  assert(scene.portalPath.len() == 4, "3-polygon path has start, 2 portal midpoints, and goal")
+  assert(scene.funnelCoords.len() >= 4, "funnel string-pulling produces smoothed coordinate pairs")
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  while f <= 100:
+    scene = stepScene(scene, f, 0.05)
+    f = f + 1
+  assert(scene.agentPos.x != ax20 and scene.goal.y != gy20 and scene.stepCount == 100, "t=20 -> t=100 agent loops continuously along dynamic funnel-smoothed path")
+
+  let audit = auditAiNavmeshFunnelSmoothing()
+  assert(audit >= 34, "Navmesh funnel smoothing audit")
+
+pub fn main(): int:
+  test_ai_navmesh_funnel_path_smoothing()
+  println("PASS: ex_242_ai_navmesh_funnel_path_smoothing_window_test")
+  ret 0

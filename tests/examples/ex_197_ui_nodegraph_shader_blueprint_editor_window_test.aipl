@@ -1,0 +1,36 @@
+module Ex197UiNodegraphShaderBlueprintEditorWindowTest
+
+import {
+  buildUiNodegraphAudit, stepSampleNodePos
+} from "../../examples/ex_197_ui_nodegraph_shader_blueprint_editor_window"
+import { Vec2 } from "../../std/math/vec_math"
+import {
+  GraphPin, computeBezierWireControlPoints, validatePinConnection,
+  auraUndoHistoryNew, auraUndoHistoryPush, auraUndoHistoryCanUndo
+} from "../../std/ui/ui_nodegraph"
+
+pub fn test_ui_nodegraph_shader_blueprint_editor(): void:
+  let pinOut = GraphPin(pinId = 1, nodeId = 10, name = "AlbedoRgb", isOutput = true, dataType = 3, pinPosition = Vec2(x = 200.0, y = 180.0))
+  let pinIn = GraphPin(pinId = 2, nodeId = 20, name = "BaseColor", isOutput = false, dataType = 3, pinPosition = Vec2(x = 500.0, y = 260.0))
+  assert(validatePinConnection(pinOut, pinIn), "validatePinConnection accepts matching output->input dataType")
+  assert(not validatePinConnection(pinOut, pinOut), "validatePinConnection rejects self-connection")
+
+  let pts = computeBezierWireControlPoints(pinOut.pinPosition, pinIn.pinPosition)
+  assert(pts.len() == 4 and pts[1].x == 350.0, "computeBezierWireControlPoints computes 4 cubic Bezier control points")
+
+  mut hist = auraUndoHistoryNew(16)
+  hist = auraUndoHistoryPush(hist, "connect_albedo_to_pbr")
+  assert(auraUndoHistoryCanUndo(hist), "auraUndoHistoryPush enables undo")
+  assert(buildUiNodegraphAudit() == 356, "buildUiNodegraphAudit returns 350 + 4 + 1 + 1 == 356")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let p0 = stepSampleNodePos(0)
+  let p1 = stepSampleNodePos(1)
+  let p20 = stepSampleNodePos(20)
+  let p100 = stepSampleNodePos(100)
+  assert(p0.y != p1.y and p1.y != p20.y and p20.y != p100.y, "Node position progresses across t=0, 1, 20, 100")
+
+pub fn main(): int:
+  test_ui_nodegraph_shader_blueprint_editor()
+  println("PASS: ex_197_ui_nodegraph_shader_blueprint_editor_window_test")
+  ret 0

@@ -1,0 +1,31 @@
+// ============================================================================
+// Twin Test Suite 135: Clipboard History Ring & MIME Manager (WINDOW)
+// Verifies examples/ex_135_window_clipboard_history_manager_window.aipl
+// ============================================================================
+module Ex135WindowClipboardHistoryManagerWindowTest
+
+import {
+  verifyClipboardSetGetAndClear,
+  computeClipboardRingSlotIndex,
+  describeClipboardMimeFormat,
+  renderFrameStep
+} from "../../examples/ex_135_window_clipboard_history_manager_window.aipl"
+
+pub fn test_window_clipboard_history_manager_window(): int:
+  assert(verifyClipboardSetGetAndClear() == 20, "clipboard stores 'AIPL Engine Core 4.0' (20 chars) and clears cleanly")
+  assert(computeClipboardRingSlotIndex(14, 6) == 2, "14 % 6 == slot 2 in 6-slot clipboard history ring")
+  assert(describeClipboardMimeFormat(1) == "CLIPBOARD:MIME_TEXT_PLAIN_UTF8", "text/plain UTF-8 MIME label")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  let f100 = renderFrameStep(100, 0.016)
+  assert(f1 > f0, "renderFrameStep advances byte cursor at frame 1")
+  assert(f20 > f1, "renderFrameStep advances active ClipboardState changeCount at frame 20")
+  assert(f100 != f20, "renderFrameStep cycles clipboard ring slot at frame 100")
+  assert(f0 != f20, "slot 0 and frame 20 have distinct payloads and changeCounts")
+  ret 0
+
+pub fn main(): int:
+  test_window_clipboard_history_manager_window()
+  println("PASS: ex_135_window_clipboard_history_manager_window_test")
+  ret 0

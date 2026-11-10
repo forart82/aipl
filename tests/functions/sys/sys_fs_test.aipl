@@ -1,0 +1,105 @@
+// ============================================================================
+// Step 3.3: Exhaustive Per-Function Unit Tests for std/sys/sys_fs.aipl (13)
+// Target: tests/functions/sys/sys_fs_test.aipl
+// ============================================================================
+module SysFsTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  sysPtrAlloc,
+  sysPtrFree,
+  sysPtrWriteU8,
+  sysPtrReadU8
+} from "../../../std/sys/sys_mem.aipl"
+
+import {
+  SYS_O_RDONLY,
+  SYS_O_WRONLY,
+  SYS_O_CREAT,
+  SYS_O_TRUNC,
+  SYS_SEEK_SET,
+  SYS_SEEK_END,
+  sysFsOpen,
+  sysFsClose,
+  sysFsRead,
+  sysFsWrite,
+  sysFsSeek,
+  sysFsFsync,
+  sysFsStatSize,
+  sysFsStatMtime,
+  sysFsUnlink,
+  sysFsRename,
+  sysFsMkdir,
+  sysFsRmdir
+} from "../../../std/sys/sys_fs.aipl"
+
+pub fn test_sys_fs_file_lifecycle(): int:
+  let tmpFile = "/tmp/aipl_sys_fs_test_file.tmp"
+  let tmpRenamed = "/tmp/aipl_sys_fs_test_file_renamed.tmp"
+
+  // Open with CREAT | WRONLY | TRUNC (64 | 1 | 512 = 577) mode 0644 (420)
+  let fd = sysFsOpen(tmpFile, 577, 420)
+  assert(fd >= 0, "open tmp file fd >= 0")
+
+  let buf = sysPtrAlloc(16)
+  mut i = 0
+  while i < 8:
+    sysPtrWriteU8(buf + i, 65 + i)
+    i += 1
+
+  let written = sysFsWrite(fd, buf, 8)
+  assertEqInt(written, 8, "written 8 bytes")
+  assertEqInt(sysFsFsync(fd), 0, "fsync returns 0")
+  assertEqInt(sysFsClose(fd), 0, "close returns 0")
+
+  // Check stat size
+  let sz = sysFsStatSize(tmpFile)
+  assertEqInt(sz, 8, "statSize is 8")
+
+  // Check mtime
+  let mtime = sysFsStatMtime(tmpFile)
+  assert(mtime > 0, "mtime > 0")
+
+  // Read back
+  let fdRead = sysFsOpen(tmpFile, SYS_O_RDONLY, 0)
+  assert(fdRead >= 0, "open read fd >= 0")
+  let readBuf = sysPtrAlloc(16)
+  let readBytes = sysFsRead(fdRead, readBuf, 8)
+  assertEqInt(readBytes, 8, "read 8 bytes")
+  assertEqInt(sysPtrReadU8(readBuf), 65, "read byte 0 is 'A'")
+
+  // Seek
+  let pos = sysFsSeek(fdRead, 0, SYS_SEEK_SET)
+  assertEqInt(pos, 0, "seek set 0 returns 0")
+  assertEqInt(sysFsClose(fdRead), 0, "close fdRead")
+
+  // Rename
+  assertEqInt(sysFsRename(tmpFile, tmpRenamed), 0, "rename returns 0")
+  assertEqInt(sysFsStatSize(tmpRenamed), 8, "renamed statSize is 8")
+
+  // Unlink
+  assertEqInt(sysFsUnlink(tmpRenamed), 0, "unlink returns 0")
+  assert(sysFsStatSize(tmpRenamed) < 0, "unlinked file stat < 0")
+
+  sysPtrFree(buf)
+  sysPtrFree(readBuf)
+  ret 0
+
+pub fn test_sys_fs_dir_lifecycle(): int:
+  let tmpDir = "/tmp/aipl_sys_fs_test_dir"
+  // Mode 0755 = 493
+  let mkRes = sysFsMkdir(tmpDir, 493)
+  assert(mkRes == 0 or mkRes == -17, "mkdir returns 0 (or EEXIST -17)")
+  let rmRes = sysFsRmdir(tmpDir)
+  assertEqInt(rmRes, 0, "rmdir returns 0")
+  ret 0
+
+pub fn main(): int:
+  test_sys_fs_file_lifecycle()
+  test_sys_fs_dir_lifecycle()
+  println("PASS: sys_fs_test")
+  ret 0

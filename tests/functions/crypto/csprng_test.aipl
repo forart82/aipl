@@ -1,0 +1,105 @@
+module tests.functions.crypto.csprng_test
+
+import * from "std/crypto/csprng"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { hexEncode, hexDecode } from "std/encoding/hex"
+
+pub fn test_csprng_csprngRandomBytes_1(): int:
+  let arg_count = 4
+  let edge_count = 1
+  let resNom = csprngRandomBytes(arg_count)
+  let resEdge = csprngRandomBytes(edge_count)
+  assertEqInt(resNom.len(), 4, "csprngRandomBytes nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "csprngRandomBytes boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_csprng_csprngRandomInt_2(): int:
+  let arg_min = 4
+  let edge_min = 1
+  let arg_max = 4
+  let edge_max = 1
+  let resNom = csprngRandomInt(arg_min, arg_max)
+  let resEdge = csprngRandomInt(edge_min, edge_max)
+  assertEqInt(resNom, 4, "csprngRandomInt nominal resNom == 4")
+  assertEqInt(resEdge, 1, "csprngRandomInt boundary resEdge == 1")
+  ret 0
+
+pub fn test_csprng_csprngRandomFloat_3(): int:
+  let resNom = csprngRandomFloat()
+  let resEdge = csprngRandomFloat()
+  assertApproxEq(resNom, 0.997237, 0.001, "csprngRandomFloat nominal resNom ~= 0.997237")
+  assertApproxEq(resEdge, 0.949156, 0.001, "csprngRandomFloat boundary resEdge ~= 0.949156")
+  ret 0
+
+pub fn test_csprng_formatUuidBytes_4(): int:
+  let arg_b = [65, 73, 80, 76]
+  let edge_b = [65]
+  let resNom = formatUuidBytes(arg_b)
+  let resEdge = formatUuidBytes(edge_b)
+  assertEqStr(resNom, "4149504c----", "formatUuidBytes nominal string matches")
+  assertEqStr(resEdge, "41----", "formatUuidBytes boundary string matches")
+  ret 0
+
+pub fn test_csprng_uuidNil_5(): int:
+  let resNom = uuidNil()
+  let resEdge = uuidNil()
+  assertEqStr(resNom, "00000000-0000-0000-0000-000000000000", "uuidNil nominal string matches")
+  assertEqStr(resEdge, "00000000-0000-0000-0000-000000000000", "uuidNil boundary string matches")
+  ret 0
+
+pub fn test_csprng_uuidV4_6(): int:
+  let resNom = uuidV4()
+  let resEdge = uuidV4()
+  assertEqStr(resNom, "f81be8e7-8d76-4a2e-a333-9fc99a66320d", "uuidV4 nominal string matches")
+  assertEqStr(resEdge, "b73158a3-5a25-4d05-9758-e95ed4abb2cd", "uuidV4 boundary string matches")
+  ret 0
+
+pub fn test_csprng_uuidV7_7(): int:
+  let arg_timestampMs = 4
+  let edge_timestampMs = 1
+  let resNom = uuidV7(arg_timestampMs)
+  let resEdge = uuidV7(edge_timestampMs)
+  assertEqStr(resNom, "00000000-0004-7274-8121-3ddc8770e93e", "uuidV7 nominal string matches")
+  assertEqStr(resEdge, "00000000-0001-717e-97ea-dc6b968f385c", "uuidV7 boundary string matches")
+  ret 0
+
+pub fn test_csprng_isHexCharCode_8(): int:
+  let arg_code = 2
+  let edge_code = 0
+  let resNom = isHexCharCode(arg_code)
+  let resEdge = isHexCharCode(edge_code)
+  assert(resNom == false, "isHexCharCode nominal resNom == false")
+  assert(resEdge == false, "isHexCharCode boundary resEdge == false")
+  ret 0
+
+pub fn test_csprng_isValidUuid_9(): int:
+  let valid = "01234567-89ab-cdef-0123-456789abcdef"
+  assert(isValidUuid(valid) == true, "isValidUuid returns true for valid uuid")
+  assert(isValidUuid("invalid-uuid") == false, "isValidUuid returns false for invalid uuid")
+  assert(isValidUuid("0123456789abcdef0123456789abcdef0123") == false, "isValidUuid returns false without hyphens")
+  ret 0
+
+pub fn test_csprng_parseUuid_10(): int:
+  let valid = "01234567-89ab-cdef-0123-456789abcdef"
+  let parsed = parseUuid(valid)
+  assert(parsed.isOk() == true, "parseUuid returns Ok for valid uuid")
+  assertEqStr(parsed.unwrap().toString(), valid, "parseUuid round-trip toString matches")
+  let bad = parseUuid("not-a-valid-uuid")
+  assert(bad.isOk() == false, "parseUuid returns Err for invalid uuid")
+  ret 0
+
+pub fn test_csprng_Uuid_toString_11(): int:
+  let rawBytes = bytesFromArray([0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef])
+  let u = Uuid(bytes16 = rawBytes)
+  assertEqStr(u.toString(), "01234567-89ab-cdef-0123-456789abcdef", "Uuid.toString formats canonical RFC 4122 string")
+  ret 0
+
+pub fn test_csprng_ulidGenerate_12(): int:
+  let arg_timestampMs = 4
+  let edge_timestampMs = 1
+  let resNom = ulidGenerate(arg_timestampMs)
+  let resEdge = ulidGenerate(edge_timestampMs)
+  assertEqStr(resNom, "0000000004ACGVVJFWMCRVW2TY", "ulidGenerate nominal string matches")
+  assertEqStr(resEdge, "00000000013VTATV9H65WWMNRY", "ulidGenerate boundary string matches")
+  ret 0

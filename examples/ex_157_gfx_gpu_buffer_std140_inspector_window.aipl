@@ -1,0 +1,121 @@
+module Ex157GfxGpuBufferStd140InspectorWindow
+
+import { createGpuDevice } from "../std/gfx/gpu_device"
+import {
+  createGpuBuffer, writeGpuBuffer, alignOffsetStd140,
+  createStagingRingBuffer, advanceStagingRing,
+  BUFFER_USAGE_VERTEX, BUFFER_USAGE_UNIFORM
+} from "../std/gfx/gpu_buffer"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn buildStd140BufferAudit(): int:
+  let dev = createGpuDevice(1)
+  let ubo = createGpuBuffer(dev, 256, BUFFER_USAGE_VERTEX | BUFFER_USAGE_UNIFORM)
+  let _ = writeGpuBuffer(dev, ubo, 0, [10, 20, 30, 40])
+  let offScalar = alignOffsetStd140(0, 4)
+  let offVec3 = alignOffsetStd140(offScalar + 4, 16)
+  let offMat4 = alignOffsetStd140(offVec3 + 12, 16)
+  mut ring = createStagingRingBuffer(8192)
+  ring = advanceStagingRing(advanceStagingRing(ring))
+  ret ubo.sizeBytes + offVec3 + offMat4 + ring.frameId
+
+pub fn stepStd140StagingFrame(frame: int): int:
+  let dev = createGpuDevice(1)
+  let ubo = createGpuBuffer(dev, 256, BUFFER_USAGE_VERTEX | BUFFER_USAGE_UNIFORM)
+  let offScalar = alignOffsetStd140(0, 4)
+  let offVec3 = alignOffsetStd140(offScalar + 4, 16)
+  let offMat4 = alignOffsetStd140(offVec3 + 12, 16)
+  let activeCol = ((frame / 7) + (frame / 29)) % 4
+  let dmaByte = (frame * 29) % 256
+  let _ = writeGpuBuffer(dev, ubo, offMat4 + activeCol * 16, [dmaByte, 128, 64, 255])
+  mut ring = createStagingRingBuffer(8192)
+  let steps = 1 + (frame / 11)
+  mut i = 0
+  while i < steps:
+    ring = advanceStagingRing(ring)
+    i = i + 1
+  ret offMat4 + activeCol * 16 + ring.writeSlot * 100 + dmaByte
+
+pub fn main(): int:
+  let dev = createGpuDevice(1)
+  let ubo = createGpuBuffer(dev, 256, BUFFER_USAGE_VERTEX | BUFFER_USAGE_UNIFORM)
+  let offScalar = alignOffsetStd140(0, 4)
+  let offVec3 = alignOffsetStd140(offScalar + 4, 16)
+  let offMat4 = alignOffsetStd140(offVec3 + 12, 16)
+  mut ring = createStagingRingBuffer(8192)
+  let audit = buildStd140BufferAudit()
+
+  initWindow(1280, 720, "AIPL ex_157: GPU Buffer std140 Memory Alignment Inspector")
+  mut frame: int = 0
+  while not windowShouldClose():
+    if frame % 11 == 0:
+      ring = advanceStagingRing(ring)
+    let activeCol = ((frame / 7) + (frame / 29)) % 4
+    let dmaByte = (frame * 29) % 256
+    let writeOk = writeGpuBuffer(dev, ubo, offMat4 + activeCol * 16, [dmaByte, 128, 64, 255])
+
+    beginDrawing()
+    clearScreen(rgb(12, 16, 28))
+
+    drawText("EX_157: GPU BUFFER std140 BYTE ALIGNMENT & STAGING RING INSPECTOR", 40.0, 28.0, 22.0, rgb(248, 250, 252))
+    drawText("std/gfx/gpu_buffer: alignOffsetStd140 | writeGpuBuffer=" + str(writeOk) + " | StagingRingBuffer | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Top Panel: 96-Byte std140 Uniform Block Memory Map (6 rows of 16 bytes)
+    drawRect(40.0, 96.0, 1200.0, 360.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 1200.0, 360.0, 2.0, rgb(56, 189, 248))
+    drawText("STD140 UNIFORM BLOCK MEMORY MAP (16-BYTE VEC4 REGISTER ROWS)", 60.0, 116.0, 17.0, rgb(125, 211, 252))
+
+    // Row 0 (Bytes 0..15): f32 time (0..3) + 12B padding (4..15)
+    drawText("0x00..0x0F", 60.0, 164.0, 15.0, rgb(203, 213, 225))
+    drawRect(175.0, 154.0, 240.0, 38.0, rgb(14, 165, 233))
+    drawText("f32 time [0..3] (off=" + str(offScalar) + ")", 185.0, 165.0, 14.0, rgb(248, 250, 252))
+    drawRect(420.0, 154.0, 720.0, 38.0, rgb(127, 29, 29))
+    drawText("std140 PADDING [4..15] (12 bytes wasted before 16B-aligned vec3)", 440.0, 165.0, 14.0, rgb(254, 202, 202))
+
+    // Row 1 (Bytes 16..31): vec3 lightDir (16..27) + 4B padding (28..31)
+    drawText("0x10..0x1F", 60.0, 214.0, 15.0, rgb(203, 213, 225))
+    drawRect(175.0, 204.0, 720.0, 38.0, rgb(34, 197, 94))
+    drawText("vec3 lightDir [16..27] (off=" + str(offVec3) + ", align=16)", 190.0, 215.0, 14.0, rgb(15, 23, 42))
+    drawRect(900.0, 204.0, 240.0, 38.0, rgb(127, 29, 29))
+    drawText("PAD [28..31]", 965.0, 215.0, 14.0, rgb(254, 202, 202))
+
+    // Rows 2..5 (Bytes 32..95): mat4 viewProj (4 x vec4 columns)
+    mut colIdx: int = 0
+    while colIdx < 4:
+      let ry = 254.0 + float(colIdx) * 46.0
+      let byteStart = offMat4 + colIdx * 16
+      let isActiveCol = colIdx == activeCol
+      drawText("Byte " + str(byteStart), 60.0, ry + 10.0, 15.0, rgb(203, 213, 225))
+      drawRect(175.0, ry, 965.0, 38.0, if isActiveCol: rgb(14, 116, 144) else: rgb(109, 40, 217))
+      drawRectOutline(175.0, ry, 965.0, 38.0, 2.0, if isActiveCol: rgb(250, 204, 21) else: rgb(192, 132, 252))
+      drawText("mat4 viewProj.col[" + str(colIdx) + "] (vec4, 16 bytes, aligned offset=" + str(byteStart) + ") | DMA=" + str(dmaByte), 195.0, ry + 11.0, 14.0, rgb(248, 250, 252))
+      colIdx = colIdx + 1
+
+    // Bottom Panel: Triple-Slot Staging Ring Buffer DMA Upload Telemetry
+    drawRect(40.0, 476.0, 1200.0, 200.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 476.0, 1200.0, 200.0, 2.0, rgb(250, 204, 21))
+    drawText("STAGING RING BUFFER UPLOAD QUEUE (Capacity=" + str(ring.capacityBytes) + " B, Frame=" + str(ring.frameId) + ")", 60.0, 498.0, 18.0, rgb(253, 224, 71))
+
+    mut s: int = 0
+    while s < 3:
+      let sx = 60.0 + float(s) * 380.0
+      let isWrite = s == ring.writeSlot
+      let isRead = s == ring.readSlot
+      let slotBg = if isWrite: rgb(20, 83, 45) else: if isRead: rgb(30, 58, 138) else: rgb(30, 41, 59)
+      drawRect(sx, 536.0, 350.0, 115.0, slotBg)
+      drawRectOutline(sx, 536.0, 350.0, 115.0, 2.0, if isWrite: rgb(74, 222, 128) else: rgb(100, 116, 139))
+      drawText("RING SLOT #" + str(s), sx + 20.0, 554.0, 17.0, rgb(248, 250, 252))
+      let stateTag = if isWrite: "CPU WRITE MAPPED" else: if isRead: "GPU DMA COPY_SRC" else: "IDLE / FENCED"
+      drawText(stateTag, sx + 20.0, 584.0, 15.0, rgb(253, 224, 71))
+      drawText("UBO #" + str(ubo.bufferId) + " (" + str(ubo.sizeBytes) + " B, Flags=" + str(ubo.usageFlags) + ")", sx + 20.0, 614.0, 14.0, rgb(203, 213, 225))
+      s = s + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

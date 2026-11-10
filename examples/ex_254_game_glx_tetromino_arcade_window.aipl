@@ -1,0 +1,281 @@
+// ============================================================================
+// Canonical Example 254: Game GLX Tetromino Arcade Classic (WINDOW - X11 + libGL)
+// Target Profile: WINDOW (Game GLX Mode) | Mode: setWindowMode("glx")
+// ============================================================================
+module Ex254GameGlxTetrominoArcadeWindow
+
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, setWindowMode, getWindowMode, drawRect, drawRectOutline,
+  drawText, Color, rgb, isKeyPressed, isKeyHeld
+} from "../std/gfx2d/shape2d.aipl"
+import { playToneEx } from "../std/audio/audio_device.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub struct TetrominoGame(board: [int], pieceType: int, rot: int, px: int, py: int, nextType: int, score: int, linesCleared: int, level: int, gameOver: bool, paused: bool, bagSeed: int)
+
+pub fn tetrominoColor(kind: int): Color:
+  let k = clampInt(kind, 1, 7)
+  if k == 1: ret rgb(56, 189, 248) // I - Cyan
+  if k == 2: ret rgb(250, 204, 21) // O - Yellow
+  if k == 3: ret rgb(168, 85, 247) // T - Purple
+  if k == 4: ret rgb(34, 197, 94) // S - Green
+  if k == 5: ret rgb(244, 63, 94) // Z - Red
+  if k == 6: ret rgb(59, 130, 246) // J - Blue
+  ret rgb(249, 115, 22) // L - Orange
+
+pub fn pieceBlockOffsetX(pieceType: int, rot: int, blkIdx: int): int:
+  let t = clampInt(pieceType % 7, 0, 6)
+  let idx = t * 4 + clampInt(blkIdx % 4, 0, 3)
+  let r = if t == 1: 0 else: clampInt(rot % 4, 0, 3)
+  let baseX = [-1,0,1,2, 0,1,0,1, -1,0,1,0, 0,1,-1,0, -1,0,0,1, -1,-1,0,1, 1,-1,0,1]
+  let baseY = [0,0,0,0, 0,0,1,1, 0,0,0,-1, 0,0,1,1, 0,0,1,1, -1,0,0,0, -1,0,0,0]
+  let dx = baseX[idx]
+  let dy = baseY[idx]
+  if r == 1: ret -dy
+  if r == 2: ret -dx
+  if r == 3: ret dy
+  ret dx
+
+pub fn pieceBlockOffsetY(pieceType: int, rot: int, blkIdx: int): int:
+  let t = clampInt(pieceType % 7, 0, 6)
+  let idx = t * 4 + clampInt(blkIdx % 4, 0, 3)
+  let r = if t == 1: 0 else: clampInt(rot % 4, 0, 3)
+  let baseX = [-1,0,1,2, 0,1,0,1, -1,0,1,0, 0,1,-1,0, -1,0,0,1, -1,-1,0,1, 1,-1,0,1]
+  let baseY = [0,0,0,0, 0,0,1,1, 0,0,0,-1, 0,0,1,1, 0,0,1,1, -1,0,0,0, -1,0,0,0]
+  let dx = baseX[idx]
+  let dy = baseY[idx]
+  if r == 1: ret dx
+  if r == 2: ret -dy
+  if r == 3: ret -dx
+  ret dy
+
+pub fn createTetrominoGame(): TetrominoGame:
+  mut b: [int] = []
+  mut i = 0
+  while i < 200:
+    b.push(0)
+    i = i + 1
+  ret TetrominoGame(
+    board = b, pieceType = 2, rot = 0, px = 4, py = 1, nextType = 0,
+    score = 0, linesCleared = 0, level = 1, gameOver = false, paused = false, bagSeed = 3
+  )
+
+pub fn canPlacePiece(board: [int], pieceType: int, rot: int, px: int, py: int): bool:
+  mut b = 0
+  while b < 4:
+    let gx = px + pieceBlockOffsetX(pieceType, rot, b)
+    let gy = py + pieceBlockOffsetY(pieceType, rot, b)
+    if gx < 0 or gx >= 10 or gy >= 20:
+      ret false
+    if gy >= 0 and board[gy * 10 + gx] != 0:
+      ret false
+    b = b + 1
+  ret true
+
+pub fn tryRotatePiece(mut game: TetrominoGame): TetrominoGame:
+  let nr = (game.rot + 1) % 4
+  let kicks = [0, -1, 1, -2, 2]
+  mut k = 0
+  while k < 5:
+    let nx = game.px + kicks[k]
+    if canPlacePiece(game.board, game.pieceType, nr, nx, game.py):
+      game.px = nx
+      game.rot = nr
+      ret game
+    k = k + 1
+  ret game
+
+pub fn computeGhostY(board: [int], pieceType: int, rot: int, px: int, py: int): int:
+  mut gy = py
+  while canPlacePiece(board, pieceType, rot, px, gy + 1):
+    gy = gy + 1
+  ret gy
+
+pub fn lockAndClearLines(mut game: TetrominoGame): TetrominoGame:
+  mut b = 0
+  while b < 4:
+    let gx = game.px + pieceBlockOffsetX(game.pieceType, game.rot, b)
+    let gy = game.py + pieceBlockOffsetY(game.pieceType, game.rot, b)
+    if gx >= 0 and gx < 10 and gy >= 0 and gy < 20:
+      game.board[gy * 10 + gx] = (game.pieceType % 7) + 1
+    b = b + 1
+  mut nextBoard: [int] = []
+  mut k = 0
+  while k < 200:
+    nextBoard.push(0)
+    k = k + 1
+  mut dstRow = 19
+  mut cleared = 0
+  mut srcRow = 19
+  while srcRow >= 0:
+    mut full = true
+    mut c = 0
+    while c < 10:
+      if game.board[srcRow * 10 + c] == 0:
+        full = false
+      c = c + 1
+    if full:
+      cleared = cleared + 1
+    else:
+      mut c2 = 0
+      while c2 < 10:
+        nextBoard[dstRow * 10 + c2] = game.board[srcRow * 10 + c2]
+        c2 = c2 + 1
+      dstRow = dstRow - 1
+    srcRow = srcRow - 1
+  game.board = nextBoard
+  if cleared > 0:
+    let basePts = if cleared == 1: 100 elif cleared == 2: 300 elif cleared == 3: 500 else: 800
+    game.score = game.score + basePts * game.level
+    game.linesCleared = game.linesCleared + cleared
+    game.level = 1 + (game.linesCleared / 10)
+    let _ = playToneEx(523.25, 220.0, 0.32, "bell")
+    let _ = playToneEx(659.25, 260.0, 0.28, "pluck")
+    let _ = playToneEx(783.99, 320.0, 0.30, "warm_pad")
+  game.pieceType = game.nextType
+  game.bagSeed = game.bagSeed + 1
+  game.nextType = (game.bagSeed * 5 + 3) % 7
+  game.rot = 0
+  game.px = 4
+  game.py = 1
+  if not canPlacePiece(game.board, game.pieceType, game.rot, game.px, game.py):
+    game.gameOver = true
+  ret game
+
+pub fn pollTetrominoControls(mut game: TetrominoGame, frameIndex: int): TetrominoGame:
+  if isKeyPressed("P"):
+    game.paused = not game.paused
+  if isKeyPressed("R") or (game.gameOver and isKeyPressed("Space")):
+    ret createTetrominoGame()
+  if game.gameOver or game.paused:
+    ret game
+  let moveL = isKeyPressed("Left") or isKeyPressed("A") or ((isKeyHeld(263) or isKeyHeld(65)) and frameIndex % 5 == 0)
+  let moveR = isKeyPressed("Right") or isKeyPressed("D") or ((isKeyHeld(262) or isKeyHeld(68)) and frameIndex % 5 == 0)
+  if moveL and canPlacePiece(game.board, game.pieceType, game.rot, game.px - 1, game.py):
+    game.px = game.px - 1
+  elif moveR and canPlacePiece(game.board, game.pieceType, game.rot, game.px + 1, game.py):
+    game.px = game.px + 1
+  if isKeyPressed("Up") or isKeyPressed("W"):
+    game = tryRotatePiece(game)
+  if isKeyPressed("Space"):
+    game.py = computeGhostY(game.board, game.pieceType, game.rot, game.px, game.py)
+    let _ = playToneEx(196.00, 120.0, 0.30, "pluck")
+    let _ = playToneEx(293.66, 160.0, 0.24, "warm_pad")
+    game = lockAndClearLines(game)
+  ret game
+
+pub fn triggerKorobeinikiSynthStep(frameIndex: int): int:
+  if frameIndex % 12 == 0:
+    let melody = [659.25, 493.88, 523.25, 587.33, 523.25, 493.88, 440.00, 440.00, 523.25, 659.25, 587.33, 523.25, 493.88, 523.25, 587.33, 659.25]
+    let _ = playToneEx(melody[(frameIndex / 12) % 16], 160.0, 0.22, "synth_lead")
+    ret 1
+  ret 0
+
+pub fn renderTetrominoArena(game: TetrominoGame, frameIndex: int): int:
+  clearScreen(rgb(8, 12, 22))
+  drawRect(24.0, 14.0, 1232.0, 48.0, rgb(14, 22, 38))
+  drawRectOutline(24.0, 14.0, 1232.0, 48.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_254 // GLX ARCADE CLASSICS: NEON TETROMINO (ARROWS/WASD MOVE & ROTATE, SPACE HARD DROP)", 42.0, 31.0, 17.0, rgb(240, 249, 255))
+
+  let ox = 500.0
+  let oy = 76.0
+  let cellPx = 28.0
+  drawRect(ox, oy, 280.0, 560.0, rgb(10, 16, 30))
+  mut r = 0
+  mut metric = game.score + game.linesCleared * 50 + game.py * 13
+  while r < 20:
+    mut c = 0
+    while c < 10:
+      let cellVal = game.board[r * 10 + c]
+      let bx = ox + float(c) * cellPx
+      let by = oy + float(r) * cellPx
+      if cellVal > 0:
+        drawRect(bx + 1.0, by + 1.0, 26.0, 26.0, tetrominoColor(cellVal))
+        drawRectOutline(bx + 1.0, by + 1.0, 26.0, 26.0, 1.5, rgb(240, 249, 255))
+        metric = metric + cellVal * (r + 1)
+      else:
+        drawRectOutline(bx, by, cellPx, cellPx, 1.0, rgb(16, 26, 46))
+      c = c + 1
+    r = r + 1
+
+  let ghostY = computeGhostY(game.board, game.pieceType, game.rot, game.px, game.py)
+  let pCol = tetrominoColor((game.pieceType % 7) + 1)
+  mut b = 0
+  while b < 4:
+    let dx = pieceBlockOffsetX(game.pieceType, game.rot, b)
+    let dy = pieceBlockOffsetY(game.pieceType, game.rot, b)
+    let gx = ox + float(game.px + dx) * cellPx
+    drawRectOutline(gx + 2.0, oy + float(ghostY + dy) * cellPx + 2.0, 24.0, 24.0, 1.5, pCol)
+    let py = oy + float(game.py + dy) * cellPx
+    drawRect(gx + 1.0, py + 1.0, 26.0, 26.0, pCol)
+    drawRectOutline(gx + 1.0, py + 1.0, 26.0, 26.0, 1.5, rgb(248, 250, 252))
+    b = b + 1
+  drawRectOutline(ox, oy, 280.0, 560.0, 2.5, rgb(56, 189, 248))
+
+  drawRect(170.0, 76.0, 304.0, 560.0, rgb(14, 22, 38))
+  drawRectOutline(170.0, 76.0, 304.0, 560.0, 1.5, rgb(34, 197, 94))
+  drawText("SCORE: " + str(game.score), 194.0, 118.0, 20.0, rgb(74, 222, 128))
+  drawText("LINES: " + str(game.linesCleared), 194.0, 166.0, 20.0, rgb(56, 189, 248))
+  drawText("LEVEL: " + str(game.level), 194.0, 214.0, 20.0, rgb(250, 204, 21))
+  drawText("1L=100  2L=300  3L=500  4L=800", 194.0, 286.0, 14.0, rgb(226, 232, 240))
+
+  drawRect(806.0, 76.0, 304.0, 560.0, rgb(14, 22, 38))
+  drawRectOutline(806.0, 76.0, 304.0, 560.0, 1.5, rgb(168, 85, 247))
+  drawText("NEXT TETROMINO", 830.0, 108.0, 17.0, rgb(216, 180, 254))
+  let nextCol = tetrominoColor((game.nextType % 7) + 1)
+  mut nb = 0
+  while nb < 4:
+    let nx = 930.0 + float(pieceBlockOffsetX(game.nextType, 0, nb)) * 24.0
+    let ny = 175.0 + float(pieceBlockOffsetY(game.nextType, 0, nb)) * 24.0
+    drawRect(nx, ny, 22.0, 22.0, nextCol)
+    drawRectOutline(nx, ny, 22.0, 22.0, 1.5, rgb(248, 250, 252))
+    nb = nb + 1
+  drawText("ARROWS / WASD : MOVE & ROTATE", 830.0, 286.0, 14.0, rgb(226, 232, 240))
+  drawText("DOWN / S : SOFT DROP", 830.0, 316.0, 14.0, rgb(226, 232, 240))
+  drawText("SPACE : HARD DROP", 830.0, 346.0, 14.0, rgb(226, 232, 240))
+  drawText("P : PAUSE | R : RESTART", 830.0, 376.0, 14.0, rgb(226, 232, 240))
+
+  if game.gameOver:
+    drawRect(420.0, 310.0, 440.0, 80.0, rgb(15, 23, 42))
+    drawRectOutline(420.0, 310.0, 440.0, 80.0, 2.5, rgb(244, 63, 94))
+    drawText("GAME OVER! PRESS R OR SPACE", 472.0, 342.0, 18.0, rgb(253, 164, 175))
+  elif game.paused:
+    drawRect(430.0, 310.0, 420.0, 76.0, rgb(15, 23, 42))
+    drawRectOutline(430.0, 310.0, 420.0, 76.0, 2.0, rgb(250, 204, 21))
+    drawText("PAUSED - PRESS P TO RESUME", 488.0, 340.0, 18.0, rgb(250, 204, 21))
+
+  drawRect(24.0, 648.0, 1232.0, 48.0, rgb(14, 22, 38))
+  drawRectOutline(24.0, 648.0, 1232.0, 48.0, 1.5, rgb(56, 189, 248))
+  drawText("Mode=" + getWindowMode() + " | Board=10x20 | Score=" + str(game.score) + " | Lines=" + str(game.linesCleared) + " | Level=" + str(game.level), 42.0, 666.0, 15.0, rgb(134, 239, 172))
+  ret metric + frameIndex + ghostY
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  setWindowMode("glx")
+  mut g = createTetrominoGame()
+  g.py = clampInt(1 + (frameIndex % 16), 1, 17)
+  let v = triggerKorobeinikiSynthStep(frameIndex)
+  ret renderTetrominoArena(g, frameIndex) + v * 10 + int(dt * 0.0)
+
+pub fn main(): int:
+  setWindowMode("glx")
+  assert(getWindowMode() == "glx", "Tetromino arcade uses glx mode")
+  initWindow(1280, 720, "AIPL ex_254 - GLX Tetromino Arcade Classic")
+  mut game = createTetrominoGame()
+  mut frame: int = 0
+  while not windowShouldClose():
+    game = pollTetrominoControls(game, frame)
+    let softDrop = isKeyHeld(264) or isKeyHeld(83)
+    let gravPeriod = if softDrop: 3 else: clampInt(26 - game.level * 2, 5, 26)
+    if not game.gameOver and not game.paused and frame > 0 and (frame % gravPeriod) == 0:
+      if canPlacePiece(game.board, game.pieceType, game.rot, game.px, game.py + 1):
+        game.py = game.py + 1
+      else:
+        game = lockAndClearLines(game)
+    let _ = triggerKorobeinikiSynthStep(frame)
+    beginDrawing()
+    let _ = renderTetrominoArena(game, frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

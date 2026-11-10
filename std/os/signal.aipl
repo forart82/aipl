@@ -1,0 +1,91 @@
+/// # Module: `std/os/signal` (`OsSignal`)
+///
+/// ## Purpose & Domain Scope
+/// POSIX signal registration (`SignalHandler`), signal polling/raising, and priority-ordered
+/// graceful shutdown hooks (`ShutdownHook`, `SignalCoordinator`).
+module OsSignal
+
+pub struct SignalType:
+  sig: int
+
+pub struct SignalHandler:
+  signal: int
+  callbackId: int
+  mut active: bool = true
+
+pub struct ShutdownHook:
+  name: str
+  priority: int
+
+pub struct SignalCoordinator:
+  mut handlers: [SignalHandler]
+  mut hooks: [ShutdownHook]
+  mut pendingSignals: [int]
+  mut shutdownRequested: bool = false
+
+pub fn signalCoordinatorNew(): SignalCoordinator:
+  ret SignalCoordinator(handlers: [], hooks: [], pendingSignals: [], shutdownRequested: false)
+
+pub fn registerSignalHandler(sig: int, callbackId: int): Result[SignalHandler, str]:
+  if sig <= 0:
+    ret Err("registerSignalHandler: invalid signal number")
+  ret Ok(SignalHandler(signal: sig, callbackId: callbackId, active: true))
+
+pub fn unregisterSignalHandler(mut handler: SignalHandler): bool:
+  if not handler.active:
+    ret false
+  handler.active = false
+  ret true
+
+pub fn pollSignal(mut coord: SignalCoordinator): Option[int]:
+  if coord.pendingSignals.len() == 0:
+    ret None
+  let first = coord.pendingSignals[0]
+  mut k = 0
+  while k + 1 < coord.pendingSignals.len():
+    coord.pendingSignals[k] = coord.pendingSignals[k + 1]
+    k = k + 1
+  let _ = coord.pendingSignals.pop()
+  ret Some(first)
+
+pub fn raiseSignal(mut coord: SignalCoordinator, sig: int): bool:
+  if sig <= 0:
+    ret false
+  coord.pendingSignals.push(sig)
+  if sig == 2 or sig == 15 or sig == 3:
+    coord.shutdownRequested = true
+  ret true
+
+pub fn gracefulShutdownRegister(mut coord: SignalCoordinator, name: str, priority: int): ShutdownHook:
+  let h = ShutdownHook(name: name, priority: priority)
+  coord.hooks.push(h)
+  ret h
+
+pub fn gracefulShutdownTrigger(mut coord: SignalCoordinator, sig: int): [str]:
+  coord.shutdownRequested = true
+  if sig > 0:
+    coord.pendingSignals.push(sig)
+  mut sorted: [ShutdownHook] = []
+  mut i = 0
+  while i < coord.hooks.len():
+    sorted.push(coord.hooks[i])
+    i = i + 1
+  mut a = 0
+  while a < sorted.len():
+    mut b = a + 1
+    while b < sorted.len():
+      if sorted[b].priority > sorted[a].priority:
+        let tmp = sorted[a]
+        sorted[a] = sorted[b]
+        sorted[b] = tmp
+      b = b + 1
+    a = a + 1
+  mut executed: [str] = []
+  i = 0
+  while i < sorted.len():
+    executed.push(sorted[i].name)
+    i = i + 1
+  ret executed
+
+pub fn isShutdownRequested(coord: SignalCoordinator): bool:
+  ret coord.shutdownRequested

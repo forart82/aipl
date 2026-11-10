@@ -1,0 +1,70 @@
+// ============================================================================
+// Example 001: Hello World, Standard Streams & Banner Telemetry CLI
+// Demonstrates: Basic functions, structs, string concatenation, std/prelude
+//               clamping helpers, and std/io/stdio stream handles & buffers.
+// ============================================================================
+module Ex001HelloWorldAndIoCli
+
+import { clampInt, maxInt } from "../std/prelude"
+import {
+  stdioStdin,
+  stdioStdout,
+  stdioPrintln,
+  stdioWriteBytes,
+  stdioReadLineMock,
+  stdioFlush
+} from "../std/io/stdio"
+
+pub struct BannerFrame:
+  columns: int
+  lines: int
+  checksum: int
+  bytesWritten: int
+
+pub fn computeBannerChecksum(charCount: int, lineCount: int): int:
+  ret clampInt(charCount, 0, 4096) * 31 + maxInt(lineCount, 1) * 7
+
+pub fn clampTerminalColumns(requestedCols: int, minCols: int): int:
+  ret clampInt(requestedCols, maxInt(minCols, 40), 240)
+
+pub fn formatGreetingStatus(exitCode: int): str:
+  if exitCode == 0:
+    ret "BANNER:OK"
+  if exitCode == 1:
+    ret "BANNER:WARN"
+  ret "BANNER:ERR"
+
+pub fn captureStdioGreetingLine(userName: str): str:
+  mut handle = stdioStdin()
+  let msg = "Hello, " + userName + "!"
+  mut rawBytes: [int] = []
+  mut i = 0
+  while i < msg.len():
+    rawBytes.push(msg.charCodeAt(i))
+    i = i + 1
+  let _ = stdioWriteBytes(handle, rawBytes)
+  let _ = stdioFlush(handle)
+  let lineOpt = stdioReadLineMock(handle)
+  ret lineOpt.unwrapOr("")
+
+pub fn buildBannerFrame(charCount: int, lineCount: int): BannerFrame:
+  mut outHandle = stdioStdout()
+  let written = stdioPrintln("Hello from AIPL v4 std/io")
+  let _ = stdioFlush(outHandle)
+  let computed = computeBannerChecksum(charCount, lineCount)
+  ret BannerFrame(
+    columns = charCount,
+    lines = lineCount,
+    checksum = computed,
+    bytesWritten = written
+  )
+
+pub fn main(): int:
+  let record = buildBannerFrame(24, 3)
+  let cols = clampTerminalColumns(120, 80)
+  let greeting = captureStdioGreetingLine("Developer")
+  let status = formatGreetingStatus(0)
+  println("[ex_001_hello_world_and_io_cli] " + greeting)
+  println("[ex_001_hello_world_and_io_cli] BannerFrame(columns=" + str(record.columns) + ", lines=" + str(record.lines) + ", checksum=" + str(record.checksum) + ", bytesWritten=" + str(record.bytesWritten) + ")")
+  println("[ex_001_hello_world_and_io_cli] terminalCols=" + str(cols) + " | status=" + status)
+  ret 0

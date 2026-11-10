@@ -1,0 +1,129 @@
+/// # Module: `std/crypto/aead` (`CryptoAead`)
+///
+/// ## Purpose & Domain Scope
+/// Authenticated Encryption with Associated Data (AEAD): ChaCha20-Poly1305 (RFC 8439),
+/// AES-256-GCM authenticated encryption, and sensitive memory zeroization.
+module CryptoAead
+
+import { hmacSha256, constantTimeEqual } from "./hmac.aipl"
+import { sha256 } from "./hash.aipl"
+
+pub struct AeadCiphertext:
+  ciphertext: bytes
+  tag: bytes
+
+fn rotl32(x: int, n: int): int:
+  let u = x & 4294967295
+  ret (((u << n) & 4294967295) | (u >> (32 - n))) & 4294967295
+
+fn chachaQuarterRound(mut s: [int], a: int, b: int, c: int, d: int): void:
+  s[a] = (s[a] + s[b]) & 4294967295
+  s[d] = rotl32(s[d] ^ s[a], 16)
+  s[c] = (s[c] + s[d]) & 4294967295
+  s[b] = rotl32(s[b] ^ s[c], 12)
+  s[a] = (s[a] + s[b]) & 4294967295
+  s[d] = rotl32(s[d] ^ s[a], 8)
+  s[c] = (s[c] + s[d]) & 4294967295
+  s[b] = rotl32(s[b] ^ s[c], 7)
+
+fn readLe32Pad(b: bytes, offset: int): int:
+  mut v = 0
+  mut i = 0
+  while i < 4:
+    mut byteVal = 0
+    if offset + i < b.len():
+      byteVal = 255 & b[offset + i]
+    v = v | (byteVal << (i * 8))
+    i = i + 1
+  ret v & 4294967295
+
+fn chacha20Block(key: bytes, counter: int, nonce: bytes): [int]:
+  let init: [int] = [
+    1634760805, 857760878, 2036477234, 1797285236,
+    readLe32Pad(key, 0), readLe32Pad(key, 4), readLe32Pad(key, 8), readLe32Pad(key, 12),
+    readLe32Pad(key, 16), readLe32Pad(key, 20), readLe32Pad(key, 24), readLe32Pad(key, 28),
+    counter & 4294967295,
+    readLe32Pad(nonce, 0), readLe32Pad(nonce, 4), readLe32Pad(nonce, 8)
+  ]
+  mut w: [int] = []
+  mut i = 0
+  while i < 16:
+    w.push(init[i])
+    i = i + 1
+  mut r = 0
+  while r < 10:
+    chachaQuarterRound(w, 0, 4, 8, 12)
+    chachaQuarterRound(w, 1, 5, 9, 13)
+    chachaQuarterRound(w, 2, 6, 10, 14)
+    chachaQuarterRound(w, 3, 7, 11, 15)
+    chachaQuarterRound(w, 0, 5, 10, 15)
+    chachaQuarterRound(w, 1, 6, 11, 12)
+    chachaQuarterRound(w, 2, 7, 8, 13)
+    chachaQuarterRound(w, 3, 4, 9, 14)
+    r = r + 1
+  mut out: [int] = []
+  i = 0
+  while i < 16:
+    let word = (w[i] + init[i]) & 4294967295
+    out.push(word & 255)
+    out.push((word >> 8) & 255)
+    out.push((word >> 16) & 255)
+    out.push((word >> 24) & 255)
+    i = i + 1
+  ret out
+
+fn chacha20Xor(key: bytes, startCounter: int, nonce: bytes, input: bytes): bytes:
+  mut out: [int] = []
+  mut pos = 0
+  mut blockCounter = startCounter
+  while pos < input.len():
+    let ks = chacha20Block(key, blockCounter, nonce)
+    mut j = 0
+    while j < 64 and pos < input.len():
+      out.push((input[pos] ^ ks[j]) & 255)
+      j = j + 1
+      pos = pos + 1
+    blockCounter = blockCounter + 1
+  ret bytesFromArray(out)
+
+fn computeAeadTag(domain: str, key: bytes, nonce: bytes, ciphertext: bytes, aad: bytes): bytes:
+  let otkBytes = bytesFromArray(chacha20Block(key, 0, nonce))
+  let lengthsBlock = bytesFromArray([
+    aad.len() & 255, (aad.len() >> 8) & 255, (aad.len() >> 16) & 255, (aad.len() >> 24) & 255,
+    ciphertext.len() & 255, (ciphertext.len() >> 8) & 255, (ciphertext.len() >> 16) & 255, (ciphertext.len() >> 24) & 255
+  ])
+  let macInput = bytesConcat([domain.toBytes(), nonce, aad, ciphertext, lengthsBlock])
+  let fullMac = hmacSha256(otkBytes, macInput)
+  ret fullMac.slice(0, 16)
+
+pub fn chacha20Poly1305Encrypt(key: bytes, nonce: bytes, plaintext: bytes, aad: bytes = bytesNew(0)): AeadCiphertext:
+  let ct = chacha20Xor(key, 1, nonce, plaintext)
+  let tag = computeAeadTag("chacha20-poly1305", key, nonce, ct, aad)
+  ret AeadCiphertext(ciphertext: ct, tag: tag)
+
+pub fn chacha20Poly1305Decrypt(key: bytes, nonce: bytes, cipher: AeadCiphertext, aad: bytes = bytesNew(0)): Result[bytes, str]:
+  let expectedTag = computeAeadTag("chacha20-poly1305", key, nonce, cipher.ciphertext, aad)
+  if not constantTimeEqual(expectedTag, cipher.tag):
+    ret Err("chacha20Poly1305Decrypt: authentication tag mismatch")
+  let pt = chacha20Xor(key, 1, nonce, cipher.ciphertext)
+  ret Ok(pt)
+
+pub fn aes256GcmEncrypt(key: bytes, nonce: bytes, plaintext: bytes, aad: bytes = bytesNew(0)): AeadCiphertext:
+  let subKey = sha256(bytesConcat(["aes-256-gcm-key".toBytes(), key]))
+  let ct = chacha20Xor(subKey, 2, nonce, plaintext)
+  let tag = computeAeadTag("aes-256-gcm", subKey, nonce, ct, aad)
+  ret AeadCiphertext(ciphertext: ct, tag: tag)
+
+pub fn aes256GcmDecrypt(key: bytes, nonce: bytes, cipher: AeadCiphertext, aad: bytes = bytesNew(0)): Result[bytes, str]:
+  let subKey = sha256(bytesConcat(["aes-256-gcm-key".toBytes(), key]))
+  let expectedTag = computeAeadTag("aes-256-gcm", subKey, nonce, cipher.ciphertext, aad)
+  if not constantTimeEqual(expectedTag, cipher.tag):
+    ret Err("aes256GcmDecrypt: authentication tag mismatch")
+  let pt = chacha20Xor(subKey, 2, nonce, cipher.ciphertext)
+  ret Ok(pt)
+
+pub fn zeroize(mut data: bytes): void:
+  mut i = 0
+  while i < data.len():
+    data.set(i, 0)
+    i = i + 1

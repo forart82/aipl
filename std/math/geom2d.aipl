@@ -1,0 +1,508 @@
+/// # Module: `std/math/geom2d` (`Geom2D`)
+///
+/// ## Purpose & Domain Scope
+/// 2D geometric shapes (`Rect`, `Rect2D`, `Circle2D`, `Segment2D`, `Capsule2D`, `Ray2D`, `Polygon2D`),
+/// containment, raycast, and Separating Axis Theorem (SAT) intersection algorithms.
+module Geom2D
+
+import { EPSILON, absFloat, minFloat, maxFloat, clampFloat } from "std/math/consts"
+import { sqrt, hypot, sin, cos } from "std/math/trig"
+import { Vec2, IVec2 } from "std/math/vec_math"
+
+pub struct Rect:
+  x: float
+  y: float
+  w: float
+  h: float
+
+pub struct IRect:
+  x: int
+  y: int
+  w: int
+  h: int
+
+pub struct Rect2D:
+  x: float
+  y: float
+  w: float = 0.0
+  h: float = 0.0
+  width: float = 0.0
+  height: float = 0.0
+
+pub struct Circle2D:
+  x: float
+  y: float
+  r: float
+  cx: float = 0.0
+  cy: float = 0.0
+
+pub struct Segment2D:
+  p1: Vec2
+  p2: Vec2
+
+pub struct Capsule2D:
+  p1: Vec2
+  p2: Vec2
+  radius: float
+
+pub struct Ray2D:
+  origin: Vec2
+  dir: Vec2 = Vec2(x = 1.0, y = 0.0)
+  direction: Vec2 = Vec2(x = 1.0, y = 0.0)
+  maxDistance: float = 1000.0
+
+pub struct Polygon2D:
+  vertices: [Vec2]
+
+pub struct CollisionHit:
+  hit: bool
+  normalX: float
+  normalY: float
+  depth: float
+
+pub fn Rect.new(x: float, y: float, w: float, h: float): Rect:
+  ret Rect(x = x, y = y, w = w, h = h)
+
+pub fn (self: Rect) contains(px: float, py: float): bool:
+  ret px >= self.x and px <= self.x + self.w and py >= self.y and py <= self.y + self.h
+
+pub fn (self: Rect) intersects(other: Rect): bool:
+  ret self.x < other.x + other.w and self.x + self.w > other.x and self.y < other.y + other.h and self.y + self.h > other.y
+
+pub fn vec2New(x: float, y: float): Vec2:
+  ret Vec2(x = x, y = y)
+
+pub fn ivec2(x: int, y: int): IVec2:
+  ret IVec2(x = x, y = y)
+
+pub fn rect(x: float, y: float, w: float, h: float): Rect:
+  ret Rect(x = x, y = y, w = w, h = h)
+
+pub fn irect(x: int, y: int, w: int, h: int): IRect:
+  ret IRect(x = x, y = y, w = w, h = h)
+
+pub fn rectToRect2D(r: Rect): Rect2D:
+  ret Rect2D(x = r.x, y = r.y, w = r.w, h = r.h)
+
+pub fn rectFromRect2D(r: Rect2D): Rect:
+  ret Rect(x = r.x, y = r.y, w = r.w, h = r.h)
+
+pub fn vec2Add(a: Vec2, b: Vec2): Vec2:
+  ret Vec2(x = a.x + b.x, y = a.y + b.y)
+
+pub fn vec2Sub(a: Vec2, b: Vec2): Vec2:
+  ret Vec2(x = a.x - b.x, y = a.y - b.y)
+
+pub fn vec2Scale(v: Vec2, s: float): Vec2:
+  ret Vec2(x = v.x * s, y = v.y * s)
+
+pub fn vec2Dot(a: Vec2, b: Vec2): float:
+  ret a.x * b.x + a.y * b.y
+
+pub fn vec2Cross(a: Vec2, b: Vec2): float:
+  ret a.x * b.y - a.y * b.x
+
+pub fn vec2Len(v: Vec2): float:
+  ret sqrt(v.x * v.x + v.y * v.y)
+
+pub fn vec2Dist(a: Vec2, b: Vec2): float:
+  let dx = a.x - b.x
+  let dy = a.y - b.y
+  ret sqrt(dx * dx + dy * dy)
+
+pub fn vec2Norm(v: Vec2): Vec2:
+  let l = sqrt(v.x * v.x + v.y * v.y)
+  if l > 0.0:
+    ret Vec2(x = v.x / l, y = v.y / l)
+  ret Vec2(x = 0.0, y = 0.0)
+
+pub fn vec2Rotate(v: Vec2, radians: float): Vec2:
+  let c = cos(radians)
+  let s = sin(radians)
+  ret Vec2(x = v.x * c - v.y * s, y = v.x * s + v.y * c)
+
+pub fn vec2Reflect(v: Vec2, normal: Vec2): Vec2:
+  let dot2 = 2.0 * (v.x * normal.x + v.y * normal.y)
+  ret Vec2(x = v.x - dot2 * normal.x, y = v.y - dot2 * normal.y)
+
+pub fn rectContainsPoint(r: Rect2D, p: Vec2): bool:
+  ret p.x >= r.x and p.x <= r.x + r.w and p.y >= r.y and p.y <= r.y + r.h
+
+pub fn rectIntersectsRect(a: Rect2D, b: Rect2D): bool:
+  ret a.x < b.x + b.w and a.x + a.w > b.x and a.y < b.y + b.h and a.y + a.h > b.y
+
+pub fn rectIntersects(a: Rect2D, b: Rect2D): bool:
+  ret rectIntersectsRect(a, b)
+
+pub fn pointInRect(px: float, py: float, rx: float, ry: float, rw: float, rh: float): bool:
+  ret px >= rx and px <= rx + rw and py >= ry and py <= ry + rh
+
+pub fn pointInRectInt(px: int, py: int, rx: int, ry: int, rw: int, rh: int): bool:
+  ret px >= rx and px <= rx + rw and py >= ry and py <= ry + rh
+
+pub fn circleIntersectsCircle(a: Circle2D, b: Circle2D): bool:
+  let ax = if a.cx != 0.0 or a.x == 0.0: a.cx else: a.x
+  let ay = if a.cy != 0.0 or a.y == 0.0: a.cy else: a.y
+  let bx = if b.cx != 0.0 or b.x == 0.0: b.cx else: b.x
+  let by = if b.cy != 0.0 or b.y == 0.0: b.cy else: b.y
+  let dx = ax - bx
+  let dy = ay - by
+  let rSum = a.r + b.r
+  ret (dx * dx + dy * dy) <= (rSum * rSum)
+
+pub fn circleIntersectsRect(c: Circle2D, r: Rect2D): bool:
+  let cx = if c.cx != 0.0 or c.x == 0.0: c.cx else: c.x
+  let cy = if c.cy != 0.0 or c.y == 0.0: c.cy else: c.y
+  let closestX = clampFloat(cx, r.x, r.x + r.w)
+  let closestY = clampFloat(cy, r.y, r.y + r.h)
+  let dx = cx - closestX
+  let dy = cy - closestY
+  ret (dx * dx + dy * dy) <= (c.r * c.r)
+
+pub fn circleRectIntersects(c: Circle2D, r: Rect2D): bool:
+  ret circleIntersectsRect(c, r)
+
+pub fn collideCircleRect(c: Circle2D, r: Rect2D): CollisionHit:
+  let cx = if c.cx != 0.0 or c.x == 0.0: c.cx else: c.x
+  let cy = if c.cy != 0.0 or c.y == 0.0: c.cy else: c.y
+  let closestX = clampFloat(cx, r.x, r.x + r.w)
+  let closestY = clampFloat(cy, r.y, r.y + r.h)
+  let dx = cx - closestX
+  let dy = cy - closestY
+  let distSq = dx * dx + dy * dy
+  if distSq > c.r * c.r:
+    ret CollisionHit(hit = false, normalX = 0.0, normalY = 0.0, depth = 0.0)
+  let d = sqrt(distSq)
+  if d > 0.000001:
+    ret CollisionHit(hit = true, normalX = dx / d, normalY = dy / d, depth = c.r - d)
+  ret CollisionHit(hit = true, normalX = 0.0, normalY = -1.0, depth = c.r)
+
+pub fn rayIntersectsRect2D(ray: Ray2D, rect: Rect2D): Option[float]:
+  mut tMin = -1e18
+  mut tMax = 1e18
+  if absFloat(ray.dir.x) < EPSILON:
+    if ray.origin.x < rect.x or ray.origin.x > rect.x + rect.w:
+      ret None
+  else:
+    let invX = 1.0 / ray.dir.x
+    let t1 = (rect.x - ray.origin.x) * invX
+    let t2 = (rect.x + rect.w - ray.origin.x) * invX
+    tMin = maxFloat(tMin, minFloat(t1, t2))
+    tMax = minFloat(tMax, maxFloat(t1, t2))
+  if absFloat(ray.dir.y) < EPSILON:
+    if ray.origin.y < rect.y or ray.origin.y > rect.y + rect.h:
+      ret None
+  else:
+    let invY = 1.0 / ray.dir.y
+    let t1 = (rect.y - ray.origin.y) * invY
+    let t2 = (rect.y + rect.h - ray.origin.y) * invY
+    tMin = maxFloat(tMin, minFloat(t1, t2))
+    tMax = minFloat(tMax, maxFloat(t1, t2))
+  if tMax < 0.0 or tMin > tMax:
+    ret None
+  ret Some(if tMin >= 0.0: tMin else: tMax)
+
+fn projectPolygonMin(poly: Polygon2D, axis: Vec2): float:
+  if poly.vertices.len == 0:
+    ret 0.0
+  let v0 = poly.vertices[0]
+  mut minP = v0.x * axis.x + v0.y * axis.y
+  mut i = 1
+  while i < poly.vertices.len:
+    let vi = poly.vertices[i]
+    let p = vi.x * axis.x + vi.y * axis.y
+    if p < minP:
+      minP = p
+    i += 1
+  ret minP
+
+fn projectPolygonMax(poly: Polygon2D, axis: Vec2): float:
+  if poly.vertices.len == 0:
+    ret 0.0
+  let v0 = poly.vertices[0]
+  mut maxP = v0.x * axis.x + v0.y * axis.y
+  mut i = 1
+  while i < poly.vertices.len:
+    let vi = poly.vertices[i]
+    let p = vi.x * axis.x + vi.y * axis.y
+    if p > maxP:
+      maxP = p
+    i += 1
+  ret maxP
+
+pub fn polygonSAT2D(polyA: Polygon2D, polyB: Polygon2D): bool:
+  if polyA.vertices.len < 3 or polyB.vertices.len < 3:
+    ret false
+  mut i = 0
+  while i < polyA.vertices.len:
+    let p1 = polyA.vertices[i]
+    let p2 = polyA.vertices[(i + 1) % polyA.vertices.len]
+    let ex = p2.x - p1.x
+    let ey = p2.y - p1.y
+    let axis = vec2Norm(Vec2(x = -ey, y = ex))
+    let minA = projectPolygonMin(polyA, axis)
+    let maxA = projectPolygonMax(polyA, axis)
+    let minB = projectPolygonMin(polyB, axis)
+    let maxB = projectPolygonMax(polyB, axis)
+    if maxA < minB or maxB < minA:
+      ret false
+    i += 1
+  mut j = 0
+  while j < polyB.vertices.len:
+    let p1 = polyB.vertices[j]
+    let p2 = polyB.vertices[(j + 1) % polyB.vertices.len]
+    let ex = p2.x - p1.x
+    let ey = p2.y - p1.y
+    let axis = vec2Norm(Vec2(x = -ey, y = ex))
+    let minA = projectPolygonMin(polyA, axis)
+    let maxA = projectPolygonMax(polyA, axis)
+    let minB = projectPolygonMin(polyB, axis)
+    let maxB = projectPolygonMax(polyB, axis)
+    if maxA < minB or maxB < minA:
+      ret false
+    j += 1
+  ret true
+
+pub struct SweptHit:
+  hit: bool
+  time: float
+  normalX: float
+  normalY: float
+
+pub struct Mat2D:
+  a: float
+  b: float
+  c: float
+  d: float
+  tx: float
+  ty: float
+
+pub struct SegmentHit2D:
+  hit: bool
+  x: float
+  y: float
+  t: float
+  u: float
+
+pub fn collideCircles(a: Circle2D, b: Circle2D): CollisionHit:
+  let ax = if a.cx != 0.0 or a.x == 0.0: a.cx else: a.x
+  let ay = if a.cy != 0.0 or a.y == 0.0: a.cy else: a.y
+  let bx = if b.cx != 0.0 or b.x == 0.0: b.cx else: b.x
+  let by = if b.cy != 0.0 or b.y == 0.0: b.cy else: b.y
+  let dx = bx - ax
+  let dy = by - ay
+  let distSqVal = dx * dx + dy * dy
+  let radSum = a.r + b.r
+  if distSqVal > radSum * radSum:
+    ret CollisionHit(hit = false, normalX = 0.0, normalY = 0.0, depth = 0.0)
+  let d = sqrt(distSqVal)
+  if d > 0.000001:
+    ret CollisionHit(hit = true, normalX = dx / d, normalY = dy / d, depth = radSum - d)
+  ret CollisionHit(hit = true, normalX = 1.0, normalY = 0.0, depth = radSum)
+
+pub fn vec2Length(v: Vec2): float:
+  ret vec2Len(v)
+
+pub fn vec2Normalize(v: Vec2): Vec2:
+  ret vec2Norm(v)
+
+pub fn aabbIntersects(x1: float, y1: float, w1: float, h1: float, x2: float, y2: float, w2: float, h2: float): bool:
+  ret x1 < x2 + w2 and x1 + w1 > x2 and y1 < y2 + h2 and y1 + h1 > y2
+
+pub fn sweptAabb(x1: float, y1: float, w1: float, h1: float, vx: float, vy: float, x2: float, y2: float, w2: float, h2: float): SweptHit:
+  if vx == 0.0 and (x1 + w1 <= x2 or x1 >= x2 + w2):
+    ret SweptHit(hit = false, time = 1.0, normalX = 0.0, normalY = 0.0)
+  if vy == 0.0 and (y1 + h1 <= y2 or y1 >= y2 + h2):
+    ret SweptHit(hit = false, time = 1.0, normalX = 0.0, normalY = 0.0)
+  if vx == 0.0 and vy == 0.0:
+    if aabbIntersects(x1, y1, w1, h1, x2, y2, w2, h2):
+      ret SweptHit(hit = true, time = 0.0, normalX = 0.0, normalY = -1.0)
+    ret SweptHit(hit = false, time = 1.0, normalX = 0.0, normalY = 0.0)
+  let xInvEntry = if vx > 0.0: x2 - (x1 + w1) else: (x2 + w2) - x1
+  let xInvExit = if vx > 0.0: (x2 + w2) - x1 else: x2 - (x1 + w1)
+  let yInvEntry = if vy > 0.0: y2 - (y1 + h1) else: (y2 + h2) - y1
+  let yInvExit = if vy > 0.0: (y2 + h2) - y1 else: y2 - (y1 + h1)
+  let xEntry = if vx == 0.0: -1000000.0 else: xInvEntry / vx
+  let xExit = if vx == 0.0: 1000000.0 else: xInvExit / vx
+  let yEntry = if vy == 0.0: -1000000.0 else: yInvEntry / vy
+  let yExit = if vy == 0.0: 1000000.0 else: yInvExit / vy
+  let entryTime = if xEntry > yEntry: xEntry else: yEntry
+  let exitTime = if xExit < yExit: xExit else: yExit
+  if entryTime > exitTime or (xEntry < 0.0 and yEntry < 0.0) or xEntry > 1.0 or yEntry > 1.0:
+    ret SweptHit(hit = false, time = 1.0, normalX = 0.0, normalY = 0.0)
+  mut normX = 0.0
+  mut normY = 0.0
+  if xEntry > yEntry:
+    normX = if xInvEntry < 0.0: 1.0 else: -1.0
+    normY = 0.0
+  else:
+    normX = 0.0
+    normY = if yInvEntry < 0.0: 1.0 else: -1.0
+  ret SweptHit(hit = true, time = maxFloat(0.0, entryTime), normalX = normX, normalY = normY)
+
+pub fn mat2DIdentity(): Mat2D:
+  ret Mat2D(a = 1.0, b = 0.0, c = 0.0, d = 1.0, tx = 0.0, ty = 0.0)
+
+pub fn mat2DFromTRS(tx: float, ty: float, radians: float, sx: float, sy: float): Mat2D:
+  let cs = cos(radians)
+  let sn = sin(radians)
+  ret Mat2D(a = cs * sx, b = sn * sx, c = -sn * sy, d = cs * sy, tx = tx, ty = ty)
+
+pub fn mat2DMul(m1: Mat2D, m2: Mat2D): Mat2D:
+  ret Mat2D(
+    a = m1.a * m2.a + m1.c * m2.b,
+    b = m1.b * m2.a + m1.d * m2.b,
+    c = m1.a * m2.c + m1.c * m2.d,
+    d = m1.b * m2.c + m1.d * m2.d,
+    tx = m1.a * m2.tx + m1.c * m2.ty + m1.tx,
+    ty = m1.b * m2.tx + m1.d * m2.ty + m1.ty
+  )
+
+pub fn mat2DTransformPoint(m: Mat2D, p: Vec2): Vec2:
+  ret Vec2(x = m.a * p.x + m.c * p.y + m.tx, y = m.b * p.x + m.d * p.y + m.ty)
+
+pub fn intersectSegments(p1: Vec2, p2: Vec2, p3: Vec2, p4: Vec2): SegmentHit2D:
+  let rX = p2.x - p1.x
+  let rY = p2.y - p1.y
+  let sX = p4.x - p3.x
+  let sY = p4.y - p3.y
+  let denom = rX * sY - rY * sX
+  if absFloat(denom) < 0.0000001:
+    ret SegmentHit2D(hit = false, x = 0.0, y = 0.0, t = 0.0, u = 0.0)
+  let qpX = p3.x - p1.x
+  let qpY = p3.y - p1.y
+  let t = (qpX * sY - qpY * sX) / denom
+  let u = (qpX * rY - qpY * rX) / denom
+  if t >= 0.0 and t <= 1.0 and u >= 0.0 and u <= 1.0:
+    ret SegmentHit2D(hit = true, x = p1.x + t * rX, y = p1.y + t * rY, t = t, u = u)
+  ret SegmentHit2D(hit = false, x = 0.0, y = 0.0, t = t, u = u)
+
+pub fn segmentIntersect2D(p1: Vec2, p2: Vec2, p3: Vec2, p4: Vec2): SegmentHit2D:
+  ret intersectSegments(p1, p2, p3, p4)
+
+pub fn pointInPolygon(pt: Vec2, poly: [Vec2]): bool:
+  let n = poly.len
+  if n < 3:
+    ret false
+  mut inside = false
+  mut i = 0
+  mut j = n - 1
+  while i < n:
+    let pi = poly[i]
+    let pj = poly[j]
+    let intersectsY = (pi.y > pt.y) != (pj.y > pt.y)
+    if intersectsY:
+      let xCross = (pj.x - pi.x) * (pt.y - pi.y) / (pj.y - pi.y) + pi.x
+      if pt.x < xCross:
+        inside = not inside
+    j = i
+    i += 1
+  ret inside
+
+pub fn pointInPolygon2D(pt: Vec2, poly: [Vec2]): bool:
+  ret pointInPolygon(pt, poly)
+
+fn hullCross2D(o: Vec2, a: Vec2, b: Vec2): float:
+  ret (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+
+pub fn convexHull2D(pts: [Vec2]): [Vec2]:
+  let n = pts.len
+  if n <= 2:
+    ret pts
+  mut sorted: [Vec2] = []
+  mut i = 0
+  while i < n:
+    sorted.push(pts[i])
+    i += 1
+  mut a = 0
+  while a < n:
+    mut b = a + 1
+    while b < n:
+      let pa = sorted[a]
+      let pb = sorted[b]
+      if pb.x < pa.x or (pb.x == pa.x and pb.y < pa.y):
+        sorted[a] = pb
+        sorted[b] = pa
+      b += 1
+    a += 1
+  mut lower: [Vec2] = []
+  mut idx = 0
+  while idx < n:
+    let p = sorted[idx]
+    while lower.len >= 2 and hullCross2D(lower[lower.len - 2], lower[lower.len - 1], p) <= 0.0:
+      let _popped = lower.pop()
+    lower.push(p)
+    idx += 1
+  mut upper: [Vec2] = []
+  mut rIdx = n - 1
+  while rIdx >= 0:
+    let p = sorted[rIdx]
+    while upper.len >= 2 and hullCross2D(upper[upper.len - 2], upper[upper.len - 1], p) <= 0.0:
+      let _popped = upper.pop()
+    upper.push(p)
+    rIdx -= 1
+  let _p1 = lower.pop()
+  let _p2 = upper.pop()
+  mut u = 0
+  while u < upper.len:
+    lower.push(upper[u])
+    u += 1
+  ret lower
+
+pub fn worldToDisc2D(origin2D: Vec2, target2D: Vec2, headingRad: float, discCenter: Vec2, discRadius: float, maxRange: float): Vec2:
+  if discRadius <= 0.0 or maxRange <= 0.0:
+    ret discCenter
+  let dx = target2D.x - origin2D.x
+  let dy = target2D.y - origin2D.y
+  let c = cos(-headingRad)
+  let s = sin(-headingRad)
+  let rx = dx * c - dy * s
+  let ry = dx * s + dy * c
+  let scale = discRadius / maxRange
+  mut px = rx * scale
+  mut py = ry * scale
+  let d = hypot(px, py)
+  if d > discRadius and d > 0.000001:
+    let clampFactor = discRadius / d
+    px = px * clampFactor
+    py = py * clampFactor
+  ret Vec2(x = discCenter.x + px, y = discCenter.y + py)
+
+pub fn closestPointOnSegment2D(pt: Vec2, a: Vec2, b: Vec2): Vec2:
+  let abx = b.x - a.x
+  let aby = b.y - a.y
+  let abLenSq = abx * abx + aby * aby
+  if abLenSq <= 0.0000001:
+    ret a
+  let t = clampFloat(((pt.x - a.x) * abx + (pt.y - a.y) * aby) / abLenSq, 0.0, 1.0)
+  ret Vec2(x = a.x + abx * t, y = a.y + aby * t)
+
+pub fn distancePointToSegment2D(pt: Vec2, a: Vec2, b: Vec2): float:
+  let c = closestPointOnSegment2D(pt, a, b)
+  ret vec2Dist(pt, c)
+
+pub fn polygonArea2D(poly: [Vec2]): float:
+  let n = poly.len
+  if n < 3:
+    ret 0.0
+  mut area2 = 0.0
+  mut i = 0
+  while i < n:
+    let p1 = poly[i]
+    let p2 = poly[(i + 1) % n]
+    area2 += (p1.x * p2.y - p2.x * p1.y)
+    i += 1
+  ret absFloat(area2) * 0.5
+
+pub fn polygonCentroid2D(poly: [Vec2]): Vec2:
+  let n = poly.len
+  if n == 0:
+    ret Vec2(x = 0.0, y = 0.0)
+  mut sx = 0.0
+  mut sy = 0.0
+  mut i = 0
+  while i < n:
+    sx += poly[i].x
+    sy += poly[i].y
+    i += 1
+  ret Vec2(x = sx / float(n), y = sy / float(n))

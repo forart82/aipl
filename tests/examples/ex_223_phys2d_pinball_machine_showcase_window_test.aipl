@@ -1,0 +1,60 @@
+module Ex223Phys2dPinballMachineShowcaseWindowTest
+
+import {
+  PhysWorldSettings2D, PhysicsWorld2D, physWorld2dNew,
+  physWorld2dAddBody, physWorld2dAddCollider, physWorld2dAddJoint, physWorld2dStep
+} from "../../std/phys2d/phys_world2d"
+import { BodyType2D, RigidBody2D, rigidBody2dNew, rigidBody2dSetMass } from "../../std/phys2d/rigid_body2d"
+import { PhysicsMaterial2D, circleColliderNew } from "../../std/phys2d/collider2d"
+import { springJointNew } from "../../std/phys2d/joint2d"
+import { Vec2 } from "../../std/math/vec_math"
+import {
+  PinballScene, createPinballScene, stepScene, auditPinballMachineWorld
+} from "../../examples/ex_223_phys2d_pinball_machine_showcase_window"
+
+pub fn test_phys2d_pinball_machine(): void:
+  mut world = physWorld2dNew(Vec2(x = 0.0, y = -9.8))
+  mut dynBody = rigidBody2dNew(10, BodyType2D.Dynamic, Vec2(x = 0.0, y = 100.0), 0.0)
+  rigidBody2dSetMass(dynBody, 1.0, 1.0)
+  let bId = physWorld2dAddBody(world, dynBody)
+  let mat = PhysicsMaterial2D(restitution = 0.85, friction = 0.1, density = 1.0)
+  let colC = circleColliderNew(5.0, mat)
+  physWorld2dAddCollider(world, bId, colC)
+  let bId2 = physWorld2dAddBody(world, rigidBody2dNew(11, BodyType2D.Static, Vec2(x = 0.0, y = 110.0), 0.0))
+  physWorld2dAddJoint(world, springJointNew(bId, bId2, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 10.0, 5.0, 0.5))
+  physWorld2dStep(world, 0.1)
+  let updatedB: RigidBody2D = world.bodies[bId]
+  assert(updatedB.position.y < 100.0, "World step integrated pinball downward")
+
+  mut scene: PinballScene = createPinballScene()
+  let b0: RigidBody2D = scene.world.bodies[scene.ballId]
+  let y0 = b0.position.y
+  stepScene(scene, 0, 0.15)
+  let b1: RigidBody2D = scene.world.bodies[scene.ballId]
+  let y1 = b1.position.y
+  assert(y1 > y0, "t=0 -> t=1 moves pinball downward under gravity")
+
+  mut f = 1
+  while f <= 25:
+    stepScene(scene, f, 0.15)
+    f = f + 1
+  let b25: RigidBody2D = scene.world.bodies[scene.ballId]
+  let x25 = b25.position.x
+  let y25 = b25.position.y
+  assert(y25 != y1, "t=1 -> t=25 continues pinball trajectory")
+  assert(scene.bumperHits > 0 and scene.score > 0, "Pinball collides and bounces off bumper within 25 steps")
+
+  while f <= 100:
+    stepScene(scene, f, 0.15)
+    f = f + 1
+  let b100: RigidBody2D = scene.world.bodies[scene.ballId]
+  assert(b100.position.x != x25 or b100.position.y != y25, "t=25 -> t=100 continues perpetual pinball play")
+  assert(b100.position.x >= 380.0 and b100.position.x <= 760.0 and b100.position.y >= 115.0 and b100.position.y <= 590.0, "Pinball remains inside playfield bounds at t=100")
+
+  let audit = auditPinballMachineWorld()
+  assert(audit == 41, "Pinball machine world audit")
+
+pub fn main(): int:
+  test_phys2d_pinball_machine()
+  println("PASS: ex_223_phys2d_pinball_machine_showcase_window_test")
+  ret 0

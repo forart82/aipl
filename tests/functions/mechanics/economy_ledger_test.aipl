@@ -1,0 +1,327 @@
+module tests.functions.mechanics.economy_ledger_test
+
+import * from "std/mechanics/economy_ledger"
+import { LN10, clampInt, clampFloat, maxFloat, minInt } from "std/math/consts"
+import { exp } from "std/math/trig"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_economy_ledger_resourceLedgerNew_1(): int:
+  let resNom = resourceLedgerNew()
+  let resEdge = resourceLedgerNew()
+  assertEqInt(resNom.accounts.len(), 0, "resourceLedgerNew nominal resNom.accounts.len() == 0")
+  assertEqInt(resEdge.accounts.len(), 0, "resourceLedgerNew boundary resEdge.accounts.len() == 0")
+  ret 0
+
+pub fn test_economy_ledger_ledgerDeposit_2(): int:
+  let arg_ledger = ResourceLedger(accounts = {})
+  let edge_ledger = ResourceLedger(accounts = {})
+  let arg_account = "test"
+  let edge_account = "a"
+  let arg_amount = 4
+  let edge_amount = 1
+  ledgerDeposit(arg_ledger, arg_account, arg_amount)
+  ledgerDeposit(edge_ledger, edge_account, edge_amount)
+  assertEqInt(arg_ledger.accounts.keys().len(), 1, "ledgerDeposit nominal arg_ledger.accounts.keys().len() == 1")
+  assertEqInt(edge_ledger.accounts.keys().len(), 1, "ledgerDeposit boundary edge_ledger.accounts.keys().len() == 1")
+  ret 0
+
+pub fn test_economy_ledger_ledgerGetBalance_3(): int:
+  let arg_ledger = ResourceLedger(accounts = {})
+  let edge_ledger = ResourceLedger(accounts = {})
+  let arg_account = "test"
+  let edge_account = "a"
+  let resNom = ledgerGetBalance(arg_ledger, arg_account)
+  let resEdge = ledgerGetBalance(edge_ledger, edge_account)
+  assertEqInt(resNom, 0, "ledgerGetBalance nominal resNom == 0")
+  assertEqInt(resEdge, 0, "ledgerGetBalance boundary resEdge == 0")
+  ret 0
+
+pub fn test_economy_ledger_ledgerHasFunds_4(): int:
+  let arg_ledger = ResourceLedger(accounts = {})
+  let edge_ledger = ResourceLedger(accounts = {})
+  let arg_account = "test"
+  let edge_account = "a"
+  let arg_required = 2
+  let edge_required = 0
+  let resNom = ledgerHasFunds(arg_ledger, arg_account, arg_required)
+  let resEdge = ledgerHasFunds(edge_ledger, edge_account, edge_required)
+  assert(resNom == false, "ledgerHasFunds nominal resNom == false")
+  assert(resEdge == true, "ledgerHasFunds boundary resEdge == true")
+  ret 0
+
+pub fn test_economy_ledger_ledgerWithdraw_5(): int:
+  let arg_ledger = ResourceLedger(accounts = {})
+  let edge_ledger = ResourceLedger(accounts = {})
+  let arg_account = "test"
+  let edge_account = "a"
+  let arg_amount = 4
+  let edge_amount = 1
+  let resNom = ledgerWithdraw(arg_ledger, arg_account, arg_amount)
+  let resEdge = ledgerWithdraw(edge_ledger, edge_account, edge_amount)
+  assert(resNom == false, "ledgerWithdraw nominal resNom == false")
+  assert(resEdge == false, "ledgerWithdraw boundary resEdge == false")
+  ret 0
+
+pub fn test_economy_ledger_ledgerTotalSupply_6(): int:
+  let arg_ledger = ResourceLedger(accounts = {})
+  let edge_ledger = ResourceLedger(accounts = {})
+  let resNom = ledgerTotalSupply(arg_ledger)
+  let resEdge = ledgerTotalSupply(edge_ledger)
+  assertEqInt(resNom, 0, "ledgerTotalSupply nominal resNom == 0")
+  assertEqInt(resEdge, 0, "ledgerTotalSupply boundary resEdge == 0")
+  ret 0
+
+pub fn test_economy_ledger_ledgerTransfer_7(): int:
+  let arg_ledger = ResourceLedger(accounts = {})
+  let edge_ledger = ResourceLedger(accounts = {})
+  let arg_fromAccount = "test"
+  let edge_fromAccount = "a"
+  let arg_toAccount = "test"
+  let edge_toAccount = "a"
+  let arg_amount = 4
+  let edge_amount = 1
+  let resNom = ledgerTransfer(arg_ledger, arg_fromAccount, arg_toAccount, arg_amount)
+  let resEdge = ledgerTransfer(edge_ledger, edge_fromAccount, edge_toAccount, edge_amount)
+  assert(resNom == false, "ledgerTransfer nominal resNom == false")
+  assert(resEdge == false, "ledgerTransfer boundary resEdge == false")
+  ret 0
+
+pub fn test_economy_ledger_computeTieredBracketRatePct_8(): int:
+  let arg_bracket = ProgressiveTaxBracket(tiers = [])
+  let edge_bracket = ProgressiveTaxBracket(tiers = [])
+  let arg_totalWealth = 2
+  let edge_totalWealth = 0
+  let resNom = computeTieredBracketRatePct(arg_bracket, arg_totalWealth)
+  let resEdge = computeTieredBracketRatePct(edge_bracket, edge_totalWealth)
+  assertApproxEq(resNom, 0.0, 0.001, "computeTieredBracketRatePct nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "computeTieredBracketRatePct boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_economy_ledger_computeProgressiveTaxAmount_9(): int:
+  let arg_bracket = ProgressiveTaxBracket(tiers = [])
+  let edge_bracket = ProgressiveTaxBracket(tiers = [])
+  let arg_grossAmount = 4
+  let edge_grossAmount = 1
+  let resNom = computeProgressiveTaxAmount(arg_bracket, arg_grossAmount)
+  let resEdge = computeProgressiveTaxAmount(edge_bracket, edge_grossAmount)
+  assertEqInt(resNom, 0, "computeProgressiveTaxAmount nominal resNom == 0")
+  assertEqInt(resEdge, 0, "computeProgressiveTaxAmount boundary resEdge == 0")
+  ret 0
+
+pub fn test_economy_ledger_computeNetAfterTax_10(): int:
+  let arg_bracket = ProgressiveTaxBracket(tiers = [])
+  let edge_bracket = ProgressiveTaxBracket(tiers = [])
+  let arg_grossAmount = 4
+  let edge_grossAmount = 1
+  let resNom = computeNetAfterTax(arg_bracket, arg_grossAmount)
+  let resEdge = computeNetAfterTax(edge_bracket, edge_grossAmount)
+  assertEqInt(resNom, 4, "computeNetAfterTax nominal resNom == 4")
+  assertEqInt(resEdge, 1, "computeNetAfterTax boundary resEdge == 1")
+  ret 0
+
+pub fn test_economy_ledger_computeCompoundInterest_11(): int:
+  let arg_principal = 1.0
+  let edge_principal = 0.5
+  let arg_ratePerPeriod = 2.0
+  let edge_ratePerPeriod = 1.0
+  let arg_periods = 2
+  let edge_periods = 0
+  let resNom = computeCompoundInterest(arg_principal, arg_ratePerPeriod, arg_periods)
+  let resEdge = computeCompoundInterest(edge_principal, edge_ratePerPeriod, edge_periods)
+  assertApproxEq(resNom, 9.0, 0.001, "computeCompoundInterest nominal resNom ~= 9.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "computeCompoundInterest boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_economy_ledger_computeSupplyDemandPrice_12(): int:
+  let arg_basePrice = 1.0
+  let edge_basePrice = 0.5
+  let arg_supply = 1
+  let edge_supply = 0
+  let arg_demand = 4
+  let edge_demand = 1
+  let arg_elasticity = 1.0
+  let edge_elasticity = 0.5
+  let resNom = computeSupplyDemandPrice(arg_basePrice, arg_supply, arg_demand, arg_elasticity)
+  let resEdge = computeSupplyDemandPrice(edge_basePrice, edge_supply, edge_demand, edge_elasticity)
+  assertApproxEq(resNom, 4.0, 0.001, "computeSupplyDemandPrice nominal resNom ~= 4.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "computeSupplyDemandPrice boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_economy_ledger_craftingCanFulfill_13(): int:
+  let arg_ledger = ResourceLedger(accounts = {})
+  let edge_ledger = ResourceLedger(accounts = {})
+  let arg_accountPrefix = "test"
+  let edge_accountPrefix = "a"
+  let arg_recipe = CraftingRecipe(recipeId = "test", inputs = [], outputs = [], craftDurationSec = 1.0)
+  let edge_recipe = CraftingRecipe(recipeId = "a", inputs = [], outputs = [], craftDurationSec = 0.5)
+  let resNom = craftingCanFulfill(arg_ledger, arg_accountPrefix, arg_recipe)
+  let resEdge = craftingCanFulfill(edge_ledger, edge_accountPrefix, edge_recipe)
+  assert(resNom == true, "craftingCanFulfill nominal resNom == true")
+  assert(resEdge == true, "craftingCanFulfill boundary resEdge == true")
+  ret 0
+
+pub fn test_economy_ledger_craftingMaxBatchCount_14(): int:
+  let arg_ledger = ResourceLedger(accounts = {})
+  let edge_ledger = ResourceLedger(accounts = {})
+  let arg_accountPrefix = "test"
+  let edge_accountPrefix = "a"
+  let arg_recipe = CraftingRecipe(recipeId = "test", inputs = [], outputs = [], craftDurationSec = 1.0)
+  let edge_recipe = CraftingRecipe(recipeId = "a", inputs = [], outputs = [], craftDurationSec = 0.5)
+  let resNom = craftingMaxBatchCount(arg_ledger, arg_accountPrefix, arg_recipe)
+  let resEdge = craftingMaxBatchCount(edge_ledger, edge_accountPrefix, edge_recipe)
+  assertEqInt(resNom, 0, "craftingMaxBatchCount nominal resNom == 0")
+  assertEqInt(resEdge, 0, "craftingMaxBatchCount boundary resEdge == 0")
+  ret 0
+
+pub fn test_economy_ledger_craftingExecute_15(): int:
+  let arg_ledger = ResourceLedger(accounts = {})
+  let edge_ledger = ResourceLedger(accounts = {})
+  let arg_accountPrefix = "test"
+  let edge_accountPrefix = "a"
+  let arg_recipe = CraftingRecipe(recipeId = "test", inputs = [], outputs = [], craftDurationSec = 1.0)
+  let edge_recipe = CraftingRecipe(recipeId = "a", inputs = [], outputs = [], craftDurationSec = 0.5)
+  let resNom = craftingExecute(arg_ledger, arg_accountPrefix, arg_recipe)
+  let resEdge = craftingExecute(edge_ledger, edge_accountPrefix, edge_recipe)
+  assert(resNom == true, "craftingExecute nominal resNom == true")
+  assert(resEdge == true, "craftingExecute boundary resEdge == true")
+  ret 0
+
+pub fn test_economy_ledger_computeEloRatingDelta_16(): int:
+  let arg_ratingA = 1.0
+  let edge_ratingA = 0.5
+  let arg_ratingB = 1.0
+  let edge_ratingB = 0.5
+  let arg_scoreA = 1.0
+  let edge_scoreA = 0.5
+  let arg_kFactor = 1.0
+  let edge_kFactor = 0.5
+  let resNom = computeEloRatingDelta(arg_ratingA, arg_ratingB, arg_scoreA, arg_kFactor)
+  let resEdge = computeEloRatingDelta(edge_ratingA, edge_ratingB, edge_scoreA, edge_kFactor)
+  assertApproxEq(resNom, 0.5, 0.001, "computeEloRatingDelta nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.0, 0.001, "computeEloRatingDelta boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_economy_ledger_recipeKeyCommutative2_17(): int:
+  let arg_idA = 1
+  let edge_idA = 0
+  let arg_idB = 4
+  let edge_idB = 1
+  let resNom = recipeKeyCommutative2(arg_idA, arg_idB)
+  let resEdge = recipeKeyCommutative2(edge_idA, edge_idB)
+  assertEqInt(resNom, 1004, "recipeKeyCommutative2 nominal resNom == 1004")
+  assertEqInt(resEdge, 1, "recipeKeyCommutative2 boundary resEdge == 1")
+  ret 0
+
+pub fn test_economy_ledger_recipeKeyCommutative3_18(): int:
+  let arg_idA = 1
+  let edge_idA = 0
+  let arg_idB = 4
+  let edge_idB = 1
+  let arg_idC = 1
+  let edge_idC = 0
+  let resNom = recipeKeyCommutative3(arg_idA, arg_idB, arg_idC)
+  let resEdge = recipeKeyCommutative3(edge_idA, edge_idB, edge_idC)
+  assertEqInt(resNom, 1001004, "recipeKeyCommutative3 nominal resNom == 1001004")
+  assertEqInt(resEdge, 1, "recipeKeyCommutative3 boundary resEdge == 1")
+  ret 0
+
+pub fn test_economy_ledger_recipeCombinatorCommutative2_19(): int:
+  let arg_idA = 1
+  let edge_idA = 0
+  let arg_idB = 4
+  let edge_idB = 1
+  let resNom = recipeCombinatorCommutative2(arg_idA, arg_idB)
+  let resEdge = recipeCombinatorCommutative2(edge_idA, edge_idB)
+  assertEqInt(resNom, 1004, "recipeCombinatorCommutative2 nominal resNom == 1004")
+  assertEqInt(resEdge, 1, "recipeCombinatorCommutative2 boundary resEdge == 1")
+  ret 0
+
+pub fn test_economy_ledger_computeItemCombineRecipeId_20(): int:
+  let arg_itemIdA = 4
+  let edge_itemIdA = 1
+  let arg_itemIdB = 4
+  let edge_itemIdB = 1
+  let resNom = computeItemCombineRecipeId(arg_itemIdA, arg_itemIdB)
+  let resEdge = computeItemCombineRecipeId(edge_itemIdA, edge_itemIdB)
+  assertEqInt(resNom, 4004, "computeItemCombineRecipeId nominal resNom == 4004")
+  assertEqInt(resEdge, 1001, "computeItemCombineRecipeId boundary resEdge == 1001")
+  ret 0
+
+pub fn test_economy_ledger_recipeOutputLevel_21(): int:
+  let arg_charLevel = 2
+  let edge_charLevel = 0
+  let arg_itemLevel = 4
+  let edge_itemLevel = 1
+  let arg_biasRatio = 1.0
+  let edge_biasRatio = 0.5
+  let resNom = recipeOutputLevel(arg_charLevel, arg_itemLevel, arg_biasRatio)
+  let resEdge = recipeOutputLevel(edge_charLevel, edge_itemLevel, edge_biasRatio)
+  assertEqInt(resNom, 4, "recipeOutputLevel nominal resNom == 4")
+  assertEqInt(resEdge, 1, "recipeOutputLevel boundary resEdge == 1")
+  ret 0
+
+pub fn test_economy_ledger_rateScaledCapacityPerSec_22(): int:
+  let arg_assignedUnits = 4
+  let edge_assignedUnits = 1
+  let arg_unitRate = 2.0
+  let edge_unitRate = 1.0
+  let arg_tierMult = 1.0
+  let edge_tierMult = 0.5
+  let resNom = rateScaledCapacityPerSec(arg_assignedUnits, arg_unitRate, arg_tierMult)
+  let resEdge = rateScaledCapacityPerSec(edge_assignedUnits, edge_unitRate, edge_tierMult)
+  assertApproxEq(resNom, 8.0, 0.001, "rateScaledCapacityPerSec nominal resNom ~= 8.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "rateScaledCapacityPerSec boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_economy_ledger_forecastMonteCarloQuantile_23(): int:
+  let arg_p50Base = 1.0
+  let edge_p50Base = 0.5
+  let arg_volatilityPct = 1.0
+  let edge_volatilityPct = 0.5
+  let arg_zScore = 1.0
+  let edge_zScore = 0.5
+  let resNom = forecastMonteCarloQuantile(arg_p50Base, arg_volatilityPct, arg_zScore)
+  let resEdge = forecastMonteCarloQuantile(edge_p50Base, edge_volatilityPct, edge_zScore)
+  assertApproxEq(resNom, 1.01, 0.001, "forecastMonteCarloQuantile nominal resNom ~= 1.01")
+  assertApproxEq(resEdge, 0.50125, 0.001, "forecastMonteCarloQuantile boundary resEdge ~= 0.50125")
+  ret 0
+
+pub fn test_economy_ledger_computeMonteCarloPercentile_24(): int:
+  let arg_p50Base = 1.0
+  let edge_p50Base = 0.5
+  let arg_volatilityPct = 1.0
+  let edge_volatilityPct = 0.5
+  let arg_zScore = 1.0
+  let edge_zScore = 0.5
+  let resNom = computeMonteCarloPercentile(arg_p50Base, arg_volatilityPct, arg_zScore)
+  let resEdge = computeMonteCarloPercentile(edge_p50Base, edge_volatilityPct, edge_zScore)
+  assertApproxEq(resNom, 1.01, 0.001, "computeMonteCarloPercentile nominal resNom ~= 1.01")
+  assertApproxEq(resEdge, 0.50125, 0.001, "computeMonteCarloPercentile boundary resEdge ~= 0.50125")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_economy_ledger_resourceLedgerNew_1(), 0, "test_economy_ledger_resourceLedgerNew_1")
+  assertEqInt(test_economy_ledger_ledgerDeposit_2(), 0, "test_economy_ledger_ledgerDeposit_2")
+  assertEqInt(test_economy_ledger_ledgerGetBalance_3(), 0, "test_economy_ledger_ledgerGetBalance_3")
+  assertEqInt(test_economy_ledger_ledgerHasFunds_4(), 0, "test_economy_ledger_ledgerHasFunds_4")
+  assertEqInt(test_economy_ledger_ledgerWithdraw_5(), 0, "test_economy_ledger_ledgerWithdraw_5")
+  assertEqInt(test_economy_ledger_ledgerTotalSupply_6(), 0, "test_economy_ledger_ledgerTotalSupply_6")
+  assertEqInt(test_economy_ledger_ledgerTransfer_7(), 0, "test_economy_ledger_ledgerTransfer_7")
+  assertEqInt(test_economy_ledger_computeTieredBracketRatePct_8(), 0, "test_economy_ledger_computeTieredBracketRatePct_8")
+  assertEqInt(test_economy_ledger_computeProgressiveTaxAmount_9(), 0, "test_economy_ledger_computeProgressiveTaxAmount_9")
+  assertEqInt(test_economy_ledger_computeNetAfterTax_10(), 0, "test_economy_ledger_computeNetAfterTax_10")
+  assertEqInt(test_economy_ledger_computeCompoundInterest_11(), 0, "test_economy_ledger_computeCompoundInterest_11")
+  assertEqInt(test_economy_ledger_computeSupplyDemandPrice_12(), 0, "test_economy_ledger_computeSupplyDemandPrice_12")
+  assertEqInt(test_economy_ledger_craftingCanFulfill_13(), 0, "test_economy_ledger_craftingCanFulfill_13")
+  assertEqInt(test_economy_ledger_craftingMaxBatchCount_14(), 0, "test_economy_ledger_craftingMaxBatchCount_14")
+  assertEqInt(test_economy_ledger_craftingExecute_15(), 0, "test_economy_ledger_craftingExecute_15")
+  assertEqInt(test_economy_ledger_computeEloRatingDelta_16(), 0, "test_economy_ledger_computeEloRatingDelta_16")
+  assertEqInt(test_economy_ledger_recipeKeyCommutative2_17(), 0, "test_economy_ledger_recipeKeyCommutative2_17")
+  assertEqInt(test_economy_ledger_recipeKeyCommutative3_18(), 0, "test_economy_ledger_recipeKeyCommutative3_18")
+  assertEqInt(test_economy_ledger_recipeCombinatorCommutative2_19(), 0, "test_economy_ledger_recipeCombinatorCommutative2_19")
+  assertEqInt(test_economy_ledger_computeItemCombineRecipeId_20(), 0, "test_economy_ledger_computeItemCombineRecipeId_20")
+  assertEqInt(test_economy_ledger_recipeOutputLevel_21(), 0, "test_economy_ledger_recipeOutputLevel_21")
+  assertEqInt(test_economy_ledger_rateScaledCapacityPerSec_22(), 0, "test_economy_ledger_rateScaledCapacityPerSec_22")
+  assertEqInt(test_economy_ledger_forecastMonteCarloQuantile_23(), 0, "test_economy_ledger_forecastMonteCarloQuantile_23")
+  assertEqInt(test_economy_ledger_computeMonteCarloPercentile_24(), 0, "test_economy_ledger_computeMonteCarloPercentile_24")
+  ret 0

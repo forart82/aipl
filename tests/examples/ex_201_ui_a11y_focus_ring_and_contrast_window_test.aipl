@@ -1,0 +1,47 @@
+module Ex201UiA11yFocusRingAndContrastWindowTest
+
+import {
+  buildUiA11yAudit, stepFocusSteps, stepDynamicForegroundLuma
+} from "../../examples/ex_201_ui_a11y_focus_ring_and_contrast_window"
+import { Rect } from "../../std/math/geom2d"
+import {
+  A11Y_ROLE_BUTTON, A11yNode, createA11yNode,
+  findNextFocusableNode, wcagContrastRatioLuma, cycleFocusIndex
+} from "../../std/ui/ui_a11y"
+
+pub fn test_ui_a11y_focus_ring_and_contrast(): void:
+  let n1 = createA11yNode(10, A11Y_ROLE_BUTTON, "Start", Rect(x = 0.0, y = 0.0, w = 100.0, h = 40.0))
+  let n2 = createA11yNode(20, A11Y_ROLE_BUTTON, "Settings", Rect(x = 0.0, y = 50.0, w = 100.0, h = 40.0))
+  let n3 = createA11yNode(30, A11Y_ROLE_BUTTON, "Quit", Rect(x = 0.0, y = 100.0, w = 100.0, h = 40.0))
+  let root = A11yNode(
+    nodeId = 1,
+    role = A11Y_ROLE_BUTTON,
+    label = "DialogRoot",
+    valueText = "",
+    bounds = Rect(x = 0.0, y = 0.0, w = 200.0, h = 200.0),
+    isFocusable = false,
+    isFocused = false,
+    children = [n1, n2, n3]
+  )
+  assert(findNextFocusableNode(root, 10) == 20, "findNextFocusableNode advances from 10 to 20")
+  assert(findNextFocusableNode(root, 30) == 10, "findNextFocusableNode wraps around from 30 to 10")
+  assert(wcagContrastRatioLuma(1.0, 0.0) == 21.0, "wcagContrastRatioLuma white vs black is 21:1")
+  assert(cycleFocusIndex(0, 3, true) == 2, "cycleFocusIndex reverse wraps 0 -> 2")
+  assert(buildUiA11yAudit() == 53, "buildUiA11yAudit returns 20 + 10 + 21 + 2 == 53")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let l0 = stepDynamicForegroundLuma(0)
+  let l1 = stepDynamicForegroundLuma(1)
+  let l20 = stepDynamicForegroundLuma(20)
+  let l100 = stepDynamicForegroundLuma(100)
+  assert(l0 != l1 and l1 != l20 and l20 != l100, "dynamic foreground luma evolves across t=0,1,20,100")
+
+  let f0 = stepFocusSteps(root, 10, 0)
+  let f20 = stepFocusSteps(root, 10, 20)
+  let f100 = stepFocusSteps(root, 10, 100)
+  assert(f0 == 10 and f20 == 20 and f100 == 30, "focus traversal cycles through tree across frames 0, 20, and 100")
+
+pub fn main(): int:
+  test_ui_a11y_focus_ring_and_contrast()
+  println("PASS: ex_201_ui_a11y_focus_ring_and_contrast_window_test")
+  ret 0

@@ -1,0 +1,127 @@
+module Ex202EcsEntityGenerationalArenaWindow
+
+import {
+  EntityId, createEntityPool, allocateEntity,
+  recycleEntity, isEntityAlive, packEntityU64, unpackEntityU64
+} from "../std/ecs/entity"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn packEntityHandleLowCode(slotIndex: int, generation: int): int:
+  ret generation * 1000 + slotIndex
+
+pub fn verifyEntityGenerationMatch(handleGen: int, slotGen: int): int:
+  ret if handleGen == slotGen: 1 else: 0
+
+pub fn stepArenaInspectionCursor(frame: int): float:
+  ret 80.0 + float((frame * 19) % 1120)
+
+pub fn buildEcsEntityArenaAudit(): int:
+  let low = packEntityHandleLowCode(42, 3)
+  let matchOk = verifyEntityGenerationMatch(5, 5)
+  mut pool = createEntityPool()
+  let (p1, e0) = allocateEntity(pool)
+  pool = recycleEntity(p1, e0)
+  let (p2, e0Reused) = allocateEntity(pool)
+  let reused: EntityId = e0Reused
+  let unpacked: EntityId = unpackEntityU64(packEntityU64(reused))
+  ret low + matchOk + unpacked.generation + (if isEntityAlive(p2, reused): 1 else: 0)
+
+pub fn main(): int:
+  let auditScore = buildEcsEntityArenaAudit()
+
+  mut pool = createEntityPool()
+  mut handles: [EntityId] = []
+  mut k = 0
+  while k < 12:
+    let (nextPool, ent) = allocateEntity(pool)
+    pool = nextPool
+    handles.push(ent)
+    k = k + 1
+
+  // Recycle slots 2, 5, 8 and reallocate slot 8 to show both recycled and generation-incremented slots
+  pool = recycleEntity(pool, handles[2])
+  pool = recycleEntity(pool, handles[5])
+  pool = recycleEntity(pool, handles[8])
+  let (pA, rA) = allocateEntity(pool)
+  pool = pA
+  handles[8] = rA
+
+  initWindow(1280, 720, "AIPL ex_202: ECS Generational Entity Arena & ABA Protection")
+  mut frame = 0
+  while not windowShouldClose():
+    if frame > 0 and frame % 12 == 0:
+      let stepIdx = frame / 12
+      let targetSlot = (stepIdx * 5) % 12
+      if stepIdx % 2 == 1 and isEntityAlive(pool, handles[targetSlot]) and pool.freeIndices.len() < 4:
+        pool = recycleEntity(pool, handles[targetSlot])
+      else:
+        if pool.freeIndices.len() > 1:
+          let (pNext, rNext) = allocateEntity(pool)
+          pool = pNext
+          let rEnt: EntityId = rNext
+          handles[rEnt.index] = rEnt
+        else:
+          if isEntityAlive(pool, handles[targetSlot]):
+            pool = recycleEntity(pool, handles[targetSlot])
+
+    let probeX = stepArenaInspectionCursor(frame)
+    let activeSlot = ((frame / 8) % 12)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_202: ECS GENERATIONAL ENTITY ARENA (64-BIT PACKING & ABA STALE CHECK)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("slotsAllocated=12 | freeListCount=" + str(pool.freeIndices.len()) + " | probeSlot=#" + str(activeSlot) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    mut i = 0
+    while i < 12:
+      let colIdx = i % 4
+      let rowIdx = i / 4
+      let bx = 80.0 + float(colIdx) * 290.0
+      let by = 120.0 + float(rowIdx) * 168.0
+      let h = handles[i]
+      let alive = isEntityAlive(pool, h)
+      let slotGen = pool.generations[i]
+      let genMatch = verifyEntityGenerationMatch(h.generation, slotGen) == 1
+
+      let bgCol = if not alive: rgb(42, 18, 28) else: (if slotGen > 1: rgb(20, 44, 40) else: rgb(20, 30, 50))
+      let borderCol = if i == activeSlot: rgb(250, 204, 21) else: (if not alive: rgb(239, 68, 68) else: (if slotGen > 1: rgb(52, 211, 153) else: rgb(56, 189, 248)))
+
+      let packed = packEntityU64(h)
+      let unpacked: EntityId = unpackEntityU64(packed)
+      drawRect(bx, by, 260.0, 146.0, bgCol)
+      drawRectOutline(bx, by, 260.0, 146.0, if i == activeSlot: 3.0 else: 2.0, borderCol)
+      drawText("Arena Slot #" + str(unpacked.index), bx + 16.0, by + 14.0, 19.0, rgb(248, 250, 252))
+      drawText("Slot Gen: v" + str(slotGen) + " | Handle: v" + str(h.generation), bx + 16.0, by + 44.0, 15.0, rgb(203, 213, 225))
+      drawText("Packed64: " + str(packed), bx + 16.0, by + 72.0, 14.0, rgb(148, 163, 184))
+      drawText(if alive: "STATUS: ALIVE (GEN MATCH)" else: (if not genMatch: "ABA STALE HANDLE REJECTED" else: "STATUS: RECYCLED (FREE)"), bx + 16.0, by + 100.0, 14.0, if alive: rgb(52, 211, 153) else: rgb(252, 165, 165))
+      // Generation bar
+      let barW = if slotGen * 32 > 228: 228.0 else: float(slotGen * 32)
+      drawRect(bx + 16.0, by + 126.0, barW, 8.0, borderCol)
+      i = i + 1
+
+    // Bottom LIFO Free-List & ABA Probe Bar
+    drawRect(80.0, 632.0, 1130.0, 58.0, rgb(15, 23, 42))
+    drawRectOutline(80.0, 632.0, 1130.0, 58.0, 2.0, rgb(56, 189, 248))
+    mut freeStr = "LIFO Free-List Stack (" + str(pool.freeIndices.len()) + " free slots): ["
+    mut fIdx = 0
+    while fIdx < pool.freeIndices.len():
+      if fIdx > 0:
+        freeStr = freeStr + ", "
+      freeStr = freeStr + "#" + str(pool.freeIndices[fIdx])
+      fIdx = fIdx + 1
+    freeStr = freeStr + "]  |  64-Bit Handle Layout: [63..32 Generation | 31..0 Slot Index]"
+    drawText(freeStr, 100.0, 648.0, 15.0, rgb(226, 232, 240))
+    drawRect(probeX, 676.0, 60.0, 6.0, rgb(250, 204, 21))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

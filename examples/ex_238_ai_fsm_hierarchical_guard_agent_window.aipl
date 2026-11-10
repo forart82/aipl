@@ -1,0 +1,216 @@
+module Ex238AiFsmHierarchicalGuardAgentWindow
+
+import {
+  HierarchicalStateMachine, StateTransition, fsmNew, fsmAddState, fsmAddTransition,
+  fsmTriggerEvent, fsmCurrentStateId, fsmCurrentStateName,
+  fsmHasState, fsmReset, fsmGetValidEvents
+} from "../std/ai/fsm"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawTriangle, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct GuardFsmScene(fsm: HierarchicalStateMachine, guardX: float, intruderX: float, validEventCount: int, lastEvent: str, transitionCount: int)
+
+pub fn createGuardFsmScene(): GuardFsmScene:
+  mut sm = fsmNew(1)
+  fsmAddState(sm, 1, "Idle")
+  fsmAddState(sm, 2, "Patrol")
+  fsmAddState(sm, 3, "Investigate")
+  fsmAddState(sm, 4, "Chase")
+  fsmAddTransition(sm, 1, 2, "StartPatrol")
+  fsmAddTransition(sm, 2, 3, "HearNoise")
+  fsmAddTransition(sm, 3, 4, "SpotIntruder")
+  fsmAddTransition(sm, 4, 2, "TargetLost")
+  ret GuardFsmScene(
+    fsm = sm,
+    guardX = 800.0,
+    intruderX = 1120.0,
+    validEventCount = fsmGetValidEvents(sm).len(),
+    lastEvent = "Init(Idle)",
+    transitionCount = 0
+  )
+
+pub fn stepScene(mut scene: GuardFsmScene, frame: int, dt: float): void:
+  mut sm = scene.fsm
+  let curId = fsmCurrentStateId(sm)
+  if curId == 1:
+    if fsmTriggerEvent(sm, "StartPatrol"):
+      scene.lastEvent = "StartPatrol (1->2)"
+      scene.transitionCount = scene.transitionCount + 1
+
+  let dist = scene.intruderX - scene.guardX
+  if dist < 240.0 and fsmCurrentStateId(sm) == 2:
+    if fsmTriggerEvent(sm, "HearNoise"):
+      scene.lastEvent = "HearNoise (2->3)"
+      scene.transitionCount = scene.transitionCount + 1
+  if dist < 140.0 and fsmCurrentStateId(sm) == 3:
+    if fsmTriggerEvent(sm, "SpotIntruder"):
+      scene.lastEvent = "SpotIntruder (3->4)"
+      scene.transitionCount = scene.transitionCount + 1
+  if dist < 40.0:
+    if fsmTriggerEvent(sm, "TargetLost"):
+      scene.lastEvent = "TargetLost (4->2)"
+      scene.transitionCount = scene.transitionCount + 1
+    scene.guardX = 780.0
+    scene.intruderX = 1120.0
+
+  let activeId = fsmCurrentStateId(sm)
+  let speed = if activeId == 4: 85.0 else: 45.0
+  scene.guardX = scene.guardX + speed * dt
+  scene.intruderX = scene.intruderX - 25.0 * dt
+  scene.validEventCount = fsmGetValidEvents(sm).len()
+  scene.fsm = sm
+
+pub fn auditAiFsmGuardAgent(): int:
+  mut sm = fsmNew(1)
+  fsmAddState(sm, 1, "Idle")
+  fsmAddState(sm, 2, "Patrol")
+  fsmAddState(sm, 3, "Investigate")
+  fsmAddState(sm, 4, "Chase")
+  fsmAddTransition(sm, 1, 2, "StartPatrol")
+  fsmAddTransition(sm, 2, 3, "HearNoise")
+  fsmAddTransition(sm, 3, 4, "SpotIntruder")
+  fsmAddTransition(sm, 4, 2, "TargetLost")
+  let t1 = fsmTriggerEvent(sm, "StartPatrol")
+  let t2 = fsmTriggerEvent(sm, "HearNoise")
+  let t3 = fsmTriggerEvent(sm, "SpotIntruder")
+  mut steps = 0
+  if t1 and fsmHasState(sm, 1):
+    steps = steps + 1
+  if t2:
+    steps = steps + 1
+  if t3:
+    steps = steps + 1
+  let curId = fsmCurrentStateId(sm)
+  let _ = fsmReset(sm, 1)
+  ret curId * 10 + steps
+
+pub fn main(): int:
+  let audit = auditAiFsmGuardAgent()
+  println("EX_238_AI_FSM_AUDIT=" + str(audit))
+
+  mut scene = createGuardFsmScene()
+
+  initWindow(1280, 720, "AIPL ex_238: Hierarchical Guard Agent Finite State Machine")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.052)
+    let activeId = fsmCurrentStateId(scene.fsm)
+    let activeName = fsmCurrentStateName(scene.fsm)
+    let validEvs = fsmGetValidEvents(scene.fsm)
+    let armedEvent = if validEvs.len() > 0: validEvs[0] else: "None"
+    let dist = scene.intruderX - scene.guardX
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_238: HIERARCHICAL FINITE STATE MACHINE (FSM) GUARD AGENT", 36.0, 24.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | State=[" + str(activeId) + "] " + activeName + " | ArmedTrigger=" + armedEvent + " | Last=" + scene.lastEvent + " | Transitions=" + str(scene.transitionCount), 36.0, 52.0, 15.0, rgb(148, 163, 184))
+
+    drawRect(44.0, 88.0, 596.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(44.0, 88.0, 596.0, 594.0, 2.0, rgb(56, 189, 248))
+    drawText("HIERARCHICAL FSM TOPOLOGY & ARMED EVENT TRANSITIONS", 64.0, 104.0, 15.0, rgb(125, 211, 252))
+
+    drawRect(246.0, 142.0, 372.0, 354.0, rgb(13, 20, 34))
+    drawRectOutline(246.0, 142.0, 372.0, 354.0, 1.5, rgb(37, 99, 235))
+    drawText("SUPERSTATE: ACTIVE GUARD DUTY [2..4]", 264.0, 154.0, 13.0, rgb(96, 165, 250))
+
+    drawLine(146.0, 238.0, 356.0, 238.0, if activeId == 1: rgb(56, 189, 248) else: rgb(71, 85, 105), 3.0)
+    drawText("StartPatrol", 204.0, 218.0, 12.0, rgb(148, 163, 184))
+
+    drawLine(356.0, 238.0, 524.0, 320.0, if activeId == 2: rgb(250, 204, 21) else: rgb(71, 85, 105), 3.5)
+    drawText("HearNoise (d<240)", 408.0, 254.0, 12.0, rgb(253, 224, 71))
+
+    drawLine(524.0, 320.0, 356.0, 424.0, if activeId == 3: rgb(248, 113, 113) else: rgb(71, 85, 105), 3.5)
+    drawText("SpotIntruder (d<140)", 416.0, 390.0, 12.0, rgb(252, 165, 165))
+
+    drawLine(356.0, 424.0, 356.0, 238.0, if activeId == 4: rgb(52, 211, 153) else: rgb(71, 85, 105), 3.5)
+    drawText("TargetLost (d<40)", 256.0, 330.0, 12.0, rgb(110, 231, 183))
+
+    drawCircle(146.0, 238.0, if activeId == 1: 48.0 else: 42.0, rgb(30, 41, 59))
+    drawCircleOutline(146.0, 238.0, 42.0, 2.0, rgb(148, 163, 184))
+    drawText("1: Idle", 118.0, 232.0, 14.0, rgb(226, 232, 240))
+
+    drawCircle(356.0, 238.0, if activeId == 2: 52.0 else: 44.0, if activeId == 2: rgb(29, 78, 216) else: rgb(30, 58, 138))
+    drawCircleOutline(356.0, 238.0, if activeId == 2: 52.0 else: 44.0, if activeId == 2: 3.5 else: 2.0, rgb(56, 189, 248))
+    drawText("2: Patrol", 320.0, 232.0, 14.0, rgb(241, 245, 249))
+
+    drawCircle(524.0, 320.0, if activeId == 3: 52.0 else: 44.0, if activeId == 3: rgb(180, 83, 9) else: rgb(120, 53, 15))
+    drawCircleOutline(524.0, 320.0, if activeId == 3: 52.0 else: 44.0, if activeId == 3: 3.5 else: 2.0, rgb(245, 158, 11))
+    drawText("3: Alert", 492.0, 314.0, 14.0, rgb(241, 245, 249))
+
+    drawCircle(356.0, 424.0, if activeId == 4: 54.0 else: 44.0, if activeId == 4: rgb(185, 28, 28) else: rgb(127, 29, 29))
+    drawCircleOutline(356.0, 424.0, if activeId == 4: 54.0 else: 44.0, if activeId == 4: 4.0 else: 2.0, rgb(248, 113, 113))
+    drawText("4: CHASE", 318.0, 418.0, 14.0, rgb(255, 255, 255))
+
+    drawRect(64.0, 512.0, 554.0, 152.0, rgb(11, 17, 30))
+    drawRectOutline(64.0, 512.0, 554.0, 152.0, 1.0, rgb(51, 65, 85))
+    drawText("FSM TRANSITION TABLE (scene.fsm.transitions)", 80.0, 524.0, 13.0, rgb(125, 211, 252))
+    mut ti = 0
+    while ti < scene.fsm.transitions.len():
+      let tr: StateTransition = scene.fsm.transitions[ti]
+      let armed = tr.fromStateId == activeId
+      let rowY = 548.0 + float(ti) * 26.0
+      if armed:
+        drawRect(76.0, rowY - 3.0, 528.0, 22.0, rgb(30, 58, 138))
+      let statusTxt = if armed: "[ARMED]" else: "[IDLE] "
+      let rowCol = if armed: rgb(250, 204, 21) else: rgb(148, 163, 184)
+      drawText(statusTxt + " State " + str(tr.fromStateId) + " -> State " + str(tr.toStateId) + "  on event '" + tr.eventTrigger + "'", 84.0, rowY, 13.0, rowCol)
+      ti = ti + 1
+
+    drawRect(664.0, 88.0, 572.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(664.0, 88.0, 572.0, 594.0, 2.0, rgb(239, 68, 68))
+    drawText("STEALTH CORRIDOR: HEARING RING (240px) & VISION CONE (140px)", 684.0, 104.0, 15.0, rgb(248, 113, 113))
+
+    drawRect(688.0, 146.0, 524.0, 360.0, rgb(11, 17, 30))
+    drawRectOutline(688.0, 146.0, 524.0, 360.0, 1.0, rgb(51, 65, 85))
+    drawLine(688.0, 326.0, 1212.0, 326.0, rgb(30, 41, 59), 2.0)
+
+    let coneCol = if activeId == 4: rgb(127, 29, 29) else: (if activeId == 3: rgb(120, 53, 15) else: rgb(15, 42, 74))
+    let spotX = if scene.guardX + 140.0 > 1204.0: 1204.0 else: scene.guardX + 140.0
+    let hearX = if scene.guardX + 240.0 > 1204.0: 1204.0 else: scene.guardX + 240.0
+    drawTriangle(scene.guardX, 326.0, hearX, 186.0, hearX, 466.0, rgb(28, 25, 23))
+    drawTriangle(scene.guardX, 326.0, spotX, 236.0, spotX, 416.0, coneCol)
+    drawLine(spotX, 210.0, spotX, 442.0, rgb(239, 68, 68), 2.0)
+    drawText("Spot(140)", spotX - 30.0, 190.0, 12.0, rgb(252, 165, 165))
+    drawLine(hearX, 174.0, hearX, 478.0, rgb(245, 158, 11), 2.0)
+    drawText("Hear(240)", hearX - 30.0, 156.0, 12.0, rgb(253, 224, 71))
+
+    drawLine(scene.guardX, 326.0, scene.intruderX, 326.0, rgb(250, 204, 21), 2.5)
+    drawText("d=" + str(int(dist)) + "px", (scene.guardX + scene.intruderX) * 0.5 - 24.0, 302.0, 13.0, rgb(253, 224, 71))
+
+    let guardCol = if activeId == 4: rgb(248, 113, 113) else: (if activeId == 3: rgb(251, 191, 36) else: rgb(56, 189, 248))
+    drawCircleOutline(scene.guardX, 326.0, 46.0, 1.5, guardCol)
+    drawCircle(scene.guardX, 326.0, 20.0, guardCol)
+    drawCircleOutline(scene.guardX, 326.0, 24.0, 2.0, rgb(241, 245, 249))
+    drawText("GUARD [" + activeName + "]", scene.guardX - 42.0, 382.0, 13.0, guardCol)
+
+    drawCircle(scene.intruderX, 326.0, 16.0, rgb(239, 68, 68))
+    drawCircleOutline(scene.intruderX, 326.0, 20.0, 2.0, rgb(254, 202, 202))
+    drawText("INTRUDER", scene.intruderX - 30.0, 284.0, 12.0, rgb(252, 165, 165))
+
+    drawRect(688.0, 524.0, 524.0, 140.0, rgb(11, 17, 30))
+    drawRectOutline(688.0, 524.0, 524.0, 140.0, 1.0, rgb(51, 65, 85))
+    drawText("SENSOR DISTANCE THRESHOLDS vs CURRENT SEPARATION", 706.0, 538.0, 13.0, rgb(248, 113, 113))
+
+    let barW = if dist > 340.0: 460.0 else: (if dist < 0.0: 0.0 else: (dist / 340.0) * 460.0)
+    drawRect(712.0, 572.0, 460.0, 24.0, rgb(30, 41, 59))
+    drawRect(712.0, 572.0, barW, 24.0, guardCol)
+    drawRectOutline(712.0, 572.0, 460.0, 24.0, 1.0, rgb(100, 116, 139))
+
+    let x40 = 712.0 + (40.0 / 340.0) * 460.0
+    let x140 = 712.0 + (140.0 / 340.0) * 460.0
+    let x240 = 712.0 + (240.0 / 340.0) * 460.0
+    drawLine(x40, 566.0, x40, 602.0, rgb(52, 211, 153), 2.0)
+    drawLine(x140, 566.0, x140, 602.0, rgb(248, 113, 113), 2.0)
+    drawLine(x240, 566.0, x240, 602.0, rgb(245, 158, 11), 2.0)
+    drawText("40px (Reset)", x40 - 20.0, 610.0, 12.0, rgb(110, 231, 183))
+    drawText("140px (Spot)", x140 - 24.0, 610.0, 12.0, rgb(252, 165, 165))
+    drawText("240px (Hear)", x240 - 24.0, 610.0, 12.0, rgb(253, 224, 71))
+    drawText("Guard Speed: " + str(if activeId == 4: 85 else: 45) + " px/s | Intruder Speed: -25 px/s", 712.0, 638.0, 13.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

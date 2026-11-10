@@ -1,0 +1,120 @@
+/// # Module: `std/procgen/lsystem` (`LSystemMod`)
+///
+/// ## Purpose & Domain Scope
+/// Deterministic and stochastic Lindenmayer systems (L-Systems) with
+/// 3D turtle geometry interpretation.
+module LSystemMod
+
+import { DEG2RAD } from "std/math/consts"
+import { sin, cos } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+
+pub struct LSystemRule(predecessor: str, successor: str, weight: float)
+
+pub struct LSystemGrammar(axiom: str, rules: [LSystemRule], defaultAngleDegrees: float, defaultLength: float)
+
+pub struct TurtleSegment3D(startPoint: Vec3, endPoint: Vec3, thickness: float)
+
+pub fn lsystemGrammarNew(axiom: str, angleDegrees: float, length: float): LSystemGrammar:
+  mut rls: [LSystemRule] = []
+  ret LSystemGrammar(
+    axiom = axiom,
+    rules = rls,
+    defaultAngleDegrees = angleDegrees,
+    defaultLength = length
+  )
+
+pub fn lsystemAddRule(mut grammar: LSystemGrammar, pred: str, succ: str, weight: float): void:
+  mut rls = grammar.rules
+  rls.push(LSystemRule(predecessor = pred, successor = succ, weight = weight))
+  grammar.rules = rls
+
+pub fn lsystemEvaluate(grammar: LSystemGrammar, iterations: int, seed: int): str:
+  mut current = grammar.axiom
+  mut rngState = (seed & 2147483647) + 1
+  mut it = 0
+  while it < iterations:
+    mut nextStr = ""
+    mut i = 0
+    while i < current.len:
+      let ch = current.slice(i, i + 1)
+      mut matchIndices: [int] = []
+      mut totalWeight = 0.0
+      mut r = 0
+      while r < grammar.rules.len:
+        let rule: LSystemRule = grammar.rules[r]
+        if rule.predecessor == ch:
+          let w = if rule.weight > 0.0: rule.weight else: 1.0
+          matchIndices.push(r)
+          totalWeight = totalWeight + w
+        r = r + 1
+      mut replaced = ch
+      if matchIndices.len == 1:
+        let onlyRule: LSystemRule = grammar.rules[matchIndices[0]]
+        replaced = onlyRule.successor
+      elif matchIndices.len > 1:
+        rngState = (rngState * 1103515245 + 12345) & 2147483647
+        let u = (float(rngState % 1000000) / 1000000.0) * totalWeight
+        mut acc = 0.0
+        mut picked = false
+        mut mIdx = 0
+        while mIdx < matchIndices.len:
+          let cand: LSystemRule = grammar.rules[matchIndices[mIdx]]
+          let cw = if cand.weight > 0.0: cand.weight else: 1.0
+          acc = acc + cw
+          if u <= acc and not picked:
+            replaced = cand.successor
+            picked = true
+          mIdx = mIdx + 1
+        if not picked:
+          let lastRule: LSystemRule = grammar.rules[matchIndices[matchIndices.len - 1]]
+          replaced = lastRule.successor
+      nextStr = nextStr + replaced
+      i = i + 1
+    current = nextStr
+    it = it + 1
+  ret current
+
+pub fn lsystemInterpretTurtle3D(sentence: str, angleDegrees: float, length: float): [TurtleSegment3D]:
+  mut segs: [TurtleSegment3D] = []
+  let rad = angleDegrees * DEG2RAD
+
+  mut curPos = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  mut curAngle = 0.0
+  mut stackPos: [Vec3] = []
+  mut stackAng: [float] = []
+
+  mut i = 0
+  while i < sentence.len:
+    let ch = sentence.slice(i, i + 1)
+    if ch == "F" or ch == "A" or ch == "B":
+      let dir = Vec3(x = cos(curAngle), y = sin(curAngle), z = 0.0)
+      let nextPos: Vec3 = curPos.add(dir.scale(length))
+      segs.push(TurtleSegment3D(startPoint = curPos, endPoint = nextPos, thickness = 1.0))
+      curPos = nextPos
+    else:
+      if ch == "+":
+        curAngle = curAngle + rad
+      else:
+        if ch == "-":
+          curAngle = curAngle - rad
+        else:
+          if ch == "[":
+            stackPos.push(curPos)
+            stackAng.push(curAngle)
+          else:
+            if ch == "]" and stackPos.len > 0:
+              let lastIdx = stackPos.len - 1
+              curPos = stackPos[lastIdx]
+              curAngle = stackAng[lastIdx]
+              mut nextStackPos: [Vec3] = []
+              mut nextStackAng: [float] = []
+              mut k = 0
+              while k < lastIdx:
+                nextStackPos.push(stackPos[k])
+                nextStackAng.push(stackAng[k])
+                k = k + 1
+              stackPos = nextStackPos
+              stackAng = nextStackAng
+    i = i + 1
+  ret segs

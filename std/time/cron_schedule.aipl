@@ -1,0 +1,202 @@
+// ============================================================================
+// Module: std/time/cron_schedule (CronScheduleMod)
+// Layer 1 (Core Primitives & Math) — 5/6-Field Bitset Cron Expression Engine
+// ============================================================================
+module CronScheduleMod
+
+import {
+  DateTimeUtc,
+  dayOfWeek,
+  dateTimeUtcToUnix,
+  unixToDateTimeUtc
+} from "./datetime"
+
+pub struct CronSchedule:
+  minuteBitset: int
+  hourBitset: int
+  dayOfMonthBitset: int
+  monthBitset: int
+  dayOfWeekBitset: int
+  hasSeconds: bool
+  secondBitset: int
+
+fn parseCronUint(s: str): Option[int]:
+  let t = s.trim()
+  if t.len == 0:
+    ret None
+  let digits = "0123456789"
+  mut acc = 0
+  mut i = 0
+  while i < t.len:
+    let d = digits.indexOf(t.charAt(i))
+    if d < 0:
+      ret None
+    acc = acc * 10 + d
+    i += 1
+  ret Some(acc)
+
+fn parseCronFieldBitset(fieldStr: str, minVal: int, maxVal: int): Result[int, str]:
+  let s = fieldStr.trim()
+  if s.len == 0:
+    ret Err("Empty cron field")
+  mut mask = 0
+  for part in s.split(","):
+    let p = part.trim()
+    mut rangePart = p
+    mut stepVal = 1
+    let slashIdx = p.indexOf("/")
+    if slashIdx >= 0:
+      rangePart = p.slice(0, slashIdx)
+      let stepStr = p.slice(slashIdx + 1, p.len)
+      match parseCronUint(stepStr):
+        Some(st) =>
+          if st <= 0:
+            ret Err("Cron step must be > 0")
+          stepVal = st
+        None =>
+          ret Err("Invalid cron step")
+    mut startVal = minVal
+    mut endVal = maxVal
+    if rangePart == "*":
+      startVal = minVal
+      endVal = maxVal
+    else:
+      let dashIdx = rangePart.indexOf("-")
+      if dashIdx >= 0:
+        let loStr = rangePart.slice(0, dashIdx)
+        let hiStr = rangePart.slice(dashIdx + 1, rangePart.len)
+        match parseCronUint(loStr):
+          Some(lo) => startVal = lo
+          None => ret Err("Invalid cron range start")
+        match parseCronUint(hiStr):
+          Some(hi) => endVal = hi
+          None => ret Err("Invalid cron range end")
+      else:
+        match parseCronUint(rangePart):
+          Some(single) =>
+            startVal = single
+            endVal = if slashIdx >= 0: maxVal else: single
+          None => ret Err("Invalid cron value")
+    if startVal < minVal or endVal > maxVal or startVal > endVal:
+      ret Err("Cron value out of bounds")
+    mut v = startVal
+    while v <= endVal:
+      mask = mask | (1 << v)
+      v += stepVal
+  ret Ok(mask)
+
+pub fn parseCron(expression: str): Result[CronSchedule, str]:
+  let trimmed = expression.trim()
+  mut tokens: [str] = []
+  for part in trimmed.split(" "):
+    let p = part.trim()
+    if p.len > 0:
+      tokens.push(p)
+  if tokens.len != 5 and tokens.len != 6:
+    ret Err("Cron expression must have 5 or 6 fields")
+  mut offset = 0
+  mut hasSec = false
+  mut secMask = 1
+  if tokens.len == 6:
+    hasSec = true
+    offset = 1
+    match parseCronFieldBitset(tokens[0], 0, 59):
+      Ok(m) => secMask = m
+      Err(e) => ret Err(e)
+  let minRes = parseCronFieldBitset(tokens[offset], 0, 59)
+  if minRes.isErr():
+    ret Err(minRes.unwrapErr())
+  let hrRes = parseCronFieldBitset(tokens[offset + 1], 0, 23)
+  if hrRes.isErr():
+    ret Err(hrRes.unwrapErr())
+  let domRes = parseCronFieldBitset(tokens[offset + 2], 1, 31)
+  if domRes.isErr():
+    ret Err(domRes.unwrapErr())
+  let monRes = parseCronFieldBitset(tokens[offset + 3], 1, 12)
+  if monRes.isErr():
+    ret Err(monRes.unwrapErr())
+  let dowRes = parseCronFieldBitset(tokens[offset + 4], 0, 6)
+  if dowRes.isErr():
+    ret Err(dowRes.unwrapErr())
+  ret Ok(CronSchedule(
+    minuteBitset = minRes.unwrap(),
+    hourBitset = hrRes.unwrap(),
+    dayOfMonthBitset = domRes.unwrap(),
+    monthBitset = monRes.unwrap(),
+    dayOfWeekBitset = dowRes.unwrap(),
+    hasSeconds = hasSec,
+    secondBitset = secMask
+  ))
+
+pub fn (self: CronSchedule) isMatch(dt: DateTimeUtc): bool:
+  if self.hasSeconds:
+    if (self.secondBitset & (1 << dt.time.second)) == 0:
+      ret false
+  if (self.minuteBitset & (1 << dt.time.minute)) == 0:
+    ret false
+  if (self.hourBitset & (1 << dt.time.hour)) == 0:
+    ret false
+  if (self.dayOfMonthBitset & (1 << dt.date.day)) == 0:
+    ret false
+  if (self.monthBitset & (1 << dt.date.month)) == 0:
+    ret false
+  let dow = dayOfWeek(dt.date.year, dt.date.month, dt.date.day)
+  if (self.dayOfWeekBitset & (1 << dow)) == 0:
+    ret false
+  ret true
+
+pub fn (self: CronSchedule) nextFireAfter(dt: DateTimeUtc): Option[DateTimeUtc]:
+  let startSec = dateTimeUtcToUnix(dt)
+  let stepSec = if self.hasSeconds: 1 else: 60
+  mut candidate = ((startSec / stepSec) + 1) * stepSec
+  mut steps = 0
+  let maxSteps = 525600
+  while steps < maxSteps:
+    let candDt = unixToDateTimeUtc(candidate, 0)
+    if self.isMatch(candDt):
+      ret Some(candDt)
+    candidate += stepSec
+    steps += 1
+  ret None
+
+fn explainCronToken(rawField: str, unitName: str): str:
+  if rawField == "*":
+    ret "every {unitName}"
+  if rawField.startsWith("*/"):
+    let step = rawField.slice(2, rawField.len)
+    ret "every {step} {unitName}s"
+  ret "{unitName} {rawField}"
+
+pub fn explainCron(expr: str): Result[str, str]:
+  let res = parseCron(expr)
+  if res.isErr():
+    ret Err(res.unwrapErr())
+  mut tokens: [str] = []
+  for part in expr.trim().split(" "):
+    let p = part.trim()
+    if p.len > 0:
+      tokens.push(p)
+  let base = if tokens.len == 6: 1 else: 0
+  let minDesc = explainCronToken(tokens[base], "minute")
+  let hrDesc = explainCronToken(tokens[base + 1], "hour")
+  let domDesc = explainCronToken(tokens[base + 2], "day-of-month")
+  let monDesc = explainCronToken(tokens[base + 3], "month")
+  let dowDesc = explainCronToken(tokens[base + 4], "day-of-week")
+  ret Ok("At {minDesc}, {hrDesc}, on {domDesc}, in {monDesc} ({dowDesc})")
+
+pub fn cronMatches(expr: str, minute: int, hour: int, dom: int, month: int, dow: int): bool:
+  let res = parseCron(expr)
+  if res.isErr():
+    ret false
+  let sched = res.unwrap()
+  if (sched.minuteBitset & (1 << minute)) == 0:
+    ret false
+  if (sched.hourBitset & (1 << hour)) == 0:
+    ret false
+  if (sched.dayOfMonthBitset & (1 << dom)) == 0:
+    ret false
+  if (sched.monthBitset & (1 << month)) == 0:
+    ret false
+  if (sched.dayOfWeekBitset & (1 << dow)) == 0:
+    ret false
+  ret true

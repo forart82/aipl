@@ -1,0 +1,65 @@
+// ============================================================================
+// AIPL Self-Hosted Save & Persistent Artifact Validator (tools/save_validator.aipl)
+// ============================================================================
+// Verifies non-empty persistent save & stamp artifacts across POC suites (v0.8.0).
+
+module SaveValidator
+
+import { fileExists, readBytes } from "std/fs"
+
+pub fn checkSaveGroup(groupName: str, paths: [str]): bool:
+  mut okCount = 0
+  mut totalBytes = 0
+  mut i = 0
+  while i < paths.len:
+    let p = paths[i]
+    if fileExists(p):
+      let sz = readBytes(p).len
+      if sz > 0:
+        okCount += 1
+        totalBytes += sz
+    i += 1
+  let pass = okCount == paths.len
+  let tag = if pass: "[PASS]" else: "[FAIL]"
+  println("  " + tag + " " + groupName + " | files=" + str(okCount) + "/" + str(paths.len) + " | totalBytes=" + str(totalBytes) + "B")
+  ret pass
+
+pub fn main(): int:
+  println("[AIPL SaveValidator v0.8.0] Auditing Persistent Save & Stamp Artifacts:")
+  mut passed = 0
+  if checkSaveGroup("survival_horror (.sav)", [
+    "examples/survival_horror/saves/slot_1.sav",
+    "examples/survival_horror/saves/slot_2.sav",
+    "examples/survival_horror/saves/slot_3.sav",
+    "examples/survival_horror/saves/slot_4.sav",
+    "examples/survival_horror/saves/slot_5.sav"
+  ]):
+    passed += 1
+  if checkSaveGroup("powdergame (.tpt saves & stamps)", [
+    "examples/powdergame/saves/nuclear_reactor.tpt",
+    "examples/powdergame/saves/logic_gate.tpt",
+    "examples/powdergame/saves/volcano.tpt",
+    "examples/powdergame/stamps/stamp_reactor.tpt",
+    "examples/powdergame/stamps/stamp_logic.tpt",
+    "examples/powdergame/stamps/stamp_volcano.tpt",
+    "examples/powdergame/stamps/stamp_spectrometer.tpt"
+  ]):
+    passed += 1
+  if checkSaveGroup("fantasy_rts (.sav campaigns)", [
+    "examples/fantasy_rts/saves/campaign_slot_1.sav",
+    "examples/fantasy_rts/saves/campaign_slot_2.sav",
+    "examples/fantasy_rts/saves/campaign_slot_3.sav",
+    "examples/fantasy_rts/saves/campaign_slot_4.sav"
+  ]):
+    passed += 1
+  if checkSaveGroup("dark_arpg (.d2s characters)", [
+    "examples/dark_arpg/saves/sorceress_normal.d2s",
+    "examples/dark_arpg/saves/paladin_nightmare.d2s",
+    "examples/dark_arpg/saves/necromancer_hell.d2s",
+    "examples/dark_arpg/saves/char_paladin.d2s",
+    "examples/dark_arpg/saves/char_sorceress.d2s",
+    "examples/dark_arpg/saves/char_necromancer.d2s"
+  ]):
+    passed += 1
+  println("[AIPL SaveValidator v0.8.0] Summary: " + str(passed) + "/4 persistent save suites verified.")
+  ret if passed == 4: 0 else: 1

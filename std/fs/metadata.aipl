@@ -1,0 +1,106 @@
+/// # Module: `std/fs/metadata` (`FsMetadata`)
+///
+/// ## Purpose & Domain Scope
+/// Filesystem inode metadata (`FsMetadata`), node types (`FsNodeType`), and POSIX octal
+/// permissions (`FsPermissions`) inspection and conversion.
+module FsMetadata
+
+pub enum FsNodeType:
+  RegularFile
+  Directory
+  Symlink
+  Fifo
+  Socket
+  Unknown
+
+pub struct FsPermissions:
+  modeOctal: int = 420
+  readable: bool = true
+  writable: bool = true
+  executable: bool = false
+
+pub struct FsMetadata:
+  path: str
+  nodeType: FsNodeType
+  sizeBytes: int = 0
+  permissions: FsPermissions
+  modifiedUnixMs: int = 0
+  createdUnixMs: int = 0
+  accessedUnixMs: int = 0
+  symlinkTarget: str = ""
+
+pub fn fsPermsFromOctal(mode: int): FsPermissions:
+  let masked = mode & 511
+  let r = (masked & 256) != 0 or (masked & 32) != 0 or (masked & 4) != 0
+  let w = (masked & 128) != 0 or (masked & 16) != 0 or (masked & 2) != 0
+  let x = (masked & 64) != 0 or (masked & 8) != 0 or (masked & 1) != 0
+  ret FsPermissions(modeOctal: masked, readable: r, writable: w, executable: x)
+
+pub fn fsPermsToOctal(perms: FsPermissions): int:
+  if perms.modeOctal > 0:
+    ret perms.modeOctal & 511
+  mut m = 0
+  if perms.readable:
+    m = m | 292
+  if perms.writable:
+    m = m | 128
+  if perms.executable:
+    m = m | 73
+  ret m
+
+pub fn fsPermsIsReadOnly(perms: FsPermissions): bool:
+  ret perms.readable and not perms.writable
+
+pub fn fsMetaNewFile(path: str, sizeBytes: int, modifiedMs: int): FsMetadata:
+  let perms = fsPermsFromOctal(420)
+  ret FsMetadata(
+    path: path,
+    nodeType: FsNodeType::RegularFile,
+    sizeBytes: sizeBytes,
+    permissions: perms,
+    modifiedUnixMs: modifiedMs,
+    createdUnixMs: modifiedMs,
+    accessedUnixMs: modifiedMs,
+    symlinkTarget: ""
+  )
+
+pub fn fsMetaNewDir(path: str, modifiedMs: int): FsMetadata:
+  let perms = fsPermsFromOctal(493)
+  ret FsMetadata(
+    path: path,
+    nodeType: FsNodeType::Directory,
+    sizeBytes: 4096,
+    permissions: perms,
+    modifiedUnixMs: modifiedMs,
+    createdUnixMs: modifiedMs,
+    accessedUnixMs: modifiedMs,
+    symlinkTarget: ""
+  )
+
+pub fn fsMetaNewSymlink(path: str, target: str, modifiedMs: int): FsMetadata:
+  let perms = fsPermsFromOctal(511)
+  ret FsMetadata(
+    path: path,
+    nodeType: FsNodeType::Symlink,
+    sizeBytes: target.len(),
+    permissions: perms,
+    modifiedUnixMs: modifiedMs,
+    createdUnixMs: modifiedMs,
+    accessedUnixMs: modifiedMs,
+    symlinkTarget: target
+  )
+
+pub fn fsMetaIsFile(m: FsMetadata): bool:
+  match m.nodeType:
+    FsNodeType::RegularFile => ret true
+    _ => ret false
+
+pub fn fsMetaIsDir(m: FsMetadata): bool:
+  match m.nodeType:
+    FsNodeType::Directory => ret true
+    _ => ret false
+
+pub fn fsMetaIsSymlink(m: FsMetadata): bool:
+  match m.nodeType:
+    FsNodeType::Symlink => ret true
+    _ => ret false

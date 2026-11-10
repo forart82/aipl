@@ -1,0 +1,60 @@
+module Ex244AiVectorEmbeddingRagSearchCli
+
+import { VectorEmbedding, KnnSearchResult, knnLinearSearch, buildGeminiRequest, renderPromptTemplate, estimateTokenCount, denseLayerForward } from "../std/ai/vector_embedding"
+import { Map, mapNew } from "../std/collections/hash_map"
+
+pub struct RagSearchState(docs: [VectorEmbedding], queryVec: VectorEmbedding, bestDocId: int, bestSimilarity: float, denseOutput: float, tokens: int, stepCount: int)
+
+pub fn initScene(): RagSearchState:
+  let doc0 = VectorEmbedding(dims = 3, values = [0.0, 1.0, 0.0])
+  let doc1 = VectorEmbedding(dims = 3, values = [0.0, 0.0, 1.0])
+  let doc2 = VectorEmbedding(dims = 3, values = [1.0, 0.0, 0.0])
+  let docs = [doc0, doc1, doc2]
+  let queryVec = VectorEmbedding(dims = 3, values = [1.0, 0.0, 0.0])
+  let knn = knnLinearSearch(queryVec, docs, 1)
+  let best: KnnSearchResult = knn[0]
+  let dense = denseLayerForward([2.0, 3.0], [1.0, 2.0], [0.5], 2, 1)
+  let tokens = estimateTokenCount("Hello AIPL RAG")
+  ret RagSearchState(
+    docs = docs,
+    queryVec = queryVec,
+    bestDocId = best.id,
+    bestSimilarity = best.similarity,
+    denseOutput = dense[0],
+    tokens = tokens,
+    stepCount = 0
+  )
+
+pub fn stepScene(mut state: RagSearchState, frame: int, dt: float): RagSearchState:
+  let m = frame % 3
+  if m == 0:
+    state.queryVec = VectorEmbedding(dims = 3, values = [1.0, 0.1 * float(frame), 0.0])
+  elif m == 1:
+    state.queryVec = VectorEmbedding(dims = 3, values = [0.0, 1.0, 0.05 * float(frame)])
+  else:
+    state.queryVec = VectorEmbedding(dims = 3, values = [0.05 * float(frame), 0.0, 1.0])
+  let knn = knnLinearSearch(state.queryVec, state.docs, 1)
+  let best: KnnSearchResult = knn[0]
+  state.bestDocId = best.id
+  state.bestSimilarity = best.similarity
+  let dense = denseLayerForward([2.0 + float(frame) * dt, 3.0], [1.0, 2.0], [0.5], 2, 1)
+  state.denseOutput = dense[0]
+  state.stepCount = state.stepCount + 1
+  ret state
+
+pub fn auditAiVectorEmbeddingRagSearch(): int:
+  let state = initScene()
+  ret state.bestDocId * 10 + int(state.denseOutput) - 2 + state.tokens
+
+pub fn main(): int:
+  let audit = auditAiVectorEmbeddingRagSearch()
+  mut state = initScene()
+  state = stepScene(state, 1, 0.1)
+  mut vars: Map[str, str] = mapNew()
+  vars.set("topic", "AIPL Standard Library")
+  let prompt = renderPromptTemplate("Summarize {{topic}} in JSON.", vars)
+  let geminiPayload = buildGeminiRequest("gemini-2.5-flash", "You are an AIPL assistant.", prompt, "{\"type\":\"object\"}")
+  println("EX_244_VECTOR_RAG_AUDIT=" + str(audit))
+  println("PROMPT=" + prompt + " | BEST_DOC=" + str(state.bestDocId))
+  println("GEMINI_PAYLOAD_LEN=" + str(geminiPayload.len()))
+  ret 0

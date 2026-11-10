@@ -1,0 +1,78 @@
+/// # Module: `std/sync/barrier` (`SyncBarrier`)
+///
+/// ## Purpose & Domain Scope
+/// Thread coordination barriers (`ThreadBarrier`), task completion counters (`WaitGroup`),
+/// single-use countdown latches (`CountDownLatch`), and idempotent single-execution
+/// coordinators (`OnceInit`).
+module SyncBarrier
+
+pub struct ThreadBarrier:
+  threshold: int
+  mut count: int
+  mut generation: int
+
+pub struct WaitGroup:
+  mut counter: int
+
+pub struct CountDownLatch:
+  mut remaining: int
+
+pub struct OnceInit:
+  mut state: int
+
+pub fn threadBarrierNew(threshold: int): ThreadBarrier:
+  mut t = threshold
+  if t <= 0:
+    t = 1
+  ret ThreadBarrier(threshold: t, count: 0, generation: 0)
+
+pub fn threadBarrierWait(mut b: ThreadBarrier): bool:
+  b.count = b.count + 1
+  if b.count >= b.threshold:
+    b.count = 0
+    b.generation = b.generation + 1
+    ret true
+  ret false
+
+pub fn waitGroupNew(): WaitGroup:
+  ret WaitGroup(counter: 0)
+
+pub fn waitGroupAdd(mut wg: WaitGroup, delta: int): void:
+  wg.counter = wg.counter + delta
+  if wg.counter < 0:
+    wg.counter = 0
+
+pub fn waitGroupDone(mut wg: WaitGroup): void:
+  if wg.counter > 0:
+    wg.counter = wg.counter - 1
+
+pub fn waitGroupWait(wg: WaitGroup): bool:
+  ret wg.counter == 0
+
+pub fn countDownLatchNew(count: int): CountDownLatch:
+  mut c = count
+  if c < 0:
+    c = 0
+  ret CountDownLatch(remaining: c)
+
+pub fn countDownLatchCountDown(mut cdl: CountDownLatch): void:
+  if cdl.remaining > 0:
+    cdl.remaining = cdl.remaining - 1
+
+pub fn countDownLatchWait(cdl: CountDownLatch): bool:
+  ret cdl.remaining == 0
+
+pub fn countDownLatchGetCount(cdl: CountDownLatch): int:
+  ret cdl.remaining
+
+pub fn onceInitNew(): OnceInit:
+  ret OnceInit(state: 0)
+
+pub fn onceInitDo(mut oi: OnceInit): bool:
+  if oi.state == 0:
+    oi.state = 2
+    ret true
+  ret false
+
+pub fn onceInitIsDone(oi: OnceInit): bool:
+  ret oi.state == 2

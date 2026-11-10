@@ -1,0 +1,38 @@
+module Ex196UiChartsLineBarCandlestickWindowTest
+
+import {
+  buildUiChartsAudit, stepChartSeriesValues
+} from "../../examples/ex_196_ui_charts_line_bar_candlestick_window"
+import { ColorRgba8 } from "../../std/gfx/color"
+import {
+  ChartDataSeries, autoScaleChartRange, computeDataPointScreenCoords,
+  createChartSeries
+} from "../../std/ui/ui_charts"
+
+pub fn test_ui_charts_line_bar_candlestick(): void:
+  let s1 = ChartDataSeries(
+    name = "Throughput",
+    values = [10.0, 50.0, 90.0],
+    color = ColorRgba8(r = 56, g = 189, b = 248, a = 255)
+  )
+  let chart = autoScaleChartRange([s1])
+  assert(chart.minVal == 10.0 and chart.maxVal == 90.0, "autoScaleChartRange extracts [10.0, 90.0] bounds")
+
+  let midPt = computeDataPointScreenCoords(chart, 0, 1)
+  assert(midPt.x == 200.0 and midPt.y == 100.0, "Midpoint data coordinate maps to (200.0, 100.0)")
+
+  let cs = createChartSeries("Candles", [100.0, 112.0, 108.0, 125.0], 0x22C55E)
+  assert(cs.name == "Candles" and cs.values.len() == 4, "createChartSeries stores series metadata")
+  assert(buildUiChartsAudit() == 404, "buildUiChartsAudit returns 10 + 90 + 200 + 100 + 4 == 404")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let v0 = stepChartSeriesValues(0)
+  let v1 = stepChartSeriesValues(1)
+  let v20 = stepChartSeriesValues(20)
+  let v100 = stepChartSeriesValues(100)
+  assert(v0.len() == 8 and v0[7] != v1[7] and v1[7] != v20[7] and v20[7] != v100[7], "Series values progress across t=0, 1, 20, 100")
+
+pub fn main(): int:
+  test_ui_charts_line_bar_candlestick()
+  println("PASS: ex_196_ui_charts_line_bar_candlestick_window_test")
+  ret 0

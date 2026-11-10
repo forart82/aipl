@@ -1,0 +1,39 @@
+// ============================================================================
+// Twin Test Suite 012: Virtual Memory Pages, Raw Pointers & IEEE-754 Bitcast CLI
+// Verifies examples/ex_012_sys_mem_page_inspector_cli.aipl
+// ============================================================================
+module Ex012SysMemPageInspectorCliTest
+
+import {
+  PageInspectorReport,
+  roundtripPointerI64,
+  verifyFloat64BitcastRoundtrip,
+  classifyPageProtection,
+  buildPageInspectorReport
+} from "../../examples/ex_012_sys_mem_page_inspector_cli.aipl"
+
+pub fn test_raw_pointer_and_ieee754_bitcast(): int:
+  assert(roundtripPointerI64(987654321) == 987654321, "sysPtrWriteI64 / sysPtrReadI64 roundtrip")
+  assert(verifyFloat64BitcastRoundtrip(2.718281828) == true, "sysBitcastF64ToI64 / sysBitcastI64ToF64 lossless")
+  ret 0
+
+pub fn test_page_protection_classification(): int:
+  assert(classifyPageProtection(1) == "PAGE:PROT_READ", "prot 1")
+  assert(classifyPageProtection(3) == "PAGE:PROT_READ_WRITE", "prot 3")
+  assert(classifyPageProtection(5) == "PAGE:PROT_READ_EXEC", "prot 5")
+  ret 0
+
+pub fn test_build_page_inspector_report(): int:
+  let rep = buildPageInspectorReport(4096, 77)
+  assert(rep.pageSize == 4096, "pageSize == 4096")
+  assert(rep.regionByte0 == 77, "MemoryRegion readU8/writeU8 == 77")
+  assert(rep.intTypeBytes == 8, "sysSizeofType('int') == 8")
+  assert(rep.protectStatus == 0, "sysPageProtect returns 0")
+  ret 0
+
+pub fn main(): int:
+  test_raw_pointer_and_ieee754_bitcast()
+  test_page_protection_classification()
+  test_build_page_inspector_report()
+  println("PASS: ex_012_sys_mem_page_inspector_cli_test")
+  ret 0

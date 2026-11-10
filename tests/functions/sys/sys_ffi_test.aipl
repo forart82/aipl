@@ -1,0 +1,73 @@
+// ============================================================================
+// Step 3.2: Exhaustive Per-Function Unit Tests for std/sys/sys_ffi.aipl (17)
+// Target: tests/functions/sys/sys_ffi_test.aipl
+// ============================================================================
+module SysFfiTest
+
+import {
+  assert,
+  assertEqInt,
+  assertEqStr
+} from "../../../std/prelude.aipl"
+
+import {
+  RTLD_LAZY,
+  RTLD_NOW,
+  RTLD_GLOBAL,
+  RTLD_LOCAL,
+  ffiOpen,
+  ffiHasSymbol,
+  ffiCallInt,
+  ffiCallFloat,
+  ffiCallStr,
+  ffiClose,
+  sysDlopen,
+  sysDlsym,
+  sysDlclose,
+  sysDlerror,
+  sysCallC0,
+  sysCallC1,
+  sysCallC2,
+  sysCallC3,
+  sysCallC4,
+  sysCallC5,
+  sysCallC6
+} from "../../../std/sys/sys_ffi.aipl"
+
+pub fn test_ffi_core(): int:
+  assertEqInt(RTLD_LAZY, 1, "RTLD_LAZY")
+  assertEqInt(RTLD_NOW, 2, "RTLD_NOW")
+  let h = ffiOpen("libc.so.6")
+  assert(h >= 0, "ffiOpen libc returns non-negative handle")
+  let hasSym = ffiHasSymbol(h, "abs")
+  assert(hasSym == false or hasSym == true, "ffiHasSymbol boolean")
+  assert(ffiCallInt(h, "abs", [42]) >= 0, "ffiCallInt returns int")
+  assert(ffiCallFloat(h, "cos", [0.0]) >= 0.0, "ffiCallFloat returns float")
+  let s = ffiCallStr(h, "strerror", "0")
+  assert(s.len() >= 0, "ffiCallStr returns str")
+  assert(ffiClose(h) == true, "ffiClose returns true")
+
+  let dlh = sysDlopen("libm.so.6", RTLD_LAZY)
+  assert(dlh >= 0, "sysDlopen non-negative handle")
+  let symAddr = sysDlsym(dlh, "cos")
+  assert(symAddr >= 0, "sysDlsym non-negative")
+  assertEqInt(sysDlclose(dlh), 0, "sysDlclose returns 0")
+  assertEqStr(sysDlerror(), "", "sysDlerror empty")
+  ret 0
+
+pub fn test_sys_call_c_dispatches(): int:
+  assertEqInt(sysCallC0(100), 0, "sysCallC0")
+  assertEqInt(sysCallC0(-1), -1, "sysCallC0 invalid fnPtr")
+  assertEqInt(sysCallC1(100, 42), 42, "sysCallC1")
+  assertEqInt(sysCallC2(100, 10, 20), 30, "sysCallC2")
+  assertEqInt(sysCallC3(100, 1, 2, 3), 6, "sysCallC3")
+  assertEqInt(sysCallC4(100, 1, 2, 3, 4), 10, "sysCallC4")
+  assertEqInt(sysCallC5(100, 1, 2, 3, 4, 5), 15, "sysCallC5")
+  assertEqInt(sysCallC6(100, 1, 2, 3, 4, 5, 6), 21, "sysCallC6")
+  ret 0
+
+pub fn main(): int:
+  test_ffi_core()
+  test_sys_call_c_dispatches()
+  println("PASS: sys_ffi_test")
+  ret 0

@@ -1,0 +1,137 @@
+module Ex204EcsQueryFilterRadarWindow
+
+import { createEcsWorld, spawnEntity } from "../std/ecs/ecs_world"
+import {
+  QueryFilter, matchesQueryFilter, findMatchingArchetypes, queryEntities
+} from "../std/ecs/ecs_query"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepRadarSweepAngle(frame: int): float:
+  ret float(frame) * 0.07
+
+pub fn stepActiveQueryFilter(frame: int): QueryFilter:
+  let mode = (frame / 14) % 5
+  if mode == 0:
+    ret QueryFilter(withMask = 3, withoutMask = 4)
+  if mode == 1:
+    ret QueryFilter(withMask = 3, withoutMask = 0)
+  if mode == 2:
+    ret QueryFilter(withMask = 11, withoutMask = 4)
+  if mode == 3:
+    ret QueryFilter(withMask = 5, withoutMask = 0)
+  ret QueryFilter(withMask = 1, withoutMask = 8)
+
+fn queryModeLabel(frame: int): str:
+  let mode = (frame / 14) % 5
+  if mode == 0:
+    ret "Preset #0: With(Pos+Radar=3) & Without(Cloak=4)"
+  if mode == 1:
+    ret "Preset #1: With(Pos+Radar=3) & Without(None=0) [All Radar]"
+  if mode == 2:
+    ret "Preset #2: With(Pos+Radar+Weapon=11) & Without(Cloak=4)"
+  if mode == 3:
+    ret "Preset #3: With(Pos+Cloak=5) & Without(None=0) [Stealth Scan]"
+  ret "Preset #4: With(Pos=1) & Without(Weapon=8) [Civilian/Passive]"
+
+pub fn buildEcsQueryFilterAudit(): int:
+  let qf = QueryFilter(withMask = 3, withoutMask = 4)
+  let okMatch = if matchesQueryFilter(3, qf): 1 else: 0
+  let okReject = if not matchesQueryFilter(7, qf): 1 else: 0
+  mut world = createEcsWorld()
+  let (w1, _e0) = spawnEntity(world)
+  let (w2, _e1) = spawnEntity(w1)
+  let (w3, _e2) = spawnEntity(w2)
+  let allQf = QueryFilter(withMask = 0, withoutMask = 4)
+  let archs = findMatchingArchetypes(w3, allQf)
+  let ents = queryEntities(w3, allQf)
+  ret okMatch + okReject + archs.len() + ents.len()
+
+pub fn main(): int:
+  let auditScore = buildEcsQueryFilterAudit()
+  mut world = createEcsWorld()
+  let (w1, _e0) = spawnEntity(world)
+  let (w2, _e1) = spawnEntity(w1)
+  let (w3, _e2) = spawnEntity(w2)
+  world = w3
+
+  let candidateMasks = [3, 7, 1, 11, 15, 3, 5, 3]
+  let candidateNames = [
+    "Interceptor [Pos+Radar]", "StealthDrone [Pos+Radar+Cloak]",
+    "StaticBuoy [Pos]", "Frigate [Pos+Radar+Weapon]",
+    "Phantom [Pos+Radar+Cloak+Weapon]", "PatrolCraft [Pos+Radar]",
+    "Decoy [Pos+Cloak]", "Destroyer [Pos+Radar]"
+  ]
+
+  initWindow(1280, 720, "AIPL ex_204: ECS Bitmask QueryFilter (With / Without) Radar")
+  mut frame = 0
+  while not windowShouldClose():
+    let radarFilter = stepActiveQueryFilter(frame)
+    let sweepAng = stepRadarSweepAngle(frame)
+    let worldFilter = QueryFilter(withMask = 0, withoutMask = radarFilter.withoutMask)
+    let matchedArchs = findMatchingArchetypes(world, worldFilter)
+    let matchedEnts = queryEntities(world, worldFilter)
+
+    mut matchCount = 0
+    mut cIdx = 0
+    while cIdx < candidateMasks.len():
+      if matchesQueryFilter(candidateMasks[cIdx], radarFilter):
+        matchCount = matchCount + 1
+      cIdx = cIdx + 1
+
+    beginDrawing()
+    clearScreen(rgb(9, 13, 22))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_204: ECS BITMASK QUERY FILTER RADAR (WITH / WITHOUT BITMASKS)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("withMask=" + str(radarFilter.withMask) + " | withoutMask=" + str(radarFilter.withoutMask) + " | matched=" + str(matchCount) + "/8 | worldEnts=" + str(matchedEnts.len()) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Left Radar Scope
+    drawCircle(300.0, 390.0, 220.0, rgb(12, 24, 38))
+    drawCircleOutline(300.0, 390.0, 220.0, 3.0, rgb(52, 211, 153))
+    drawCircleOutline(300.0, 390.0, 145.0, 1.5, rgb(16, 185, 129))
+    drawCircleOutline(300.0, 390.0, 75.0, 1.5, rgb(16, 185, 129))
+    drawLine(80.0, 390.0, 520.0, 390.0, rgb(16, 185, 129), 1.0)
+    drawLine(300.0, 170.0, 300.0, 610.0, rgb(16, 185, 129), 1.0)
+    let tipX = 300.0 + cos(sweepAng) * 220.0
+    let tipY = 390.0 + sin(sweepAng) * 220.0
+    drawLine(300.0, 390.0, tipX, tipY, rgb(250, 204, 21), 2.5)
+    drawCircle(300.0, 390.0, 5.0, rgb(250, 204, 21))
+    drawText("Bit Legend: 1=Pos | 2=Radar | 4=Cloak | 8=Weapon", 104.0, 632.0, 15.0, rgb(148, 163, 184))
+
+    // Right Query Filter Evaluation Table
+    drawRect(580.0, 124.0, 640.0, 548.0, rgb(17, 24, 39))
+    drawRectOutline(580.0, 124.0, 640.0, 548.0, 2.0, rgb(56, 189, 248))
+    drawText("Archetype Bitmask Query Evaluation:", 604.0, 144.0, 18.0, rgb(240, 249, 255))
+    drawText(queryModeLabel(frame), 604.0, 168.0, 15.0, rgb(250, 204, 21))
+
+    mut idx = 0
+    while idx < candidateMasks.len():
+      let mask = candidateMasks[idx]
+      let matched = matchesQueryFilter(mask, radarFilter)
+      let ry = 198.0 + float(idx) * 56.0
+      let col = if matched: rgb(52, 211, 153) else: rgb(239, 68, 68)
+      drawRect(604.0, ry, 592.0, 46.0, if matched: rgb(18, 42, 38) else: rgb(38, 20, 28))
+      drawRectOutline(604.0, ry, 592.0, 46.0, 1.5, col)
+      drawText(candidateNames[idx] + " (mask=" + str(mask) + ")", 620.0, ry + 14.0, 15.0, rgb(248, 250, 252))
+      drawText(if matched: "MATCHED" else: "FILTERED OUT", 1050.0, ry + 14.0, 15.0, col)
+
+      let ang = float(idx) * 0.7854 + float(frame) * 0.02 * (if idx % 2 == 0: 1.0 else: -1.0)
+      let rad = 52.0 + float((idx * 29) % 135)
+      let blipX = 300.0 + cos(ang) * rad
+      let blipY = 390.0 + sin(ang) * rad
+      drawCircle(blipX, blipY, if matched: 8.5 else: 4.5, col)
+      if matched:
+        drawCircleOutline(blipX, blipY, 12.0, 1.5, rgb(250, 204, 21))
+      idx = idx + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

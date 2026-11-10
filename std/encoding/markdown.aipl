@@ -1,0 +1,416 @@
+/// # Module: `std/encoding/markdown` (`Markdown`)
+///
+/// ## Purpose & Domain Scope
+/// CommonMark-compatible Markdown block/inline parser, AST representation, and HTML renderer.
+module Markdown
+
+fn escapeMdHtml(s: str): str:
+  ret s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
+pub enum MdBlockKind:
+  Heading
+  Paragraph
+  CodeBlock
+  List
+  BlockQuote
+  HorizontalRule
+  Table
+
+pub struct MdBlock:
+  kind: MdBlockKind
+  level: int = 0
+  lang: str = ""
+  text: str = ""
+  items: [str] = []
+  headers: [str] = []
+  rows: [[str]] = []
+
+pub struct MdDocument:
+  blocks: [MdBlock]
+
+fn isHorizontalRuleLine(trimmed: str): bool:
+  if trimmed.len < 3:
+    ret false
+  let ch = trimmed[0]
+  if ch != "-" and ch != "*" and ch != "_":
+    ret false
+  mut count = 0
+  mut i = 0
+  while i < trimmed.len:
+    let c = trimmed[i]
+    if c == ch:
+      count = count + 1
+    elif c != " " and c != "\t":
+      ret false
+    i = i + 1
+  ret count >= 3
+
+fn splitTableRowCells(line: str): [str]:
+  mut s = line.trim()
+  if s.startsWith("|"):
+    s = s.slice(1, s.len)
+  if s.endsWith("|") and s.len > 0:
+    s = s.slice(0, s.len - 1)
+  let raw = s.split("|")
+  mut cells: [str] = []
+  mut i = 0
+  while i < raw.len:
+    cells.push(raw[i].trim())
+    i = i + 1
+  ret cells
+
+fn isTableSeparatorLine(line: str): bool:
+  let t = line.trim()
+  if not t.contains("|") or not t.contains("-"):
+    ret false
+  let cells = splitTableRowCells(t)
+  if cells.len == 0:
+    ret false
+  mut i = 0
+  while i < cells.len:
+    let cell = cells[i]
+    if cell.len == 0:
+      ret false
+    mut dashCount = 0
+    mut j = 0
+    while j < cell.len:
+      let ch = cell[j]
+      if ch == "-":
+        dashCount = dashCount + 1
+      elif ch != ":" and ch != " ":
+        ret false
+      j = j + 1
+    if dashCount == 0:
+      ret false
+    i = i + 1
+  ret true
+
+fn isOrderedListPrefix(trimmed: str): int:
+  mut i = 0
+  while i < trimmed.len:
+    let code = ord(trimmed[i])
+    if code >= 48 and code <= 57:
+      i = i + 1
+    else:
+      break
+  if i > 0 and i + 1 < trimmed.len and trimmed[i] == "." and trimmed[i + 1] == " ":
+    ret i + 2
+  ret 0
+
+fn renderInlineMarkdown(text: str): str:
+  mut out: [str] = []
+  mut i = 0
+  let n = text.len
+  while i < n:
+    if i + 1 < n and text.slice(i, i + 2) == "**":
+      let closeIdx = text.slice(i + 2, n).indexOf("**")
+      if closeIdx >= 0:
+        let inner = text.slice(i + 2, i + 2 + closeIdx)
+        out.push("<strong>" + renderInlineMarkdown(inner) + "</strong>")
+        i = i + 2 + closeIdx + 2
+        continue
+    if text[i] == "`":
+      let closeCode = text.slice(i + 1, n).indexOf("`")
+      if closeCode >= 0:
+        let codeStr = text.slice(i + 1, i + 1 + closeCode)
+        out.push("<code>" + escapeMdHtml(codeStr) + "</code>")
+        i = i + 1 + closeCode + 1
+        continue
+    if text[i] == "*":
+      let closeEm = text.slice(i + 1, n).indexOf("*")
+      if closeEm > 0:
+        let inner = text.slice(i + 1, i + 1 + closeEm)
+        out.push("<em>" + renderInlineMarkdown(inner) + "</em>")
+        i = i + 1 + closeEm + 1
+        continue
+    if text[i] == "[":
+      let closeBracket = text.slice(i + 1, n).indexOf("]")
+      if closeBracket >= 0:
+        let afterBracket = i + 1 + closeBracket + 1
+        if afterBracket < n and text[afterBracket] == "(":
+          let closeParen = text.slice(afterBracket + 1, n).indexOf(")")
+          if closeParen >= 0:
+            let label = text.slice(i + 1, i + 1 + closeBracket)
+            let href = text.slice(afterBracket + 1, afterBracket + 1 + closeParen)
+            out.push("<a href=\"" + escapeMdHtml(href) + "\">" + renderInlineMarkdown(label) + "</a>")
+            i = afterBracket + 1 + closeParen + 1
+            continue
+    out.push(escapeMdHtml(text[i]))
+    i = i + 1
+  ret out.join("")
+
+pub fn parseMarkdown(text: str): MdDocument:
+  let clean = text.replace("\r\n", "\n")
+  let lines = clean.split("\n")
+  mut blocks: [MdBlock] = []
+  mut i = 0
+  let n = lines.len
+  while i < n:
+    let rawLine = lines[i]
+    let trimmed = rawLine.trim()
+    if trimmed.len == 0:
+      i = i + 1
+      continue
+    if trimmed.startsWith("```"):
+      let lang = trimmed.slice(3, trimmed.len).trim()
+      i = i + 1
+      mut codeLines: [str] = []
+      while i < n and not lines[i].trim().startsWith("```"):
+        codeLines.push(lines[i])
+        i = i + 1
+      if i < n:
+        i = i + 1
+      blocks.push(MdBlock(
+        kind = MdBlockKind.CodeBlock,
+        level = 0,
+        lang = lang,
+        text = codeLines.join("\n"),
+        items = [],
+        headers = [],
+        rows = []
+      ))
+      continue
+    if trimmed.startsWith("#"):
+      mut lvl = 0
+      while lvl < trimmed.len and trimmed[lvl] == "#":
+        lvl = lvl + 1
+      if lvl >= 1 and lvl <= 6 and (lvl == trimmed.len or trimmed[lvl] == " "):
+        let hText = trimmed.slice(lvl, trimmed.len).trim()
+        blocks.push(MdBlock(
+          kind = MdBlockKind.Heading,
+          level = lvl,
+          lang = "",
+          text = hText,
+          items = [],
+          headers = [],
+          rows = []
+        ))
+        i = i + 1
+        continue
+    if isHorizontalRuleLine(trimmed):
+      blocks.push(MdBlock(
+        kind = MdBlockKind.HorizontalRule,
+        level = 0,
+        lang = "",
+        text = "",
+        items = [],
+        headers = [],
+        rows = []
+      ))
+      i = i + 1
+      continue
+    if trimmed.contains("|") and i + 1 < n and isTableSeparatorLine(lines[i + 1]):
+      let headers = splitTableRowCells(trimmed)
+      i = i + 2
+      mut rows: [[str]] = []
+      while i < n and lines[i].trim().contains("|"):
+        rows.push(splitTableRowCells(lines[i].trim()))
+        i = i + 1
+      blocks.push(MdBlock(
+        kind = MdBlockKind.Table,
+        level = 0,
+        lang = "",
+        text = "",
+        items = [],
+        headers = headers,
+        rows = rows
+      ))
+      continue
+    if trimmed.startsWith(">"):
+      mut quoteLines: [str] = []
+      while i < n and lines[i].trim().startsWith(">"):
+        let ql = lines[i].trim()
+        quoteLines.push(ql.slice(1, ql.len).trim())
+        i = i + 1
+      blocks.push(MdBlock(
+        kind = MdBlockKind.BlockQuote,
+        level = 0,
+        lang = "",
+        text = quoteLines.join("\n"),
+        items = [],
+        headers = [],
+        rows = []
+      ))
+      continue
+    let ordPrefix = isOrderedListPrefix(trimmed)
+    if trimmed.startsWith("- ") or trimmed.startsWith("* ") or trimmed.startsWith("+ ") or ordPrefix > 0:
+      let ordered = ordPrefix > 0
+      mut items: [str] = []
+      while i < n:
+        let lt = lines[i].trim()
+        let op = isOrderedListPrefix(lt)
+        if not ordered and (lt.startsWith("- ") or lt.startsWith("* ") or lt.startsWith("+ ")):
+          items.push(lt.slice(2, lt.len).trim())
+          i = i + 1
+        elif ordered and op > 0:
+          items.push(lt.slice(op, lt.len).trim())
+          i = i + 1
+        else:
+          break
+      blocks.push(MdBlock(
+        kind = MdBlockKind.List,
+        level = if ordered: 1 else: 0,
+        lang = "",
+        text = "",
+        items = items,
+        headers = [],
+        rows = []
+      ))
+      continue
+    mut paraLines: [str] = []
+    while i < n:
+      let pt = lines[i].trim()
+      if pt.len == 0 or pt.startsWith("#") or pt.startsWith("```") or pt.startsWith(">") or pt.startsWith("- ") or pt.startsWith("* ") or pt.startsWith("+ ") or isOrderedListPrefix(pt) > 0 or isHorizontalRuleLine(pt):
+        break
+      paraLines.push(pt)
+      i = i + 1
+    blocks.push(MdBlock(
+      kind = MdBlockKind.Paragraph,
+      level = 0,
+      lang = "",
+      text = paraLines.join(" "),
+      items = [],
+      headers = [],
+      rows = []
+    ))
+  ret MdDocument(blocks = blocks)
+
+pub fn renderMarkdownHtml(doc: MdDocument): str:
+  mut out: [str] = []
+  mut i = 0
+  while i < doc.blocks.len:
+    let b = doc.blocks[i]
+    match b.kind:
+      Heading:
+        let lvl = if b.level >= 1 and b.level <= 6: b.level else: 1
+        out.push("<h" + toString(lvl) + ">" + renderInlineMarkdown(b.text) + "</h" + toString(lvl) + ">")
+      Paragraph:
+        out.push("<p>" + renderInlineMarkdown(b.text) + "</p>")
+      CodeBlock:
+        let cls = if b.lang.len > 0: " class=\"language-" + escapeMdHtml(b.lang) + "\"" else: ""
+        out.push("<pre><code" + cls + ">" + escapeMdHtml(b.text) + "</code></pre>")
+      List:
+        let tag = if b.level > 0: "ol" else: "ul"
+        mut liParts: [str] = []
+        mut j = 0
+        while j < b.items.len:
+          liParts.push("<li>" + renderInlineMarkdown(b.items[j]) + "</li>")
+          j = j + 1
+        out.push("<" + tag + ">" + liParts.join("") + "</" + tag + ">")
+      BlockQuote:
+        out.push("<blockquote><p>" + renderInlineMarkdown(b.text) + "</p></blockquote>")
+      HorizontalRule:
+        out.push("<hr/>")
+      Table:
+        mut thParts: [str] = []
+        mut h = 0
+        while h < b.headers.len:
+          thParts.push("<th>" + renderInlineMarkdown(b.headers[h]) + "</th>")
+          h = h + 1
+        mut trParts: [str] = []
+        mut r = 0
+        while r < b.rows.len:
+          let row = b.rows[r]
+          mut tdParts: [str] = []
+          mut c = 0
+          while c < row.len:
+            tdParts.push("<td>" + renderInlineMarkdown(row[c]) + "</td>")
+            c = c + 1
+          trParts.push("<tr>" + tdParts.join("") + "</tr>")
+          r = r + 1
+        out.push("<table><thead><tr>" + thParts.join("") + "</tr></thead><tbody>" + trParts.join("") + "</tbody></table>")
+    i = i + 1
+  ret out.join("\n")
+
+pub fn markdownToHtml(text: str): str:
+  ret renderMarkdownHtml(parseMarkdown(text))
+
+pub fn extractMarkdownHeadings(text: str): [MdBlock]:
+  let doc = parseMarkdown(text)
+  mut res: [MdBlock] = []
+  mut i = 0
+  while i < doc.blocks.len:
+    let b = doc.blocks[i]
+    match b.kind:
+      Heading:
+        res.push(b)
+      _:
+        let _ = 0
+    i = i + 1
+  ret res
+
+pub fn extractMarkdownCodeBlocks(text: str): [MdBlock]:
+  let doc = parseMarkdown(text)
+  mut res: [MdBlock] = []
+  mut i = 0
+  while i < doc.blocks.len:
+    let b = doc.blocks[i]
+    match b.kind:
+      CodeBlock:
+        res.push(b)
+      _:
+        let _ = 0
+    i = i + 1
+  ret res
+
+pub fn markdownStrip(text: str): str:
+  let clean = text.replace("**", "").replace("*", "").replace("`", "").replace("#", "")
+  let lines = clean.split("\n")
+  mut out: [str] = []
+  mut i = 0
+  while i < lines.len:
+    mut l = lines[i].trim()
+    if l.startsWith("- ") or l.startsWith("+ "):
+      l = l.slice(2, l.len).trim()
+    elif l.startsWith(">"):
+      l = l.slice(1, l.len).trim()
+    if l.len > 0:
+      out.push(l)
+    i = i + 1
+  ret out.join(" ")
+
+pub fn markdownToPlainText(text: str): str:
+  ret markdownStrip(text)
+
+pub fn parseMarkdownHeadings(text: str): [(int, str)]:
+  let blocks = extractMarkdownHeadings(text)
+  mut out: [(int, str)] = []
+  mut i = 0
+  while i < blocks.len:
+    let b = blocks[i]
+    out.push((b.level, b.text))
+    i = i + 1
+  ret out
+
+pub fn markdownWordCount(text: str): int:
+  let plain = markdownStrip(text).trim()
+  if plain.len == 0:
+    ret 0
+  let words = plain.split(" ")
+  mut count = 0
+  mut i = 0
+  while i < words.len:
+    if words[i].trim().len > 0:
+      count = count + 1
+    i = i + 1
+  ret count
+
+pub fn extractMarkdownLinks(text: str): [(str, str)]:
+  mut links: [(str, str)] = []
+  mut i = 0
+  let n = text.len
+  while i < n:
+    if text[i] == "[":
+      let closeB = text.slice(i + 1, n).indexOf("]")
+      if closeB >= 0:
+        let afterB = i + 1 + closeB + 1
+        if afterB < n and text[afterB] == "(":
+          let closeP = text.slice(afterB + 1, n).indexOf(")")
+          if closeP >= 0:
+            let label = text.slice(i + 1, i + 1 + closeB)
+            let url = text.slice(afterB + 1, afterB + 1 + closeP)
+            links.push((label, url))
+            i = afterB + 1 + closeP + 1
+            continue
+    i = i + 1
+  ret links

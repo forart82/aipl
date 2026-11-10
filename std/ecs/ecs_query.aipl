@@ -1,0 +1,40 @@
+/// # Module: `std/ecs/ecs_query` (`EcsQueryMod`)
+///
+/// ## Purpose & Domain Scope
+/// Bitmask-filtered component queries (`With` / `Without` component masks)
+/// and matching archetype iterators.
+module EcsQueryMod
+
+import { EntityId } from "std/ecs/entity"
+import { ArchetypeTable } from "std/ecs/archetype"
+import { EcsWorld } from "std/ecs/ecs_world"
+
+pub struct QueryFilter(withMask: int, withoutMask: int)
+
+pub fn matchesQueryFilter(archetypeMask: int, filter: QueryFilter): bool:
+  let hasAllWith = (archetypeMask & filter.withMask) == filter.withMask
+  let hasAnyWithout = (archetypeMask & filter.withoutMask) != 0
+  ret hasAllWith and (not hasAnyWithout)
+
+pub fn findMatchingArchetypes(world: EcsWorld, filter: QueryFilter): [int]:
+  mut matched: [int] = []
+  mut i = 0
+  while i < world.archetypes.len:
+    let arch: ArchetypeTable = world.archetypes[i]
+    if matchesQueryFilter(arch.signatureMask, filter):
+      matched.push(i)
+    i = i + 1
+  ret matched
+
+pub fn queryEntities(world: EcsWorld, filter: QueryFilter): [EntityId]:
+  let archIndices = findMatchingArchetypes(world, filter)
+  mut out: [EntityId] = []
+  mut i = 0
+  while i < archIndices.len:
+    let arch: ArchetypeTable = world.archetypes[archIndices[i]]
+    mut r = 0
+    while r < arch.entities.len:
+      out.push(arch.entities[r])
+      r = r + 1
+    i = i + 1
+  ret out

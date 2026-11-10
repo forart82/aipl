@@ -1,0 +1,288 @@
+module CompilerCodegenArm64
+
+import { AstArena, ExprNode, StmtNode } from "./ast.aipl"
+import { HirModule, HirFunction } from "./hir.aipl"
+
+// ============================================================================
+// Phase 14 (Step 14.3b): Direct Native ELF64 ARM64 (AArch64) Machine Code Emitter
+// Zero libc, zero gcc, pure standalone 64-bit Linux ELF64 (AArch64) generator
+// ============================================================================
+
+pub struct Arm64StringEntry:
+  text: str
+  offset: int
+  length: int
+
+// ----------------------------------------------------------------------------
+// Low-level Byte & Serialization Helpers
+// ----------------------------------------------------------------------------
+
+fn pushU16LE(mut out: [int], val: int): [int]:
+  out.push(val & 0xFF)
+  out.push((val >> 8) & 0xFF)
+  ret out
+
+fn pushU32LE(mut out: [int], val: int): [int]:
+  out.push(val & 0xFF)
+  out.push((val >> 8) & 0xFF)
+  out.push((val >> 16) & 0xFF)
+  out.push((val >> 24) & 0xFF)
+  ret out
+
+fn pushU64LE(mut out: [int], val: int): [int]:
+  out.push(val & 0xFF)
+  out.push((val >> 8) & 0xFF)
+  out.push((val >> 16) & 0xFF)
+  out.push((val >> 24) & 0xFF)
+  out.push((val >> 32) & 0xFF)
+  out.push((val >> 40) & 0xFF)
+  out.push((val >> 48) & 0xFF)
+  out.push((val >> 56) & 0xFF)
+  ret out
+
+fn appendBytes(mut dst: [int], src: [int]): [int]:
+  mut i = 0
+  while i < src.len:
+    dst.push(src[i])
+    i += 1
+  ret dst
+
+// ----------------------------------------------------------------------------
+// ELF64 Header & Program Header Constructors (AArch64, e_machine = 183 / 0xB7)
+// ----------------------------------------------------------------------------
+
+fn buildElf64Header(eMachine: int, eEntry: int): [int]:
+  mut h: [int] = []
+  // e_ident[0..15]
+  h.push(0x7F) // ELF magic
+  h.push(0x45) // 'E'
+  h.push(0x4C) // 'L'
+  h.push(0x46) // 'F'
+  h.push(0x02) // ELFCLASS64
+  h.push(0x01) // ELFDATA2LSB (little endian)
+  h.push(0x01) // EV_CURRENT
+  h.push(0x00) // ELFOSABI_NONE / SYSV
+  h.push(0x00) // ABI Version
+  mut pad = 0
+  while pad < 7:
+    h.push(0x00)
+    pad += 1
+  // e_type = ET_EXEC (2)
+  h = pushU16LE(h, 2)
+  // e_machine = 183 (AArch64)
+  h = pushU16LE(h, eMachine)
+  // e_version = 1
+  h = pushU32LE(h, 1)
+  // e_entry = entrypoint virtual address (0x400078)
+  h = pushU64LE(h, eEntry)
+  // e_phoff = 64 (immediately after Ehdr)
+  h = pushU64LE(h, 64)
+  // e_shoff = 0
+  h = pushU64LE(h, 0)
+  // e_flags = 0
+  h = pushU32LE(h, 0)
+  // e_ehsize = 64
+  h = pushU16LE(h, 64)
+  // e_phentsize = 56
+  h = pushU16LE(h, 56)
+  // e_phnum = 1
+  h = pushU16LE(h, 1)
+  // e_shentsize = 0, e_shnum = 0, e_shstrndx = 0
+  h = pushU16LE(h, 0)
+  h = pushU16LE(h, 0)
+  h = pushU16LE(h, 0)
+  ret h
+
+fn buildElf64ProgramHeader(pFlags: int, totalSize: int): [int]:
+  mut ph: [int] = []
+  // p_type = PT_LOAD (1)
+  ph = pushU32LE(ph, 1)
+  // p_flags = PF_R | PF_W | PF_X (7)
+  ph = pushU32LE(ph, pFlags)
+  // p_offset = 0
+  ph = pushU64LE(ph, 0)
+  // p_vaddr = 0x400000
+  ph = pushU64LE(ph, 0x400000)
+  // p_paddr = 0x400000
+  ph = pushU64LE(ph, 0x400000)
+  // p_filesz = totalSize
+  ph = pushU64LE(ph, totalSize)
+  // p_memsz = totalSize
+  ph = pushU64LE(ph, totalSize)
+  // p_align = 0x1000 (4KB page alignment)
+  ph = pushU64LE(ph, 0x1000)
+  ret ph
+
+// ----------------------------------------------------------------------------
+// String Pool & Interning
+// ----------------------------------------------------------------------------
+
+fn lookupStringIndex(pool: [Arm64StringEntry], s: str): int:
+  mut i = 0
+  while i < pool.len:
+    if pool[i].text == s:
+      ret i
+    i += 1
+  ret -1
+
+fn internString(mut pool: [Arm64StringEntry], s: str): [Arm64StringEntry]:
+  if lookupStringIndex(pool, s) >= 0:
+    ret pool
+  mut nextOff = 0
+  if pool.len > 0:
+    let last = pool[pool.len - 1]
+    nextOff = last.offset + last.length
+  let entry = Arm64StringEntry(text = s, offset = nextOff, length = s.len)
+  pool.push(entry)
+  ret pool
+
+fn scanStringsFromExpr(arena: AstArena, exprId: int, mut pool: [Arm64StringEntry]): [Arm64StringEntry]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret pool
+  let e = arena.exprs[exprId]
+  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or e.kind == "StrLit":
+    pool = internString(pool, e.strVal)
+  if e.kind == "Call":
+    let callee = if e.left >= 0 and e.left < arena.exprs.len: arena.exprs[e.left].strVal else: ""
+    if callee == "println":
+      if e.children.len > 0:
+        let argId = e.children[0]
+        if argId >= 0 and argId < arena.exprs.len:
+          let ae = arena.exprs[argId]
+          if ae.kind == "STRING" or ae.kind == "RAW_STRING" or ae.kind == "INTERP_STRING" or ae.kind == "StrLit":
+            pool = internString(pool, ae.strVal + "\n")
+      else:
+        pool = internString(pool, "\n")
+  if e.left >= 0:
+    pool = scanStringsFromExpr(arena, e.left, pool)
+  if e.right >= 0:
+    pool = scanStringsFromExpr(arena, e.right, pool)
+  if e.cond >= 0:
+    pool = scanStringsFromExpr(arena, e.cond, pool)
+  mut ci = 0
+  while ci < e.children.len:
+    pool = scanStringsFromExpr(arena, e.children[ci], pool)
+    ci += 1
+  ret pool
+
+fn scanStringsFromStmts(arena: AstArena, stmtIds: [int], mut pool: [Arm64StringEntry]): [Arm64StringEntry]:
+  mut i = 0
+  while i < stmtIds.len:
+    let stId = stmtIds[i]
+    if stId >= 0 and stId < arena.stmts.len:
+      let st = arena.stmts[stId]
+      if st.exprId >= 0:
+        pool = scanStringsFromExpr(arena, st.exprId, pool)
+      if st.condExpr >= 0:
+        pool = scanStringsFromExpr(arena, st.condExpr, pool)
+      if st.bodyStmts.len > 0:
+        pool = scanStringsFromStmts(arena, st.bodyStmts, pool)
+      if st.elseStmts.len > 0:
+        pool = scanStringsFromStmts(arena, st.elseStmts, pool)
+    i += 1
+  ret pool
+
+// ----------------------------------------------------------------------------
+// AArch64 Machine Instruction Encoders
+// ----------------------------------------------------------------------------
+
+fn encodeMovz(rd: int, imm16: int): [int]:
+  // 64-bit MOVZ Xd, #imm16: sf=1, opc=10, 100101, hw=00, imm16, Rd
+  let val = (1 << 31) | (2 << 29) | (0x25 << 23) | ((imm16 & 0xFFFF) << 5) | (rd & 0x1F)
+  mut bytes: [int] = []
+  bytes = pushU32LE(bytes, val)
+  ret bytes
+
+fn encodeAdr(rd: int, offset: int): [int]:
+  // ADR Xd, #offset: 0, immlo:2, 10000, immhi:19, Rd:5
+  let immlo = offset & 0x03
+  let immhi = (offset >> 2) & 0x7FFFF
+  let val = (immlo << 29) | (0x10 << 24) | (immhi << 5) | (rd & 0x1F)
+  mut bytes: [int] = []
+  bytes = pushU32LE(bytes, val)
+  ret bytes
+
+fn encodeSvc(imm: int): [int]:
+  // SVC #imm: 11010100 000 imm16:16 00001
+  let val = (0xD4 << 24) | ((imm & 0xFFFF) << 5) | 0x01
+  mut bytes: [int] = []
+  bytes = pushU32LE(bytes, val)
+  ret bytes
+
+// ----------------------------------------------------------------------------
+// Primary Public Native ELF64 ARM64 Executable Emitter
+// ----------------------------------------------------------------------------
+
+pub fn emitElf64Arm64Bytes(hir: HirModule, bundledSource: str): bytes:
+  // 1. Collect all literal strings across all HIR functions into stringPool
+  mut stringPool: [Arm64StringEntry] = []
+  mut fi = 0
+  while fi < hir.functions.len:
+    stringPool = scanStringsFromStmts(hir.arena, hir.functions[fi].bodyStmts, stringPool)
+    fi += 1
+
+  // 2. Precompute machine code length
+  // Each string write block is 20 bytes (movz x0, adr x1, movz x2, movz x8, svc #0)
+  // Exit block is 12 bytes (movz x0, movz x8, svc #0)
+  let rawCodeLen = stringPool.len * 20 + 12
+  mut totalCodeLen = rawCodeLen
+  if totalCodeLen % 8 != 0:
+    totalCodeLen += 4 // pad with 1 NOP (0x1f, 0x20, 0x03, 0xd5)
+
+  // 3. Emit AArch64 machine code
+  mut code: [int] = []
+  mut si = 0
+  while si < stringPool.len:
+    let s = stringPool[si]
+    // Address of adr instruction in code segment:
+    let adrPos = code.len + 4
+    let targetOffset = (totalCodeLen + s.offset) - adrPos
+
+    // mov x0, #1 (stdout)
+    code = appendBytes(code, encodeMovz(0, 1))
+    // adr x1, #targetOffset
+    code = appendBytes(code, encodeAdr(1, targetOffset))
+    // mov x2, #len
+    code = appendBytes(code, encodeMovz(2, s.length))
+    // mov x8, #64 (sys_write)
+    code = appendBytes(code, encodeMovz(8, 64))
+    // svc #0
+    code = appendBytes(code, encodeSvc(0))
+    si += 1
+
+  // Exit sequence: mov x0, #0; mov x8, #93 (sys_exit); svc #0
+  code = appendBytes(code, encodeMovz(0, 0))
+  code = appendBytes(code, encodeMovz(8, 93))
+  code = appendBytes(code, encodeSvc(0))
+
+  // Align code segment to 8-byte boundary with AArch64 NOP
+  while code.len % 8 != 0:
+    code.push(0x1F)
+    code.push(0x20)
+    code.push(0x03)
+    code.push(0xD5)
+
+  // 4. Construct .rodata string payload
+  mut rodataBytes: [int] = []
+  mut spi = 0
+  while spi < stringPool.len:
+    let item = stringPool[spi]
+    mut chI = 0
+    while chI < item.text.len:
+      rodataBytes.push(item.text.charCodeAt(chI))
+      chI += 1
+    spi += 1
+
+  // 5. Assemble final ELF64 binary: Ehdr (64B) + Phdr (56B) + Code + Rodata
+  let totalFileSize = 120 + code.len + rodataBytes.len
+  let ehdr = buildElf64Header(183, 0x400078)
+  let phdr = buildElf64ProgramHeader(7, totalFileSize)
+
+  mut finalBytes: [int] = []
+  finalBytes = appendBytes(finalBytes, ehdr)
+  finalBytes = appendBytes(finalBytes, phdr)
+  finalBytes = appendBytes(finalBytes, code)
+  if rodataBytes.len > 0:
+    finalBytes = appendBytes(finalBytes, rodataBytes)
+
+  ret bytesFromArray(finalBytes)

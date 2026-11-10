@@ -1,0 +1,178 @@
+module AiplFpsWindowBenchmark
+
+import { fileExists } from "std/fs"
+import { userArgs, execCommand } from "std/os"
+
+// ============================================================================
+// AIPL Dual-Backend Window-Mode >= 120 FPS Benchmark (`fps_window_benchmark.aipl`)
+//   Benchmarks both `--window-mode=x11` (X11 + MIT-SHM) and `--window-mode=glx`
+//   (X11 + libGL.so.1 GLX) with real every-frame presentation (`do_present = 1`,
+//   120 timed frames after 5 warmup frames at up to 1920x1080) and verifies
+//   that every desktop app and game achieves >= 120.0 FPS.
+// ============================================================================
+
+pub struct FpsBenchResult:
+  app: str
+  mode: str
+  binPath: str
+  resStr: str
+  elapsedMsStr: str
+  measuredFpsStr: str
+  passed: bool
+
+pub fn extractField(line: str, key: str): str:
+  let pat = key + "="
+  let idx = line.indexOf(pat)
+  if idx < 0:
+    ret ""
+  let rest = line.slice(idx + pat.len, line.len)
+  let sp = rest.indexOf(" ")
+  if sp < 0:
+    ret rest.trim()
+  ret rest.slice(0, sp).trim()
+
+pub fn resolveBenchmarkBinary(app: str, forceRebuild: bool): str:
+  if fileExists(app) and not app.endsWith(".aipl"):
+    ret app
+  mut srcPath = ""
+  if app.endsWith(".aipl") and fileExists(app):
+    srcPath = app
+  elif fileExists("examples/" + app + ".aipl"):
+    srcPath = "examples/" + app + ".aipl"
+  elif fileExists("examples/" + app):
+    srcPath = "examples/" + app
+
+  if srcPath != "":
+    let baseName = app.replace("examples/", "").replace(".aipl", "")
+    let outBin = "/tmp/aipl_fps_bench_" + baseName
+    if forceRebuild or not fileExists(outBin):
+      let buildRes = execCommand("./bin/aipl", ["build", srcPath, "-o", outBin])
+      if buildRes.isErr():
+        ret ""
+    if fileExists(outBin):
+      ret outBin
+  ret ""
+
+pub fn benchmarkWindowModeFps(app: str, mode: str): FpsBenchResult:
+  let binPath = resolveBenchmarkBinary(app, mode == "x11")
+  if binPath == "":
+    ret FpsBenchResult(
+      app = app,
+      mode = mode,
+      binPath = "MISSING",
+      resStr = "0x0",
+      elapsedMsStr = "0",
+      measuredFpsStr = "0.0",
+      passed = false
+    )
+
+  let cmd = if binPath.startsWith("/"): binPath else: "./" + binPath
+  let res = execCommand(cmd, ["--BenchmarkWindowFps", "--window-mode=" + mode])
+  if res.isErr():
+    ret FpsBenchResult(
+      app = app,
+      mode = mode,
+      binPath = binPath,
+      resStr = "0x0",
+      elapsedMsStr = "0",
+      measuredFpsStr = "0.0",
+      passed = false
+    )
+
+  let outObj = res.unwrap()
+  let lines = outObj.stdout.lines()
+  mut benchLine = ""
+  mut i = 0
+  while i < lines.len:
+    if lines[i].contains("[WINDOW_FPS_BENCHMARK]"):
+      benchLine = lines[i]
+    i += 1
+
+  if benchLine == "":
+    ret FpsBenchResult(
+      app = app,
+      mode = mode,
+      binPath = binPath,
+      resStr = "0x0",
+      elapsedMsStr = "0",
+      measuredFpsStr = "0.0",
+      passed = false
+    )
+
+  let resVal = extractField(benchLine, "res")
+  let modeVal = extractField(benchLine, "mode")
+  let msVal = extractField(benchLine, "elapsedMs")
+  let fpsVal = extractField(benchLine, "measuredFps")
+  let statusVal = extractField(benchLine, "status")
+  let ok = outObj.status == 0 and statusVal == "PASS"
+
+  ret FpsBenchResult(
+    app = app,
+    mode = if modeVal != "": modeVal else: mode,
+    binPath = binPath,
+    resStr = resVal,
+    elapsedMsStr = msVal,
+    measuredFpsStr = fpsVal,
+    passed = ok
+  )
+
+pub fn benchmarkPocWindowFps(app: str): FpsBenchResult:
+  ret benchmarkWindowModeFps(app, "x11")
+
+pub fn main(): int:
+  let args = userArgs()
+  mut targetApp = ""
+  mut reqMode = ""
+  mut ai = 0
+  while ai < args.len:
+    let a = args[ai]
+    if a.startsWith("--window-mode="):
+      reqMode = a.slice(14, a.len)
+    elif a == "--x11" or a == "--software":
+      reqMode = "x11"
+    elif a == "--gl" or a == "--glx":
+      reqMode = "glx"
+    elif not a.startsWith("-") and targetApp == "":
+      targetApp = a
+    ai += 1
+
+  if targetApp != "":
+    let modes = if reqMode != "": [reqMode] else: ["x11", "glx"]
+    mut allOk = true
+    mut mi = 0
+    while mi < modes.len:
+      let r = benchmarkWindowModeFps(targetApp, modes[mi])
+      let tag = if r.passed: "PASS" else: "FAIL"
+      println("[AIPL FpsWindowBenchmark] [" + tag + "] " + r.app + " | mode=" + r.mode + " | res=" + r.resStr + " | elapsedMs=" + r.elapsedMsStr + " | measuredFps=" + r.measuredFpsStr + " (minRequired=120.0)")
+      if not r.passed:
+        allOk = false
+      mi += 1
+    ret if allOk: 0 else: 1
+
+  let apps = [
+    "ex_251_desktop_system_monitor_dashboard_window",
+    "ex_252_desktop_vector_diagram_studio_window",
+    "ex_253_game_glx_snake_arcade_window",
+    "ex_254_game_glx_tetromino_arcade_window",
+    "ex_255_game_glx_brick_breaker_arcade_window"
+  ]
+  let modes = if reqMode != "": [reqMode] else: ["x11", "glx"]
+
+  println("[AIPL FpsWindowBenchmark] Running Dual-Backend (x11 MIT-SHM + glx OpenGL) >= 120 FPS Benchmark:")
+  mut passCount = 0
+  mut totalRuns = 0
+  mut i = 0
+  while i < apps.len:
+    mut m = 0
+    while m < modes.len:
+      totalRuns += 1
+      let r = benchmarkWindowModeFps(apps[i], modes[m])
+      if r.passed:
+        passCount += 1
+      let tag = if r.passed: "PASS" else: "FAIL"
+      println("  [" + tag + "] " + r.app + " | mode=" + r.mode + " | res=" + r.resStr + " | elapsed=" + r.elapsedMsStr + "ms | measuredFps=" + r.measuredFpsStr + " FPS (>=120.0 FPS)")
+      m += 1
+    i += 1
+
+  println("[AIPL FpsWindowBenchmark] Summary: " + str(passCount) + "/" + str(totalRuns) + " runs passed Every-Frame Presentation >= 120 FPS Gate.")
+  ret if passCount == totalRuns: 0 else: 1

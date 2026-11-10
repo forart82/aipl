@@ -1,0 +1,39 @@
+// ============================================================================
+// Twin Test Suite 020: Runtime Pointers, Endianness, PtrSlice & ByteCursor CLI
+// Verifies examples/ex_020_rt_ptr_and_slice_bounds_cli.aipl
+// ============================================================================
+module Ex020RtPtrAndSliceBoundsCliTest
+
+import {
+  PtrSliceReport,
+  roundtripEndianU32,
+  verifySliceAndCursorReadWrite,
+  classifySliceValidity,
+  buildPtrSliceReport
+} from "../../examples/ex_020_rt_ptr_and_slice_bounds_cli.aipl"
+
+pub fn test_endian_u32_and_slice_cursor(): int:
+  assert(roundtripEndianU32(305419896, true) == 305419896, "ptrWriteU32LE / ptrReadU32LE roundtrip")
+  assert(roundtripEndianU32(305419896, false) == 305419896, "ptrWriteU32BE / ptrReadU32BE roundtrip")
+  assert(verifySliceAndCursorReadWrite(42, 88) == 130, "slice byte (42) + cursor byte (88) == 130")
+  ret 0
+
+pub fn test_slice_validity_classification(): int:
+  assert(classifySliceValidity(true, 8) == "SLICE:VALID_SUBVIEW", "valid non-empty slice")
+  assert(classifySliceValidity(false, 0) == "SLICE:OUT_OF_BOUNDS", "invalid slice")
+  ret 0
+
+pub fn test_build_ptr_slice_report(): int:
+  let rep = buildPtrSliceReport(32, 4, 12)
+  assert(rep.subSliceLen == 8, "ptrSliceSub(4, 12).len == 8")
+  assert(rep.cursorRemaining == 15, "16-byte cursor after 1 write has 15 remaining")
+  assert(rep.readBackSum == 130, "42 + 88 == 130")
+  assert(rep.statusTag == "SLICE:VALID_SUBVIEW", "statusTag")
+  ret 0
+
+pub fn main(): int:
+  test_endian_u32_and_slice_cursor()
+  test_slice_validity_classification()
+  test_build_ptr_slice_report()
+  println("PASS: ex_020_rt_ptr_and_slice_bounds_cli_test")
+  ret 0

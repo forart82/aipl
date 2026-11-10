@@ -1,0 +1,197 @@
+/// # Module: `std/gfx25d/ribbon25d` (`Gfx25dRibbon25d`)
+///
+/// ## Purpose & Domain Scope
+/// Continuous 2.5D/3D spline ribbon extrusion (`extrudeSplineRibbon25D`), Gouraud-feathered
+/// river/road/path strip rendering (`drawSplineRibbon25D`), and UV-scrolled textured spline
+/// ribbons (`drawSplineRibbonTextured25D`).
+///
+/// ## Architectural Boundary
+/// - `std/gfx2d/tilemap_renderer2d`: Discrete 2D retro grid / tactical board games.
+/// - `std/gfx25d/*` + `std/gfx3d/terrain3d`: Continuous heightfield terrains, rivers, mountains, and isometric/2.5D worlds.
+///
+/// ## Runnable Example
+/// ```aipl
+/// import { Vec3 } from "std/math/vec_math"
+/// import { rgb, createProceduralTexture } from "std/gfx2d/shape2d"
+/// import { createCamera25D } from "std/gfx25d/camera25d"
+/// import { extrudeSplineRibbon25D, drawSplineRibbon25D, drawSplineRibbonTextured25D } from "std/gfx25d/ribbon25d"
+///
+/// let cam = createCamera25D(800.0, 600.0, 1.2)
+/// let nodes = [Vec3(x = 0.0, y = 0.0, z = 12.0), Vec3(x = 80.0, y = 40.0, z = 8.0), Vec3(x = 160.0, y = 100.0, z = 4.0)]
+/// let strip = extrudeSplineRibbon25D(nodes, 14.0, 4.0)
+/// let quads = drawSplineRibbon25D(cam, nodes, 14.0, rgb(28, 120, 210), rgb(90, 175, 240), 4.0)
+/// let waterTex = createProceduralTexture("water", 32, 32, 77)
+/// let texQuads = drawSplineRibbonTextured25D(cam, nodes, 14.0, waterTex, 0.25, 0.02, rgb(255, 255, 255), 0.25)
+/// ```
+module Gfx25dRibbon25d
+
+import { Vec3 } from "../math/vec_math"
+import { maxFloat, maxInt } from "../prelude"
+import { Color, drawQuad3DGouraud, drawQuad3DTextured } from "../gfx2d/shape2d"
+import { Camera25D, project3DToIso } from "./camera25d"
+
+/// Extruded 2.5D spline ribbon cross-section storing center, unit tangent/normal, and inner/feather edge points.
+pub struct RibbonVertex25D(centerPt: Vec3, tangent: Vec3, normal: Vec3, leftPt: Vec3, rightPt: Vec3, leftFeatherPt: Vec3, rightFeatherPt: Vec3)
+
+/// Extrudes a sequence of 3D polyline/spline `nodes` into `[RibbonVertex25D]` with perpendicular normals and feathered banks.
+pub fn extrudeSplineRibbon25D(nodes: [Vec3], halfWidth: float, featherWidth: float = 2.0): [RibbonVertex25D]:
+  mut out: [RibbonVertex25D] = []
+  let n = nodes.len
+  if n < 2:
+    ret out
+
+  let hw = maxFloat(halfWidth, 0.001)
+  let fw = maxFloat(featherWidth, 0.0)
+  let outerHw = hw + fw
+
+  mut i = 0
+  while i < n:
+    let cur = nodes[i]
+    let prevIdx = maxInt(0, i - 1)
+    let nextIdx = if (i + 1) < n: i + 1 else: maxInt(0, n - 1)
+    let dx = nodes[nextIdx].x - nodes[prevIdx].x
+    let dy = nodes[nextIdx].y - nodes[prevIdx].y
+
+    let lenXY = sqrt(dx * dx + dy * dy)
+    let tx = if lenXY > 0.00001: dx / lenXY else: 1.0
+    let ty = if lenXY > 0.00001: dy / lenXY else: 0.0
+    let nx = 0.0 - ty
+    let ny = tx
+
+    let tang = Vec3(x = tx, y = ty, z = 0.0)
+    let norm = Vec3(x = nx, y = ny, z = 0.0)
+    let lPt = Vec3(x = cur.x + nx * hw, y = cur.y + ny * hw, z = cur.z)
+    let rPt = Vec3(x = cur.x - nx * hw, y = cur.y - ny * hw, z = cur.z)
+    let lfPt = Vec3(x = cur.x + nx * outerHw, y = cur.y + ny * outerHw, z = cur.z)
+    let rfPt = Vec3(x = cur.x - nx * outerHw, y = cur.y - ny * outerHw, z = cur.z)
+
+    out.push(RibbonVertex25D(
+      centerPt = cur,
+      tangent = tang,
+      normal = norm,
+      leftPt = lPt,
+      rightPt = rPt,
+      leftFeatherPt = lfPt,
+      rightFeatherPt = rfPt
+    ))
+    i += 1
+  ret out
+
+/// Renders a continuous 2.5D river, road, or trail ribbon with Gouraud bank gradients and alpha-feathered edges.
+pub fn drawSplineRibbon25D(cam: Camera25D, nodes: [Vec3], halfWidth: float, centerColor: Color, edgeColor: Color, featherWidth: float = 2.0): int:
+  let verts = extrudeSplineRibbon25D(nodes, halfWidth, featherWidth)
+  let n = verts.len
+  if n < 2:
+    ret 0
+
+  let zLift = 0.25
+  let outerTransparent = Color(r = edgeColor.r, g = edgeColor.g, b = edgeColor.b, a = 0.0)
+  mut quadsDrawn = 0
+  mut i = 0
+  while (i + 1) < n:
+    let v0 = verts[i]
+    let v1 = verts[i + 1]
+
+    let c0 = project3DToIso(cam, v0.centerPt.x, v0.centerPt.y, v0.centerPt.z + zLift)
+    let c1 = project3DToIso(cam, v1.centerPt.x, v1.centerPt.y, v1.centerPt.z + zLift)
+    let l0 = project3DToIso(cam, v0.leftPt.x, v0.leftPt.y, v0.leftPt.z + zLift)
+    let l1 = project3DToIso(cam, v1.leftPt.x, v1.leftPt.y, v1.leftPt.z + zLift)
+    let r0 = project3DToIso(cam, v0.rightPt.x, v0.rightPt.y, v0.rightPt.z + zLift)
+    let r1 = project3DToIso(cam, v1.rightPt.x, v1.rightPt.y, v1.rightPt.z + zLift)
+
+    // Left core strip (edgeColor -> centerColor)
+    drawQuad3DGouraud(
+      l0.x, l0.y, l0.z,
+      c0.x, c0.y, c0.z,
+      c1.x, c1.y, c1.z,
+      l1.x, l1.y, l1.z,
+      edgeColor, centerColor, centerColor, edgeColor
+    )
+    // Right core strip (centerColor -> edgeColor)
+    drawQuad3DGouraud(
+      c0.x, c0.y, c0.z,
+      r0.x, r0.y, r0.z,
+      r1.x, r1.y, r1.z,
+      c1.x, c1.y, c1.z,
+      centerColor, edgeColor, edgeColor, centerColor
+    )
+    quadsDrawn += 2
+
+    if featherWidth > 0.001:
+      let lf0 = project3DToIso(cam, v0.leftFeatherPt.x, v0.leftFeatherPt.y, v0.leftFeatherPt.z + zLift)
+      let lf1 = project3DToIso(cam, v1.leftFeatherPt.x, v1.leftFeatherPt.y, v1.leftFeatherPt.z + zLift)
+      let rf0 = project3DToIso(cam, v0.rightFeatherPt.x, v0.rightFeatherPt.y, v0.rightFeatherPt.z + zLift)
+      let rf1 = project3DToIso(cam, v1.rightFeatherPt.x, v1.rightFeatherPt.y, v1.rightFeatherPt.z + zLift)
+
+      drawQuad3DGouraud(
+        lf0.x, lf0.y, lf0.z,
+        l0.x, l0.y, l0.z,
+        l1.x, l1.y, l1.z,
+        lf1.x, lf1.y, lf1.z,
+        outerTransparent, edgeColor, edgeColor, outerTransparent
+      )
+      drawQuad3DGouraud(
+        r0.x, r0.y, r0.z,
+        rf0.x, rf0.y, rf0.z,
+        rf1.x, rf1.y, rf1.z,
+        r1.x, r1.y, r1.z,
+        edgeColor, outerTransparent, outerTransparent, edgeColor
+      )
+      quadsDrawn += 2
+    i += 1
+  ret quadsDrawn
+
+/// Renders a UV-scrolled textured 2.5D spline ribbon (flowing rivers, cobblestone roads, paths) with bank shading and Z-offset `zLift`.
+pub fn drawSplineRibbonTextured25D(cam: Camera25D, nodes: [Vec3], halfWidth: float, texId: int, uvScrollU: float, uvScale: float, tintColor: Color, zLift: float = 0.25): int:
+  let verts = extrudeSplineRibbon25D(nodes, halfWidth, 0.0)
+  let n = verts.len
+  if n < 2:
+    ret 0
+
+  let scaleU = maxFloat(uvScale, 0.0005)
+  let edgeColor = Color(
+    r = tintColor.r * 0.82,
+    g = tintColor.g * 0.84,
+    b = tintColor.b * 0.88,
+    a = tintColor.a
+  )
+  mut arcDist = 0.0
+  mut quadsDrawn = 0
+  mut i = 0
+  while (i + 1) < n:
+    let v0 = verts[i]
+    let v1 = verts[i + 1]
+    let dx = v1.centerPt.x - v0.centerPt.x
+    let dy = v1.centerPt.y - v0.centerPt.y
+    let dz = v1.centerPt.z - v0.centerPt.z
+    let segLen = maxFloat(1.0, sqrt(dx * dx + dy * dy + dz * dz))
+    let u0 = uvScrollU + arcDist * scaleU
+    let u1 = uvScrollU + (arcDist + segLen) * scaleU
+    arcDist = arcDist + segLen
+
+    let c0 = project3DToIso(cam, v0.centerPt.x, v0.centerPt.y, v0.centerPt.z + zLift)
+    let c1 = project3DToIso(cam, v1.centerPt.x, v1.centerPt.y, v1.centerPt.z + zLift)
+    let l0 = project3DToIso(cam, v0.leftPt.x, v0.leftPt.y, v0.leftPt.z + zLift)
+    let l1 = project3DToIso(cam, v1.leftPt.x, v1.leftPt.y, v1.leftPt.z + zLift)
+    let r0 = project3DToIso(cam, v0.rightPt.x, v0.rightPt.y, v0.rightPt.z + zLift)
+    let r1 = project3DToIso(cam, v1.rightPt.x, v1.rightPt.y, v1.rightPt.z + zLift)
+
+    drawQuad3DTextured(
+      texId,
+      l0.x, l0.y, l0.z, u0, 0.0,
+      c0.x, c0.y, c0.z, u0, 0.5,
+      c1.x, c1.y, c1.z, u1, 0.5,
+      l1.x, l1.y, l1.z, u1, 0.0,
+      edgeColor, tintColor, tintColor, edgeColor
+    )
+    drawQuad3DTextured(
+      texId,
+      c0.x, c0.y, c0.z, u0, 0.5,
+      r0.x, r0.y, r0.z, u0, 1.0,
+      r1.x, r1.y, r1.z, u1, 1.0,
+      c1.x, c1.y, c1.z, u1, 0.5,
+      tintColor, edgeColor, edgeColor, tintColor
+    )
+    quadsDrawn += 2
+    i += 1
+  ret quadsDrawn

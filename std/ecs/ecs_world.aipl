@@ -1,0 +1,90 @@
+/// # Module: `std/ecs/ecs_world` (`EcsWorldMod`)
+///
+/// ## Purpose & Domain Scope
+/// Central ECS world container, entity location mapping, archetype table lookup,
+/// and global resource map.
+module EcsWorldMod
+
+import { EntityId, EntityPool, createEntityPool, allocateEntity, recycleEntity, isEntityAlive } from "std/ecs/entity"
+import { ArchetypeTable, createArchetypeTable, insertArchetypeRow, swapRemoveArchetypeRow } from "std/ecs/archetype"
+
+pub struct EntityLocation(archetypeIndex: int, rowIndex: int)
+
+pub struct EcsWorld(entityPool: EntityPool, archetypes: [ArchetypeTable], locations: [EntityLocation], resources: [float])
+
+pub fn createEcsWorld(): EcsWorld:
+  let pool = createEntityPool()
+  mut archs: [ArchetypeTable] = []
+  mut emptyComps: [int] = []
+  archs.push(createArchetypeTable(0, emptyComps))
+  mut locs: [EntityLocation] = []
+  mut res: [float] = []
+  ret EcsWorld(entityPool = pool, archetypes = archs, locations = locs, resources = res)
+
+pub fn spawnEntity(world: EcsWorld): (EcsWorld, EntityId):
+  let (newPool, ent) = allocateEntity(world.entityPool)
+  mut archs = world.archetypes
+  mut locs = world.locations
+
+  let rowIdx = archs[0].entities.len
+  mut emptyVals: [float] = []
+  archs[0] = insertArchetypeRow(archs[0], ent, emptyVals)
+
+  while locs.len <= ent.index:
+    locs.push(EntityLocation(archetypeIndex = -1, rowIndex = -1))
+  locs[ent.index] = EntityLocation(archetypeIndex = 0, rowIndex = rowIdx)
+
+  ret (
+    EcsWorld(
+      entityPool = newPool,
+      archetypes = archs,
+      locations = locs,
+      resources = world.resources
+    ),
+    ent
+  )
+
+pub fn despawnEntity(world: EcsWorld, entity: EntityId): EcsWorld:
+  if not isEntityAlive(world.entityPool, entity):
+    ret world
+  let newPool = recycleEntity(world.entityPool, entity)
+  mut archs = world.archetypes
+  mut locs = world.locations
+
+  if entity.index >= 0 and entity.index < locs.len:
+    let loc: EntityLocation = locs[entity.index]
+    if loc.archetypeIndex >= 0 and loc.archetypeIndex < archs.len:
+      let tbl: ArchetypeTable = archs[loc.archetypeIndex]
+      let lastRow = tbl.entities.len - 1
+      if loc.rowIndex >= 0 and loc.rowIndex <= lastRow:
+        if loc.rowIndex < lastRow:
+          let movedEnt: EntityId = tbl.entities[lastRow]
+          locs[movedEnt.index] = EntityLocation(archetypeIndex = loc.archetypeIndex, rowIndex = loc.rowIndex)
+        archs[loc.archetypeIndex] = swapRemoveArchetypeRow(tbl, loc.rowIndex)
+    locs[entity.index] = EntityLocation(archetypeIndex = -1, rowIndex = -1)
+
+  ret EcsWorld(
+    entityPool = newPool,
+    archetypes = archs,
+    locations = locs,
+    resources = world.resources
+  )
+
+pub fn setWorldResource(world: EcsWorld, resourceId: int, value: float): EcsWorld:
+  if resourceId < 0:
+    ret world
+  mut res = world.resources
+  while res.len <= resourceId:
+    res.push(0.0)
+  res[resourceId] = value
+  ret EcsWorld(
+    entityPool = world.entityPool,
+    archetypes = world.archetypes,
+    locations = world.locations,
+    resources = res
+  )
+
+pub fn getWorldResource(world: EcsWorld, resourceId: int): Option[float]:
+  if resourceId < 0 or resourceId >= world.resources.len:
+    ret None
+  ret Some(world.resources[resourceId])

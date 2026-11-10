@@ -1,0 +1,146 @@
+module Ex186ParticleCurvePropColorOverLifeWindow
+
+import { ColorRgba8 } from "../std/gfx/color"
+import {
+  CurveKeyframe, KeyframeCurve,
+  createConstantCurveProperty, createRandomConstantsProperty,
+  createLinearRampCurve, evaluateKeyframeCurve, evaluateMinMaxCurve,
+  sampleCurveIntegral, createTwoStopColorGradient, evaluateColorGradient
+} from "../std/particle/curve_prop"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepCurvePlayhead(frame: int): float:
+  ret float(frame % 73) / 72.0
+
+pub fn buildParticleCurvePropAudit(): int:
+  let constP = createConstantCurveProperty(42.0)
+  let randP = createRandomConstantsProperty(10.0, 30.0)
+  let ramp = createLinearRampCurve(0.0, 10.0)
+  let area = sampleCurveIntegral(ramp, 10)
+  let curve = KeyframeCurve(keyframes = [
+    CurveKeyframe(time = 0.0, value = 0.0, inTangent = 0.0, outTangent = 100.0),
+    CurveKeyframe(time = 1.0, value = 100.0, inTangent = 100.0, outTangent = 0.0)
+  ])
+  let midVal = evaluateKeyframeCurve(curve, 0.5)
+  ret int(evaluateMinMaxCurve(constP, 0.5, 0.0)) + int(evaluateMinMaxCurve(randP, 0.5, 0.5)) + int(area + 0.5) + int(midVal + 0.5)
+
+pub fn main(): int:
+  let sizeCurve = KeyframeCurve(keyframes = [
+    CurveKeyframe(time = 0.0, value = 12.0, inTangent = 0.0, outTangent = 220.0),
+    CurveKeyframe(time = 0.5, value = 95.0, inTangent = 0.0, outTangent = 0.0),
+    CurveKeyframe(time = 1.0, value = 16.0, inTangent = -180.0, outTangent = 0.0)
+  ])
+  let minCurve = KeyframeCurve(keyframes = [
+    CurveKeyframe(time = 0.0, value = 6.0, inTangent = 0.0, outTangent = 140.0),
+    CurveKeyframe(time = 0.5, value = 62.0, inTangent = 0.0, outTangent = 0.0),
+    CurveKeyframe(time = 1.0, value = 8.0, inTangent = -110.0, outTangent = 0.0)
+  ])
+  let fireGrad = createTwoStopColorGradient(
+    ColorRgba8(r = 250, g = 204, b = 21, a = 255),
+    ColorRgba8(r = 225, g = 29, b = 72, a = 128)
+  )
+  let randScaleProp = createRandomConstantsProperty(0.85, 1.35)
+  let rampIntegral = sampleCurveIntegral(createLinearRampCurve(0.0, 10.0), 10)
+  let audit = buildParticleCurvePropAudit()
+
+  initWindow(1280, 720, "AIPL ex_186: Particle Cubic Hermite Curves & Oklab Color-Over-Life")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let playT = stepCurvePlayhead(frame)
+    let playSize = evaluateKeyframeCurve(sizeCurve, playT)
+    let playMinSize = evaluateKeyframeCurve(minCurve, playT)
+    let playCol = evaluateColorGradient(fireGrad, playT)
+    let randFactor = evaluateMinMaxCurve(randScaleProp, playT, playT)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_186: PARTICLE CUBIC HERMITE CURVE & OKLAB COLOR-OVER-LIFETIME", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/particle/curve_prop: evaluateKeyframeCurve | evaluateColorGradient | sampleCurveIntegral | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Cubic Hermite Size-Over-Lifetime Spline Plotter
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("CUBIC HERMITE SIZE-OVER-LIFETIME SPLINE (t = 0.0 .. 1.0)", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    // Grid axes
+    drawLine(80.0, 445.0, 580.0, 445.0, rgb(71, 85, 105), 1.5)
+    drawLine(80.0, 165.0, 80.0, 445.0, rgb(71, 85, 105), 1.5)
+
+    mut s: int = 0
+    while s < 24:
+      let t0 = float(s) / 24.0
+      let t1 = float(s + 1) / 24.0
+      let v0 = evaluateKeyframeCurve(sizeCurve, t0)
+      let v1 = evaluateKeyframeCurve(sizeCurve, t1)
+      let m0 = evaluateKeyframeCurve(minCurve, t0)
+      let m1 = evaluateKeyframeCurve(minCurve, t1)
+      let px0 = 80.0 + t0 * 500.0
+      let py0 = 445.0 - v0 * 2.6
+      let px1 = 80.0 + t1 * 500.0
+      let py1 = 445.0 - v1 * 2.6
+      let my0 = 445.0 - m0 * 2.6
+      let my1 = 445.0 - m1 * 2.6
+      drawLine(px0, py0, px0, my0, rgb(30, 58, 95), 2.0)
+      drawLine(px0, my0, px1, my1, rgb(148, 163, 184), 2.0)
+      drawLine(px0, py0, px1, py1, rgb(56, 189, 248), 3.0)
+      drawCircle(px0, py0, 3.5, rgb(250, 204, 21))
+      s = s + 1
+
+    let markerX = 80.0 + playT * 500.0
+    let markerY = 445.0 - playSize * 2.6
+    let markerMinY = 445.0 - playMinSize * 2.6
+    drawLine(markerX, 165.0, markerX, 445.0, rgb(244, 63, 94), 1.5)
+    drawCircle(markerX, markerMinY, 5.5, rgb(148, 163, 184))
+    drawCircle(markerX, markerY, 8.0, rgb(244, 63, 94))
+    drawText("Playhead t=" + str(int(playT * 100.0)) + "% -> MaxCurve=" + str(int(playSize)) + "% | MinCurve=" + str(int(playMinSize)) + "%", 80.0, 468.0, 14.0, rgb(226, 232, 240))
+
+    // Right Panel: Oklab Perceptual Color-Over-Lifetime Swatch & Live Preview Particle
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(250, 204, 21))
+    drawText("OKLAB COLOR-OVER-LIFETIME GRADIENT & LIVE PARTICLE", 680.0, 118.0, 16.0, rgb(253, 224, 71))
+
+    mut g: int = 0
+    while g < 20:
+      let gt = float(g) / 19.0
+      let gc = evaluateColorGradient(fireGrad, gt)
+      drawRect(685.0 + float(g) * 26.0, 160.0, 25.0, 56.0, rgb(gc.r, gc.g, gc.b))
+      g = g + 1
+
+    // Playhead indicator on the Oklab color gradient bar
+    let gradPlayX = 685.0 + playT * 518.0
+    drawLine(gradPlayX, 152.0, gradPlayX, 224.0, rgb(248, 250, 252), 3.0)
+
+    // 5-stage particle lifetime sequence strip
+    mut st: int = 0
+    while st < 5:
+      let stT = float(st) * 0.25
+      let stS = evaluateKeyframeCurve(sizeCurve, stT) * 0.22
+      let stC = evaluateColorGradient(fireGrad, stT)
+      let stX = 725.0 + float(st) * 44.0
+      drawCircle(stX, 345.0, stS, rgb(stC.r, stC.g, stC.b))
+      drawText(str(st * 25) + "%", stX - 12.0, 392.0, 12.0, rgb(148, 163, 184))
+      st = st + 1
+
+    // Live animated particle disc modulated by both curves
+    drawCircleOutline(1075.0, 340.0, playSize * 0.65 * randFactor, 2.0, rgb(253, 224, 71))
+    drawCircle(1075.0, 340.0, playSize * 0.65, rgb(playCol.r, playCol.g, playCol.b))
+    drawCircle(1075.0, 340.0, playMinSize * 0.45, rgb(255, 251, 235))
+    drawText("Live RGB=(" + str(playCol.r) + "," + str(playCol.g) + "," + str(playCol.b) + ") | Radius=" + str(int(playSize * 0.65)) + "px | MinMax=" + str(int(randFactor * 100.0)) + "%", 685.0, 468.0, 14.0, rgb(248, 250, 252))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("CURVE PROPERTY & INTEGRAL TELEMETRY (Frame " + str(frame) + ")", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Modes: Constant (0) | RandomBetweenConstants (1) | Curve (2) | RandomBetweenCurves (3)", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Trapezoidal Curve Integral (0..10 Ramp) = " + str(rampIntegral) + " | Playhead=" + str(int(playT * 100.0)) + "% | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

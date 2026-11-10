@@ -1,0 +1,94 @@
+/// # Module: `std/ui/ui_charts` (`UiChartsMod`)
+///
+/// ## Purpose & Domain Scope
+/// High-performance data visualization charts, auto-scaling domain ranges,
+/// and screen-space coordinate mapping.
+module UiChartsMod
+
+import { EPSILON, minFloat, maxFloat, clampFloat } from "std/math/consts"
+import { Color, rgba, colorHex, drawRect, drawRoundedRect, drawRoundedRectOutline, drawLine } from "../gfx2d/shape2d"
+import { AuraRect } from "./ui_layout"
+import { AuraTheme } from "./ui_imui"
+import { Vec2 } from "std/math/vec_math"
+import { Rect } from "std/math/geom2d"
+import { ColorRgba8 } from "std/gfx/color"
+
+pub struct ChartDataSeries(name: str, values: [float], color: ColorRgba8)
+
+pub struct LineChartWidget(series: [ChartDataSeries], minVal: float, maxVal: float, bounds: Rect, showGrid: bool)
+
+pub fn autoScaleChartRange(series: [ChartDataSeries]): LineChartWidget:
+  mut hasAny = false
+  mut minV = 0.0
+  mut maxV = 1.0
+
+  mut si = 0
+  while si < series.len:
+    let s: ChartDataSeries = series[si]
+    mut vi = 0
+    while vi < s.values.len:
+      let v = s.values[vi]
+      if not hasAny:
+        minV = v
+        maxV = v
+        hasAny = true
+      else:
+        minV = minFloat(minV, v)
+        maxV = maxFloat(maxV, v)
+      vi = vi + 1
+    si = si + 1
+
+  if maxV - minV < EPSILON:
+    maxV = minV + 1.0
+
+  ret LineChartWidget(
+    series = series,
+    minVal = minV,
+    maxVal = maxV,
+    bounds = Rect(x = 0.0, y = 0.0, w = 400.0, h = 200.0),
+    showGrid = true
+  )
+
+pub fn computeDataPointScreenCoords(chart: LineChartWidget, seriesIdx: int, valIdx: int): Vec2:
+  if seriesIdx < 0 or seriesIdx >= chart.series.len:
+    ret Vec2(x = chart.bounds.x, y = chart.bounds.y)
+  let s: ChartDataSeries = chart.series[seriesIdx]
+  let count = s.values.len
+  if valIdx < 0 or valIdx >= count:
+    ret Vec2(x = chart.bounds.x, y = chart.bounds.y)
+
+  let u = if count > 1: float(valIdx) / float(count - 1) else: 0.5
+  let val = s.values[valIdx]
+  let span = maxFloat(chart.maxVal - chart.minVal, EPSILON)
+  let normY = clampFloat((val - chart.minVal) / span, 0.0, 1.0)
+
+  let sx = chart.bounds.x + u * chart.bounds.w
+  let sy = chart.bounds.y + (1.0 - normY) * chart.bounds.h
+  ret Vec2(x = sx, y = sy)
+
+pub struct ChartSeries(name: str, values: [float], colorHex: int)
+
+pub fn createChartSeries(name: str, values: [float], colHex: int): ChartSeries:
+  ret ChartSeries(name = name, values = values, colorHex = colHex)
+
+// ============================================================================
+// §5. Public Operations / Methods
+// ============================================================================
+
+pub fn auraDrawSparkline(rect: AuraRect, values: [float], minVal: float, maxVal: float, lineCol: Color, fillCol: Color): void:
+  drawRoundedRect(rect.x, rect.y, rect.w, rect.h, 6.0, fillCol)
+  drawRoundedRectOutline(rect.x, rect.y, rect.w, rect.h, 6.0, 1.0, rgba(255, 255, 255, 0.08))
+  let padX = 8.0
+  let padY = 8.0
+  let plotW = rect.w - padX * 2.0
+  let plotH = rect.h - padY * 2.0
+  let range = if maxVal > minVal: maxVal - minVal else: 1.0
+  let n = values.len
+  if n < 2:
+    ret
+  for i in 0..(n - 1):
+    let x1 = rect.x + padX + (float(i) / float(n - 1)) * plotW
+    let y1 = rect.y + rect.h - padY - ((values[i] - minVal) / range) * plotH
+    let x2 = rect.x + padX + (float(i + 1) / float(n - 1)) * plotW
+    let y2 = rect.y + rect.h - padY - ((values[i + 1] - minVal) / range) * plotH
+    drawLine(x1, y1, x2, y2, lineCol, 2.0)

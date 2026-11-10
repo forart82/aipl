@@ -1,0 +1,52 @@
+// ============================================================================
+// Example 036: PCG32 / Xoshiro256 PRNG & Monte Carlo Pi Estimator (CLI)
+// Demonstrates: pcg32Init, xoshiro256Init, splitMix64Next, rngNew,
+//               rngNextFloat, and shuffleInts from std/math/prng.
+// ============================================================================
+module Ex036MathPrngMonteCarloCli
+
+import {
+  splitMix64Next,
+  pcg32Init,
+  xoshiro256Init,
+  rngNew,
+  rngNextFloat,
+  shuffleInts
+} from "../std/math/prng"
+
+pub fn estimateMonteCarloPiPermille(seed: int, samples: int): int:
+  mut rng = pcg32Init(seed, 54)
+  mut insideCircle = 0
+  for i in 0..samples:
+    let x = rng.nextFloat()
+    let y = rng.nextFloat()
+    if (x * x + y * y) <= 1.0:
+      insideCircle = insideCircle + 1
+  ret (insideCircle * 4000) / samples
+
+pub fn verifyPrngDeterminismAndShuffle(seed: int): int:
+  mut a = pcg32Init(seed, 1)
+  mut b = pcg32Init(seed, 1)
+  let uA = a.nextU32()
+  let uB = b.nextU32()
+  mut xo = xoshiro256Init(seed)
+  let xoVal = xo.nextU64()
+  let sm = splitMix64Next(seed)
+  let r0 = rngNew(seed)
+  let (r1, rf) = rngNextFloat(r0)
+  let deck = shuffleInts([1, 2, 3, 4], seed)
+  if uA == uB and xoVal >= 0 and sm.len == 2 and rf >= 0.0 and r1.state != 0 and deck.len == 4:
+    ret deck[0] + deck[1] + deck[2] + deck[3]
+  ret -1
+
+pub fn describePrngEngine(engineId: int): str:
+  if engineId == 0:
+    ret "PRNG:PCG32_XSH_RR_DETERMINISTIC"
+  ret "PRNG:XOSHIRO256_STAR_STAR"
+
+pub fn main(): int:
+  let piEst = estimateMonteCarloPiPermille(42, 400)
+  let deckSum = verifyPrngDeterminismAndShuffle(1337)
+  println("Monte Carlo Pi Estimate (permille, N=400): " + str(piEst))
+  println("Fisher-Yates Shuffled Deck Sum: " + str(deckSum) + " (" + describePrngEngine(0) + ")")
+  ret 0

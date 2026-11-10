@@ -1,0 +1,48 @@
+// ============================================================================
+// Example 067: Cron Expression Parser & Schedule Planner (CLI)
+// Demonstrates: parseCron, explainCron, cronMatches, and parseIso8601
+//               from std/time.
+// ============================================================================
+module Ex067TimeCronSchedulePlannerCli
+
+import {
+  parseCron,
+  explainCron,
+  cronMatches,
+  parseIso8601
+} from "../std/time"
+
+// Parses a 5-field cron expression and computes the next firing minute after an ISO-8601 timestamp.
+pub fn computeNextCronFireMinute(cronExpr: str, afterIsoUtc: str): int:
+  let sched = parseCron(cronExpr).unwrap()
+  let dtAfter = parseIso8601(afterIsoUtc).unwrap()
+  let nextFire = sched.nextFireAfter(dtAfter).unwrap()
+  assert(sched.isMatch(nextFire), "nextFireAfter timestamp must satisfy cron schedule")
+  ret nextFire.time.minute
+
+// Evaluates cronMatches and CronSchedule.isMatch across three sample minutes (00, 10, 15).
+pub fn verifyCronMatrixMatchesCount(cronExpr: str): int:
+  let sched = parseCron(cronExpr).unwrap()
+  let dt00 = parseIso8601("2026-11-04T12:00:00Z").unwrap()
+  let dt10 = parseIso8601("2026-11-04T12:10:00Z").unwrap()
+  let dt15 = parseIso8601("2026-11-04T12:15:00Z").unwrap()
+
+  mut hits = 0
+  if sched.isMatch(dt00) and cronMatches(cronExpr, 0, 12, 4, 11, 3):
+    hits = hits + 1
+  if sched.isMatch(dt10):
+    hits = hits + 1
+  if sched.isMatch(dt15) and cronMatches(cronExpr, 15, 12, 4, 11, 3):
+    hits = hits + 1
+  ret hits
+
+// Produces a human-readable explanation of a cron expression.
+pub fn describeCronSchedulePolicy(cronExpr: str): str:
+  ret explainCron(cronExpr).unwrap()
+
+pub fn main(): int:
+  let nextMin = computeNextCronFireMinute("*/15 * * * *", "2026-11-04T12:10:00Z")
+  let hits = verifyCronMatrixMatchesCount("*/15 * * * *")
+  let policy = describeCronSchedulePolicy("*/15 * * * *")
+  println("ex_067_time_cron_schedule_planner_cli: nextMin=" + str(nextMin) + " hits=" + str(hits) + " policy=" + policy)
+  ret 0

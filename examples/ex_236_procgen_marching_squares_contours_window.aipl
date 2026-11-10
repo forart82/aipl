@@ -1,0 +1,189 @@
+module Ex236ProcgenMarchingSquaresContoursWindow
+
+import {
+  IsolineSegment2D, MeshTriangle3D, ScalarField3D,
+  marchingSquaresExtract, marchingCubesExtract
+} from "../std/procgen/marching_isosurface"
+import { ScalarField2D } from "../std/procgen/cellular_automata"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine,
+  drawTriangle, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct MarchingScene(field2D: ScalarField2D, field3D: ScalarField3D, isoSegments: [IsolineSegment2D], meshTriangles: [MeshTriangle3D], isoLevel: float, isoVel: float)
+
+pub fn createMarchingScene(): MarchingScene:
+  let sf2 = ScalarField2D(
+    width = 5,
+    height = 5,
+    values = [
+      0.1, 0.2, 0.2, 0.2, 0.1,
+      0.2, 0.8, 0.9, 0.8, 0.2,
+      0.2, 0.9, 1.0, 0.9, 0.2,
+      0.2, 0.8, 0.9, 0.8, 0.2,
+      0.1, 0.2, 0.2, 0.2, 0.1
+    ]
+  )
+  let sf3 = ScalarField3D(width = 2, height = 2, depth = 2, values = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+  let isoSegs = marchingSquaresExtract(sf2, 0.5, 80.0)
+  let tris = marchingCubesExtract(sf3, 0.5, 260.0)
+  ret MarchingScene(
+    field2D = sf2,
+    field3D = sf3,
+    isoSegments = isoSegs,
+    meshTriangles = tris,
+    isoLevel = 0.5,
+    isoVel = 0.8
+  )
+
+pub fn stepScene(mut scene: MarchingScene, frame: int, dt: float): void:
+  mut nextIso = scene.isoLevel + scene.isoVel * dt
+  mut nextVel = scene.isoVel
+  if nextIso > 0.76:
+    nextIso = 0.76
+    nextVel = -0.8
+  if nextIso < 0.24:
+    nextIso = 0.24
+    nextVel = 0.8
+  scene.isoLevel = nextIso
+  scene.isoVel = nextVel
+  scene.isoSegments = marchingSquaresExtract(scene.field2D, nextIso, 80.0)
+  scene.meshTriangles = marchingCubesExtract(scene.field3D, nextIso, 260.0)
+
+pub fn auditProcgenMarchingIsosurfaces(): int:
+  let sf2 = ScalarField2D(
+    width = 3,
+    height = 3,
+    values = [
+      0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0,
+      0.0, 0.0, 0.0
+    ]
+  )
+  let isoSegs = marchingSquaresExtract(sf2, 0.5, 40.0)
+  let sf3 = ScalarField3D(width = 2, height = 2, depth = 2, values = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+  let tris = marchingCubesExtract(sf3, 0.5, 10.0)
+  ret isoSegs.len() * 10 + tris.len()
+
+pub fn main(): int:
+  let audit = auditProcgenMarchingIsosurfaces()
+  println("EX_236_PROCGEN_MARCHING_AUDIT=" + str(audit))
+
+  mut scene = createMarchingScene()
+
+  initWindow(1280, 720, "AIPL ex_236: Marching Squares Contours & Marching Cubes Isosurfaces")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.03)
+    let tri0: MeshTriangle3D = scene.meshTriangles[0]
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_236: MARCHING SQUARES ISOLINE CONTOURS & MARCHING CUBES ISOSURFACE", 52.0, 36.0, 21.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | IsoLevel=" + str(int(scene.isoLevel * 100.0)) + "c | 2D Segments=" + str(scene.isoSegments.len()) + " | 3D Triangles=" + str(scene.meshTriangles.len()), 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    // Left Panel: 2D Scalar Field & Marching Squares Contour
+    drawRect(44.0, 108.0, 576.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(44.0, 108.0, 576.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("2D SCALAR FIELD (5x5) & MARCHING SQUARES ISOLINE", 72.0, 132.0, 16.0, rgb(125, 211, 252))
+
+    // Draw 4x4 grid lines first
+    mut gl = 0
+    while gl < 5:
+      let gxLine = 172.0 + float(gl * 80)
+      let gyLine = 216.0 + float(gl * 80)
+      drawLine(gxLine, 216.0, gxLine, 536.0, rgb(30, 41, 59), 2.0)
+      drawLine(172.0, gyLine, 492.0, gyLine, rgb(30, 41, 59), 2.0)
+      gl = gl + 1
+
+    mut gy = 0
+    while gy < 5:
+      mut gx = 0
+      while gx < 5:
+        let val = scene.field2D.values[gy * 5 + gx]
+        let sx = 172.0 + float(gx * 80)
+        let sy = 216.0 + float(gy * 80)
+        if val >= scene.isoLevel:
+          drawCircle(sx, sy, 9.0, rgb(16, 185, 129))
+        else:
+          drawCircle(sx, sy, 6.0, rgb(71, 85, 105))
+        let vStr = if val >= 0.99: "1.0" else: "0." + str(int(val * 10.0))
+        drawText(vStr, sx - 26.0, sy - 20.0, 12.0, rgb(148, 163, 184))
+        gx = gx + 1
+      gy = gy + 1
+
+    mut sIdx = 0
+    while sIdx < scene.isoSegments.len():
+      let seg: IsolineSegment2D = scene.isoSegments[sIdx]
+      let x0 = 172.0 + seg.startPoint.x
+      let y0 = 216.0 + seg.startPoint.y
+      let x1 = 172.0 + seg.endPoint.x
+      let y1 = 216.0 + seg.endPoint.y
+      drawLine(x0, y0, x1, y1, rgb(250, 204, 21), 4.0)
+      drawCircle(x0, y0, 4.5, rgb(56, 189, 248))
+      drawCircle(x1, y1, 4.5, rgb(56, 189, 248))
+      sIdx = sIdx + 1
+
+    drawText("Green Node: > IsoLevel | Yellow Loop: Linearly Interpolated Isoline", 72.0, 646.0, 14.0, rgb(148, 163, 184))
+
+    // Right Panel: 3D Marching Cubes Voxel Corner Triangle Extraction
+    drawRect(652.0, 108.0, 596.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(652.0, 108.0, 596.0, 576.0, 2.0, rgb(168, 85, 247))
+    drawText("3D MARCHING CUBES VOXEL CELL & ISOSURFACE TRIANGLE", 682.0, 132.0, 16.0, rgb(216, 180, 254))
+
+    // 3D Voxel Cube (front face at (760, 260), size 240x240; back face offset by (+96, -68))
+    let fx = 760.0
+    let fy = 268.0
+    let cs = 240.0
+    let bx = fx + 96.0
+    let by = fy - 68.0
+
+    // Back face & depth edges
+    drawRectOutline(bx, by, cs, cs, 2.0, rgb(51, 65, 85))
+    drawLine(fx, fy, bx, by, rgb(71, 85, 105), 2.0)
+    drawLine(fx + cs, fy, bx + cs, by, rgb(71, 85, 105), 2.0)
+    drawLine(fx, fy + cs, bx, by + cs, rgb(71, 85, 105), 2.0)
+    drawLine(fx + cs, fy + cs, bx + cs, by + cs, rgb(71, 85, 105), 2.0)
+
+    // Interpolated 3D triangle vertices along the 3 edges meeting at corner (fx, fy):
+    // Edge +X: (fx + t, fy)
+    // Edge +Y: (fx, fy + t)
+    // Edge +Z: (fx + ratio * 96, fy - ratio * 68)
+    let ratio = tri0.v0.x / 260.0
+    let pxX = fx + ratio * cs
+    let pyX = fy
+    let pxY = fx
+    let pyY = fy + ratio * cs
+    let pxZ = fx + ratio * 96.0
+    let pyZ = fy - ratio * 68.0
+
+    drawTriangle(pxY, pyY, pxX, pyX, pxZ, pyZ, rgb(168, 85, 247))
+    drawLine(pxX, pyX, pxY, pyY, rgb(244, 114, 182), 3.0)
+    drawLine(pxY, pyY, pxZ, pyZ, rgb(244, 114, 182), 3.0)
+    drawLine(pxZ, pyZ, pxX, pyX, rgb(244, 114, 182), 3.0)
+    drawCircle(pxX, pyX, 5.0, rgb(250, 204, 21))
+    drawCircle(pxY, pyY, 5.0, rgb(250, 204, 21))
+    drawCircle(pxZ, pyZ, 5.0, rgb(250, 204, 21))
+
+    // Triangle centroid & 3D surface normal arrow
+    let cxTri = (pxX + pxY + pxZ) / 3.0
+    let cyTri = (pyX + pyY + pyZ) / 3.0
+    drawLine(cxTri, cyTri, cxTri + 44.0, cyTri + 32.0, rgb(52, 211, 153), 3.0)
+    drawCircle(cxTri + 44.0, cyTri + 32.0, 4.0, rgb(52, 211, 153))
+
+    // Front face & active corner v000
+    drawRectOutline(fx, fy, cs, cs, 2.0, rgb(148, 163, 184))
+    drawCircle(fx, fy, 10.0, rgb(239, 68, 68))
+    drawText("v000 = 1.0", fx - 76.0, fy - 18.0, 14.0, rgb(248, 113, 113))
+
+    drawText("Edge Interpolation Ratio: " + str(int(ratio * 100.0)) + "% (v0.x=" + str(int(tri0.v0.x)) + ")", 682.0, 560.0, 15.0, rgb(226, 232, 240))
+    drawText("Normal: (0.577, 0.577, 0.577) | Case Index: #1 (1 active corner)", 682.0, 590.0, 14.0, rgb(52, 211, 153))
+    drawText("Red Corner: Inside (1.0) | Yellow Dots: Edge Zero-Crossings", 682.0, 646.0, 14.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,167 @@
+module InputActionMapMod
+
+// ============================================================================
+// std/input/action_map.aipl — Semantic Input Action Mapping Across Devices
+// ============================================================================
+
+import { KeyboardState, isKeyDown, hasModifier } from "./keyboard"
+import { MouseState, isMouseButtonDown } from "./mouse"
+import { GamepadState, isGamepadButtonDown } from "./gamepad"
+
+pub const DEVICE_KEYBOARD: int = 0
+pub const DEVICE_MOUSE: int = 1
+pub const DEVICE_GAMEPAD: int = 2
+pub const DEVICE_TOUCH: int = 3
+
+pub struct ActionBinding(device: int, inputCode: int, isAxis: bool, axisMultiplier: float, requiredModifiers: int)
+
+pub struct InputAction(actionName: str, bindings: [ActionBinding], value: float, isPressed: bool, justPressed: bool, justReleased: bool)
+
+pub struct InputActionMap(actions: Map[str, InputAction])
+
+pub fn createActionMap(): InputActionMap:
+  mut m: Map[str, InputAction] = Map.new()
+  ret InputActionMap(actions = m)
+
+fn getOrCreateAction(map: InputActionMap, actionName: str): InputAction:
+  if map.actions.containsKey(actionName):
+    ret map.actions.get(actionName).unwrap()
+  mut empty: [ActionBinding] = []
+  ret InputAction(
+    actionName = actionName,
+    bindings = empty,
+    value = 0.0,
+    isPressed = false,
+    justPressed = false,
+    justReleased = false
+  )
+
+pub fn bindActionKey(map: InputActionMap, actionName: str, keyCode: int, modifiers: int = 0): InputActionMap:
+  mut m = map.actions
+  let act = getOrCreateAction(map, actionName)
+  mut b = act.bindings
+  b.push(ActionBinding(
+    device = DEVICE_KEYBOARD,
+    inputCode = keyCode,
+    isAxis = false,
+    axisMultiplier = 1.0,
+    requiredModifiers = modifiers
+  ))
+  m.set(actionName, InputAction(
+    actionName = actionName,
+    bindings = b,
+    value = act.value,
+    isPressed = act.isPressed,
+    justPressed = act.justPressed,
+    justReleased = act.justReleased
+  ))
+  ret InputActionMap(actions = m)
+
+pub fn bindActionButton(map: InputActionMap, actionName: str, gamepadButton: int): InputActionMap:
+  mut m = map.actions
+  let act = getOrCreateAction(map, actionName)
+  mut b = act.bindings
+  b.push(ActionBinding(
+    device = DEVICE_GAMEPAD,
+    inputCode = gamepadButton,
+    isAxis = false,
+    axisMultiplier = 1.0,
+    requiredModifiers = 0
+  ))
+  m.set(actionName, InputAction(
+    actionName = actionName,
+    bindings = b,
+    value = act.value,
+    isPressed = act.isPressed,
+    justPressed = act.justPressed,
+    justReleased = act.justReleased
+  ))
+  ret InputActionMap(actions = m)
+
+pub fn bindActionAxis(map: InputActionMap, actionName: str, device: int, axisCode: int, scale: float = 1.0): InputActionMap:
+  mut m = map.actions
+  let act = getOrCreateAction(map, actionName)
+  mut b = act.bindings
+  b.push(ActionBinding(
+    device = device,
+    inputCode = axisCode,
+    isAxis = true,
+    axisMultiplier = scale,
+    requiredModifiers = 0
+  ))
+  m.set(actionName, InputAction(
+    actionName = actionName,
+    bindings = b,
+    value = act.value,
+    isPressed = act.isPressed,
+    justPressed = act.justPressed,
+    justReleased = act.justReleased
+  ))
+  ret InputActionMap(actions = m)
+
+fn absFloatAction(v: float): float:
+  if v < 0.0:
+    ret -v
+  ret v
+
+pub fn evaluateActionMap(map: InputActionMap, kbd: KeyboardState, mouse: MouseState, pad: GamepadState): InputActionMap:
+  mut m = map.actions
+  let names = m.keys()
+  mut i = 0
+  while i < names.len:
+    let name = names[i]
+    let act = m.get(name).unwrap()
+    let prevPressed = act.isPressed
+    mut bestVal = 0.0
+    mut pressed = false
+    mut j = 0
+    while j < act.bindings.len:
+      let b = act.bindings[j]
+      if b.device == DEVICE_KEYBOARD and not b.isAxis:
+        let modOk = if b.requiredModifiers == 0: true else: hasModifier(kbd, b.requiredModifiers)
+        if modOk and isKeyDown(kbd, b.inputCode):
+          pressed = true
+          bestVal = 1.0 * b.axisMultiplier
+      elif b.device == DEVICE_MOUSE and not b.isAxis:
+        if isMouseButtonDown(mouse, b.inputCode):
+          pressed = true
+          bestVal = 1.0 * b.axisMultiplier
+      elif b.device == DEVICE_GAMEPAD and not b.isAxis:
+        if isGamepadButtonDown(pad, b.inputCode):
+          pressed = true
+          bestVal = 1.0 * b.axisMultiplier
+      elif b.device == DEVICE_GAMEPAD and b.isAxis:
+        let rawAxis = if b.inputCode == 0: pad.leftStick.x else: (if b.inputCode == 1: pad.leftStick.y else: (if b.inputCode == 2: pad.rightStick.x else: pad.rightStick.y))
+        let scaled = rawAxis * b.axisMultiplier
+        if absFloatAction(scaled) > absFloatAction(bestVal):
+          bestVal = scaled
+        if absFloatAction(scaled) > 0.1:
+          pressed = true
+      j += 1
+    let jp = pressed and not prevPressed
+    let jr = (not pressed) and prevPressed
+    m.set(name, InputAction(
+      actionName = name,
+      bindings = act.bindings,
+      value = bestVal,
+      isPressed = pressed,
+      justPressed = jp,
+      justReleased = jr
+    ))
+    i += 1
+  ret InputActionMap(actions = m)
+
+pub fn getActionValue(map: InputActionMap, actionName: str): float:
+  if map.actions.containsKey(actionName):
+    ret map.actions.get(actionName).unwrap().value
+  ret 0.0
+
+pub fn isActionPressed(map: InputActionMap, actionName: str): bool:
+  if map.actions.containsKey(actionName):
+    ret map.actions.get(actionName).unwrap().isPressed
+  ret false
+
+pub fn isActionJustPressed(map: InputActionMap, actionName: str): bool:
+  if map.actions.containsKey(actionName):
+    ret map.actions.get(actionName).unwrap().justPressed
+  ret false

@@ -1,0 +1,236 @@
+// ============================================================================
+// Module: std/collections/deque (Deque)
+// Layer 1 (Core Primitives & Math) — Double-Ended Queue & Circular Ring Queue
+// ============================================================================
+module DequeMod
+
+pub struct Deque[T]:
+  front: [T]
+  back: [T]
+
+pub struct CircularRingQueue[T]:
+  buffer: [T]
+  head: int
+  tail: int
+  capacity: int
+  count: int
+
+pub struct UndoStack:
+  past: [any]
+  future: [any]
+  maxDepth: int
+
+pub fn dequeNew[T](): Deque[T]:
+  let f: [T] = []
+  let b: [T] = []
+  ret Deque(front = f, back = b)
+
+pub fn (mut self: Deque[T]) pushFront(item: T): void:
+  self.front.push(item)
+
+pub fn (mut self: Deque[T]) pushBack(item: T): void:
+  self.back.push(item)
+
+pub fn (mut self: Deque[T]) popFront(): Option[T]:
+  if self.front.len > 0:
+    let v = self.front.pop()
+    ret Some(v)
+  if self.back.len == 0:
+    ret None
+  let first = self.back[0]
+  mut nextBack: [T] = []
+  for i in 1..self.back.len:
+    nextBack.push(self.back[i])
+  self.back = nextBack
+  ret Some(first)
+
+pub fn (mut self: Deque[T]) popBack(): Option[T]:
+  if self.back.len > 0:
+    let v = self.back.pop()
+    ret Some(v)
+  if self.front.len == 0:
+    ret None
+  let first = self.front[0]
+  mut nextFront: [T] = []
+  for i in 1..self.front.len:
+    nextFront.push(self.front[i])
+  self.front = nextFront
+  ret Some(first)
+
+pub fn (self: Deque[T]) peekFront(): Option[T]:
+  if self.front.len > 0:
+    ret Some(self.front[self.front.len - 1])
+  if self.back.len > 0:
+    ret Some(self.back[0])
+  ret None
+
+pub fn (self: Deque[T]) peekBack(): Option[T]:
+  if self.back.len > 0:
+    ret Some(self.back[self.back.len - 1])
+  if self.front.len > 0:
+    ret Some(self.front[0])
+  ret None
+
+pub fn (self: Deque[T]) len(): int:
+  ret self.front.len + self.back.len
+
+pub fn (self: Deque[T]) isEmpty(): bool:
+  ret (self.front.len + self.back.len) == 0
+
+pub fn (mut self: Deque[T]) clear(): void:
+  let f: [T] = []
+  let b: [T] = []
+  self.front = f
+  self.back = b
+
+pub fn (self: Deque[T]) toArray(): [T]:
+  mut out: [T] = []
+  mut i = self.front.len - 1
+  while i >= 0:
+    out.push(self.front[i])
+    i = i - 1
+  for j in 0..self.back.len:
+    out.push(self.back[j])
+  ret out
+
+// Function-style Deque wrappers for backward compatibility
+pub fn dequeLen[T](d: Deque[T]): int:
+  ret d.len()
+
+pub fn dequeIsEmpty[T](d: Deque[T]): bool:
+  ret d.isEmpty()
+
+pub fn dequePushBack[T](mut d: Deque[T], item: T): Deque[T]:
+  d.pushBack(item)
+  ret d
+
+pub fn dequePushFront[T](mut d: Deque[T], item: T): Deque[T]:
+  d.pushFront(item)
+  ret d
+
+pub fn dequePopBack[T](mut d: Deque[T]): Option[T]:
+  ret d.popBack()
+
+pub fn dequePopFront[T](mut d: Deque[T]): Option[T]:
+  ret d.popFront()
+
+pub fn dequePeekFront[T](d: Deque[T]): Option[T]:
+  ret d.peekFront()
+
+pub fn dequePeekBack[T](d: Deque[T]): Option[T]:
+  ret d.peekBack()
+
+pub fn dequeToArray[T](d: Deque[T]): [T]:
+  ret d.toArray()
+
+// CircularRingQueue[T]
+pub fn circularRingQueueNew[T](capacity: int): CircularRingQueue[T]:
+  mut cap = capacity
+  if cap < 1:
+    cap = 1
+  let buf: [T] = []
+  ret CircularRingQueue(buffer = buf, head = 0, tail = 0, capacity = cap, count = 0)
+
+pub fn (mut self: CircularRingQueue[T]) enqueue(item: T): bool:
+  if self.count >= self.capacity:
+    ret false
+  if self.buffer.len < self.capacity:
+    self.buffer.push(item)
+  else:
+    self.buffer[self.tail] = item
+  self.tail = (self.tail + 1) % self.capacity
+  self.count = self.count + 1
+  ret true
+
+pub fn (mut self: CircularRingQueue[T]) dequeue(): Option[T]:
+  if self.count == 0:
+    ret None
+  let v = self.buffer[self.head]
+  self.head = (self.head + 1) % self.capacity
+  self.count = self.count - 1
+  ret Some(v)
+
+pub fn (self: CircularRingQueue[T]) len(): int:
+  ret self.count
+
+pub fn (self: CircularRingQueue[T]) isEmpty(): bool:
+  ret self.count == 0
+
+pub fn (self: CircularRingQueue[T]) isFull(): bool:
+  ret self.count >= self.capacity
+
+pub fn ringBufferNew[T](capacity: int): CircularRingQueue[T]:
+  ret circularRingQueueNew[T](capacity)
+
+pub fn ringBufferLen[T](rb: CircularRingQueue[T]): int:
+  ret rb.count
+
+pub fn ringBufferIsEmpty[T](rb: CircularRingQueue[T]): bool:
+  ret rb.count == 0
+
+pub fn ringBufferPush[T](mut rb: CircularRingQueue[T], item: T): CircularRingQueue[T]:
+  if rb.buffer.len < rb.capacity:
+    rb.buffer.push(item)
+  else:
+    rb.buffer[rb.tail] = item
+  rb.tail = (rb.tail + 1) % rb.capacity
+  if rb.count < rb.capacity:
+    rb.count = rb.count + 1
+  else:
+    rb.head = (rb.head + 1) % rb.capacity
+  ret rb
+
+pub fn ringBufferGet[T](rb: CircularRingQueue[T], idx: int): Option[T]:
+  if idx < 0 or idx >= rb.count:
+    ret None
+  let realIdx = (rb.head + idx) % rb.capacity
+  ret Some(rb.buffer[realIdx])
+
+pub fn ringBufferToArray[T](rb: CircularRingQueue[T]): [T]:
+  mut out: [T] = []
+  mut i = 0
+  while i < rb.count:
+    let realIdx = (rb.head + i) % rb.capacity
+    out.push(rb.buffer[realIdx])
+    i = i + 1
+  ret out
+
+// UndoStack bounded history
+pub fn undoStackNew(maxDepth: int = 50): UndoStack:
+  mut md = maxDepth
+  if md < 1:
+    md = 1
+  let p: [any] = []
+  let f: [any] = []
+  ret UndoStack(past = p, future = f, maxDepth = md)
+
+pub fn undoCanUndo(us: UndoStack): bool:
+  ret us.past.len > 0
+
+pub fn undoCanRedo(us: UndoStack): bool:
+  ret us.future.len > 0
+
+pub fn undoPush(mut us: UndoStack, item: any): UndoStack:
+  us.past.push(item)
+  if us.past.len > us.maxDepth:
+    mut nextPast: [any] = []
+    for i in 1..us.past.len:
+      nextPast.push(us.past[i])
+    us.past = nextPast
+  let emptyF: [any] = []
+  us.future = emptyF
+  ret us
+
+pub fn undoStep(mut us: UndoStack): Option[any]:
+  if us.past.len == 0:
+    ret None
+  let item = us.past.pop()
+  us.future.push(item)
+  ret Some(item)
+
+pub fn redoStep(mut us: UndoStack): Option[any]:
+  if us.future.len == 0:
+    ret None
+  let item = us.future.pop()
+  us.past.push(item)
+  ret Some(item)

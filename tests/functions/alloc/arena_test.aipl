@@ -1,0 +1,83 @@
+// ============================================================================
+// Step 4.2: Exhaustive Per-Function Unit Tests for std/alloc/arena.aipl (14)
+// Target: tests/functions/alloc/arena_test.aipl
+// ============================================================================
+module ArenaTest
+
+import {
+  assert,
+  assertEqInt,
+  assertEqStr
+} from "../../../std/prelude.aipl"
+
+import {
+  ArenaScope,
+  ArenaStats,
+  arenaMark,
+  arenaReset,
+  arenaAllocatedBytes,
+  arenaAlloc,
+  arenaActiveDepth,
+  arenaPopEvacuate,
+  arenaStats,
+  arenaStatsStruct,
+  withScratchArena,
+  arenaScopeBegin,
+  arenaScopeEnd,
+  mapNewIn,
+  arrayNewIn,
+  arenaAllocStrIn
+} from "../../../std/alloc/arena.aipl"
+
+pub fn test_arena_core_lifecycle(): int:
+  let m0 = arenaMark()
+  assert(m0 >= 0, "arenaMark >= 0")
+
+  let a1 = arenaAlloc(64)
+  assert(a1 >= 0, "arenaAlloc 64 bytes")
+
+  let bytes = arenaAllocatedBytes()
+  assert(bytes >= 0, "arenaAllocatedBytes >= 0")
+
+  let depth = arenaActiveDepth()
+  assert(depth >= 0, "arenaActiveDepth >= 0")
+
+  let resetRes = arenaReset(m0)
+  assertEqInt(resetRes, m0, "arenaReset returns mark")
+
+  let evacuated = arenaPopEvacuate(m0, 12345)
+  assertEqInt(evacuated, 12345, "arenaPopEvacuate returns value")
+  ret 0
+
+pub fn test_arena_telemetry_and_scopes(): int:
+  let stMap = arenaStats()
+  assert(stMap.has("allocated") == true, "arenaStats has allocated")
+  assert(stMap.has("peak") == true, "arenaStats has peak")
+
+  let st = arenaStatsStruct()
+  assert(st.allocatedBytes >= 0, "statsStruct allocatedBytes >= 0")
+
+  let scratchAlloc = withScratchArena(128)
+  assert(scratchAlloc >= 0, "withScratchArena returns allocated size")
+
+  let sc = arenaScopeBegin()
+  assert(sc.mark >= 0, "scope mark >= 0")
+
+  let scopedMap = mapNewIn(sc)
+  scopedMap.set("key", "val")
+  assertEqStr(scopedMap.get("key").unwrap(), "val", "scopedMap lookup")
+
+  let scopedArr: [int] = arrayNewIn(sc, 8)
+  assertEqInt(scopedArr.len(), 0, "scopedArr initialized")
+
+  let interned = arenaAllocStrIn(sc, "hello_arena")
+  assertEqStr(interned, "hello_arena", "arenaAllocStrIn string equality")
+
+  assertEqInt(arenaScopeEnd(sc), sc.mark, "arenaScopeEnd resets to scope mark")
+  ret 0
+
+pub fn main(): int:
+  test_arena_core_lifecycle()
+  test_arena_telemetry_and_scopes()
+  println("PASS: arena_test")
+  ret 0

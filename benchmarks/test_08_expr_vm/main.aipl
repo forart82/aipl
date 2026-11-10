@@ -1,0 +1,36 @@
+fn precedence(op) = if op in ["*", "/"]: 3 else if op in ["+", "-"]: 2 else if op in [">", "=="]: 1 else: 0
+
+fn compileInfixToRpn(expr):
+  mut out = []
+  mut ops = []
+  for tok in expr.words():
+    if tok == "(":
+      ops.push(tok)
+    else if tok == ")":
+      while ops.len > 0 and ops.last != "(":
+        out.push(ops.pop())
+      ops.pop()
+    else if precedence(tok) > 0:
+      while ops.len > 0 and precedence(ops.last) >= precedence(tok):
+        out.push(ops.pop())
+      ops.push(tok)
+    else:
+      out.push(tok)
+  ret out + ops.reverse()
+
+fn evalRpnVm(tokens, env):
+  mut st = []
+  for tok in tokens:
+    if precedence(tok) > 0:
+      let b = st.pop()
+      let a = st.pop()
+      st.push(if tok == "+": a + b else if tok == "-": a - b else if tok == "*": a * b else if tok == "/": a / b else if tok == ">": int(a > b) else: int(a == b))
+    else:
+      st.push(env[tok] ?? int(tok))
+  ret st.last
+
+let env = {"x": 12, "y": 5}
+let v1 = evalRpnVm(compileInfixToRpn("( x + y * 4 ) - 2"), env)
+let v2 = evalRpnVm(compileInfixToRpn("x * 2 > y + 10"), env)
+assert(v1 == 30 and v2 == 1)
+println("v1={v1} v2={v2}\nBENCH_08_OK")

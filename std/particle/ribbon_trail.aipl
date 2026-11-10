@@ -1,0 +1,160 @@
+/// # Module: `std/particle/ribbon_trail` (`RibbonTrailMod`)
+///
+/// ## Purpose & Domain Scope
+/// Connected camera-facing quad strips generating smooth ribbon trails
+/// behind moving projectiles, weapon sweeps, and energy beams.
+module RibbonTrailMod
+
+import { EPSILON, maxFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec2, Vec3 } from "std/math/vec_math"
+import { ColorRgba8 } from "std/gfx/color"
+
+fn distRibbonVec3(a: Vec3, b: Vec3): float:
+  let dx = a.x - b.x
+  let dy = a.y - b.y
+  let dz = a.z - b.z
+  ret sqrt(dx * dx + dy * dy + dz * dz)
+
+fn normRibbonVec3(x: float, y: float, z: float, defX: float, defY: float, defZ: float): Vec3:
+  let lsq = x * x + y * y + z * z
+  if lsq > EPSILON:
+    let inv = 1.0 / sqrt(lsq)
+    ret Vec3(x = x * inv, y = y * inv, z = z * inv)
+  ret Vec3(x = defX, y = defY, z = defZ)
+
+pub struct RibbonNode(position: Vec3, normal: Vec3, width: float, ageSec: float)
+
+pub struct RibbonTrail(nodes: [RibbonNode], maxNodes: int, lifetimeSec: float, minDistance: float)
+
+pub struct RibbonMeshVertex(pos: Vec3, uv: Vec2, color: ColorRgba8)
+
+pub fn createRibbonTrail(maxNodes: int = 64, lifetimeSec: float = 1.0, minDistance: float = 0.1): RibbonTrail:
+  mut emptyNodes: [RibbonNode] = []
+  ret RibbonTrail(
+    nodes = emptyNodes,
+    maxNodes = if maxNodes >= 2: maxNodes else: 2,
+    lifetimeSec = maxFloat(lifetimeSec, 0.001),
+    minDistance = maxFloat(minDistance, 0.0)
+  )
+
+pub fn pushRibbonPosition(trail: RibbonTrail, pos: Vec3, width: float): RibbonTrail:
+  let count = trail.nodes.len
+  if count > 0:
+    let lastPos = trail.nodes[count - 1].position
+    if distRibbonVec3(pos, lastPos) < trail.minDistance:
+      ret trail
+
+  mut nextNodes: [RibbonNode] = []
+  let startIdx = if count >= trail.maxNodes: count - trail.maxNodes + 1 else: 0
+  mut i = startIdx
+  while i < count:
+    nextNodes.push(trail.nodes[i])
+    i = i + 1
+
+  nextNodes.push(RibbonNode(
+    position = pos,
+    normal = Vec3(x = 0.0, y = 1.0, z = 0.0),
+    width = maxFloat(width, 0.0),
+    ageSec = 0.0
+  ))
+
+  ret RibbonTrail(
+    nodes = nextNodes,
+    maxNodes = trail.maxNodes,
+    lifetimeSec = trail.lifetimeSec,
+    minDistance = trail.minDistance
+  )
+
+pub fn updateRibbonTrail(trail: RibbonTrail, dt: float): RibbonTrail:
+  mut activeNodes: [RibbonNode] = []
+  mut i = 0
+  while i < trail.nodes.len:
+    let n = trail.nodes[i]
+    let nextAge = n.ageSec + dt
+    if nextAge < trail.lifetimeSec:
+      activeNodes.push(RibbonNode(
+        position = n.position,
+        normal = n.normal,
+        width = n.width,
+        ageSec = nextAge
+      ))
+    i = i + 1
+
+  ret RibbonTrail(
+    nodes = activeNodes,
+    maxNodes = trail.maxNodes,
+    lifetimeSec = trail.lifetimeSec,
+    minDistance = trail.minDistance
+  )
+
+pub fn generateRibbonQuadStrip(trail: RibbonTrail, cameraPos: Vec3, color: ColorRgba8): [RibbonMeshVertex]:
+  let count = trail.nodes.len
+  if count < 2:
+    ret []
+
+  mut verts: [RibbonMeshVertex] = []
+  let denom = float(count - 1)
+
+  mut i = 0
+  while i < count:
+    let node: RibbonNode = trail.nodes[i]
+    let nodePos: Vec3 = node.position
+    let prevIdx: int = if i > 0: i - 1 else: 0
+    let tRawX: float = if i + 1 < count: trail.nodes[i + 1].position.x - nodePos.x else: nodePos.x - trail.nodes[prevIdx].position.x
+    let tRawY: float = if i + 1 < count: trail.nodes[i + 1].position.y - nodePos.y else: nodePos.y - trail.nodes[prevIdx].position.y
+    let tRawZ: float = if i + 1 < count: trail.nodes[i + 1].position.z - nodePos.z else: nodePos.z - trail.nodes[prevIdx].position.z
+    let tangent: Vec3 = normRibbonVec3(tRawX, tRawY, tRawZ, 0.0, 0.0, 1.0)
+
+    let viewDir: Vec3 = normRibbonVec3(cameraPos.x - nodePos.x, cameraPos.y - nodePos.y, cameraPos.z - nodePos.z, 0.0, 1.0, 0.0)
+
+    let cx = tangent.y * viewDir.z - tangent.z * viewDir.y
+    let cy = tangent.z * viewDir.x - tangent.x * viewDir.z
+    let cz = tangent.x * viewDir.y - tangent.y * viewDir.x
+    let side: Vec3 = normRibbonVec3(cx, cy, cz, 1.0, 0.0, 0.0)
+    let halfW = node.width * 0.5
+    let offX = side.x * halfW
+    let offY = side.y * halfW
+    let offZ = side.z * halfW
+
+    let u = float(i) / denom
+    verts.push(RibbonMeshVertex(
+      pos = Vec3(x = nodePos.x - offX, y = nodePos.y - offY, z = nodePos.z - offZ),
+      uv = Vec2(x = u, y = 0.0),
+      color = color
+    ))
+    verts.push(RibbonMeshVertex(
+      pos = Vec3(x = nodePos.x + offX, y = nodePos.y + offY, z = nodePos.z + offZ),
+      uv = Vec2(x = u, y = 1.0),
+      color = color
+    ))
+    i = i + 1
+
+  ret verts
+
+pub fn clearRibbonTrail(trail: RibbonTrail): RibbonTrail:
+  mut empty: [RibbonNode] = []
+  ret RibbonTrail(
+    nodes = empty,
+    maxNodes = trail.maxNodes,
+    lifetimeSec = trail.lifetimeSec,
+    minDistance = trail.minDistance
+  )
+
+pub fn ribbonTrailLength(trail: RibbonTrail): float:
+  if trail.nodes.len < 2:
+    ret 0.0
+  mut total = 0.0
+  mut i = 0
+  while i < trail.nodes.len - 1:
+    let p0 = trail.nodes[i].position
+    let p1 = trail.nodes[i + 1].position
+    total = total + distRibbonVec3(p0, p1)
+    i = i + 1
+  ret total
+
+pub fn fxUpdateParticleTrailNodeX(prevX: float, targetX: float, followFactor: float): float:
+  ret prevX + (targetX - prevX) * followFactor
+
+pub fn fxUpdateParticleTrailNodeY(prevY: float, targetY: float, followFactor: float): float:
+  ret prevY + (targetY - prevY) * followFactor

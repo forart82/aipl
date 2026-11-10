@@ -1,0 +1,62 @@
+module tests.functions.ecs.archetype_test
+
+import * from "std/ecs/archetype"
+import { EntityId } from "std/ecs/entity"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_archetype_createArchetypeTable_1(): int:
+  let arg_signatureMask = 4
+  let edge_signatureMask = 1
+  let arg_componentIds = [4]
+  let edge_componentIds = []
+  let resNom = createArchetypeTable(arg_signatureMask, arg_componentIds)
+  let resEdge = createArchetypeTable(edge_signatureMask, edge_componentIds)
+  assertEqInt(resNom.signatureMask, 4, "createArchetypeTable nominal resNom.signatureMask == 4")
+  assertEqInt(resEdge.signatureMask, 1, "createArchetypeTable boundary resEdge.signatureMask == 1")
+  ret 0
+
+pub fn test_archetype_insertArchetypeRow_2(): int:
+  let arg_table = ArchetypeTable(signatureMask = 4, entities = [], columns = [])
+  let edge_table = ArchetypeTable(signatureMask = 1, entities = [], columns = [])
+  let arg_entity = EntityId(index = 0, generation = 4)
+  let edge_entity = EntityId(index = 0, generation = 1)
+  let arg_initialValues = [1.0]
+  let edge_initialValues = []
+  let resNom = insertArchetypeRow(arg_table, arg_entity, arg_initialValues)
+  let resEdge = insertArchetypeRow(edge_table, edge_entity, edge_initialValues)
+  assertEqInt(resNom.signatureMask, 4, "insertArchetypeRow nominal resNom.signatureMask == 4")
+  assertEqInt(resEdge.signatureMask, 1, "insertArchetypeRow boundary resEdge.signatureMask == 1")
+  ret 0
+
+pub fn test_archetype_swapRemoveArchetypeRow_3(): int:
+  let arg_table = ArchetypeTable(signatureMask = 4, entities = [], columns = [])
+  let edge_table = ArchetypeTable(signatureMask = 1, entities = [], columns = [])
+  let arg_rowIndex = 4
+  let edge_rowIndex = 1
+  let resNom = swapRemoveArchetypeRow(arg_table, arg_rowIndex)
+  let resEdge = swapRemoveArchetypeRow(edge_table, edge_rowIndex)
+  assertEqInt(resNom.signatureMask, 4, "swapRemoveArchetypeRow nominal resNom.signatureMask == 4")
+  assertEqInt(resEdge.signatureMask, 1, "swapRemoveArchetypeRow boundary resEdge.signatureMask == 1")
+  ret 0
+
+pub fn test_archetype_migrateEntityBetweenArchetypes_4(): int:
+  let arg_src = ArchetypeTable(signatureMask = 4, entities = [], columns = [])
+  let edge_src = ArchetypeTable(signatureMask = 1, entities = [], columns = [])
+  let arg_dst = ArchetypeTable(signatureMask = 4, entities = [], columns = [])
+  let edge_dst = ArchetypeTable(signatureMask = 1, entities = [], columns = [])
+  let arg_rowIndex = 4
+  let edge_rowIndex = 1
+  let resNom = migrateEntityBetweenArchetypes(arg_src, arg_dst, arg_rowIndex)
+  let resEdge = migrateEntityBetweenArchetypes(edge_src, edge_dst, edge_rowIndex)
+  let (n_t0, n_t1, n_t2) = resNom
+  let (e_t0, e_t1, e_t2) = resEdge
+  assertEqInt(n_t0.signatureMask, 4, "migrateEntityBetweenArchetypes nominal n_t0.signatureMask == 4")
+  assertEqInt(e_t0.signatureMask, 1, "migrateEntityBetweenArchetypes boundary e_t0.signatureMask == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_archetype_createArchetypeTable_1(), 0, "test_archetype_createArchetypeTable_1")
+  assertEqInt(test_archetype_insertArchetypeRow_2(), 0, "test_archetype_insertArchetypeRow_2")
+  assertEqInt(test_archetype_swapRemoveArchetypeRow_3(), 0, "test_archetype_swapRemoveArchetypeRow_3")
+  assertEqInt(test_archetype_migrateEntityBetweenArchetypes_4(), 0, "test_archetype_migrateEntityBetweenArchetypes_4")
+  ret 0

@@ -1,0 +1,62 @@
+// ============================================================================
+// Canonical Example 117: Thread Spawning & Thread-Local Context Propagation (CLI)
+// Target Profile: CLI | Standard Library Module: std/thread
+// ============================================================================
+module Ex117ThreadLocalContextPropagationCli
+
+import {
+  ThreadConfig,
+  threadHardwareConcurrency,
+  threadCurrentId,
+  threadYield,
+  threadSleepMs,
+  threadSpawn,
+  threadSpawnWithConfig,
+  threadJoin,
+  threadLocalNew,
+  threadLocalGet,
+  threadLocalSet,
+  threadLocalClear
+} from "../std/thread/thread_mod.aipl"
+import { maxInt } from "../std/std_root.aipl"
+
+pub fn evaluateThreadJoinAndTlsContextSum(): int:
+  let th1 = threadSpawn(1, 42).unwrap()
+  let res1 = threadJoin(th1).unwrap()
+
+  let cfg = ThreadConfig(name = "worker-tls", stackSizeBytes = 1048576)
+  let th2 = threadSpawnWithConfig(cfg, 2, 99).unwrap()
+  let res2 = threadJoin(th2).unwrap()
+
+  mut tl = threadLocalNew(7)
+  assert(threadLocalGet(tl) == 7, "initial TLS value")
+  threadLocalSet(tl, 88)
+  let tlsVal = threadLocalGet(tl)
+  ret res1 + res2 + tlsVal
+
+pub fn verifyThreadLocalResetAndConcurrency(): int:
+  if threadHardwareConcurrency() < 1:
+    ret 0
+  if threadCurrentId() != 1:
+    ret 0
+  threadYield()
+  threadSleepMs(1)
+  mut tl = threadLocalNew(15)
+  threadLocalSet(tl, 99)
+  threadLocalClear(tl)
+  if threadLocalGet(tl) != 0:
+    ret 0
+  ret 1
+
+pub fn describeThreadStackProfile(stackBytes: int): str:
+  let kb = maxInt(64, stackBytes / 1024)
+  ret "TLS:STACK_" + str(kb) + "KB_ISOLATED"
+
+pub fn main(): int:
+  let sum229 = evaluateThreadJoinAndTlsContextSum()
+  let tlsOk = verifyThreadLocalResetAndConcurrency()
+  let tag = describeThreadStackProfile(1048576)
+  assert(sum229 == 229, "threadJoin(42+99) + TLS(88) == 229")
+  assert(tlsOk == 1, "TLS clear and hardware concurrency valid")
+  println(tag + " | sum=" + str(sum229))
+  ret 0

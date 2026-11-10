@@ -1,0 +1,54 @@
+module Ex245AiHebarRefereeFlowCorridorWindowTest
+
+import { HebarActionRecord, hebarRefereeNew, hebarEnqueueAction, hebarPopReadyActions, hebarIsWithinApmLimit, hebarClampReactionDelayMs } from "../../std/ai/hebar_referee"
+import { Vec2 } from "../../std/math/vec_math"
+import { HebarScene, initScene, stepScene, clampHebarHumanReactionMs, computeFlowCorridorDifficultyDeltaMilli, describeHebarComplianceVerdict, auditAiHebarRefereeFlowCorridor } from "../../examples/ex_245_ai_hebar_referee_flow_corridor_window"
+
+fn test_ai_hebar_referee_flow_corridor(): void:
+  mut referee = hebarRefereeNew(150, 250, 600)
+  let act = HebarActionRecord(timestampMs = 1000, actionTag = "Move", targetPos = Vec2(x = 10.0, y = 10.0))
+  assert(hebarEnqueueAction(referee, act, 1000), "action enqueued")
+  let readyEarly = hebarPopReadyActions(referee, 1100)
+  assert(readyEarly.len() == 0, "actions blocked before minimum 150ms reaction threshold")
+  let readyOnTime = hebarPopReadyActions(referee, 1300)
+  assert(readyOnTime.len() == 1, "action emitted once reaction delay has elapsed")
+  assert(hebarIsWithinApmLimit(10, 1000, 900), "hebarIsWithinApmLimit")
+  assert(hebarClampReactionDelayMs(100, 150, 250) == 150, "hebarClampReactionDelayMs")
+  assert(clampHebarHumanReactionMs(80, 180) == 180, "clampHebarHumanReactionMs == 180")
+  assert(computeFlowCorridorDifficultyDeltaMilli(950, 850) == 50, "computeFlowCorridorDifficultyDeltaMilli == 50")
+  assert(describeHebarComplianceVerdict(0) == "HEBAR:VERIFIED_HUMAN_FAIR_PLAY", "describeHebarComplianceVerdict")
+
+  mut scene = initScene()
+  let trail0 = scene.trailHp
+  let time0 = scene.currentTimeMs
+  let hash0 = scene.stateHash
+  scene = stepScene(scene, 0, 0.05)
+  let trail1 = scene.trailHp
+  let time1 = scene.currentTimeMs
+  let hash1 = scene.stateHash
+  assert(trail1 < trail0, "t=0 -> t=1 damage trail decays toward current HP")
+  assert(time1 > time0, "t=0 -> t=1 referee timestamp advances")
+  assert(hash1 != hash0, "t=0 -> t=1 deterministic state hash updates")
+
+  mut f = 1
+  while f < 20:
+    scene = stepScene(scene, f, 0.05)
+    f = f + 1
+  let emitted20 = scene.emittedCount
+  let hash20 = scene.stateHash
+  assert(emitted20 >= 2, "t=20 referee pops delayed actions after 150ms reaction window")
+  assert(hash20 != hash1, "t=1 -> t=20 deterministic hash continues evolving")
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  while f < 100:
+    scene = stepScene(scene, f, 0.05)
+    f = f + 1
+  assert(scene.emittedCount > emitted20 and scene.stateHash != hash20 and scene.stepCount == 100, "t=20 -> t=100 HEBAR referee and Wilson 85% flow corridor continue cycling")
+
+  let audit = auditAiHebarRefereeFlowCorridor()
+  assert(audit == 230, "HEBAR referee and Wilson 85% flow corridor audit")
+
+pub fn main(): int:
+  test_ai_hebar_referee_flow_corridor()
+  println("PASS: ex_245_ai_hebar_referee_flow_corridor_window_test")
+  ret 0

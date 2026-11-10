@@ -1,0 +1,174 @@
+// ============================================================================
+// Example 033: 3D Ray-AABB, Ray-Triangle & Frustum Culling Window
+// Demonstrates: AABB3D, Sphere3D, Ray3D, Triangle3D, Plane3D, Frustum3D,
+//               aabbIntersectsAABB, sphereIntersectsSphere, rayIntersectsAABB,
+//               rayIntersectsTriangle, frustumContainsPoint,
+//               frustumIntersectsAABB, rotateEuler, and project3D from
+//               std/math/geom3d, rendered in a 1280x720 3D perspective window.
+// ============================================================================
+module Ex033MathGeom3dRayPlaneAabbWindow
+
+import { clampInt } from "../std/prelude"
+import { Vec3 } from "../std/math/vec_math"
+import {
+  AABB3D,
+  Sphere3D,
+  Ray3D,
+  Triangle3D,
+  Plane3D,
+  Frustum3D,
+  vec3,
+  rotateEuler,
+  project3D,
+  aabbIntersectsAABB,
+  sphereIntersectsSphere,
+  rayIntersectsAABB,
+  rayIntersectsTriangle,
+  frustumContainsPoint,
+  frustumIntersectsAABB
+} from "../std/math/geom3d"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawTriangle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct Geom3DSceneState:
+  raySumDist: int
+  frustumVisible: int
+  projCornerX: float
+  projCornerY: float
+
+pub fn evaluateRay3DSlabAndTriangleHit(): int:
+  let box = AABB3D(min = Vec3(x = 0.0, y = 0.0, z = 0.0), max = Vec3(x = 10.0, y = 10.0, z = 10.0))
+  let rayBox = Ray3D(origin = Vec3(x = 5.0, y = 5.0, z = -5.0), dir = Vec3(x = 0.0, y = 0.0, z = 1.0))
+  let rayTri = Ray3D(origin = Vec3(x = 2.0, y = 2.0, z = 0.0), dir = Vec3(x = 0.0, y = 0.0, z = 1.0))
+  let tri = Triangle3D(
+    v0 = Vec3(x = 0.0, y = 0.0, z = 5.0),
+    v1 = Vec3(x = 10.0, y = 0.0, z = 5.0),
+    v2 = Vec3(x = 0.0, y = 10.0, z = 5.0)
+  )
+  mut totalT = 0
+  match rayIntersectsAABB(rayBox, box):
+    Some(tb) => totalT = totalT + int(tb + 0.5)
+    None => ret -1
+  match rayIntersectsTriangle(rayTri, tri):
+    Some(tt) => totalT = totalT + int(tt + 0.5)
+    None => ret -2
+  ret totalT
+
+pub fn verifyFrustumAndVolumeOverlaps(): int:
+  let boxA = AABB3D(min = Vec3(x = 0.0, y = 0.0, z = 0.0), max = Vec3(x = 10.0, y = 10.0, z = 10.0))
+  let boxB = AABB3D(min = Vec3(x = 5.0, y = 5.0, z = 5.0), max = Vec3(x = 15.0, y = 15.0, z = 15.0))
+  let sphA = Sphere3D(center = Vec3(x = 0.0, y = 0.0, z = 0.0), radius = 5.0)
+  let sphB = Sphere3D(center = Vec3(x = 3.0, y = 0.0, z = 0.0), radius = 5.0)
+  let frust = Frustum3D(planes = [Plane3D(normal = Vec3(x = 0.0, y = 1.0, z = 0.0), d = 0.0, distance = 0.0)])
+  if aabbIntersectsAABB(boxA, boxB) and sphereIntersectsSphere(sphA, sphB) and frustumContainsPoint(frust, Vec3(x = 0.0, y = 2.0, z = 0.0)) and frustumIntersectsAABB(frust, boxA):
+    ret 1
+  ret 0
+
+pub fn describeRay3DHitResult(hit: bool): str:
+  if hit:
+    ret "RAY3D:SLAB_AND_TRIANGLE_HIT"
+  ret "RAY3D:MISS"
+
+pub fn buildGeom3DSceneState(frameIdx: int): Geom3DSceneState:
+  let yaw = float(frameIdx) * 0.03
+  let rotCorner = rotateEuler(vec3(1.5, 1.5, 1.5), 0.25, yaw, 0.1)
+  let proj = project3D(rotCorner, 6.0, 760.0, 740.0, 420.0)
+  ret Geom3DSceneState(
+    raySumDist = evaluateRay3DSlabAndTriangleHit(),
+    frustumVisible = verifyFrustumAndVolumeOverlaps(),
+    projCornerX = proj.x,
+    projCornerY = proj.y
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildGeom3DSceneState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.raySumDist + frameIndex + dtPad
+
+pub fn renderGeom3DScene(frame: int): void:
+  let st = buildGeom3DSceneState(frame)
+  let yaw = float(frame) * 0.03
+  let sceneTri = Triangle3D(
+    v0 = vec3(-1.4, -1.0, 0.0),
+    v1 = vec3(1.4, -1.0, 0.0),
+    v2 = vec3(0.0, 1.5, 0.0)
+  )
+  let sceneRay = Ray3D(origin = vec3(0.0, 0.0, -3.0), dir = vec3(0.0, 0.0, 1.0))
+  let triHitT = rayIntersectsTriangle(sceneRay, sceneTri).unwrapOr(3.0)
+  let hitPt3D = vec3(
+    sceneRay.origin.x + sceneRay.dir.x * triHitT,
+    sceneRay.origin.y + sceneRay.dir.y * triHitT,
+    sceneRay.origin.z + sceneRay.dir.z * triHitT
+  )
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 44))
+  drawText("AIPL ex_033: 3D Perspective Ray-AABB Slab, Moller-Trumbore Ray-Triangle & Frustum", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Project 3D triangle vertices from sceneTri with rotateEuler & project3D
+  let t0 = project3D(rotateEuler(sceneTri.v0, 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let t1 = project3D(rotateEuler(sceneTri.v1, 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let t2 = project3D(rotateEuler(sceneTri.v2, 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  drawTriangle(t0.x, t0.y, t1.x, t1.y, t2.x, t2.y, rgb(30, 64, 175))
+
+  // Project front & back faces of 3D AABB wireframe (all 12 edges)
+  let c0 = project3D(rotateEuler(vec3(-1.6, -1.6, -1.6), 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let c1 = project3D(rotateEuler(vec3(1.6, -1.6, -1.6), 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let c2 = project3D(rotateEuler(vec3(1.6, 1.6, -1.6), 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let c3 = project3D(rotateEuler(vec3(-1.6, 1.6, -1.6), 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let c4 = project3D(rotateEuler(vec3(-1.6, -1.6, 1.6), 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let c5 = project3D(rotateEuler(vec3(1.6, -1.6, 1.6), 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let c6 = project3D(rotateEuler(vec3(1.6, 1.6, 1.6), 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let c7 = project3D(rotateEuler(vec3(-1.6, 1.6, 1.6), 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  drawLine(c0.x, c0.y, c1.x, c1.y, rgb(56, 189, 248), 2.0)
+  drawLine(c1.x, c1.y, c2.x, c2.y, rgb(56, 189, 248), 2.0)
+  drawLine(c2.x, c2.y, c3.x, c3.y, rgb(56, 189, 248), 2.0)
+  drawLine(c3.x, c3.y, c0.x, c0.y, rgb(56, 189, 248), 2.0)
+  drawLine(c4.x, c4.y, c5.x, c5.y, rgb(30, 136, 229), 1.5)
+  drawLine(c5.x, c5.y, c6.x, c6.y, rgb(30, 136, 229), 1.5)
+  drawLine(c6.x, c6.y, c7.x, c7.y, rgb(30, 136, 229), 1.5)
+  drawLine(c7.x, c7.y, c4.x, c4.y, rgb(30, 136, 229), 1.5)
+  drawLine(c0.x, c0.y, c4.x, c4.y, rgb(56, 189, 248), 1.5)
+  drawLine(c1.x, c1.y, c5.x, c5.y, rgb(56, 189, 248), 1.5)
+  drawLine(c2.x, c2.y, c6.x, c6.y, rgb(56, 189, 248), 1.5)
+  drawLine(c3.x, c3.y, c7.x, c7.y, rgb(56, 189, 248), 1.5)
+
+  // Project 3D Ray origin, Moller-Trumbore intersection point, and exit point
+  let rayOrigProj = project3D(rotateEuler(sceneRay.origin, 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let rayHitProj = project3D(rotateEuler(hitPt3D, 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  let rayEndProj = project3D(rotateEuler(vec3(0.0, 0.0, 2.4), 0.25, yaw, 0.0), 6.0, 760.0, 740.0, 420.0)
+  drawLine(rayOrigProj.x, rayOrigProj.y, rayHitProj.x, rayHitProj.y, rgb(250, 204, 21), 3.0)
+  drawCircle(rayHitProj.x, rayHitProj.y, 8.0, rgb(248, 113, 113))
+  drawLine(rayHitProj.x, rayHitProj.y, rayEndProj.x, rayEndProj.y, rgb(52, 211, 153), 2.0)
+
+  // Right Telemetry Panel
+  drawRect(740.0, 92.0, 496.0, 540.0, rgb(17, 24, 39))
+  drawRectOutline(740.0, 92.0, 496.0, 540.0, 2.0, rgb(56, 189, 248))
+  drawText("Status: " + describeRay3DHitResult(st.raySumDist == 10), 768.0, 128.0, 18.0, rgb(74, 222, 128))
+  drawText("Slab + Moller-Trumbore t Sum: " + str(st.raySumDist), 768.0, 168.0, 16.0, rgb(250, 204, 21))
+  drawText("Frustum & Sphere Overlaps Valid: " + str(st.frustumVisible == 1), 768.0, 204.0, 16.0, rgb(191, 219, 254))
+  drawText("Projected AABB Corner X: " + str(int(st.projCornerX)), 768.0, 240.0, 16.0, rgb(203, 213, 225))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_033 - 3D Ray-AABB, Ray-Triangle & Frustum Visualizer")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderGeom3DScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

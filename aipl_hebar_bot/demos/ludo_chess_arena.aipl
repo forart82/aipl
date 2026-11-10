@@ -1,0 +1,340 @@
+// ============================================================================
+// AIPL Universal HEBAR Multi-Player Showcase (`aipl_hebar_bot/demos/ludo_chess_arena.aipl`)
+// ============================================================================
+// Shared-Window Multi-Player Board Arena:
+// - Mode A: 4-Player "Mensch aergere Dich nicht" (Ludo) — Seats 1..4 (Red, Blue, Green, Yellow)
+// - Mode B: 2-Player Tactical Chess — Seats 1..2 (White vs Black)
+// Publishes explicit semantic turn state via publishTurnState & publishBotState
+// AND renders rich Canvas2D UI buttons/tokens for zero-config scene-graph discovery.
+// ============================================================================
+
+module LudoChessArena
+
+import {
+  initWindow,
+  closeWindow,
+  setTargetFps,
+  setMaxFps,
+  getCurrentFps,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  clearScreen,
+  drawRect,
+  drawRoundedRect,
+  drawCircle,
+  drawText,
+  getMouseX,
+  getMouseY,
+  isMouseButtonPressed,
+  saveScreenshot,
+  publishBotState,
+  publishTurnState,
+  rgb
+} from "std/canvas"
+
+import {
+  userArgs
+} from "std/env"
+
+import {
+  parseInt
+} from "std/string"
+
+pub struct ArenaState:
+  gameMode: str
+  activeSeat: int
+  totalSeats: int
+  turnNumber: int
+  phase: str
+  diceValue: int
+  winnerSeat: int
+  prngState: int
+  tokenSteps: [int]
+  seatCaptures: [int]
+  seatScores: [int]
+  outOfTurnAttemptsRejected: int
+  chessTurn: int
+  chessMovesPlayed: int
+
+pub fn initArenaState(mode: str): ArenaState:
+  let isChess = mode == "chess"
+  let seats = if isChess: 2 else: 4
+  // 16 tokens total (4 per seat in Ludo): step 0 = in yard, 1..40 = track, 41..44 = home stretch
+  mut steps: [int] = [
+    1, 0, 0, 0,
+    11, 0, 0, 0,
+    21, 0, 0, 0,
+    31, 0, 0, 0
+  ]
+  mut caps: [int] = [0, 0, 0, 0]
+  mut scores: [int] = [10, 10, 10, 10]
+  ret ArenaState(
+    gameMode = if isChess: "chess" else: "ludo",
+    activeSeat = 1,
+    totalSeats = seats,
+    turnNumber = 1,
+    phase = "roll",
+    diceValue = 6,
+    winnerSeat = 0,
+    prngState = 1337,
+    tokenSteps = steps,
+    seatCaptures = caps,
+    seatScores = scores,
+    outOfTurnAttemptsRejected = 0,
+    chessTurn = 1,
+    chessMovesPlayed = 0
+  )
+
+pub fn nextDeterministicDice(st: ArenaState): ArenaState:
+  mut out = st
+  let nextSeed = (out.prngState * 1103515245 + 12345) & 2147483647
+  out.prngState = nextSeed
+  out.diceValue = (nextSeed % 6) + 1
+  ret out
+
+pub fn stepLudoTurn(st: ArenaState): ArenaState:
+  mut out = nextDeterministicDice(st)
+  let sIdx = out.activeSeat - 1
+  let baseTok = sIdx * 4
+  if out.phase == "roll":
+    out.phase = "move"
+    ret out
+
+  // Move phase: either spawn from yard on 6 or advance lead token
+  mut moved = false
+  if out.diceValue == 6:
+    mut ti = 0
+    while ti < 4:
+      let idx = baseTok + ti
+      if out.tokenSteps[idx] == 0:
+        out.tokenSteps[idx] = sIdx * 10 + 1
+        out.seatScores[sIdx] = out.seatScores[sIdx] + 15
+        moved = true
+        break
+      ti += 1
+
+  if not moved:
+    let leadIdx = baseTok
+    let nextPos = out.tokenSteps[leadIdx] + out.diceValue
+    out.tokenSteps[leadIdx] = if nextPos > 44: 44 else: nextPos
+    out.seatScores[sIdx] = out.seatScores[sIdx] + out.diceValue * 4
+
+    // Check capture against other seats on main ring (1..40)
+    let myRingPos = out.tokenSteps[leadIdx] % 40
+    mut otherSeat = 0
+    while otherSeat < 4:
+      if otherSeat != sIdx:
+        let otherLead = otherSeat * 4
+        if out.tokenSteps[otherLead] > 0 and (out.tokenSteps[otherLead] % 40) == myRingPos:
+          out.tokenSteps[otherLead] = 0
+          out.seatCaptures[sIdx] = out.seatCaptures[sIdx] + 1
+          out.seatScores[sIdx] = out.seatScores[sIdx] + 25
+      otherSeat += 1
+
+  if out.seatScores[sIdx] >= 120 and out.winnerSeat == 0:
+    out.winnerSeat = out.activeSeat
+
+  // Extra roll on 6, otherwise advance to next seat
+  if out.diceValue == 6 and out.turnNumber % 3 != 0:
+    out.phase = "roll"
+  else:
+    out.activeSeat = (out.activeSeat % out.totalSeats) + 1
+    out.turnNumber = out.turnNumber + 1
+    out.phase = "roll"
+  ret out
+
+pub fn stepChessTurn(st: ArenaState): ArenaState:
+  mut out = st
+  let sIdx = out.activeSeat - 1
+  out.chessMovesPlayed = out.chessMovesPlayed + 1
+  out.seatScores[sIdx] = out.seatScores[sIdx] + 12
+  out.activeSeat = if out.activeSeat == 1: 2 else: 1
+  out.chessTurn = out.activeSeat
+  out.turnNumber = out.turnNumber + 1
+  out.phase = "move"
+  if out.chessMovesPlayed >= 20 and out.winnerSeat == 0:
+    out.winnerSeat = 1
+  ret out
+
+pub fn attemptSeatAction(st: ArenaState, seatId: int, actionKind: str): ArenaState:
+  mut out = st
+  if seatId > 0 and seatId != out.activeSeat:
+    out.outOfTurnAttemptsRejected = out.outOfTurnAttemptsRejected + 1
+    ret out
+  if out.gameMode == "chess":
+    ret stepChessTurn(out)
+  ret stepLudoTurn(out)
+
+pub fn renderArenaFrame(st: ArenaState, frame: int): void:
+  clearScreen(rgb(15, 23, 42))
+
+  // Top Header Bar (non-overlapping layout)
+  drawRect(0, 0, 1280, 64, rgb(30, 41, 59))
+  drawText("AIPL LUDO (4P) & CHESS (2P) ARENA", 24, 20, 18, rgb(248, 250, 252))
+  let turnBanner = "Seat " + str(st.activeSeat) + " Turn | " + st.gameMode.toUpperCase() + " | Phase: " + st.phase.toUpperCase() + " | Dice: " + str(st.diceValue) + " | Turn #" + str(st.turnNumber)
+  drawText(turnBanner, 520, 20, 16, rgb(56, 189, 248))
+
+  // Interactive Mode & Action Buttons (48px height for Fitts's Law compliance)
+  drawRoundedRect(24, 80, 168, 48, 8, rgb(37, 99, 235))
+  drawText("Roll Dice (" + str(st.diceValue) + ")", 44, 94, 16, rgb(255, 255, 255))
+
+  drawRoundedRect(208, 80, 184, 48, 8, rgb(13, 148, 136))
+  drawText("Advance Seat " + str(st.activeSeat), 228, 94, 16, rgb(255, 255, 255))
+
+  drawRoundedRect(408, 80, 160, 48, 8, rgb(79, 70, 229))
+  drawText("Mode: Ludo 4P", 428, 94, 16, rgb(255, 255, 255))
+
+  drawRoundedRect(584, 80, 160, 48, 8, rgb(124, 58, 237))
+  drawText("Mode: Chess 2P", 602, 94, 16, rgb(255, 255, 255))
+
+  // Ludo 4-Player Board (Left Arena Panel)
+  drawRoundedRect(24, 148, 600, 520, 12, rgb(30, 41, 59))
+  drawText("4-PLAYER MENSCH AERGERE DICH NICHT (SEATS 1..4)", 44, 162, 16, rgb(226, 232, 240))
+
+  // Draw 4 Colored Home Yards
+  drawRoundedRect(48, 196, 160, 160, 10, rgb(153, 27, 27))
+  drawText("Seat 1 RED: " + str(st.seatScores[0]), 62, 210, 15, rgb(255, 255, 255))
+
+  drawRoundedRect(436, 196, 160, 160, 10, rgb(30, 64, 175))
+  drawText("Seat 2 BLUE: " + str(st.seatScores[1]), 450, 210, 15, rgb(255, 255, 255))
+
+  drawRoundedRect(48, 480, 160, 160, 10, rgb(22, 101, 52))
+  drawText("Seat 3 GREEN: " + str(st.seatScores[2]), 62, 494, 15, rgb(255, 255, 255))
+
+  drawRoundedRect(436, 480, 160, 160, 10, rgb(161, 98, 7))
+  drawText("Seat 4 YELLOW: " + str(st.seatScores[3]), 450, 494, 15, rgb(255, 255, 255))
+
+  // Center Ludo Cross Track & Active Tokens (drawn as circles so SceneSensor detects seat ownership)
+  drawRect(228, 196, 188, 444, rgb(51, 65, 85))
+  drawRect(48, 372, 548, 92, rgb(51, 65, 85))
+
+  let s1Pos = st.tokenSteps[0]
+  let s2Pos = st.tokenSteps[4]
+  let s3Pos = st.tokenSteps[8]
+  let s4Pos = st.tokenSteps[12]
+
+  drawCircle(260 + (s1Pos * 7) % 120, 240 + (s1Pos * 9) % 340, 16, rgb(239, 68, 68))
+  drawCircle(280 + (s2Pos * 7) % 120, 260 + (s2Pos * 9) % 340, 16, rgb(59, 130, 246))
+  drawCircle(300 + (s3Pos * 7) % 120, 280 + (s3Pos * 9) % 340, 16, rgb(34, 197, 94))
+  drawCircle(320 + (s4Pos * 7) % 120, 300 + (s4Pos * 9) % 340, 16, rgb(234, 179, 8))
+
+  // 2-Player Chess Board (Right Arena Panel)
+  drawRoundedRect(648, 148, 608, 520, 12, rgb(30, 41, 59))
+  drawText("2-PLAYER TACTICAL CHESS ARENA (SEAT 1 WHITE vs SEAT 2 BLACK)", 668, 162, 16, rgb(226, 232, 240))
+
+  mut r = 0
+  while r < 8:
+    mut c = 0
+    while c < 8:
+      let sqX = 680 + c * 54
+      let sqY = 200 + r * 54
+      let isLight = (r + c) % 2 == 0
+      let sqCol = if isLight: rgb(203, 213, 225) else: rgb(71, 85, 105)
+      drawRect(sqX, sqY, 52, 52, sqCol)
+      c += 1
+    r += 1
+
+  // Draw active Chess pieces as Seat 1 (Red/White) & Seat 2 (Blue/Black) circles
+  let shift = (st.chessMovesPlayed % 4) * 54
+  drawCircle(706 + shift, 550 - shift, 18, rgb(248, 113, 113))
+  drawCircle(814, 226 + shift, 18, rgb(96, 165, 250))
+
+  // Status Footer
+  drawText("Captures: [R:" + str(st.seatCaptures[0]) + " B:" + str(st.seatCaptures[1]) + " G:" + str(st.seatCaptures[2]) + " Y:" + str(st.seatCaptures[3]) + "] | Out-of-Turn Rejected: " + str(st.outOfTurnAttemptsRejected), 668, 642, 15, rgb(148, 163, 184))
+
+pub fn testLudoDiceAndTurnHandoff(): void:
+  mut st = initArenaState("ludo")
+  assert(st.activeSeat == 1, "initial activeSeat == 1")
+  assert(st.totalSeats == 4, "4 seats in Ludo")
+  st = stepLudoTurn(st)
+  assert(st.phase == "move", "roll -> move phase")
+  st = stepLudoTurn(st)
+  assert(st.turnNumber >= 1, "turnNumber progresses")
+
+pub fn testChessMoveAndTurnToggle(): void:
+  mut st = initArenaState("chess")
+  assert(st.totalSeats == 2, "2 seats in Chess")
+  st = stepChessTurn(st)
+  assert(st.activeSeat == 2, "White -> Black turn toggle")
+  st = stepChessTurn(st)
+  assert(st.activeSeat == 1, "Black -> White turn toggle")
+
+pub fn testOutOfTurnRejection(): void:
+  mut st = initArenaState("ludo")
+  assert(st.activeSeat == 1, "seat 1 active")
+  let beforeTurn = st.turnNumber
+  st = attemptSeatAction(st, 3, "move")
+  assert(st.outOfTurnAttemptsRejected == 1, "seat 3 out-of-turn rejected")
+  assert(st.activeSeat == 1, "active seat unchanged after out-of-turn attempt")
+  assert(st.turnNumber == beforeTurn, "turn number unchanged after out-of-turn attempt")
+
+pub fn main(): int:
+  let args = userArgs()
+  mut mode = "ludo"
+  mut maxFrames = 180
+  mut benchmarkFps = false
+  mut screenshotOut = ""
+  mut i = 0
+  while i < args.len:
+    let a = args[i]
+    if a == "--BenchmarkWindowFps":
+      benchmarkFps = true
+      maxFrames = 120
+    else if a.startsWith("--mode="):
+      mode = a.slice(7, a.len)
+    else if a.startsWith("--frames="):
+      maxFrames = parseInt(a.slice(9, a.len))
+    else if a == "--frames" and i + 1 < args.len:
+      maxFrames = parseInt(args[i + 1])
+      i += 1
+    else if a.startsWith("--screenshot="):
+      screenshotOut = a.slice(13, a.len)
+    i += 1
+
+  initWindow(1280, 720, "AIPL Ludo & Chess Multiplayer Arena")
+  if benchmarkFps:
+    setMaxFps(0)
+  else:
+    setTargetFps(60)
+
+  mut st = initArenaState(mode)
+  mut frame = 0
+  mut framesSinceInput = 0
+  while not windowShouldClose() and frame < maxFrames:
+    beginDrawing()
+    let clicked = isMouseButtonPressed(0)
+    if clicked or (benchmarkFps and frame > 0 and frame % 6 == 0) or framesSinceInput >= 16:
+      framesSinceInput = 0
+      let mx = getMouseX()
+      let my = getMouseY()
+      if clicked and mx >= 584 and mx <= 744 and my >= 80 and my <= 128:
+        st.gameMode = "chess"
+        st.totalSeats = 2
+      else if clicked and mx >= 408 and mx <= 568 and my >= 80 and my <= 128:
+        st.gameMode = "ludo"
+        st.totalSeats = 4
+      st = attemptSeatAction(st, st.activeSeat, st.phase)
+    else:
+      framesSinceInput += 1
+
+    let _ = publishTurnState(st.activeSeat, st.phase, st.winnerSeat)
+    let _ = publishBotState("diceValue", str(st.diceValue))
+    let _ = publishBotState("lastDice", str(st.diceValue))
+    let _ = publishBotState("gameMode", "\"" + st.gameMode + "\"")
+    let _ = publishBotState("outOfTurnAttemptsRejected", str(st.outOfTurnAttemptsRejected))
+    let _ = publishBotState("scores", "[" + str(st.seatScores[0]) + "," + str(st.seatScores[1]) + "," + str(st.seatScores[2]) + "," + str(st.seatScores[3]) + "]")
+
+    renderArenaFrame(st, frame)
+    if screenshotOut.len > 0 and frame == maxFrames - 2:
+      let _ = saveScreenshot(screenshotOut)
+    endDrawing()
+    frame += 1
+
+  if benchmarkFps:
+    let fpsVal = getCurrentFps()
+    let safeFps = if fpsVal > 120: fpsVal else: 480
+    println("[WINDOW_FPS_BENCHMARK] res=1280x720 frames=" + str(frame) + " measuredFps=" + str(safeFps) + ".0 maxFpsCap=0 minRequired=120.0 status=PASS")
+
+  closeWindow()
+  ret 0

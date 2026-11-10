@@ -1,0 +1,132 @@
+module Ex203EcsArchetypeTableMigrationWindow
+
+import { EntityId } from "../std/ecs/entity"
+import {
+  ComponentColumn, ArchetypeTable, createArchetypeTable,
+  insertArchetypeRow, swapRemoveArchetypeRow, migrateEntityBetweenArchetypes
+} from "../std/ecs/archetype"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepMigrationBridgeT(frame: int): float:
+  ret float(frame % 24) / 24.0
+
+pub fn buildEcsArchetypeMigrationAudit(): int:
+  mut tbl = createArchetypeTable(3, [0, 1])
+  tbl = insertArchetypeRow(tbl, EntityId(index = 0, generation = 1), [10.0, 100.0])
+  tbl = insertArchetypeRow(tbl, EntityId(index = 1, generation = 1), [20.0, 200.0])
+  tbl = insertArchetypeRow(tbl, EntityId(index = 2, generation = 1), [30.0, 300.0])
+  tbl = swapRemoveArchetypeRow(tbl, 0)
+  let dst = createArchetypeTable(7, [0, 1, 2])
+  let (nextSrc, nextDst, _dstRow) = migrateEntityBetweenArchetypes(tbl, dst, 0)
+  let srcTbl: ArchetypeTable = nextSrc
+  let dstTbl: ArchetypeTable = nextDst
+  let dstCol0: ComponentColumn = dstTbl.columns[0]
+  let dstCol1: ComponentColumn = dstTbl.columns[1]
+  ret int(dstCol0.values[0]) + int(dstCol1.values[0]) + srcTbl.entities.len() + dstTbl.entities.len()
+
+pub fn main(): int:
+  let auditScore = buildEcsArchetypeMigrationAudit()
+
+  mut src = createArchetypeTable(3, [0, 1])
+  src = insertArchetypeRow(src, EntityId(index = 10, generation = 1), [120.0, 240.0])
+  src = insertArchetypeRow(src, EntityId(index = 11, generation = 1), [180.0, 310.0])
+  src = insertArchetypeRow(src, EntityId(index = 12, generation = 1), [240.0, 420.0])
+  src = insertArchetypeRow(src, EntityId(index = 13, generation = 1), [300.0, 510.0])
+  src = insertArchetypeRow(src, EntityId(index = 14, generation = 1), [360.0, 580.0])
+
+  let dstInit = createArchetypeTable(7, [0, 1, 2])
+  let (srcAfter, dstAfter, _row) = migrateEntityBetweenArchetypes(src, dstInit, 0)
+  mut srcTbl: ArchetypeTable = srcAfter
+  mut dstTbl: ArchetypeTable = dstAfter
+  mut forwardDir = true
+  mut totalMigrations = 1
+
+  initWindow(1280, 720, "AIPL ex_203: ECS SoA Archetype Table Swap-Remove & Migration")
+  mut frame = 0
+  while not windowShouldClose():
+    if frame > 0 and frame % 24 == 0:
+      if forwardDir:
+        if srcTbl.entities.len() > 1:
+          let (sNext, dNext, _rNext) = migrateEntityBetweenArchetypes(srcTbl, dstTbl, 0)
+          srcTbl = sNext
+          dstTbl = dNext
+          totalMigrations = totalMigrations + 1
+        if srcTbl.entities.len() <= 1:
+          forwardDir = false
+      else:
+        if dstTbl.entities.len() > 1:
+          let (dNext, sNext, _rNext) = migrateEntityBetweenArchetypes(dstTbl, srcTbl, 0)
+          dstTbl = dNext
+          srcTbl = sNext
+          totalMigrations = totalMigrations + 1
+        if dstTbl.entities.len() <= 1:
+          forwardDir = true
+
+    let bridgeT = stepMigrationBridgeT(frame)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_203: ECS ARCHETYPE TABLE (O(1) SWAP-REMOVE & COLUMN MIGRATION)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("srcArchetype(0b011) rows=" + str(srcTbl.entities.len()) + " | dstArchetype(0b111) rows=" + str(dstTbl.entities.len()) + " | migrations=" + str(totalMigrations) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Left Source Archetype Table
+    drawRect(60.0, 130.0, 500.0, 530.0, rgb(17, 24, 39))
+    drawRectOutline(60.0, 130.0, 500.0, 530.0, 2.0, rgb(56, 189, 248))
+    drawText("Archetype A [Mask 0b011: PosX, PosY]", 84.0, 150.0, 18.0, rgb(56, 189, 248))
+    drawText("SoA Dense Contiguous Columns (2x float[]):", 84.0, 174.0, 14.0, rgb(148, 163, 184))
+
+    let sCol0: ComponentColumn = srcTbl.columns[0]
+    let sCol1: ComponentColumn = srcTbl.columns[1]
+    mut i = 0
+    while i < srcTbl.entities.len():
+      let ry = 204.0 + float(i) * 86.0
+      let ent: EntityId = srcTbl.entities[i]
+      let isNextVictim = forwardDir and i == 0
+      drawRect(84.0, ry, 452.0, 74.0, if isNextVictim: rgb(36, 48, 78) else: rgb(24, 36, 58))
+      drawRectOutline(84.0, ry, 452.0, 74.0, if isNextVictim: 2.5 else: 1.5, if isNextVictim: rgb(250, 204, 21) else: rgb(96, 165, 250))
+      drawText("Row " + str(i) + " | Entity #" + str(ent.index) + (if isNextVictim: " [SWAP-REMOVE NEXT]" else: ""), 100.0, ry + 14.0, 16.0, rgb(248, 250, 252))
+      drawText("Col[0:PosX]=" + str(int(sCol0.values[i])) + "  Col[1:PosY]=" + str(int(sCol1.values[i])), 100.0, ry + 42.0, 15.0, rgb(125, 211, 252))
+      i = i + 1
+
+    // Center Bidirectional Migration Bridge
+    drawRect(574.0, 290.0, 132.0, 140.0, rgb(15, 23, 42))
+    drawRectOutline(574.0, 290.0, 132.0, 140.0, 1.5, rgb(250, 204, 21))
+    drawText(if forwardDir: "+Add [Vel]" else: "-Rem [Vel]", 594.0, 308.0, 16.0, rgb(250, 204, 21))
+    drawText(if forwardDir: "A -> B" else: "B -> A", 614.0, 334.0, 16.0, rgb(254, 240, 138))
+    drawLine(584.0, 376.0, 696.0, 376.0, rgb(250, 204, 21), 3.0)
+    let packetX = if forwardDir: 584.0 + bridgeT * 112.0 else: 696.0 - bridgeT * 112.0
+    drawCircle(packetX, 376.0, 8.0, rgb(52, 211, 153))
+    drawText("O(1) Swap", 598.0, 398.0, 14.0, rgb(148, 163, 184))
+
+    // Right Destination Archetype Table
+    drawRect(720.0, 130.0, 500.0, 530.0, rgb(17, 24, 39))
+    drawRectOutline(720.0, 130.0, 500.0, 530.0, 2.0, rgb(52, 211, 153))
+    drawText("Archetype B [Mask 0b111: PosX, PosY, Vel]", 744.0, 150.0, 18.0, rgb(52, 211, 153))
+    drawText("SoA Dense Contiguous Columns (3x float[]):", 744.0, 174.0, 14.0, rgb(148, 163, 184))
+
+    let dCol0: ComponentColumn = dstTbl.columns[0]
+    let dCol1: ComponentColumn = dstTbl.columns[1]
+    let dCol2: ComponentColumn = dstTbl.columns[2]
+    mut j = 0
+    while j < dstTbl.entities.len():
+      let ry = 204.0 + float(j) * 86.0
+      let ent: EntityId = dstTbl.entities[j]
+      let isNextVictim = (not forwardDir) and j == 0
+      drawRect(744.0, ry, 452.0, 74.0, if isNextVictim: rgb(32, 56, 48) else: rgb(20, 44, 42))
+      drawRectOutline(744.0, ry, 452.0, 74.0, if isNextVictim: 2.5 else: 1.5, if isNextVictim: rgb(250, 204, 21) else: rgb(52, 211, 153))
+      drawText("Row " + str(j) + " | Entity #" + str(ent.index) + (if isNextVictim: " [SWAP-REMOVE NEXT]" else: ""), 760.0, ry + 14.0, 16.0, rgb(240, 253, 244))
+      drawText("PosX=" + str(int(dCol0.values[j])) + "  PosY=" + str(int(dCol1.values[j])) + "  Vel=" + str(int(dCol2.values[j])), 760.0, ry + 42.0, 15.0, rgb(110, 231, 183))
+      j = j + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

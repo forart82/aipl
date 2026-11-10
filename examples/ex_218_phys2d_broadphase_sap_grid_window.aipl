@@ -1,0 +1,130 @@
+module Ex218Phys2dBroadphaseSapGridWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import { Rect2D } from "../std/math/geom2d"
+import {
+  BroadphasePair2D, DynamicAABBNode2D,
+  dynamicAABBTreeNew, dynamicAABBTreeInsert, dynamicAABBTreeUpdate,
+  dynamicAABBTreeRemove, dynamicAABBTreeFindPairs
+} from "../std/phys2d/broadphase2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepMovingProxyRect(frame: int): Rect2D:
+  let mx = 315.0 - cos(float(frame) * 0.042) * 205.0
+  let my = 325.0 + sin(float(frame) * 0.07) * 18.0
+  ret Rect2D(x = mx, y = my, w = 135.0, h = 96.0)
+
+fn isBodyInPairs(pairs: [BroadphasePair2D], bodyId: int): bool:
+  mut i = 0
+  while i < pairs.len():
+    let p: BroadphasePair2D = pairs[i]
+    if p.bodyIdA == bodyId or p.bodyIdB == bodyId:
+      ret true
+    i = i + 1
+  ret false
+
+pub fn buildPhys2dBroadphaseAudit(): int:
+  mut tree = dynamicAABBTreeNew()
+  let n0 = dynamicAABBTreeInsert(tree, 1, Rect2D(x = 0.0, y = 0.0, w = 20.0, h = 20.0))
+  let _n1 = dynamicAABBTreeInsert(tree, 2, Rect2D(x = 10.0, y = 10.0, w = 20.0, h = 20.0))
+  let n2 = dynamicAABBTreeInsert(tree, 3, Rect2D(x = 200.0, y = 200.0, w = 20.0, h = 20.0))
+  let p1 = dynamicAABBTreeFindPairs(tree).len()
+  let refitted = dynamicAABBTreeUpdate(tree, n2, Rect2D(x = 15.0, y = 15.0, w = 20.0, h = 20.0), Vec2(x = 2.0, y = 2.0))
+  let p2 = dynamicAABBTreeFindPairs(tree).len()
+  dynamicAABBTreeRemove(tree, n0)
+  let p3 = dynamicAABBTreeFindPairs(tree).len()
+  ret p1 + p2 + p3 + (if refitted: 1 else: 0)
+
+pub fn main(): int:
+  let auditScore = buildPhys2dBroadphaseAudit()
+
+  mut tree = dynamicAABBTreeNew()
+  let _b0 = dynamicAABBTreeInsert(tree, 10, Rect2D(x = 110.0, y = 165.0, w = 130.0, h = 105.0))
+  let _b1 = dynamicAABBTreeInsert(tree, 20, Rect2D(x = 200.0, y = 235.0, w = 130.0, h = 105.0))
+  let _b2 = dynamicAABBTreeInsert(tree, 30, Rect2D(x = 430.0, y = 175.0, w = 135.0, h = 110.0))
+  let _b3 = dynamicAABBTreeInsert(tree, 40, Rect2D(x = 510.0, y = 250.0, w = 135.0, h = 110.0))
+  let movingNode = dynamicAABBTreeInsert(tree, 50, Rect2D(x = 280.0, y = 420.0, w = 135.0, h = 100.0))
+
+  initWindow(1280, 720, "AIPL ex_218: Phys2D Dynamic AABB Broadphase Tree & Candidate Pairs")
+  mut frame = 0
+  while not windowShouldClose():
+    let tightRect = stepMovingProxyRect(frame)
+    let _upd = dynamicAABBTreeUpdate(tree, movingNode, tightRect, Vec2(x = 34.0, y = 16.0))
+    let pairs = dynamicAABBTreeFindPairs(tree)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_218: PHYS2D DYNAMIC AABB BROADPHASE TREE & SAP INTERVAL PAIRS", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("treeNodes=" + str(tree.nodes.len()) + " | activeOverlappingPairs=" + str(pairs.len()) + " | velocityFattening=ON | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Left Broadphase AABB Canvas & SAP X-Axis Projection Ruler
+    drawRect(44.0, 112.0, 704.0, 576.0, rgb(14, 20, 36))
+    drawRectOutline(44.0, 112.0, 704.0, 576.0, 1.5, rgb(51, 65, 85))
+    drawText("Dynamic AABB Tree Proxies (Fat AABB vs Tight AABB) & SAP X-Intervals", 64.0, 128.0, 16.0, rgb(125, 211, 252))
+
+    mut i = 0
+    while i < tree.nodes.len():
+      let nd: DynamicAABBNode2D = tree.nodes[i]
+      if nd.active:
+        let inPair = isBodyInPairs(pairs, nd.bodyId)
+        let col = if nd.bodyId == 50: rgb(250, 204, 21) else: (if inPair: rgb(52, 211, 153) else: rgb(56, 189, 248))
+        let fillCol = if nd.bodyId == 50: rgb(52, 38, 14) else: (if inPair: rgb(16, 48, 46) else: rgb(18, 30, 52))
+        drawRect(nd.aabb.x, nd.aabb.y, nd.aabb.w, nd.aabb.h, fillCol)
+        drawRectOutline(nd.aabb.x, nd.aabb.y, nd.aabb.w, nd.aabb.h, 2.2, col)
+        if nd.bodyId == 50:
+          drawRectOutline(tightRect.x, tightRect.y, tightRect.w, tightRect.h, 1.5, rgb(248, 250, 252))
+          drawText("Body #50 (Fat+Tight)", nd.aabb.x + 10.0, nd.aabb.y + nd.aabb.h - 24.0, 14.0, rgb(254, 240, 138))
+        else:
+          let lblY = if nd.bodyId == 20 or nd.bodyId == 40: nd.aabb.y + 42.0 else: nd.aabb.y + 12.0
+          drawText("Body #" + str(nd.bodyId) + " Proxy", nd.aabb.x + 12.0, lblY, 15.0, col)
+
+        // Draw SAP X-Axis interval bar at bottom of broadphase canvas
+        let sapY = 505.0 + float(i) * 32.0
+        drawLine(nd.aabb.x, nd.aabb.y + nd.aabb.h, nd.aabb.x, sapY, rgb(30, 41, 59), 1.0)
+        drawLine(nd.aabb.x + nd.aabb.w, nd.aabb.y + nd.aabb.h, nd.aabb.x + nd.aabb.w, sapY, rgb(30, 41, 59), 1.0)
+        drawRect(nd.aabb.x, sapY, nd.aabb.w, 20.0, fillCol)
+        drawRectOutline(nd.aabb.x, sapY, nd.aabb.w, 20.0, 1.8, col)
+        drawText("SAP X [#" + str(nd.bodyId) + "]", nd.aabb.x + 8.0, sapY + 3.0, 12.0, rgb(248, 250, 252))
+      i = i + 1
+
+    // Draw connecting links between overlapping broadphase pair centers
+    mut k = 0
+    while k < pairs.len():
+      let pr0: BroadphasePair2D = pairs[k]
+      let na: DynamicAABBNode2D = tree.nodes[pr0.colliderIdxA]
+      let nb: DynamicAABBNode2D = tree.nodes[pr0.colliderIdxB]
+      let cax = na.aabb.x + na.aabb.w * 0.5
+      let cay = na.aabb.y + na.aabb.h * 0.5
+      let cbx = nb.aabb.x + nb.aabb.w * 0.5
+      let cby = nb.aabb.y + nb.aabb.h * 0.5
+      drawLine(cax, cay, cbx, cby, rgb(250, 204, 21), 2.5)
+      drawCircle(cax, cay, 5.0, rgb(250, 204, 21))
+      drawCircle(cbx, cby, 5.0, rgb(250, 204, 21))
+      k = k + 1
+
+    // Right Candidate Pair Inspector
+    drawRect(772.0, 112.0, 476.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(772.0, 112.0, 476.0, 576.0, 2.0, rgb(52, 211, 153))
+    drawText("Broadphase Candidate Pairs (" + str(pairs.len()) + " active):", 796.0, 132.0, 18.0, rgb(110, 231, 183))
+
+    mut pIdx = 0
+    while pIdx < pairs.len():
+      let pr: BroadphasePair2D = pairs[pIdx]
+      let py = 176.0 + float(pIdx) * 66.0
+      drawRect(796.0, py, 428.0, 52.0, rgb(20, 44, 42))
+      drawRectOutline(796.0, py, 428.0, 52.0, 1.8, rgb(52, 211, 153))
+      drawText("Pair #" + str(pIdx + 1) + ": Body #" + str(pr.bodyIdA) + " <-> Body #" + str(pr.bodyIdB) + " (nodes " + str(pr.colliderIdxA) + "," + str(pr.colliderIdxB) + ")", 814.0, py + 17.0, 16.0, rgb(240, 253, 244))
+      pIdx = pIdx + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

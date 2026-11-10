@@ -1,0 +1,108 @@
+// ============================================================================
+// Step 2.2: Exhaustive Per-Function Unit Tests for std/std_root.aipl (12)
+// Target: tests/functions/core/std_root_test.aipl
+// ============================================================================
+module StdRootTest
+
+import {
+  assert,
+  assertEqInt,
+  assertEqStr
+} from "../../../std/prelude.aipl"
+
+import {
+  StdlibVersion,
+  stdlibVersion,
+  stdlibVersionString,
+  stdlibBuildTarget,
+  stdlibHasFeature,
+  stdlibDomainCount,
+  stdlibLayerCount,
+  stdlibCanonicalDomains,
+  stdlibIsCanonicalDomain,
+  stdlibDomainLayer,
+  stdlibDomainBarrelPath,
+  stdlibCanImportLayer,
+  stdlibCanDomainImport
+} from "../../../std/std_root.aipl"
+
+pub fn test_stdlib_version_and_string(): int:
+  let v = stdlibVersion()
+  assert(v.major >= 1, "major >= 1")
+  assert(v.minor >= 0, "minor >= 0")
+  assert(v.patch >= 0, "patch >= 0")
+  let s = stdlibVersionString()
+  assert(s.contains("."), "version string contains dot")
+  assertEqStr(s, str(v.major) + "." + str(v.minor) + "." + str(v.patch), "version string formatting")
+  ret 0
+
+pub fn test_stdlib_build_target_and_features(): int:
+  let tgt = stdlibBuildTarget()
+  assert(tgt == "native" or tgt == "c99" or tgt == "html" or tgt == "wasm" or tgt == "ts", "valid target")
+  assert(stdlibHasFeature("native") == true, "hasFeature native")
+  assert(stdlibHasFeature("simd") == true, "hasFeature simd")
+  assert(stdlibHasFeature("nonexistent_feature_xyz") == false, "hasFeature nonexistent false")
+  ret 0
+
+pub fn test_stdlib_domain_and_layer_counts(): int:
+  let domCount = stdlibDomainCount()
+  assertEqInt(domCount, 35, "35 canonical domains")
+  let layerCount = stdlibLayerCount()
+  assertEqInt(layerCount, 6, "6 layers (0 to 5)")
+  let doms = stdlibCanonicalDomains()
+  assertEqInt(doms.len(), 35, "canonical domains array len")
+  assert(doms[0] == "sys", "doms[0] is sys")
+  assert(doms[doms.len() - 1] == "mechanics", "last dom is mechanics")
+  ret 0
+
+pub fn test_stdlib_domain_membership_and_layers(): int:
+  assert(stdlibIsCanonicalDomain("sys") == true, "sys is canonical")
+  assert(stdlibIsCanonicalDomain("math") == true, "math is canonical")
+  assert(stdlibIsCanonicalDomain("gfx2d") == true, "gfx2d is canonical")
+  assert(stdlibIsCanonicalDomain("mechanics") == true, "mechanics is canonical")
+  assert(stdlibIsCanonicalDomain("nonexistent") == false, "nonexistent is not canonical")
+  assert(stdlibIsCanonicalDomain("") == false, "empty str is not canonical")
+
+  assertEqInt(stdlibDomainLayer("sys"), 0, "sys is layer 0")
+  assertEqInt(stdlibDomainLayer("rt"), 0, "rt is layer 0")
+  assertEqInt(stdlibDomainLayer("alloc"), 0, "alloc is layer 0")
+  assertEqInt(stdlibDomainLayer("math"), 1, "math is layer 1")
+  assertEqInt(stdlibDomainLayer("prelude"), 1, "prelude is layer 1")
+  assertEqInt(stdlibDomainLayer("encoding"), 2, "encoding is layer 2")
+  assertEqInt(stdlibDomainLayer("io"), 3, "io is layer 3")
+  assertEqInt(stdlibDomainLayer("gfx2d"), 4, "gfx2d is layer 4")
+  assertEqInt(stdlibDomainLayer("mechanics"), 5, "mechanics is layer 5")
+  assertEqInt(stdlibDomainLayer("invalid_domain"), -1, "invalid domain layer is -1")
+  ret 0
+
+pub fn test_stdlib_barrel_paths(): int:
+  assertEqStr(stdlibDomainBarrelPath("prelude"), "std/prelude.aipl", "prelude barrel")
+  assertEqStr(stdlibDomainBarrelPath("std_root"), "std/std_root.aipl", "std_root barrel")
+  assertEqStr(stdlibDomainBarrelPath("math"), "std/math/math_mod.aipl", "math barrel")
+  assertEqStr(stdlibDomainBarrelPath("phys2d"), "std/phys2d/phys2d_mod.aipl", "phys2d barrel")
+  assertEqStr(stdlibDomainBarrelPath("unknown_xyz"), "", "unknown barrel is empty")
+  ret 0
+
+pub fn test_stdlib_import_rules(): int:
+  // Downward or same-layer imports allowed
+  assert(stdlibCanImportLayer(5, 1) == true, "layer 5 importing 1 allowed")
+  assert(stdlibCanImportLayer(2, 2) == true, "layer 2 importing 2 allowed")
+  assert(stdlibCanImportLayer(1, 4) == false, "layer 1 importing 4 forbidden")
+  assert(stdlibCanImportLayer(-1, 0) == false, "negative layer rejected")
+  assert(stdlibCanImportLayer(0, -1) == false, "negative layer rejected")
+
+  assert(stdlibCanDomainImport("mechanics", "math") == true, "mechanics can import math")
+  assert(stdlibCanDomainImport("math", "ui") == false, "math cannot import ui")
+  assert(stdlibCanDomainImport("sys", "mechanics") == false, "sys cannot import mechanics")
+  assert(stdlibCanDomainImport("unknown_a", "math") == false, "unknown domain import rejected")
+  ret 0
+
+pub fn main(): int:
+  test_stdlib_version_and_string()
+  test_stdlib_build_target_and_features()
+  test_stdlib_domain_and_layer_counts()
+  test_stdlib_domain_membership_and_layers()
+  test_stdlib_barrel_paths()
+  test_stdlib_import_rules()
+  println("PASS: std_root_test")
+  ret 0

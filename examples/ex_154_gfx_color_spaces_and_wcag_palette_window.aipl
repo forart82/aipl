@@ -1,0 +1,153 @@
+// ============================================================================
+// Canonical Example 154: Color Spaces (sRGB/OKLab) & WCAG Contrast Palette (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/gfx/color
+// ============================================================================
+module Ex154GfxColorSpacesAndWcagPaletteWindow
+
+import {
+  rgba8,
+  srgbToLinear,
+  linearToSrgb,
+  rgba8ToOklab,
+  oklabToRgba8,
+  oklabToOklch,
+  oklchToOklab,
+  lerpOklab,
+  wcagRelativeLuminance,
+  wcagContrastRatio,
+  apcaContrast,
+  parseHexColor,
+  toHexColor
+} from "../std/gfx/color.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { playToneEx } from "../std/audio/audio_device.aipl"
+
+pub fn verifyColorSpacesOklabAndWcagContrast(): int:
+  let midGray = rgba8(128, 128, 128, 255)
+  let recGray = linearToSrgb(srgbToLinear(midGray))
+  assert(recGray.r == 128, "sRGB <-> Linear roundtrip")
+
+  let red = rgba8(255, 0, 0, 255)
+  let backRed = oklabToRgba8(oklchToOklab(oklabToOklch(rgba8ToOklab(red))))
+  assert(backRed.r >= 253, "OKLab/OKLCH roundtrip")
+
+  let black = rgba8(0, 0, 0, 255)
+  let white = rgba8(255, 255, 255, 255)
+  assert(wcagRelativeLuminance(white) > 0.99, "white luminance 1.0")
+  let cr = int(wcagContrastRatio(black, white) + 0.5)
+  assert(apcaContrast(black, white) > 100.0, "APCA Lc > 100")
+
+  let hexCol = parseHexColor("#3498db")
+  assert(toHexColor(hexCol) == "#3498DBFF", "hex roundtrip")
+  ret recGray.r + cr
+
+pub fn classifyWcagComplianceTier(contrastTimesTen: int): int:
+  if contrastTimesTen >= 70:
+    ret 3
+  if contrastTimesTen >= 45:
+    ret 2
+  if contrastTimesTen >= 30:
+    ret 1
+  ret 0
+
+pub fn describeColorSpacePipeline(tier: int): str:
+  if tier >= 3:
+    ret "COLOR:OKLAB_PERCEPTUAL_WCAG_AAA"
+  ret "COLOR:SRGB_STANDARD_WCAG_AA"
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let cStart = rgba8(255, 45, 85, 255)
+  let cEnd = rgba8(0, 210, 255, 255)
+  let activeStep = (frameIndex * 3 + (frameIndex / 17)) % 16
+  let okCol = lerpOklab(cStart, cEnd, float(activeStep) / 15.0)
+  ret verifyColorSpacesOklabAndWcagContrast() + okCol.r + okCol.g * 2 + okCol.b * 3 + activeStep * 5 + int(dt * 0.0)
+
+pub fn renderColorSpacesAndWcagScene(frameIndex: int): void:
+  let cStart = rgba8(255, 45, 85, 255)
+  let cEnd = rgba8(0, 210, 255, 255)
+  let activeStep = (frameIndex * 3 + (frameIndex / 17)) % 16
+  let activeOkCol = lerpOklab(cStart, cEnd, float(activeStep) / 15.0)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_154 // OKLAB PERCEPTUAL COLOR INTERPOLATION & WCAG 2.1 / APCA CONTRAST", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Ramp 1: Perceptual OKLab Gradient (lerpOklab)
+  drawText("RAMP A: OKLAB PERCEPTUALLY UNIFORM INTERPOLATION (lerpOklab)", 56.0, 96.0, 16.0, rgb(134, 239, 172))
+  mut i = 0
+  while i < 16:
+    let t = float(i) / 15.0
+    let okCol = lerpOklab(cStart, cEnd, t)
+    let sx = 56.0 + float(i * 73)
+    drawRect(sx, 124.0, 68.0, 92.0, rgb(okCol.r, okCol.g, okCol.b))
+    if i == activeStep:
+      drawRectOutline(sx - 2.0, 122.0, 72.0, 96.0, 3.0, rgb(250, 204, 21))
+    i = i + 1
+
+  // Ramp 2: Naive Gamma-Encoded sRGB Lerp (muddy middle comparison)
+  drawText("RAMP B: NAIVE GAMMA-ENCODED SRGB LERP (CHROMA DIP IN MIDTONES)", 56.0, 244.0, 16.0, rgb(251, 146, 60))
+  mut j = 0
+  while j < 16:
+    let sr = 255 - (j * 255) / 15
+    let sg = 45 + (j * 165) / 15
+    let sb = 85 + (j * 170) / 15
+    let sx = 56.0 + float(j * 73)
+    drawRect(sx, 272.0, 68.0, 92.0, rgb(sr, sg, sb))
+    if j == activeStep:
+      drawRectOutline(sx - 2.0, 270.0, 72.0, 96.0, 3.0, rgb(250, 204, 21))
+    j = j + 1
+
+  // Bottom: WCAG 2.1 & APCA Contrast Verification Swatch Cards
+  let darkNavy = rgba8(10, 15, 30, 255)
+  let white = rgba8(255, 255, 255, 255)
+  let navyCr = int(wcagContrastRatio(darkNavy, white) * 10.0)
+  let navyApca = int(apcaContrast(darkNavy, white))
+  let activeCr = int(wcagContrastRatio(darkNavy, activeOkCol) * 10.0)
+  let activeHex = toHexColor(activeOkCol)
+  let naiveR = 255 - (activeStep * 255) / 15
+  let naiveG = 45 + (activeStep * 165) / 15
+  let naiveB = 85 + (activeStep * 170) / 15
+  let naiveCol = rgba8(naiveR, naiveG, naiveB, 255)
+  let naiveCr = int(wcagContrastRatio(darkNavy, naiveCol) * 10.0)
+
+  drawRect(56.0, 400.0, 1168.0, 276.0, rgb(16, 24, 42))
+  drawRectOutline(56.0, 400.0, 1168.0, 276.0, 2.0, rgb(56, 189, 248))
+  drawText("WCAG 2.1 RELATIVE LUMINANCE & APCA Lc CONTRAST AUDITOR", 80.0, 430.0, 18.0, rgb(56, 189, 248))
+  drawText(describeColorSpacePipeline(classifyWcagComplianceTier(navyCr)), 80.0, 468.0, 15.0, rgb(74, 222, 128))
+  drawText("Swatch #1: Obsidian (#0A0F1E) vs Pure White (#FFFFFF) -> WCAG=" + str(navyCr / 10) + "." + str(navyCr % 10) + ":1 (AAA PASS) | APCA Lc=" + str(navyApca), 80.0, 508.0, 16.0, rgb(241, 245, 249))
+  drawText("Swatch #2: Active OKLab Step #" + str(activeStep) + " (" + activeHex + ") vs Obsidian -> WCAG=" + str(activeCr / 10) + "." + str(activeCr % 10) + ":1", 80.0, 548.0, 15.0, rgb(250, 204, 21))
+
+  drawRect(80.0, 586.0, 320.0, 64.0, rgb(darkNavy.r, darkNavy.g, darkNavy.b))
+  drawRectOutline(80.0, 586.0, 320.0, 64.0, 2.0, rgb(activeOkCol.r, activeOkCol.g, activeOkCol.b))
+  drawText("OKLAB " + str(activeCr / 10) + "." + str(activeCr % 10) + ":1 SAMPLE", 104.0, 610.0, 18.0, rgb(activeOkCol.r, activeOkCol.g, activeOkCol.b))
+
+  drawRect(430.0, 586.0, 320.0, 64.0, rgb(darkNavy.r, darkNavy.g, darkNavy.b))
+  drawRectOutline(430.0, 586.0, 320.0, 64.0, 2.0, rgb(naiveCol.r, naiveCol.g, naiveCol.b))
+  drawText("SRGB " + str(naiveCr / 10) + "." + str(naiveCr % 10) + ":1 SAMPLE", 454.0, 610.0, 18.0, rgb(naiveCol.r, naiveCol.g, naiveCol.b))
+
+pub fn main(): int:
+  let m = verifyColorSpacesOklabAndWcagContrast()
+  assert(m == 149, "color + WCAG metric 149")
+  initWindow(1280, 720, "AIPL ex_154 - Color Spaces (sRGB/OKLab) & WCAG Contrast Palette")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    if frame % 24 == 0:
+      let _ = playToneEx(329.63 + float((frame % 16) * 18), 160.0, 0.20, "bell")
+    renderColorSpacesAndWcagScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

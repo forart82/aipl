@@ -1,0 +1,166 @@
+module tests.scenarios.compiler.lang_06_auto_canonicalizer_test
+
+import { assert, assertEqInt, assertEqStr } from "std/prelude"
+
+fn resolveAiplCliBin(): str:
+  if fileExists("./bin/aipl"):
+    ret "./bin/aipl"
+  if fileExists("../../../bin/aipl"):
+    ret "../../../bin/aipl"
+  ret "aipl"
+
+pub fn test_lang_06_verify_auto_canonicalizes_polyglot_syntax(): int:
+  let aiplBin = resolveAiplCliBin()
+  let tmpPath = "/tmp/canon_lang06_verify.aipl"
+  let rawLines = [
+    "module Lang06CanonVerify",
+    "import { maxInt } \"std.prelude\"",
+    "pub struct Pair { x: int, y: int }",
+    "fn add(",
+    "  a: int,",
+    "  b: int",
+    ") -> int { return a + b; }",
+    "pub fn evaluate_branch(x: int, flag: bool) -> int {",
+    "  if x > 10 && !flag {",
+    "    return maxInt(x, 20);",
+    "  } else if x > 0 || flag {",
+    "    return add(x, 1);",
+    "  } else {",
+    "    return 0;",
+    "  }",
+    "}",
+    "pub fn test_preserve_test_fn_identifier() -> int { return evaluateBranch(5, true); }"
+  ]
+  let _ = writeFile(tmpPath, rawLines.join("\n") + "\n")
+
+  let vRes1 = execCommand(aiplBin, ["verify", tmpPath])
+  assert(vRes1.isOk(), "execCommand aipl verify succeeds")
+  assertEqInt(vRes1.unwrap().status, 0, "aipl verify exits with status 0")
+
+  let canon1 = readFile(tmpPath)
+  assert(canon1.contains("import { maxInt } from \"std/prelude\""), "import normalized to from std/prelude")
+  assert(canon1.contains("pub struct Pair(x: int, y: int)"), "braced struct rewritten to single-line tuple struct")
+  assert(canon1.contains("fn add(a: int, b: int): int:"), "multiline fn collapsed with ): Ret:")
+  assert(canon1.contains("  ret a + b"), "return rewritten to ret with 2-space indent")
+  assert(canon1.contains("pub fn evaluateBranch(x: int, flag: bool): int:"), "snake_case fn normalized to camelCase")
+  assert(canon1.contains("  if x > 10 and not flag:"), "&& and !flag rewritten to and / not flag with colon")
+  assert(canon1.contains("  elif x > 0 or flag:"), "else if and || rewritten to elif and or")
+  assert(canon1.contains("  else:"), "else brace rewritten to else:")
+  assert(canon1.contains("pub fn test_preserve_test_fn_identifier(): int:"), "test_* function identifier preserved")
+  assert(not canon1.contains("return "), "zero verbose return keywords remain")
+  assert(not canon1.contains("else if "), "zero verbose else if sequences remain")
+  assert(not canon1.contains("&&"), "zero && tokens remain")
+  assert(not canon1.contains("||"), "zero || tokens remain")
+  assert(not canon1.contains(") -> "), "zero ) -> arrows remain")
+  assert(not canon1.contains(";"), "zero trailing semicolons remain")
+
+  let vRes2 = execCommand(aiplBin, ["verify", tmpPath])
+  assert(vRes2.isOk(), "second aipl verify succeeds")
+  assertEqInt(vRes2.unwrap().status, 0, "second aipl verify exits with status 0")
+  let canon2 = readFile(tmpPath)
+  assertEqStr(canon2, canon1, "canonicalizer is strictly idempotent on re-verify")
+
+  let _ = removeFile(tmpPath)
+  ret 0
+
+pub fn test_lang_06_fmt_fix_and_build_auto_canonicalize(): int:
+  let aiplBin = resolveAiplCliBin()
+  let tmpPath = "/tmp/canon_lang06_build.aipl"
+  let tmpBin = "/tmp/canon_lang06_build_bin"
+  let rawLines = [
+    "module Lang06CanonBuild",
+    "import { maxInt } \"std.prelude\"",
+    "pub struct BoxedVal { v: int }",
+    "fn compute(",
+    "  a: int,",
+    "  b: int",
+    ") -> int { return maxInt(a, b); }",
+    "pub fn main() -> int {",
+    "  let b = BoxedVal(v = compute(3, 7));",
+    "  if b.v == 7 && !(b.v == 0) {",
+    "    return 0;",
+    "  }",
+    "  return 1;",
+    "}"
+  ]
+  let _ = writeFile(tmpPath, rawLines.join("\n") + "\n")
+
+  let bRes = execCommand(aiplBin, ["build", tmpPath, "-o", tmpBin])
+  assert(bRes.isOk(), "aipl build succeeds on polyglot source")
+  assertEqInt(bRes.unwrap().status, 0, "aipl build exits with status 0")
+
+  let afterBuild = readFile(tmpPath)
+  assert(afterBuild.contains("pub struct BoxedVal(v: int)"), "build canonicalized struct in place")
+  assert(afterBuild.contains("fn compute(a: int, b: int): int:"), "build canonicalized fn signature in place")
+  assert(afterBuild.contains("if b.v == 7 and not (b.v == 0):"), "build canonicalized logical ops in place")
+
+  let fRes = execCommand(aiplBin, ["fmt", "--check", tmpPath])
+  assert(fRes.isOk(), "aipl fmt --check runs")
+  assertEqInt(fRes.unwrap().status, 0, "aipl fmt --check confirms file is already canonical")
+
+  let fixRes = execCommand(aiplBin, ["fix", tmpPath])
+  assert(fixRes.isOk(), "aipl fix runs")
+  assertEqInt(fixRes.unwrap().status, 0, "aipl fix exits with status 0")
+  assertEqStr(readFile(tmpPath), afterBuild, "aipl fix preserves canonical idempotence")
+
+  let _ = removeFile(tmpPath)
+  let _ = removeFile(tmpBin)
+  ret 0
+
+pub fn test_lang_06_nested_single_line_braces_raw_strings_match_and_deps(): int:
+  let aiplBin = resolveAiplCliBin()
+  let depPath = "/tmp/canon_lang06_dep.aipl"
+  let mainPath = "/tmp/canon_lang06_main.aipl"
+  let depLines = [
+    "module Lang06CanonDep",
+    "pub struct Vec2 {",
+    "  val dx: int",
+    "  val dy: int",
+    "}",
+    "pub fn classify_sign(x: int) -> int { if x > 0 { return 1; } else if x < 0 { return -1; } else { return 0; } }",
+    "pub fn match_arm_brace(v: int) -> int {",
+    "  match v {",
+    "    1 => {",
+    "      return 10;",
+    "    },",
+    "    _ => { return 20; }",
+    "  }",
+    "}"
+  ]
+  let mainLines = [
+    "module Lang06CanonMain",
+    "import { Vec2, classifySign, matchArmBrace } \"./canon_lang06_dep.aipl\"",
+    "pub fn raw_preserved() -> str {",
+    "  let raw_str = r#\"quote \" && return x || !y // comment ; { \"#;",
+    "  return raw_str;",
+    "}",
+    "pub fn main() -> int {",
+    "  let p = Vec2(dx = classify_sign(5), dy = match_arm_brace(1));",
+    "  if p.dx == 1 && p.dy == 10 { return 0; }",
+    "  return 1;",
+    "}"
+  ]
+  let _ = writeFile(depPath, depLines.join("\n") + "\n")
+  let _ = writeFile(mainPath, mainLines.join("\n") + "\n")
+
+  let vRes = execCommand(aiplBin, ["verify", mainPath])
+  assert(vRes.isOk(), "aipl verify succeeds on multi-module nested single-line braced source")
+  assertEqInt(vRes.unwrap().status, 0, "aipl verify exits with status 0")
+
+  let depCanon = readFile(depPath)
+  let mainCanon = readFile(mainPath)
+  assert(depCanon.contains("pub struct Vec2(dx: int, dy: int)"), "newline-separated val struct fields canonicalized to tuple struct")
+  assert(depCanon.contains("pub fn classifySign(x: int): int:\n  if x > 0:\n    ret 1\n  elif x < 0:\n    ret -1\n  else:\n    ret 0"), "single-line if/else if/else braced chain unwrapped to indented blocks")
+  assert(depCanon.contains("  match v:\n    1 =>\n      ret 10\n    _ =>\n      ret 20"), "braced match arms unwrapped cleanly")
+  assert(mainCanon.contains("import { Vec2, classifySign, matchArmBrace } from \"./canon_lang06_dep.aipl\""), "imported snake_case symbols canonicalized in import list")
+  assert(mainCanon.contains("r#\"quote \" && return x || !y // comment ; { \"#"), "raw string r#\"...\"# interior quote and operators preserved untouched")
+
+  let _ = removeFile(depPath)
+  let _ = removeFile(mainPath)
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_lang_06_verify_auto_canonicalizes_polyglot_syntax(), 0, "test_lang_06_verify_auto_canonicalizes_polyglot_syntax")
+  assertEqInt(test_lang_06_fmt_fix_and_build_auto_canonicalize(), 0, "test_lang_06_fmt_fix_and_build_auto_canonicalize")
+  assertEqInt(test_lang_06_nested_single_line_braces_raw_strings_match_and_deps(), 0, "test_lang_06_nested_single_line_braces_raw_strings_match_and_deps")
+  ret 0

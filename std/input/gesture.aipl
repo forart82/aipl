@@ -1,0 +1,111 @@
+module InputGesture
+
+// ============================================================================
+// std/input/gesture.aipl — Pinch, Swipe, Double-Tap & Radial VirtualJoystick
+// ============================================================================
+
+pub struct PinchGesture(scale: float, deltaScale: float, centerPointX: float, centerPointY: float)
+
+pub struct SwipeGesture(directionX: float, directionY: float, velocityPixelsPerSec: float)
+
+pub struct VirtualJoystick(centerOriginX: float, centerOriginY: float, currentHandleX: float, currentHandleY: float, radiusPixels: float, deadzoneFraction: float, boundPointerId: int, isActive: bool, outputVectorX: float, outputVectorY: float)
+
+pub fn createVirtualJoystick(originX: float, originY: float, radiusPx: float, deadzoneFraction: float = 0.15): VirtualJoystick:
+  let safeRadius = if radiusPx > 1.0: radiusPx else: 100.0
+  let safeDz = if deadzoneFraction >= 0.0 and deadzoneFraction < 0.95: deadzoneFraction else: 0.15
+  ret VirtualJoystick(
+    centerOriginX = originX,
+    centerOriginY = originY,
+    currentHandleX = originX,
+    currentHandleY = originY,
+    radiusPixels = safeRadius,
+    deadzoneFraction = safeDz,
+    boundPointerId = -1,
+    isActive = false,
+    outputVectorX = 0.0,
+    outputVectorY = 0.0
+  )
+
+pub fn touchDownVirtualJoystick(joystick: VirtualJoystick, pointerId: int, touchX: float, touchY: float): VirtualJoystick:
+  if joystick.isActive:
+    ret joystick
+  let dx = touchX - joystick.centerOriginX
+  let dy = touchY - joystick.centerOriginY
+  let dist = sqrt(dx * dx + dy * dy)
+  // Trigger zone includes generous 1.5x radius for Fitts's Law mobile ergonomics
+  if dist > joystick.radiusPixels * 1.5:
+    ret joystick
+  let activated = VirtualJoystick(
+    centerOriginX = joystick.centerOriginX,
+    centerOriginY = joystick.centerOriginY,
+    currentHandleX = joystick.centerOriginX,
+    currentHandleY = joystick.centerOriginY,
+    radiusPixels = joystick.radiusPixels,
+    deadzoneFraction = joystick.deadzoneFraction,
+    boundPointerId = pointerId,
+    isActive = true,
+    outputVectorX = 0.0,
+    outputVectorY = 0.0
+  )
+  ret touchMoveVirtualJoystick(activated, pointerId, touchX, touchY)
+
+pub fn touchMoveVirtualJoystick(joystick: VirtualJoystick, pointerId: int, touchX: float, touchY: float): VirtualJoystick:
+  if not joystick.isActive or joystick.boundPointerId != pointerId:
+    ret joystick
+  let dx = touchX - joystick.centerOriginX
+  let dy = touchY - joystick.centerOriginY
+  let dist = sqrt(dx * dx + dy * dy)
+  let r = joystick.radiusPixels
+  let clampedDist = if dist > r: r else: dist
+  let dirX = if dist > 0.00001: dx / dist else: 0.0
+  let dirY = if dist > 0.00001: dy / dist else: 0.0
+  let handleX = joystick.centerOriginX + dirX * clampedDist
+  let handleY = joystick.centerOriginY + dirY * clampedDist
+
+  let normDist = clampedDist / r
+  let dz = joystick.deadzoneFraction
+  mut outMag = 0.0
+  if normDist > dz:
+    outMag = (normDist - dz) / (1.0 - dz)
+    if outMag > 1.0:
+      outMag = 1.0
+
+  ret VirtualJoystick(
+    centerOriginX = joystick.centerOriginX,
+    centerOriginY = joystick.centerOriginY,
+    currentHandleX = handleX,
+    currentHandleY = handleY,
+    radiusPixels = joystick.radiusPixels,
+    deadzoneFraction = joystick.deadzoneFraction,
+    boundPointerId = joystick.boundPointerId,
+    isActive = true,
+    outputVectorX = dirX * outMag,
+    outputVectorY = dirY * outMag
+  )
+
+pub fn touchUpVirtualJoystick(joystick: VirtualJoystick, pointerId: int): VirtualJoystick:
+  if not joystick.isActive or joystick.boundPointerId != pointerId:
+    ret joystick
+  ret VirtualJoystick(
+    centerOriginX = joystick.centerOriginX,
+    centerOriginY = joystick.centerOriginY,
+    currentHandleX = joystick.centerOriginX,
+    currentHandleY = joystick.centerOriginY,
+    radiusPixels = joystick.radiusPixels,
+    deadzoneFraction = joystick.deadzoneFraction,
+    boundPointerId = -1,
+    isActive = false,
+    outputVectorX = 0.0,
+    outputVectorY = 0.0
+  )
+
+pub fn computePinchDelta(p1X: float, p1Y: float, p2X: float, p2Y: float, prevDist: float): (float, float):
+  let dx = p2X - p1X
+  let dy = p2Y - p1Y
+  let curDist = sqrt(dx * dx + dy * dy)
+  let scale = if prevDist > 0.0001: curDist / prevDist else: 1.0
+  ret (curDist, scale)
+
+pub fn detectDoubleTap(lastTapTimeMs: int, currentTapTimeMs: int, maxIntervalMs: int = 300): bool:
+  let dt = currentTapTimeMs - lastTapTimeMs
+  ret dt >= 0 and dt <= maxIntervalMs

@@ -1,0 +1,57 @@
+// ============================================================================
+// Canonical Example 119: TCP Echo Stream & Length-Prefixed Framing (CLI)
+// Target Profile: CLI | Standard Library Module: std/net
+// ============================================================================
+module Ex119NetTcpEchoAndFramingCli
+
+import {
+  parseSocketAddr,
+  netTcpListen,
+  netTcpAccept,
+  netTcpConnect,
+  netTcpSetNodelay,
+  netTcpSetKeepalive,
+  netTcpSetNonBlocking,
+  netTcpWrite,
+  netTcpRead,
+  netTcpCloseStream,
+  netTcpCloseListener
+} from "../std/net/net_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyTcpEchoStreamAndSocketOptions(): int:
+  let addr = parseSocketAddr("127.0.0.1:9000").unwrap()
+  mut listener = netTcpListen(addr).unwrap()
+  mut accepted = netTcpAccept(listener).unwrap()
+  mut client = netTcpConnect(addr, 1000).unwrap()
+
+  assert(netTcpSetNodelay(client, true).unwrap(), "TCP_NODELAY enabled")
+  assert(netTcpSetKeepalive(client, 5000).unwrap(), "TCP keepalive 5000ms")
+  assert(netTcpSetNonBlocking(client, true).unwrap(), "TCP non-blocking enabled")
+
+  let written = netTcpWrite(accepted, [65, 73, 80, 76]).unwrap()
+  assert(written == 4, "4 bytes written")
+  let readBuf = netTcpRead(accepted, 16).unwrap()
+  assert(netTcpCloseStream(client), "client closed")
+  assert(netTcpCloseListener(listener), "listener closed")
+  ret readBuf.len()
+
+pub fn encodeLengthPrefixedFrameSize(payloadBytes: int, headerBytes: int): int:
+  let p = maxInt(0, payloadBytes)
+  let h = clampInt(headerBytes, 1, 8)
+  ret p + h
+
+pub fn describeTcpSocketTuning(nodelayFlag: int, keepaliveMs: int): str:
+  let ka = maxInt(0, keepaliveMs)
+  if nodelayFlag != 0:
+    ret "TCP:NODELAY_ON_KEEPALIVE_" + str(ka) + "MS"
+  ret "TCP:NAGLE_DEFAULT_KEEPALIVE_" + str(ka) + "MS"
+
+pub fn main(): int:
+  let readLen = verifyTcpEchoStreamAndSocketOptions()
+  let frameSize = encodeLengthPrefixedFrameSize(256, 4)
+  let tag = describeTcpSocketTuning(1, 5000)
+  assert(readLen == 4, "TCP read 4 bytes")
+  assert(frameSize == 260, "256 + 4 == 260")
+  println(tag + " | echoedBytes=" + str(readLen) + " | frameSize=" + str(frameSize))
+  ret 0

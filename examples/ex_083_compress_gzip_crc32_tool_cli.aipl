@@ -1,0 +1,57 @@
+// ============================================================================
+// Example 083: RFC-1952 Gzip, RFC-1950 Zlib & CRC32/Adler32 Tool (CLI)
+// Demonstrates: gzipCompress, gzipDecompress, compressGzip, decompressGzip,
+//               zlibCompress, zlibDecompress, computeCrc32, and computeAdler32
+//               from std/compress.
+// ============================================================================
+module Ex083CompressGzipCrc32ToolCli
+
+import {
+  gzipCompress,
+  gzipDecompress,
+  compressGzip,
+  decompressGzip,
+  zlibCompress,
+  zlibDecompress,
+  computeCrc32,
+  computeAdler32
+} from "../std/compress"
+
+// Compresses a payload with Gzip and Zlib framing and returns the sum of their magic header bytes.
+pub fn evaluateGzipAndZlibHeaderBytesSum(): int:
+  let payload = "Gzip and Zlib RFC framing verification payload".toBytes()
+  let gz = gzipCompress(payload, "test.txt", 1700000000)
+  let zl = zlibCompress(payload, 6)
+  ret gz[0] + gz[1] + zl[0]
+
+// Verifies Gzip, quick-Gzip, Zlib decompression round-trips plus CRC32 and Adler32 checksums.
+pub fn verifyGzipZlibAndChecksumsRoundTrip(): int:
+  let text = "Gzip and Zlib RFC framing verification payload"
+  let payload = text.toBytes()
+  let gz = gzipCompress(payload, "test.txt", 1700000000)
+  let unGz = gzipDecompress(gz).unwrap().toStringLossy()
+
+  let quickGz = compressGzip(payload)
+  let unQuick = decompressGzip(quickGz).unwrap().toStringLossy()
+
+  let zl = zlibCompress(payload, 6)
+  let unZl = zlibDecompress(zl).unwrap().toStringLossy()
+
+  let crc = computeCrc32(payload)
+  let adler = computeAdler32(payload)
+  if unGz == text and unQuick == text and unZl == text and crc != 0 and adler != 0:
+    ret 1
+  ret 0
+
+// Validates the 2-byte RFC-1952 Gzip magic signature (0x1F, 0x8B).
+pub fn describeGzipHeaderMagic(b0: int, b1: int): str:
+  if b0 == 31 and b1 == 139:
+    ret "GZIP:RFC1952_MAGIC_1F8B_OK"
+  ret "GZIP:INVALID_HEADER_MAGIC"
+
+pub fn main(): int:
+  let hdrSum = evaluateGzipAndZlibHeaderBytesSum()
+  let ok = verifyGzipZlibAndChecksumsRoundTrip()
+  let magic = describeGzipHeaderMagic(31, 139)
+  println("ex_083_compress_gzip_crc32_tool_cli: hdrSum=" + str(hdrSum) + " ok=" + str(ok) + " magic=" + magic)
+  ret 0

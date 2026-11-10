@@ -1,0 +1,46 @@
+module Ex213SpatialVoxelChunkWorld3dWindowTest
+
+import {
+  buildSpatialVoxelChunkAudit, stepVoxelBuildPhase, stepVoxelRayOriginY
+} from "../../examples/ex_213_spatial_voxel_chunk_world3d_window"
+import { Vec3 } from "../../std/math/vec_math"
+import {
+  VoxelBlock, VoxelRayHit, QuadFace3D,
+  voxelChunkWorldNew, voxelGetBlock, voxelSetBlock,
+  voxelRaycastDDA, voxelExtractGreedyFaces
+} from "../../std/spatial/voxel_chunk_world3d"
+
+pub fn test_spatial_voxel_chunk_world3d(): void:
+  mut vworld = voxelChunkWorldNew(8)
+  let block = VoxelBlock(blockId = 42, metadata = 0, lightLevel = 15)
+  assert(voxelSetBlock(vworld, 2, 2, 2, block), "voxelSetBlock (2,2,2)")
+  assert(voxelSetBlock(vworld, 3, 2, 2, block), "voxelSetBlock (3,2,2)")
+
+  let rb: VoxelBlock = voxelGetBlock(vworld, 2, 2, 2).unwrap()
+  assert(rb.blockId == 42 and rb.lightLevel == 15, "voxelGetBlock retrieves blockId 42")
+
+  let vHit = voxelRaycastDDA(vworld, Vec3(x = 0.5, y = 2.5, z = 2.5), Vec3(x = 1.0, y = 0.0, z = 0.0), 10.0)
+  let vh: VoxelRayHit = vHit.unwrap()
+  assert(vh.blockId == 42 and vh.coord.x == 2, "Amanatides-Woo 3D DDA raycast hits voxel (2,2,2)")
+
+  let greedy = voxelExtractGreedyFaces(vworld.chunks[0])
+  let qf: QuadFace3D = greedy[0]
+  assert(greedy.len() == 1 and qf.width == 2 and qf.height == 1, "voxelExtractGreedyFaces merges 2 adjacent blocks into a 2x1 quad")
+  assert(buildSpatialVoxelChunkAudit() == 48, "buildSpatialVoxelChunkAudit returns 42 + 2 + 1 + 2 + 1 == 48")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let p0 = stepVoxelBuildPhase(0)
+  let p20 = stepVoxelBuildPhase(20)
+  let p100 = stepVoxelBuildPhase(100)
+  assert(p0 != p20 and p20 != p100, "voxel build phase cycles across t=0,20,100")
+
+  let ry0 = stepVoxelRayOriginY(0)
+  let ry1 = stepVoxelRayOriginY(1)
+  let ry20 = stepVoxelRayOriginY(20)
+  let ry100 = stepVoxelRayOriginY(100)
+  assert(ry0 != ry1 and ry1 != ry20 and ry20 != ry100, "voxel DDA ray origin Y sweeps across t=0,1,20,100")
+
+pub fn main(): int:
+  test_spatial_voxel_chunk_world3d()
+  println("PASS: ex_213_spatial_voxel_chunk_world3d_window_test")
+  ret 0

@@ -1,0 +1,547 @@
+module Gfx2dFilterMod
+
+// ============================================================================
+// std/gfx2d/filter2d.aipl — 2D Gaussian Blur, Sobel Edge & Spatial Convolution
+// ============================================================================
+
+import { Color, rgba, drawRect, drawCircle, drawPolygon } from "./shape2d"
+import { pi, absFloat } from "../math/consts"
+import { Vec2 } from "../math/vec_math"
+import { ColorRgba8 } from "../gfx/color"
+
+pub struct ConvolutionKernel2D(size: int, weights: [float])
+
+pub struct DropShadowConfig2D(offset: Vec2, blurRadius: float, color: ColorRgba8)
+
+pub fn generateGaussianKernel1D(radius: int, sigma: float): [float]:
+  let r = if radius >= 0: radius else: 1
+  let s = if sigma > 0.001: sigma else: 1.0
+  let twoSigmaSq = 2.0 * s * s
+  mut raw: [float] = []
+  mut sum = 0.0
+  mut x = -r
+  while x <= r:
+    let fx = float(x)
+    let w = exp(-(fx * fx) / twoSigmaSq)
+    raw.push(w)
+    sum = sum + w
+    x += 1
+
+  mut norm: [float] = []
+  let invSum = if sum > 0.0: (1.0 / sum) else: 1.0
+  mut i = 0
+  while i < raw.len:
+    norm.push(raw[i] * invSum)
+    i += 1
+  ret norm
+
+pub fn generateSobelKernels(): [ConvolutionKernel2D]:
+  let gx = ConvolutionKernel2D(
+    size = 3,
+    weights = [-1.0, 0.0, 1.0, -2.0, 0.0, 2.0, -1.0, 0.0, 1.0]
+  )
+  let gy = ConvolutionKernel2D(
+    size = 3,
+    weights = [-1.0, -2.0, -1.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0]
+  )
+  ret [gx, gy]
+
+pub fn applyConvolution2D(pixelGrid: [int], width: int, height: int, kernel: ConvolutionKernel2D): [int]:
+  let half = kernel.size / 2
+  mut out: [int] = []
+  mut y = 0
+  while y < height:
+    mut x = 0
+    while x < width:
+      mut acc = 0.0
+      mut ky = -half
+      while ky <= half:
+        mut kx = -half
+        while kx <= half:
+          let sx = if x + kx < 0: 0 else: (if x + kx >= width: width - 1 else: x + kx)
+          let sy = if y + ky < 0: 0 else: (if y + ky >= height: height - 1 else: y + ky)
+          let kIdx = (ky + half) * kernel.size + (kx + half)
+          let pIdx = sy * width + sx
+          if kIdx < kernel.weights.len and pIdx < pixelGrid.len:
+            acc = acc + float(pixelGrid[pIdx]) * kernel.weights[kIdx]
+          kx += 1
+        ky += 1
+      out.push(int(acc + 0.5))
+      x += 1
+    y += 1
+  ret out
+
+pub fn applyLumaThreshold(luma: int, threshold: int): int:
+  ret if luma >= threshold: 255 else: 0
+
+pub fn blendPixelChannel(src: int, dst: int, alphaPct: int): int:
+  let a = if alphaPct < 0: 0 else: (if alphaPct > 100: 100 else: alphaPct)
+  ret (src * a + dst * (100 - a)) / 100
+
+fn f2dClamp(v: int, lo: int, hi: int): int:
+  if v < lo:
+    ret lo
+  if v > hi:
+    ret hi
+  ret v
+
+/// Applies a 3x3 integer convolution kernel `k` (9 weights) divided by `divisor` with `bias`, preserving the high alpha byte.
+pub fn convolve3x3(pixels: [int], w: int, h: int, k: [int], divisor: int, bias: int): [int]:
+  mut out: [int] = []
+  if w <= 0 or h <= 0 or pixels.len < w * h or k.len < 9:
+    ret pixels
+  let safeDiv = if divisor == 0: 1 else: divisor
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      mut sumR = 0
+      mut sumG = 0
+      mut sumB = 0
+      mut ky = -1
+      while ky <= 1:
+        let sy = f2dClamp(y + ky, 0, h - 1)
+        mut kx = -1
+        while kx <= 1:
+          let sx = f2dClamp(x + kx, 0, w - 1)
+          let weight = k[(ky + 1) * 3 + (kx + 1)]
+          let px = pixels[sy * w + sx]
+          sumR += ((px >> 16) & 255) * weight
+          sumG += ((px >> 8) & 255) * weight
+          sumB += (px & 255) * weight
+          kx += 1
+        ky += 1
+      let origA = (pixels[y * w + x] >> 24) & 255
+      let outR = f2dClamp(sumR / safeDiv + bias, 0, 255)
+      let outG = f2dClamp(sumG / safeDiv + bias, 0, 255)
+      let outB = f2dClamp(sumB / safeDiv + bias, 0, 255)
+      out.push((origA << 24) | (outR << 16) | (outG << 8) | outB)
+      x += 1
+    y += 1
+  ret out
+
+pub fn filterBoxBlur3x3(pixels: [int], w: int, h: int): [int]:
+  ret convolve3x3(pixels, w, h, [1, 1, 1, 1, 1, 1, 1, 1, 1], 9, 0)
+
+pub fn filterGaussian3x3(pixels: [int], w: int, h: int): [int]:
+  ret convolve3x3(pixels, w, h, [1, 2, 1, 2, 4, 2, 1, 2, 1], 16, 0)
+
+pub fn filterSharpen3x3(pixels: [int], w: int, h: int): [int]:
+  ret convolve3x3(pixels, w, h, [0, -1, 0, -1, 5, -1, 0, -1, 0], 1, 0)
+
+pub fn filterSobelEdges(pixels: [int], w: int, h: int): [int]:
+  mut out: [int] = []
+  if w <= 0 or h <= 0 or pixels.len < w * h:
+    ret pixels
+  let gxK = [-1, 0, 1, -2, 0, 2, -1, 0, 1]
+  let gyK = [-1, -2, -1, 0, 0, 0, 1, 2, 1]
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      mut gx = 0
+      mut gy = 0
+      mut ky = -1
+      while ky <= 1:
+        let sy = f2dClamp(y + ky, 0, h - 1)
+        mut kx = -1
+        while kx <= 1:
+          let sx = f2dClamp(x + kx, 0, w - 1)
+          let idx = (ky + 1) * 3 + (kx + 1)
+          let px = pixels[sy * w + sx]
+          let luma = (((px >> 16) & 255) * 77 + ((px >> 8) & 255) * 150 + (px & 255) * 29) >> 8
+          gx += luma * gxK[idx]
+          gy += luma * gyK[idx]
+          kx += 1
+        ky += 1
+      let mag = f2dClamp(int(sqrt(float(gx * gx + gy * gy)) + 0.5), 0, 255)
+      let origA = (pixels[y * w + x] >> 24) & 255
+      out.push((origA << 24) | (mag << 16) | (mag << 8) | mag)
+      x += 1
+    y += 1
+  ret out
+
+pub fn fadeAlpha(baseColor: Color, alpha: float): Color:
+  mut a = alpha
+  if a < 0.0:
+    a = 0.0
+  if a > 1.0:
+    a = 1.0
+  ret Color(r = baseColor.r, g = baseColor.g, b = baseColor.b, a = a)
+
+pub fn morphColor(c1: Color, c2: Color, t: float): Color:
+  mut factor = t
+  if factor < 0.0:
+    factor = 0.0
+  if factor > 1.0:
+    factor = 1.0
+  let r = c1.r + (c2.r - c1.r) * factor
+  let g = c1.g + (c2.g - c1.g) * factor
+  let b = c1.b + (c2.b - c1.b) * factor
+  let a = c1.a + (c2.a - c1.a) * factor
+  ret Color(r = r, g = g, b = b, a = a)
+
+pub fn hslToColor(h: float, s: float, l: float): Color:
+  if s <= 0.0:
+    ret Color(r = l, g = l, b = l, a = 1.0)
+
+  mut normH = h % 360.0
+  if normH < 0.0:
+    normH += 360.0
+
+  let c = (1.0 - absFloat(2.0 * l - 1.0)) * s
+  let hPrime = normH / 60.0
+  let rem = hPrime % 2.0
+  let x = c * (1.0 - absFloat(rem - 1.0))
+  let m = l - c / 2.0
+
+  mut r1 = 0.0
+  mut g1 = 0.0
+  mut b1 = 0.0
+
+  if normH < 60.0:
+    r1 = c
+    g1 = x
+  if normH >= 60.0 and normH < 120.0:
+    r1 = x
+    g1 = c
+  if normH >= 120.0 and normH < 180.0:
+    g1 = c
+    b1 = x
+  if normH >= 180.0 and normH < 240.0:
+    g1 = x
+    b1 = c
+  if normH >= 240.0 and normH < 300.0:
+    r1 = x
+    b1 = c
+  if normH >= 300.0:
+    r1 = c
+    b1 = x
+
+  ret Color(r = r1 + m, g = g1 + m, b = b1 + m, a = 1.0)
+
+pub fn rainbowMorph(t: float): Color:
+  let h = (t * 360.0) % 360.0
+  ret hslToColor(h, 1.0, 0.5)
+
+pub fn morphPoints(ptsA: [float], ptsB: [float], t: float): [float]:
+  mut result: [float] = []
+  let lenA = ptsA.length
+  let lenB = ptsB.length
+  mut count = lenA
+  if lenB < lenA:
+    count = lenB
+  mut i = 0
+  while i < count:
+    let valA = ptsA[i]
+    let valB = ptsB[i]
+    let interpolated = valA + (valB - valA) * t
+    result.push(interpolated)
+    i += 1
+  ret result
+
+pub fn calculatePulseScale(baseScale: float, pulseAmount: float, frequency: float, time: float): float:
+  let wave = sin(time * frequency * 2.0 * pi())
+  ret baseScale + pulseAmount * wave
+
+pub fn drawGlowCircleColor(cx: float, cy: float, radius: float, color: Color, layers: int):
+  mut l = layers
+  if l < 1:
+    l = 1
+  mut i = l
+  while i > 0:
+    let spread = float(i) * 3.0
+    let alphaFactor = 0.4 / float(l)
+    let glowCol = Color(r = color.r, g = color.g, b = color.b, a = color.a * alphaFactor)
+    drawCircle(cx, cy, radius + spread, glowCol)
+    i -= 1
+  drawCircle(cx, cy, radius, color)
+  ret
+
+pub fn drawGlowRect(x: float, y: float, w: float, h: float, color: Color, layers: int):
+  mut l = layers
+  if l < 1:
+    l = 1
+  mut i = l
+  while i > 0:
+    let spread = float(i) * 2.5
+    let alphaFactor = 0.35 / float(l)
+    let glowCol = Color(r = color.r, g = color.g, b = color.b, a = color.a * alphaFactor)
+    drawRect(x - spread, y - spread, w + spread * 2.0, h + spread * 2.0, glowCol)
+    i -= 1
+  drawRect(x, y, w, h, color)
+  ret
+
+pub fn dissolveShape(centerX: float, centerY: float, w: float, h: float, progress: float, color: Color, particleCount: int):
+  if progress >= 1.0:
+    ret
+  let alpha = 1.0 - progress
+  mut i = 0
+  let step = (2.0 * pi()) / float(particleCount)
+  while i < particleCount:
+    let angle = float(i) * step
+    let dist = progress * (w + h) * 0.6
+    let px = centerX + cos(angle) * (w * 0.3 + dist)
+    let py = centerY + sin(angle) * (h * 0.3 + dist) - (progress * 40.0)
+    let size = (1.0 - progress) * 4.0
+    let particleColor = Color(r = color.r, g = color.g, b = color.b, a = alpha * color.a)
+    drawCircle(px, py, size, particleColor)
+    i += 1
+  ret
+
+// ============================================================================
+// Particle System & Burst FX Helpers
+// ============================================================================
+
+pub struct FxParticle(x: float, y: float, vx: float, vy: float, colorStart: Color, colorEnd: Color, color: Color, life: float, maxLife: float, size: float, active: bool)
+
+pub fn interpolateColorOverLife(startColor: Color, endColor: Color, life: float, maxLife: float): Color:
+  if maxLife <= 0.0:
+    ret endColor
+  mut t = 1.0 - (life / maxLife)
+  if t < 0.0:
+    t = 0.0
+  if t > 1.0:
+    t = 1.0
+  ret morphColor(startColor, endColor, t)
+
+pub fn colorOverLife(c1: Color, c2: Color, progress: float): Color:
+  ret morphColor(c1, c2, progress)
+
+pub fn emitExplosionParticles(ox: float, oy: float, count: int, speed: float, baseColor: Color): [FxParticle]:
+  mut out: [FxParticle] = []
+  if count <= 0:
+    ret out
+  let step = (2.0 * pi()) / float(count)
+  let endCol = Color(r = baseColor.r, g = baseColor.g, b = baseColor.b, a = 0.0)
+  mut i = 0
+  while i < count:
+    let angle = float(i) * step
+    let vx = cos(angle) * speed
+    let vy = sin(angle) * speed
+    out.push(FxParticle(
+      x = ox,
+      y = oy,
+      vx = vx,
+      vy = vy,
+      colorStart = baseColor,
+      colorEnd = endCol,
+      color = baseColor,
+      life = 1.0,
+      maxLife = 1.0,
+      size = 3.0,
+      active = true
+    ))
+    i += 1
+  ret out
+
+pub fn emitSparkTrail(ox: float, oy: float, dirX: float, dirY: float, count: int, speed: float, sparkColor: Color): [FxParticle]:
+  mut out: [FxParticle] = []
+  if count <= 0:
+    ret out
+  let perpX = -dirY
+  let perpY = dirX
+  let endCol = Color(r = sparkColor.r, g = sparkColor.g, b = sparkColor.b, a = 0.0)
+  mut i = 0
+  while i < count:
+    mut spread = 0.0
+    if count > 1:
+      spread = (float(i) / float(count - 1) - 0.5) * 0.5
+    let vx = (dirX + perpX * spread) * speed
+    let vy = (dirY + perpY * spread) * speed
+    out.push(FxParticle(
+      x = ox,
+      y = oy,
+      vx = vx,
+      vy = vy,
+      colorStart = sparkColor,
+      colorEnd = endCol,
+      color = sparkColor,
+      life = 0.6,
+      maxLife = 0.6,
+      size = 2.0,
+      active = true
+    ))
+    i += 1
+  ret out
+
+pub fn countAliveParticles(particles: [FxParticle]): int:
+  mut alive = 0
+  for p in particles:
+    if p.active and p.life > 0.0:
+      alive += 1
+  ret alive
+
+pub fn updateFxParticle(p: FxParticle, dt: float, gravity: float = 0.0): FxParticle:
+  let newLife = p.life - dt
+  if newLife <= 0.0:
+    ret FxParticle(
+      x = p.x + p.vx * dt,
+      y = p.y + p.vy * dt,
+      vx = p.vx,
+      vy = p.vy + gravity * dt,
+      colorStart = p.colorStart,
+      colorEnd = p.colorEnd,
+      color = p.colorEnd,
+      life = 0.0,
+      maxLife = p.maxLife,
+      size = p.size,
+      active = false
+    )
+  let newCol = interpolateColorOverLife(p.colorStart, p.colorEnd, newLife, p.maxLife)
+  ret FxParticle(
+    x = p.x + p.vx * dt,
+    y = p.y + p.vy * dt,
+    vx = p.vx,
+    vy = p.vy + gravity * dt,
+    colorStart = p.colorStart,
+    colorEnd = p.colorEnd,
+    color = newCol,
+    life = newLife,
+    maxLife = p.maxLife,
+    size = p.size,
+    active = true
+  )
+
+pub fn updateFxParticles(particles: [FxParticle], dt: float, gravity: float = 0.0): [FxParticle]:
+  mut out: [FxParticle] = []
+  for p in particles:
+    out.push(updateFxParticle(p, dt, gravity))
+  ret out
+
+// =============================================================================
+// Squirrel Eiserloh Trauma-Squared Camera Shake, Hit-Stop & Post-Processing FX
+// =============================================================================
+
+pub struct CameraShake2D(trauma: float, decayRate: float, maxOffsetPx: float, maxAngleRad: float, timeAcc: float, offsetX: float, offsetY: float, angleRad: float)
+
+pub struct HitStopState(remainingSec: float, timeScale: float)
+
+pub fn cameraShakeNew(decayRate: float, maxOffsetPx: float, maxAngleRad: float): CameraShake2D:
+  ret CameraShake2D(
+    trauma = 0.0,
+    decayRate = if decayRate <= 0.0: 1.25 else: decayRate,
+    maxOffsetPx = maxOffsetPx,
+    maxAngleRad = maxAngleRad,
+    timeAcc = 0.0,
+    offsetX = 0.0,
+    offsetY = 0.0,
+    angleRad = 0.0
+  )
+
+pub fn addCameraShakeTrauma(mut sh: CameraShake2D, amount: float): CameraShake2D:
+  sh.trauma = clampFloat(sh.trauma + maxFloat(0.0, amount), 0.0, 1.0)
+  ret sh
+
+/// Advances Squirrel Eiserloh trauma-squared (`shake = trauma^2`) camera shake state.
+pub fn stepCameraShake2D(mut sh: CameraShake2D, dt: float): CameraShake2D:
+  sh.timeAcc = sh.timeAcc + maxFloat(0.0, dt)
+  let shake = sh.trauma * sh.trauma
+  let t = sh.timeAcc * 38.0
+  let nx = sin(t) * 0.65 + cos(t * 2.17 + 1.3) * 0.35
+  let ny = cos(t * 1.13 + 0.7) * 0.65 + sin(t * 2.41 + 2.9) * 0.35
+  let nr = sin(t * 1.57 + 4.1)
+  sh.offsetX = sh.maxOffsetPx * shake * nx
+  sh.offsetY = sh.maxOffsetPx * shake * ny
+  sh.angleRad = sh.maxAngleRad * shake * nr
+  sh.trauma = clampFloat(sh.trauma - sh.decayRate * maxFloat(0.0, dt), 0.0, 1.0)
+  ret sh
+
+pub struct HitStopTimer(remainingSec: float, timeScale: float)
+
+pub fn hitStopTimerNew(durationSec: float, freezeScale: float = 0.0): HitStopTimer:
+  ret HitStopTimer(remainingSec = maxFloat(0.0, durationSec), timeScale = clampFloat(freezeScale, 0.0, 1.0))
+
+pub fn stepHitStopTimer(mut ht: HitStopTimer, rawDt: float): HitStopTimer:
+  if ht.remainingSec <= 0.0:
+    ht.remainingSec = 0.0
+    ht.timeScale = 1.0
+    ret ht
+  ht.remainingSec = maxFloat(0.0, ht.remainingSec - maxFloat(0.0, rawDt))
+  if ht.remainingSec <= 0.0:
+    ht.timeScale = 1.0
+  ret ht
+
+pub fn hitStopTimerScale(ht: HitStopTimer): float:
+  if ht.remainingSec > 0.0:
+    ret ht.timeScale
+  ret 1.0
+
+pub fn hitStopTrigger(durationSec: float, freezeScale: float): HitStopState:
+  ret HitStopState(remainingSec = maxFloat(0.0, durationSec), timeScale = clampFloat(freezeScale, 0.0, 1.0))
+
+pub fn stepHitStop(mut hs: HitStopState, rawDt: float): HitStopState:
+  if hs.remainingSec <= 0.0:
+    hs.remainingSec = 0.0
+    hs.timeScale = 1.0
+    ret hs
+  hs.remainingSec = maxFloat(0.0, hs.remainingSec - maxFloat(0.0, rawDt))
+  if hs.remainingSec <= 0.0:
+    hs.timeScale = 1.0
+  ret hs
+
+pub fn effectiveHitStopDt(hs: HitStopState, rawDt: float): float:
+  if hs.remainingSec > 0.0:
+    ret rawDt * hs.timeScale
+  ret rawDt
+
+pub fn drawVignetteOverlay(viewW: float, viewH: float, thickness: float, maxAlpha: float): void:
+  let bands = 4
+  let step = maxFloat(4.0, thickness) / float(bands)
+  mut i = 0
+  while i < bands:
+    let inset = float(i) * step
+    let frac = float(bands - i) / float(bands)
+    let a = clampFloat(maxAlpha * frac * 0.5, 0.0, 1.0)
+    let col = Color(r = 0.0, g = 0.0, b = 0.0, a = a)
+    drawRect(inset, inset, viewW - inset * 2.0, step, col)
+    drawRect(inset, viewH - inset - step, viewW - inset * 2.0, step, col)
+    drawRect(inset, inset + step, step, viewH - (inset + step) * 2.0, col)
+    drawRect(viewW - inset - step, inset + step, step, viewH - (inset + step) * 2.0, col)
+    i += 1
+  ret
+
+/// Applies horizontal RGB channel dispersion (chromatic aberration) across packed `0xAARRGGBB` pixel buffer.
+pub fn imageChromaticAberration(pixels: [int], w: int, h: int, shiftPx: int): [int]:
+  mut out: [int] = []
+  if w <= 0 or h <= 0 or pixels.len < w * h:
+    ret pixels
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      let rx = clampInt(x - shiftPx, 0, w - 1)
+      let bx = clampInt(x + shiftPx, 0, w - 1)
+      let pR = pixels[y * w + rx]
+      let pG = pixels[y * w + x]
+      let pB = pixels[y * w + bx]
+      let a = (pG >> 24) & 255
+      let r = (pR >> 16) & 255
+      let g = (pG >> 8) & 255
+      let b = pB & 255
+      out.push((a << 24) | (r << 16) | (g << 8) | b)
+      x += 1
+    y += 1
+  ret out
+
+/// Perceptually uniform Oklab interpolation between two `Color` values.
+pub fn morphColorOklab(c1: Color, c2: Color, t: float): Color:
+  let u = clampFloat(t, 0.0, 1.0)
+  // Convert linear-ish channels via cube-root LMS approximation
+  let l1 = 0.41222147 * c1.r + 0.53633253 * c1.g + 0.05144599 * c1.b
+  let m1 = 0.21190349 * c1.r + 0.68069954 * c1.g + 0.10739695 * c1.b
+  let s1 = 0.08830246 * c1.r + 0.28171883 * c1.g + 0.62997870 * c1.b
+  let l2 = 0.41222147 * c2.r + 0.53633253 * c2.g + 0.05144599 * c2.b
+  let m2 = 0.21190349 * c2.r + 0.68069954 * c2.g + 0.10739695 * c2.b
+  let s2 = 0.08830246 * c2.r + 0.28171883 * c2.g + 0.62997870 * c2.b
+  let lc = pow(maxFloat(0.0, l1), 1.0 / 3.0) * (1.0 - u) + pow(maxFloat(0.0, l2), 1.0 / 3.0) * u
+  let mc = pow(maxFloat(0.0, m1), 1.0 / 3.0) * (1.0 - u) + pow(maxFloat(0.0, m2), 1.0 / 3.0) * u
+  let sc = pow(maxFloat(0.0, s1), 1.0 / 3.0) * (1.0 - u) + pow(maxFloat(0.0, s2), 1.0 / 3.0) * u
+  let lCone = lc * lc * lc
+  let mCone = mc * mc * mc
+  let sCone = sc * sc * sc
+  let rOut = clampFloat(4.07674166 * lCone - 3.30771159 * mCone + 0.23096992 * sCone, 0.0, 1.0)
+  let gOut = clampFloat(-1.26843800 * lCone + 2.60975740 * mCone - 0.34131939 * sCone, 0.0, 1.0)
+  let bOut = clampFloat(-0.00419608 * lCone - 0.70341861 * mCone + 1.70761470 * sCone, 0.0, 1.0)
+  let aOut = c1.a + (c2.a - c1.a) * u
+  ret Color(r = rOut, g = gOut, b = bOut, a = aOut)

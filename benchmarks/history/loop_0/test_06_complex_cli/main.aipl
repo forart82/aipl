@@ -1,0 +1,71 @@
+module Bench06ComplexCliTool
+
+struct CliResult(exitCode: int, output: str)
+
+fn executeCliCommand(args: [str]): CliResult:
+  if args.len == 0 or args[0] == "--help" or args[0] == "help":
+    ret CliResult(0, "Usage: tool <stats|transform|pipeline> [options]")
+  let sub = args[0]
+  if sub == "stats":
+    mut nums: [int] = []
+    mut i = 1
+    while i < args.len:
+      if args[i].startsWith("--values="):
+        let parts = args[i].slice(9, args[i].len).split(",")
+        for p in parts:
+          if p.trim().len > 0:
+            nums.push(int(p.trim()))
+      i += 1
+    if nums.len == 0:
+      ret CliResult(2, "Error: --values required")
+    mut sum = 0
+    mut minV = nums[0]
+    mut maxV = nums[0]
+    for n in nums:
+      sum += n
+      if n < minV: minV = n
+      if n > maxV: maxV = n
+    ret CliResult(0, "count={nums.len} sum={sum} min={minV} max={maxV}")
+  if sub == "pipeline":
+    mut text = ""
+    mut upper = false
+    mut reverseWords = false
+    mut i = 1
+    while i < args.len:
+      let a = args[i]
+      if a.startsWith("--input="):
+        text = a.slice(8, a.len)
+      else if a == "--upper":
+        upper = true
+      else if a == "--reverse-words":
+        reverseWords = true
+      i += 1
+    if text.len == 0:
+      ret CliResult(1, "Error: empty input")
+    if upper:
+      text = text.toUpperCase()
+    if reverseWords:
+      let w = text.split(" ")
+      mut rev: [str] = []
+      mut wi = w.len - 1
+      while wi >= 0:
+        rev.push(w[wi])
+        wi -= 1
+      text = rev.join(" ")
+    ret CliResult(0, text)
+  ret CliResult(127, "Unknown subcommand: {sub}")
+
+fn main(): void:
+  let rHelp = executeCliCommand(["--help"])
+  assert(rHelp.exitCode == 0 and rHelp.output.contains("Usage:"))
+
+  let rStats = executeCliCommand(["stats", "--values=10,25,5,40"])
+  assert(rStats.exitCode == 0 and rStats.output == "count=4 sum=80 min=5 max=40")
+
+  let rPipe = executeCliCommand(["pipeline", "--input=aipl fast native cli", "--upper", "--reverse-words"])
+  assert(rPipe.exitCode == 0 and rPipe.output == "CLI NATIVE FAST AIPL")
+
+  let rErr = executeCliCommand(["unknown"])
+  assert(rErr.exitCode == 127)
+  println(rStats.output + " | " + rPipe.output)
+  println("BENCH_06_OK")

@@ -1,0 +1,159 @@
+module Ex190UiLayoutFlexboxAndGridSolverWindow
+
+import {
+  FLEX_ROW, JUSTIFY_SPACE_BETWEEN, BoxConstraints, LayoutBox,
+  createLayoutNode, appendLayoutChild, solveFlexboxLayout,
+  layoutInset, auraGrid12Row, auraResponsiveTier,
+  auraAxisFixed, auraAxisGrow, auraAxisPercent, auraSolveFlexAxis
+} from "../std/ui/ui_layout"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawLine, drawCircle, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn distributeFlexGrowSpanPx(remainingSpacePx: int, totalGrowWeight: int): int:
+  let weight = if totalGrowWeight > 0: totalGrowWeight else: 1
+  ret remainingSpacePx / weight
+
+pub fn computeContainerInnerSpanPx(outerSpanPx: int, paddingBothSidesPx: int): int:
+  let inner = outerSpanPx - paddingBothSidesPx
+  ret if inner > 0: inner else: 0
+
+pub fn stepResponsiveContainerWidth(frame: int): float:
+  ret 960.0 + sin(float(frame) * 0.055) * 180.0
+
+pub fn buildUiLayoutSolverAudit(): int:
+  let grow = distributeFlexGrowSpanPx(400, 2)
+  let inner = computeContainerInnerSpanPx(1280, 120)
+  mut root = createLayoutNode(1, FLEX_ROW)
+  root.constraints = BoxConstraints(minWidth = 300.0, maxWidth = 300.0, minHeight = 100.0, maxHeight = 100.0)
+  root.justify = JUSTIFY_SPACE_BETWEEN
+  mut c1 = createLayoutNode(2, FLEX_ROW)
+  c1.constraints = BoxConstraints(minWidth = 50.0, maxWidth = 50.0, minHeight = 50.0, maxHeight = 50.0)
+  mut c2 = createLayoutNode(3, FLEX_ROW)
+  c2.constraints = BoxConstraints(minWidth = 50.0, maxWidth = 50.0, minHeight = 50.0, maxHeight = 50.0)
+  root = appendLayoutChild(root, c1)
+  root = appendLayoutChild(root, c2)
+  let solved = solveFlexboxLayout(root, 300.0, 100.0)
+  let grid12 = auraGrid12Row(LayoutBox(x = 0.0, y = 0.0, w = 200.0, h = 100.0), [4, 4, 4], 8.0, 8.0, 32.0)
+  ret grow + inner + int(solved.computedRect.w) + int(solved.children[1].computedRect.x) + grid12.len()
+
+pub fn main(): int:
+  let auditScore = buildUiLayoutSolverAudit()
+
+  mut root = createLayoutNode(1, FLEX_ROW)
+  root.justify = JUSTIFY_SPACE_BETWEEN
+  mut k = 0
+  while k < 4:
+    mut ch = createLayoutNode(10 + k, FLEX_ROW)
+    ch.constraints = BoxConstraints(minWidth = 190.0, maxWidth = 190.0, minHeight = 120.0, maxHeight = 120.0)
+    root = appendLayoutChild(root, ch)
+    k = k + 1
+
+  initWindow(1280, 720, "AIPL ex_190: UI Flexbox Constraint & 12-Column Grid Solver")
+  mut frame = 0
+  while not windowShouldClose():
+    let dynWidth = stepResponsiveContainerWidth(frame)
+    let tier = auraResponsiveTier(dynWidth)
+    let tierLabel = if tier <= 1: "SM (<768px)" elif tier == 2: "MD (768..991px)" else: "LG (992..1199px)"
+    root.constraints = BoxConstraints(minWidth = dynWidth, maxWidth = dynWidth, minHeight = 148.0, maxHeight = 148.0)
+    let solved = solveFlexboxLayout(root, dynWidth, 148.0)
+
+    let gridOuter = LayoutBox(x = 60.0, y = 308.0, w = dynWidth, h = 236.0)
+    let gridInner = layoutInset(gridOuter, 14.0)
+    let row1 = auraGrid12Row(gridInner, [3, 6, 3], 12.0, 12.0, 88.0)
+    let row2 = auraGrid12Row(LayoutBox(x = gridInner.x, y = gridInner.y + 100.0, w = gridInner.w, h = 88.0), [4, 4, 4], 12.0, 12.0, 88.0)
+
+    let flexAxes = [
+      auraAxisFixed(150.0),
+      auraAxisGrow(1.0, 80.0, 600.0),
+      auraAxisGrow(2.0, 120.0, 310.0),
+      auraAxisPercent(0.20, 90.0, 400.0)
+    ]
+    let solvedAxisWidths = auraSolveFlexAxis(dynWidth - 28.0, 12.0, flexAxes, [150.0, 100.0, 100.0, 100.0])
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawRect(32.0, 20.0, 1216.0, 66.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 66.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_190: UI FLEXBOX CONSTRAINT SOLVER & 12-COLUMN RESPONSIVE GRID", 48.0, 34.0, 21.0, rgb(240, 249, 255))
+    drawText("viewportW=" + str(int(dynWidth)) + "px | tier=" + str(tier) + " (" + tierLabel + ") | flexChildren=" + str(solved.children.len()) + " | audit=" + str(auditScore), 48.0, 60.0, 15.0, rgb(125, 211, 252))
+
+    // Section 1: Flexbox SPACE_BETWEEN container
+    drawRect(60.0, 104.0, solved.computedRect.w, solved.computedRect.h + 24.0, rgb(17, 24, 39))
+    drawRectOutline(60.0, 104.0, solved.computedRect.w, solved.computedRect.h + 24.0, 2.0, rgb(99, 102, 241))
+    drawText("1. solveFlexboxLayout(FLEX_ROW, JUSTIFY_SPACE_BETWEEN) - Container W=" + str(int(solved.computedRect.w)) + "px", 76.0, 112.0, 15.0, rgb(199, 210, 254))
+
+    // Resize handle indicator on right edge
+    let rightEdgeX = 60.0 + solved.computedRect.w
+    drawLine(rightEdgeX, 104.0, rightEdgeX, 686.0, 2.0, rgb(244, 63, 94))
+    drawCircle(rightEdgeX, 188.0, 6.0, rgb(244, 63, 94))
+
+    mut i = 0
+    while i < solved.children.len():
+      let r = solved.children[i].computedRect
+      let bx = 60.0 + r.x
+      let by = 136.0 + r.y
+      drawRect(bx, by, r.w, r.h, rgb(30, 41, 59))
+      drawRectOutline(bx, by, r.w, r.h, 2.0, rgb(56, 189, 248))
+      drawText("Flex Item #" + str(i + 1), bx + 14.0, by + 26.0, 17.0, rgb(248, 250, 252))
+      drawText("x=" + str(int(r.x)) + " w=" + str(int(r.w)), bx + 14.0, by + 54.0, 14.0, rgb(148, 163, 184))
+      drawText("min/max=190px", bx + 14.0, by + 80.0, 13.0, rgb(100, 116, 139))
+      if i + 1 < solved.children.len():
+        let nextR = solved.children[i + 1].computedRect
+        let gapStart = bx + r.w
+        let gapEnd = 60.0 + nextR.x
+        let gapMidY = by + r.h * 0.5
+        if gapEnd > gapStart + 4.0:
+          drawLine(gapStart + 2.0, gapMidY, gapEnd - 2.0, gapMidY, 2.0, rgb(250, 204, 21))
+          drawText(str(int(gapEnd - gapStart)) + "px", (gapStart + gapEnd) * 0.5 - 16.0, gapMidY - 18.0, 13.0, rgb(250, 204, 21))
+      i = i + 1
+
+    // Section 2: 12-Column Responsive Grid
+    drawRect(gridOuter.x, gridOuter.y, gridOuter.w, gridOuter.h, rgb(17, 24, 39))
+    drawRectOutline(gridOuter.x, gridOuter.y, gridOuter.w, gridOuter.h, 2.0, rgb(16, 185, 129))
+    drawText("2. auraGrid12Row - 12-Column Responsive Grid (Spans [3, 6, 3] & [4, 4, 4])", gridOuter.x + 14.0, gridOuter.y - 20.0, 15.0, rgb(110, 231, 183))
+
+    mut g1 = 0
+    while g1 < row1.len():
+      let c = row1[g1]
+      let spanVal = if g1 == 1: 6 else: 3
+      drawRect(c.x, c.y, c.w, c.h, rgb(22, 38, 54))
+      drawRectOutline(c.x, c.y, c.w, c.h, 2.0, rgb(52, 211, 153))
+      drawText("Row1 Col " + str(g1 + 1) + " (" + str(spanVal) + "/12)", c.x + 12.0, c.y + 22.0, 15.0, rgb(209, 250, 229))
+      drawText("x=" + str(int(c.x - gridInner.x)) + " w=" + str(int(c.w)) + "px", c.x + 12.0, c.y + 50.0, 14.0, rgb(110, 231, 183))
+      g1 = g1 + 1
+
+    mut g2 = 0
+    while g2 < row2.len():
+      let c = row2[g2]
+      drawRect(c.x, c.y, c.w, c.h, rgb(30, 27, 58))
+      drawRectOutline(c.x, c.y, c.w, c.h, 2.0, rgb(168, 85, 247))
+      drawText("Row2 Col " + str(g2 + 1) + " (4/12 span)", c.x + 12.0, c.y + 22.0, 15.0, rgb(233, 213, 255))
+      drawText("x=" + str(int(c.x - gridInner.x)) + " w=" + str(int(c.w)) + "px", c.x + 12.0, c.y + 50.0, 14.0, rgb(192, 132, 252))
+      g2 = g2 + 1
+
+    // Section 3: 2-Pass Clamped Flex Axis Solver (auraSolveFlexAxis)
+    drawRect(60.0, 568.0, dynWidth, 118.0, rgb(17, 24, 39))
+    drawRectOutline(60.0, 568.0, dynWidth, 118.0, 2.0, rgb(245, 158, 11))
+    drawText("3. auraSolveFlexAxis (2-Pass Min/Max Clamping: Fixed 150px | Grow 1x | Grow 2x max 310px | Percent 20%)", 74.0, 578.0, 15.0, rgb(253, 224, 71))
+
+    mut curAxX = 74.0
+    mut axIdx = 0
+    while axIdx < solvedAxisWidths.len():
+      let aw = solvedAxisWidths[axIdx]
+      let modeTitle = if axIdx == 0: "FIXED 150px" elif axIdx == 1: "GROW 1.0x" elif axIdx == 2: "GROW 2.0x (cap 310)" else: "PERCENT 20%"
+      drawRect(curAxX, 604.0, aw, 66.0, rgb(38, 32, 24))
+      drawRectOutline(curAxX, 604.0, aw, 66.0, 2.0, rgb(251, 191, 36))
+      drawText(modeTitle, curAxX + 10.0, 616.0, 14.0, rgb(254, 243, 199))
+      drawText("w=" + str(int(aw)) + "px", curAxX + 10.0, 642.0, 14.0, rgb(251, 191, 36))
+      curAxX = curAxX + aw + 12.0
+      axIdx = axIdx + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

@@ -1,0 +1,131 @@
+module InputGamepad
+
+// ============================================================================
+// std/input/gamepad.aipl — Analog Sticks, Radial Deadzones, Triggers & Rumble
+// ============================================================================
+
+pub const DEADZONE_AXIAL: int = 0
+pub const DEADZONE_RADIAL: int = 1
+
+pub const GAMEPAD_A: int = 0
+pub const GAMEPAD_B: int = 1
+pub const GAMEPAD_X: int = 2
+pub const GAMEPAD_Y: int = 3
+pub const GAMEPAD_LB: int = 4
+pub const GAMEPAD_RB: int = 5
+pub const GAMEPAD_SELECT: int = 6
+pub const GAMEPAD_START: int = 7
+pub const GAMEPAD_L3: int = 8
+pub const GAMEPAD_R3: int = 9
+pub const GAMEPAD_DPAD_UP: int = 10
+pub const GAMEPAD_DPAD_DOWN: int = 11
+pub const GAMEPAD_DPAD_LEFT: int = 12
+pub const GAMEPAD_DPAD_RIGHT: int = 13
+
+pub struct StickDeadzoneConfig(mode: int, innerDeadzone: float, outerThreshold: float)
+
+pub struct StickVector(x: float, y: float, rawMagnitude: float, clampedMagnitude: float)
+
+pub struct GamepadState(id: int, isConnected: bool, leftStick: StickVector, rightStick: StickVector, leftTrigger: float, rightTrigger: float, buttonMask: int, rumbleLeftMotor: float, rumbleRightMotor: float)
+
+fn absFloatLocal(v: float): float:
+  if v < 0.0:
+    ret -v
+  ret v
+
+fn clamp01(v: float): float:
+  if v < 0.0:
+    ret 0.0
+  if v > 1.0:
+    ret 1.0
+  ret v
+
+pub fn createGamepadState(id: int): GamepadState:
+  let zeroStick = StickVector(x = 0.0, y = 0.0, rawMagnitude = 0.0, clampedMagnitude = 0.0)
+  ret GamepadState(
+    id = id,
+    isConnected = true,
+    leftStick = zeroStick,
+    rightStick = zeroStick,
+    leftTrigger = 0.0,
+    rightTrigger = 0.0,
+    buttonMask = 0,
+    rumbleLeftMotor = 0.0,
+    rumbleRightMotor = 0.0
+  )
+
+pub fn applyAxialDeadzone(x: float, y: float, deadzone: float): StickVector:
+  let rawMag = sqrt(x * x + y * y)
+  let dz = if deadzone >= 0.0 and deadzone < 1.0: deadzone else: 0.15
+  let ax = absFloatLocal(x)
+  let ay = absFloatLocal(y)
+  let outX = if ax <= dz: 0.0 else: ((ax - dz) / (1.0 - dz)) * (if x < 0.0: -1.0 else: 1.0)
+  let outY = if ay <= dz: 0.0 else: ((ay - dz) / (1.0 - dz)) * (if y < 0.0: -1.0 else: 1.0)
+  let clampedMag = clamp01(sqrt(outX * outX + outY * outY))
+  ret StickVector(x = outX, y = outY, rawMagnitude = rawMag, clampedMagnitude = clampedMag)
+
+pub fn applyRadialDeadzone(x: float, y: float, innerDeadzone: float, outerThreshold: float = 1.0): StickVector:
+  let rawMag = sqrt(x * x + y * y)
+  let dIn = if innerDeadzone >= 0.0 and innerDeadzone < 0.99: innerDeadzone else: 0.15
+  let dOut = if outerThreshold > dIn: outerThreshold else: 1.0
+  if rawMag <= dIn or rawMag <= 0.000001:
+    ret StickVector(x = 0.0, y = 0.0, rawMagnitude = rawMag, clampedMagnitude = 0.0)
+  let normMag = clamp01((rawMag - dIn) / (dOut - dIn))
+  let dirX = x / rawMag
+  let dirY = y / rawMag
+  ret StickVector(
+    x = dirX * normMag,
+    y = dirY * normMag,
+    rawMagnitude = rawMag,
+    clampedMagnitude = normMag
+  )
+
+pub fn isGamepadButtonDown(state: GamepadState, button: int): bool:
+  if button < 0 or button > 31:
+    ret false
+  ret (state.buttonMask & (1 << button)) != 0
+
+pub fn setGamepadRumble(state: GamepadState, lowFreq: float, highFreq: float): GamepadState:
+  ret GamepadState(
+    id = state.id,
+    isConnected = state.isConnected,
+    leftStick = state.leftStick,
+    rightStick = state.rightStick,
+    leftTrigger = state.leftTrigger,
+    rightTrigger = state.rightTrigger,
+    buttonMask = state.buttonMask,
+    rumbleLeftMotor = clamp01(lowFreq),
+    rumbleRightMotor = clamp01(highFreq)
+  )
+
+pub fn updateGamepadStick(state: GamepadState, isLeftStick: bool, rawX: float, rawY: float, config: StickDeadzoneConfig): GamepadState:
+  let vec = if config.mode == DEADZONE_AXIAL:
+    applyAxialDeadzone(rawX, rawY, config.innerDeadzone)
+  else:
+    applyRadialDeadzone(rawX, rawY, config.innerDeadzone, config.outerThreshold)
+  ret GamepadState(
+    id = state.id,
+    isConnected = state.isConnected,
+    leftStick = if isLeftStick: vec else: state.leftStick,
+    rightStick = if isLeftStick: state.rightStick else: vec,
+    leftTrigger = state.leftTrigger,
+    rightTrigger = state.rightTrigger,
+    buttonMask = state.buttonMask,
+    rumbleLeftMotor = state.rumbleLeftMotor,
+    rumbleRightMotor = state.rumbleRightMotor
+  )
+
+pub fn updateGamepadTrigger(state: GamepadState, isLeft: bool, rawVal: float): GamepadState:
+  let dz = 0.05
+  let norm = if rawVal <= dz: 0.0 else: clamp01((rawVal - dz) / (1.0 - dz))
+  ret GamepadState(
+    id = state.id,
+    isConnected = state.isConnected,
+    leftStick = state.leftStick,
+    rightStick = state.rightStick,
+    leftTrigger = if isLeft: norm else: state.leftTrigger,
+    rightTrigger = if isLeft: state.rightTrigger else: norm,
+    buttonMask = state.buttonMask,
+    rumbleLeftMotor = state.rumbleLeftMotor,
+    rumbleRightMotor = state.rumbleRightMotor
+  )

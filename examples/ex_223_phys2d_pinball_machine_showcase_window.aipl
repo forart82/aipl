@@ -1,0 +1,192 @@
+module Ex223Phys2dPinballMachineShowcaseWindow
+
+import {
+  PhysWorldSettings2D, PhysicsWorld2D, physWorld2dNew,
+  physWorld2dAddBody, physWorld2dAddCollider, physWorld2dAddJoint, physWorld2dStep
+} from "../std/phys2d/phys_world2d"
+import { BodyType2D, RigidBody2D, rigidBody2dNew, rigidBody2dSetMass } from "../std/phys2d/rigid_body2d"
+import { Collider2D, PhysicsMaterial2D, circleColliderNew } from "../std/phys2d/collider2d"
+import { ContactManifold2D, ContactPoint2D, testCircleCircle } from "../std/phys2d/narrowphase2d"
+import { springJointNew } from "../std/phys2d/joint2d"
+import { Vec2 } from "../std/math/vec_math"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct PinballScene(world: PhysicsWorld2D, ballId: int, bumperHits: int, score: int)
+
+pub fn createPinballScene(): PinballScene:
+  mut world = physWorld2dNew(Vec2(x = 0.0, y = 60.0))
+  mut ball = rigidBody2dNew(1, BodyType2D.Dynamic, Vec2(x = 505.0, y = 215.0), 0.0)
+  rigidBody2dSetMass(ball, 1.0, 1.0)
+  ball.linearVelocity = Vec2(x = 24.0, y = 10.0)
+  let ballId = physWorld2dAddBody(world, ball)
+  let mat = PhysicsMaterial2D(restitution = 0.9, friction = 0.05, density = 1.0)
+  physWorld2dAddCollider(world, ballId, circleColliderNew(14.0, mat))
+
+  let b1 = physWorld2dAddBody(world, rigidBody2dNew(2, BodyType2D.Static, Vec2(x = 490.0, y = 280.0), 0.0))
+  let b2 = physWorld2dAddBody(world, rigidBody2dNew(3, BodyType2D.Static, Vec2(x = 650.0, y = 280.0), 0.0))
+  let b3 = physWorld2dAddBody(world, rigidBody2dNew(4, BodyType2D.Static, Vec2(x = 570.0, y = 390.0), 0.0))
+  physWorld2dAddCollider(world, b1, circleColliderNew(32.0, mat))
+  physWorld2dAddCollider(world, b2, circleColliderNew(32.0, mat))
+  physWorld2dAddCollider(world, b3, circleColliderNew(32.0, mat))
+  physWorld2dAddJoint(world, springJointNew(ballId, b3, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 95.0, 0.35, 0.05))
+
+  ret PinballScene(world = world, ballId = ballId, bumperHits = 0, score = 0)
+
+pub fn stepScene(mut scene: PinballScene, frame: int, dt: float): void:
+  physWorld2dStep(scene.world, dt)
+
+  mut bds = scene.world.bodies
+  let cols = scene.world.colliders
+  mut ball: RigidBody2D = bds[scene.ballId]
+  let ballCol: Collider2D = cols[scene.ballId]
+  let ballRad = ballCol.circleRadius
+
+  mut i = 1
+  while i < bds.len():
+    let bumper: RigidBody2D = bds[i]
+    let bumperCol: Collider2D = cols[i]
+    let hitOpt = testCircleCircle(ball.position, ballRad, bumper.position, bumperCol.circleRadius)
+    if hitOpt.isSome():
+      let m: ContactManifold2D = hitOpt.unwrap()
+      let cp: ContactPoint2D = m.points[0]
+      let nx = m.normal.x
+      let ny = m.normal.y
+      ball.position = Vec2(
+        x = ball.position.x - nx * (cp.penetration + 1.5),
+        y = ball.position.y - ny * (cp.penetration + 1.5)
+      )
+      let vn = ball.linearVelocity.x * nx + ball.linearVelocity.y * ny
+      if vn > 0.0:
+        ball.linearVelocity = Vec2(
+          x = ball.linearVelocity.x - 1.95 * vn * nx + ny * 14.0,
+          y = ball.linearVelocity.y - 1.95 * vn * ny - nx * 14.0
+        )
+      scene.bumperHits = scene.bumperHits + 1
+      scene.score = scene.score + (if i == 3: 250 else: 100)
+    i = i + 1
+
+  if ball.position.x < 395.0:
+    ball.position = Vec2(x = 395.0, y = ball.position.y)
+    ball.linearVelocity = Vec2(x = -ball.linearVelocity.x * 0.9 + 12.0, y = ball.linearVelocity.y)
+  if ball.position.x > 745.0:
+    ball.position = Vec2(x = 745.0, y = ball.position.y)
+    ball.linearVelocity = Vec2(x = -ball.linearVelocity.x * 0.9 - 12.0, y = ball.linearVelocity.y)
+  if ball.position.y < 130.0:
+    ball.position = Vec2(x = ball.position.x, y = 130.0)
+    ball.linearVelocity = Vec2(x = ball.linearVelocity.x, y = -ball.linearVelocity.y * 0.9 + 10.0)
+  if ball.position.y > 565.0:
+    ball.position = Vec2(x = ball.position.x, y = 565.0)
+    let kickX = if ball.position.x < 570.0: 36.0 else: -36.0
+    ball.linearVelocity = Vec2(x = kickX + float((frame % 7) - 3) * 9.0, y = -92.0)
+    scene.score = scene.score + 50
+
+  bds[scene.ballId] = ball
+  scene.world.bodies = bds
+
+pub fn auditPinballMachineWorld(): int:
+  mut world = physWorld2dNew(Vec2(x = 0.0, y = -9.8))
+  mut ball = rigidBody2dNew(1, BodyType2D.Dynamic, Vec2(x = 580.0, y = 180.0), 0.0)
+  rigidBody2dSetMass(ball, 1.0, 1.0)
+  let ballId = physWorld2dAddBody(world, ball)
+  let mat = PhysicsMaterial2D(restitution = 0.85, friction = 0.1, density = 1.0)
+  physWorld2dAddCollider(world, ballId, circleColliderNew(14.0, mat))
+
+  let b1 = physWorld2dAddBody(world, rigidBody2dNew(2, BodyType2D.Static, Vec2(x = 520.0, y = 260.0), 0.0))
+  let b2 = physWorld2dAddBody(world, rigidBody2dNew(3, BodyType2D.Static, Vec2(x = 640.0, y = 260.0), 0.0))
+  let b3 = physWorld2dAddBody(world, rigidBody2dNew(4, BodyType2D.Static, Vec2(x = 580.0, y = 340.0), 0.0))
+  physWorld2dAddCollider(world, b1, circleColliderNew(28.0, mat))
+  physWorld2dAddCollider(world, b2, circleColliderNew(28.0, mat))
+  physWorld2dAddCollider(world, b3, circleColliderNew(28.0, mat))
+
+  physWorld2dAddJoint(world, springJointNew(ballId, b1, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 90.0, 4.0, 0.4))
+  physWorld2dStep(world, 0.1)
+  ret world.bodies.len() * 10 + world.joints.len()
+
+pub fn main(): int:
+  let audit = auditPinballMachineWorld()
+  println("EX_223_PINBALL_WORLD_AUDIT=" + str(audit))
+
+  mut scene = createPinballScene()
+
+  initWindow(1280, 720, "AIPL ex_223: 2D Physics World Pinball Machine Showcase")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.15)
+    let steppedBall: RigidBody2D = scene.world.bodies[scene.ballId]
+    let ballCol: Collider2D = scene.world.colliders[scene.ballId]
+    let bumper3: RigidBody2D = scene.world.bodies[3]
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 29))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(236, 72, 153))
+    drawText("EX_223: 2D PHYSICS WORLD PINBALL MACHINE SHOWCASE", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Score=" + str(scene.score) + " | BumperHits=" + str(scene.bumperHits) + " | Bodies=" + str(scene.world.bodies.len()) + " | Joints=" + str(scene.world.joints.len()), 52.0, 62.0, 16.0, rgb(244, 114, 182))
+
+    // Left Arcade Telemetry Panel
+    drawRect(44.0, 104.0, 284.0, 580.0, rgb(15, 23, 42))
+    drawRectOutline(44.0, 104.0, 284.0, 580.0, 2.0, rgb(56, 189, 248))
+    drawText("PINBALL TELEMETRY", 68.0, 126.0, 18.0, rgb(125, 211, 252))
+    drawText("HIGH SCORE: " + str(scene.score), 68.0, 168.0, 20.0, rgb(250, 204, 21))
+    drawText("BUMPER HITS: " + str(scene.bumperHits), 68.0, 204.0, 16.0, rgb(52, 211, 153))
+    drawText("BALL X: " + str(int(steppedBall.position.x)), 68.0, 248.0, 15.0, rgb(226, 232, 240))
+    drawText("BALL Y: " + str(int(steppedBall.position.y)), 68.0, 276.0, 15.0, rgb(226, 232, 240))
+    drawText("VEL X: " + str(int(steppedBall.linearVelocity.x)), 68.0, 304.0, 15.0, rgb(148, 163, 184))
+    drawText("VEL Y: " + str(int(steppedBall.linearVelocity.y)), 68.0, 332.0, 15.0, rgb(148, 163, 184))
+    drawText("BROADPHASE PROXIES: " + str(scene.world.broadphase.nodes.len()), 68.0, 376.0, 14.0, rgb(167, 139, 250))
+    drawText("SOLVER VEL ITERS: " + str(scene.world.settings.velocityIterations), 68.0, 404.0, 14.0, rgb(167, 139, 250))
+
+    // Main Pinball Table Playfield
+    drawRect(360.0, 104.0, 480.0, 580.0, rgb(19, 28, 49))
+    drawRectOutline(360.0, 104.0, 480.0, 580.0, 4.0, rgb(236, 72, 153))
+    drawLine(774.0, 140.0, 774.0, 668.0, rgb(148, 163, 184), 3.0)
+    let plungerH = 65.0 + float((frame * 3) % 35)
+    drawRect(788.0, 660.0 - plungerH, 36.0, plungerH, rgb(245, 158, 11))
+    drawText("PLUNGER", 778.0, 666.0, 11.0, rgb(253, 224, 71))
+
+    // Elastic tether visual to central bonus bumper #3
+    drawLine(steppedBall.position.x, steppedBall.position.y, bumper3.position.x, bumper3.position.y, rgb(71, 85, 105), 1.5)
+
+    mut bIdx = 1
+    while bIdx < scene.world.bodies.len():
+      let bBody: RigidBody2D = scene.world.bodies[bIdx]
+      let bCol: Collider2D = scene.world.colliders[bIdx]
+      let fillCol = if bIdx == 1: rgb(217, 70, 239) else: (if bIdx == 2: rgb(14, 165, 233) else: rgb(16, 185, 129))
+      let ringCol = if bIdx == 1: rgb(245, 208, 254) else: (if bIdx == 2: rgb(186, 230, 253) else: rgb(167, 243, 208))
+      let ptsLabel = if bIdx == 3: "250" else: "100"
+      drawCircle(bBody.position.x, bBody.position.y, bCol.circleRadius, fillCol)
+      drawCircleOutline(bBody.position.x, bBody.position.y, bCol.circleRadius + 4.0, 3.0, ringCol)
+      drawText(ptsLabel, bBody.position.x - 13.0, bBody.position.y - 6.0, 14.0, rgb(255, 255, 255))
+      bIdx = bIdx + 1
+
+    // Pinball + velocity vector
+    drawLine(steppedBall.position.x, steppedBall.position.y, steppedBall.position.x + steppedBall.linearVelocity.x * 0.35, steppedBall.position.y + steppedBall.linearVelocity.y * 0.35, rgb(250, 204, 21), 2.5)
+    drawCircle(steppedBall.position.x, steppedBall.position.y, ballCol.circleRadius, rgb(226, 232, 240))
+    drawCircleOutline(steppedBall.position.x, steppedBall.position.y, ballCol.circleRadius, 2.5, rgb(56, 189, 248))
+
+    // Animated Left & Right Flippers
+    let leftFlipY = if (frame / 8) % 2 == 0: 572.0 else: 616.0
+    let rightFlipY = if ((frame + 4) / 8) % 2 == 0: 572.0 else: 616.0
+    drawLine(440.0, 588.0, 542.0, leftFlipY, rgb(244, 63, 94), 10.0)
+    drawCircle(440.0, 588.0, 7.0, rgb(253, 224, 71))
+    drawLine(700.0, 588.0, 598.0, rightFlipY, rgb(244, 63, 94), 10.0)
+    drawCircle(700.0, 588.0, 7.0, rgb(253, 224, 71))
+
+    // Right Rules & Physics Architecture Panel
+    drawRect(872.0, 104.0, 364.0, 580.0, rgb(15, 23, 42))
+    drawRectOutline(872.0, 104.0, 364.0, 580.0, 2.0, rgb(52, 211, 153))
+    drawText("PHYSICS ENGINE PIPELINE", 896.0, 126.0, 18.0, rgb(110, 231, 183))
+    drawText("1. DynamicAABBTree2D Broadphase", 896.0, 172.0, 15.0, rgb(226, 232, 240))
+    drawText("2. Circle-Circle Narrowphase", 896.0, 206.0, 15.0, rgb(226, 232, 240))
+    drawText("3. Restitution e=0.95 Pop Bumpers", 896.0, 240.0, 15.0, rgb(226, 232, 240))
+    drawText("4. SpringJoint2D Bonus Tether", 896.0, 274.0, 15.0, rgb(226, 232, 240))
+    drawText("5. Active Twin Flippers (+50 pts)", 896.0, 308.0, 15.0, rgb(226, 232, 240))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,129 @@
+module Ex195UiDatagridOneMillionRowsWindow
+
+import {
+  DataGridColumn, DataGridWidget, computeVirtualWindow, sortDataGridRows
+} from "../std/ui/ui_datagrid"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepDataGridScrollOffsetY(frame: int): float:
+  ret float((frame * 185000) % 31998000)
+
+pub fn buildUiDataGridAudit(): int:
+  let cols = [
+    DataGridColumn(id = "id", headerTitle = "Row ID", width = 120.0, isSortable = true),
+    DataGridColumn(id = "service", headerTitle = "Service", width = 280.0, isSortable = true)
+  ]
+  let grid = DataGridWidget(
+    columns = cols,
+    totalRowCount = 1000000,
+    rowHeight = 25.0,
+    scrollOffsetY = 500000.0,
+    viewportHeight = 400.0
+  )
+  let win = computeVirtualWindow(grid)
+  let sorted = sortDataGridRows("service", true, ["zeta-node", "alpha-core", "delta-gateway"])
+  ret win.firstVisibleRow + (win.lastVisibleRow - win.firstVisibleRow) + sorted.len()
+
+pub fn main(): int:
+  let auditScore = buildUiDataGridAudit()
+  let rawServices = [
+    "zeta-ingest", "alpha-router", "delta-storage", "omega-compute",
+    "beta-auth", "gamma-scheduler", "sigma-telemetry", "kappa-vault"
+  ]
+
+  let cols = [
+    DataGridColumn(id = "id", headerTitle = "ROW INDEX", width = 180.0, isSortable = true),
+    DataGridColumn(id = "service", headerTitle = "CLUSTER SERVICE", width = 280.0, isSortable = true),
+    DataGridColumn(id = "latency", headerTitle = "P99 LATENCY", width = 240.0, isSortable = true),
+    DataGridColumn(id = "status", headerTitle = "HEALTH STATUS", width = 210.0, isSortable = false)
+  ]
+
+  initWindow(1280, 720, "AIPL ex_195: Virtualized 1,000,000-Row DataGrid Windowing")
+  mut frame = 0
+  while not windowShouldClose():
+    let sortAsc = (frame / 35) % 2 == 0
+    let services = sortDataGridRows("service", sortAsc, rawServices)
+    let scrollY = stepDataGridScrollOffsetY(frame)
+    let grid = DataGridWidget(
+      columns = cols,
+      totalRowCount = 1000000,
+      rowHeight = 32.0,
+      scrollOffsetY = scrollY,
+      viewportHeight = 448.0
+    )
+    let win = computeVirtualWindow(grid)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_195: VIRTUALIZED 1,000,000-ROW DATAGRID (O(1) VIEWPORT WINDOWING)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("totalRows=1,000,000 | visible=[" + str(win.firstVisibleRow) + ".." + str(win.lastVisibleRow) + "] | sortAsc=" + str(sortAsc) + " | offsetY=" + str(int(win.offsetY)) + "px | audit=" + str(auditScore), 52.0, 66.0, 15.0, rgb(125, 211, 252))
+
+    // Table Header
+    drawRect(48.0, 116.0, 930.0, 40.0, rgb(30, 41, 59))
+    drawRectOutline(48.0, 116.0, 930.0, 40.0, 2.0, rgb(71, 85, 105))
+    mut cx = 64.0
+    mut c = 0
+    while c < cols.len():
+      let sortTag = if c == 1: (if sortAsc: " [ASC ^]" else: " [DESC v]") else: ""
+      drawText(cols[c].headerTitle + sortTag, cx, 128.0, 15.0, if c == 1: rgb(250, 204, 21) else: rgb(56, 189, 248))
+      cx = cx + cols[c].width
+      c = c + 1
+
+    // Virtualized Rows (O(1) 14-row pool)
+    mut rIdx = win.firstVisibleRow
+    mut slot = 0
+    while rIdx <= win.lastVisibleRow and slot < 14:
+      let ry = 158.0 + float(slot) * 35.0
+      let rowBg = if rIdx % 2 == 0: rgb(15, 23, 42) else: rgb(22, 32, 54)
+      drawRect(48.0, ry, 930.0, 33.0, rowBg)
+      drawRectOutline(48.0, ry, 930.0, 33.0, 1.0, rgb(30, 41, 59))
+      let svc = services[rIdx % services.len()]
+      let lat = 12 + ((rIdx * 17) % 85)
+      let barW = float(lat) * 1.2
+      drawText("#" + str(rIdx), 64.0, ry + 9.0, 15.0, rgb(226, 232, 240))
+      drawText(svc, 244.0, ry + 9.0, 15.0, rgb(167, 243, 208))
+      drawRect(524.0, ry + 9.0, barW, 14.0, if lat > 75: rgb(245, 158, 11) else: rgb(56, 189, 248))
+      drawText(str(lat) + " ms", 532.0 + barW, ry + 9.0, 14.0, rgb(253, 224, 71))
+      let isWarn = (rIdx % 11) == 0
+      drawRect(764.0, ry + 6.0, 184.0, 21.0, if isWarn: rgb(68, 32, 24) else: rgb(16, 48, 40))
+      drawText(if isWarn: "DEGRADED (98.4%)" else: "ONLINE (99.99%)", 776.0, ry + 9.0, 13.0, if isWarn: rgb(251, 146, 60) else: rgb(52, 211, 153))
+      rIdx = rIdx + 1
+      slot = slot + 1
+
+    // Virtual Scrollbar Track next to DataGrid
+    drawRect(984.0, 158.0, 16.0, 490.0, rgb(30, 41, 59))
+    drawRectOutline(984.0, 158.0, 16.0, 490.0, 1.0, rgb(71, 85, 105))
+    let scrollRatio = float(win.firstVisibleRow) / 1000000.0
+    let thumbY = 160.0 + scrollRatio * 438.0
+    drawRect(986.0, thumbY, 12.0, 48.0, rgb(56, 189, 248))
+
+    // Right Panel: 1,000,000-Row Virtual Window Telemetry & Minimap
+    drawRect(1016.0, 116.0, 232.0, 532.0, rgb(15, 23, 42))
+    drawRectOutline(1016.0, 116.0, 232.0, 532.0, 2.0, rgb(168, 85, 247))
+    drawText("VIRTUAL WINDOW", 1034.0, 134.0, 17.0, rgb(233, 213, 255))
+    drawText("Total: 1,000,000", 1034.0, 164.0, 14.0, rgb(203, 213, 225))
+    drawText("DOM Nodes: 14 (O(1))", 1034.0, 188.0, 14.0, rgb(52, 211, 153))
+    drawText("First: #" + str(win.firstVisibleRow), 1034.0, 212.0, 14.0, rgb(125, 211, 252))
+    drawText("Last:  #" + str(win.lastVisibleRow), 1034.0, 236.0, 14.0, rgb(125, 211, 252))
+    drawText("Scroll: " + str(int(scrollRatio * 100.0)) + "%", 1034.0, 260.0, 14.0, rgb(250, 204, 21))
+
+    // 1M Row Buffer Minimap
+    drawRect(1036.0, 294.0, 192.0, 330.0, rgb(10, 14, 24))
+    drawRectOutline(1036.0, 294.0, 192.0, 330.0, 1.5, rgb(71, 85, 105))
+    let miniY = 298.0 + scrollRatio * 294.0
+    drawRect(1040.0, miniY, 184.0, 28.0, rgb(46, 32, 84))
+    drawRectOutline(1040.0, miniY, 184.0, 28.0, 2.0, rgb(250, 204, 21))
+    drawText("ACTIVE SLICE", 1072.0, miniY + 7.0, 13.0, rgb(250, 204, 21))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

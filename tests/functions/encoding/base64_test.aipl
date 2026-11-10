@@ -1,0 +1,175 @@
+module tests.functions.encoding.base64_test
+
+import * from "std/encoding/base64"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_base64_b64CharVal_1(): int:
+  let arg_code = 2
+  let edge_code = 0
+  let arg_urlSafe = true
+  let edge_urlSafe = false
+  let resNom = b64CharVal(arg_code, arg_urlSafe)
+  let resEdge = b64CharVal(edge_code, edge_urlSafe)
+  assertEqInt(resNom, -1, "b64CharVal nominal resNom == -1")
+  assertEqInt(resEdge, -1, "b64CharVal boundary resEdge == -1")
+  ret 0
+
+pub fn test_base64_base64Encode_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = base64Encode(arg_data)
+  let resEdge = base64Encode(edge_data)
+  assertEqStr(resNom, "QUlQTA==", "base64Encode nominal string matches")
+  assertEqStr(resEdge, "QQ==", "base64Encode boundary string matches")
+  ret 0
+
+pub fn test_base64_base64Decode_3(): int:
+  let arg_s = "QUJD"
+  let edge_s = ""
+  let resNom = base64Decode(arg_s)
+  let resEdge = base64Decode(edge_s)
+  assert(resNom.isOk() == true, "base64Decode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "base64Decode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_base64UrlEncode_4(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = base64UrlEncode(arg_data)
+  let resEdge = base64UrlEncode(edge_data)
+  assertEqStr(resNom, "QUlQTA", "base64UrlEncode nominal string matches")
+  assertEqStr(resEdge, "QQ", "base64UrlEncode boundary string matches")
+  ret 0
+
+pub fn test_base64_base64UrlDecode_5(): int:
+  let encoded = base64UrlEncode([65, 73, 80, 76])
+  assertEqStr(encoded, "QUlQTA", "base64UrlEncode generates QUlQTA")
+  let resNom = base64UrlDecode(encoded)
+  assert(resNom.isOk() == true, "base64UrlDecode nominal resNom.isOk() == true")
+  let decBytes = resNom.unwrap()
+  assertEqInt(decBytes.len, 4, "base64UrlDecode decoded length is 4")
+  assertEqInt(decBytes[0], 65, "base64UrlDecode byte 0")
+  assertEqInt(decBytes[1], 73, "base64UrlDecode byte 1")
+  assertEqInt(decBytes[2], 80, "base64UrlDecode byte 2")
+  assertEqInt(decBytes[3], 76, "base64UrlDecode byte 3")
+  let resEdge = base64UrlDecode("http://localhost/test")
+  assert(resEdge.isOk() == false, "base64UrlDecode invalid url string returns Err")
+  ret 0
+
+pub fn test_base64_base62Encode_6(): int:
+  let arg_n = 4
+  let edge_n = 1
+  let resNom = base62Encode(arg_n)
+  let resEdge = base62Encode(edge_n)
+  assertEqStr(resNom, "4", "base62Encode nominal string matches")
+  assertEqStr(resEdge, "1", "base62Encode boundary string matches")
+  ret 0
+
+pub fn test_base64_base62Decode_7(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = base62Decode(arg_s)
+  let resEdge = base62Decode(edge_s)
+  assert(resNom.isOk() == true, "base62Decode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "base62Decode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_crockfordBase32Encode_8(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = crockfordBase32Encode(arg_data)
+  let resEdge = crockfordBase32Encode(edge_data)
+  assertEqStr(resNom, "854N0K0", "crockfordBase32Encode nominal string matches")
+  assertEqStr(resEdge, "84", "crockfordBase32Encode boundary string matches")
+  ret 0
+
+pub fn test_base64_crockfordCharVal_9(): int:
+  let arg_code = 2
+  let edge_code = 0
+  let resNom = crockfordCharVal(arg_code)
+  let resEdge = crockfordCharVal(edge_code)
+  assertEqInt(resNom, -1, "crockfordCharVal nominal resNom == -1")
+  assertEqInt(resEdge, -1, "crockfordCharVal boundary resEdge == -1")
+  ret 0
+
+pub fn test_base64_crockfordBase32Decode_10(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = crockfordBase32Decode(arg_s)
+  let resEdge = crockfordBase32Decode(edge_s)
+  assert(resNom.isOk() == true, "crockfordBase32Decode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "crockfordBase32Decode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_isUnreservedUrlByte_11(): int:
+  let arg_b = 4
+  let edge_b = 1
+  let resNom = isUnreservedUrlByte(arg_b)
+  let resEdge = isUnreservedUrlByte(edge_b)
+  assert(resNom == false, "isUnreservedUrlByte nominal resNom == false")
+  assert(resEdge == false, "isUnreservedUrlByte boundary resEdge == false")
+  ret 0
+
+pub fn test_base64_urlPercentEncode_12(): int:
+  let arg_s = "http://localhost/test"
+  let edge_s = "http://localhost/test"
+  let resNom = urlPercentEncode(arg_s)
+  let resEdge = urlPercentEncode(edge_s)
+  assertEqStr(resNom, "http%3A%2F%2Flocalhost%2Ftest", "urlPercentEncode nominal string matches")
+  assertEqStr(resEdge, "http%3A%2F%2Flocalhost%2Ftest", "urlPercentEncode boundary string matches")
+  ret 0
+
+pub fn test_base64_urlPercentDecode_13(): int:
+  let arg_s = "http://localhost/test"
+  let edge_s = "http://localhost/test"
+  let resNom = urlPercentDecode(arg_s)
+  let resEdge = urlPercentDecode(edge_s)
+  assert(resNom.isOk() == true, "urlPercentDecode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "urlPercentDecode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_base62DecodeResult_14(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = base62DecodeResult(arg_s)
+  let resEdge = base62DecodeResult(edge_s)
+  assert(resNom.isOk() == true, "base62DecodeResult nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "base62DecodeResult boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_urlEncode_15(): int:
+  let arg_s = "http://localhost/test"
+  let edge_s = "http://localhost/test"
+  let resNom = urlEncode(arg_s)
+  let resEdge = urlEncode(edge_s)
+  assertEqStr(resNom, "http%3A%2F%2Flocalhost%2Ftest", "urlEncode nominal string matches")
+  assertEqStr(resEdge, "http%3A%2F%2Flocalhost%2Ftest", "urlEncode boundary string matches")
+  ret 0
+
+pub fn test_base64_urlDecode_16(): int:
+  let arg_s = "http://localhost/test"
+  let edge_s = "http://localhost/test"
+  let resNom = urlDecode(arg_s)
+  let resEdge = urlDecode(edge_s)
+  assert(resNom.isOk() == true, "urlDecode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "urlDecode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_base64EncodeStr_17(): int:
+  let arg_s = "QUJD"
+  let edge_s = ""
+  let resNom = base64EncodeStr(arg_s)
+  let resEdge = base64EncodeStr(edge_s)
+  assertEqStr(resNom, "UVVKRA==", "base64EncodeStr nominal string matches")
+  assertEqStr(resEdge, "", "base64EncodeStr boundary string matches")
+  ret 0
+
+pub fn test_base64_base64DecodeStr_18(): int:
+  let arg_s = "QUJD"
+  let edge_s = ""
+  let resNom = base64DecodeStr(arg_s)
+  let resEdge = base64DecodeStr(edge_s)
+  assert(resNom.isOk() == true, "base64DecodeStr nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "base64DecodeStr boundary resEdge.isOk() == true")
+  ret 0

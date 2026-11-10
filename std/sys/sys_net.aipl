@@ -1,0 +1,80 @@
+// ============================================================================
+// Module: std/sys/sys_net (SysNet)
+// Layer 0 Low-Level Host Berkeley Socket Syscalls & Non-Blocking Polling
+// ============================================================================
+module SysNet
+
+import {
+  sysArchSyscall1,
+  sysArchSyscall2,
+  sysArchSyscall3,
+  sysArchSyscall4,
+  sysArchSyscall6,
+  SYS_CLOSE,
+  SYS_POLL,
+  SYS_SOCKET,
+  SYS_CONNECT,
+  SYS_ACCEPT,
+  SYS_SENDTO,
+  SYS_RECVFROM,
+  SYS_BIND,
+  SYS_LISTEN
+} from "std/sys/sys_syscall"
+
+pub const SYS_AF_INET: int = 2
+pub const SYS_AF_INET6: int = 10
+pub const SYS_SOCK_STREAM: int = 1
+pub const SYS_SOCK_DGRAM: int = 2
+pub const SYS_IPPROTO_TCP: int = 6
+pub const SYS_IPPROTO_UDP: int = 17
+
+pub struct SysSocketHandle:
+  fd: int
+  domain: int
+  sockType: int
+  nonBlocking: bool
+
+pub fn sysNetSocket(domain: int, sockType: int, protocol: int): int:
+  ret sysArchSyscall3(SYS_SOCKET, domain, sockType, protocol)
+
+pub fn sysNetBind(fd: int, addrPtr: int, addrLen: int): int:
+  ret sysArchSyscall3(SYS_BIND, fd, addrPtr, addrLen)
+
+pub fn sysNetListen(fd: int, backlog: int): int:
+  ret sysArchSyscall2(SYS_LISTEN, fd, backlog)
+
+pub fn sysNetAccept(fd: int, addrPtr: int, addrLenPtr: int): int:
+  ret sysArchSyscall3(SYS_ACCEPT, fd, addrPtr, addrLenPtr)
+
+pub fn sysNetConnect(fd: int, addrPtr: int, addrLen: int): int:
+  ret sysArchSyscall3(SYS_CONNECT, fd, addrPtr, addrLen)
+
+pub fn sysNetSend(fd: int, bufPtr: int, len: int, flags: int): int:
+  ret sysArchSyscall6(SYS_SENDTO, fd, bufPtr, len, flags, 0, 0)
+
+pub fn sysNetRecv(fd: int, bufPtr: int, len: int, flags: int): int:
+  ret sysArchSyscall6(SYS_RECVFROM, fd, bufPtr, len, flags, 0, 0)
+
+pub fn sysNetSendTo(fd: int, bufPtr: int, len: int, flags: int, addrPtr: int, addrLen: int): int:
+  ret sysArchSyscall6(SYS_SENDTO, fd, bufPtr, len, flags, addrPtr, addrLen)
+
+pub fn sysNetRecvFrom(fd: int, bufPtr: int, len: int, flags: int, addrPtr: int, addrLenPtr: int): int:
+  ret sysArchSyscall6(SYS_RECVFROM, fd, bufPtr, len, flags, addrPtr, addrLenPtr)
+
+pub fn sysNetClose(fd: int): int:
+  ret sysArchSyscall1(SYS_CLOSE, fd)
+
+pub fn sysNetSetNonBlocking(fd: int, nonBlocking: bool): int:
+  if fd < 0:
+    ret -1
+  // SYS_FCNTL = 72, F_GETFL = 3, F_SETFL = 4, O_NONBLOCK = 2048
+  let curFlags = sysArchSyscall3(72, fd, 3, 0)
+  if curFlags < 0:
+    ret curFlags
+  let nextFlags = if nonBlocking: (curFlags | 2048) else: (curFlags & (~2048))
+  ret sysArchSyscall3(72, fd, 4, nextFlags)
+
+pub fn sysNetPoll(pollFdsPtr: int, nfds: int, timeoutMs: int): int:
+  if pollFdsPtr == 0 or nfds < 0:
+    ret -1
+  ret sysArchSyscall3(SYS_POLL, pollFdsPtr, nfds, timeoutMs)

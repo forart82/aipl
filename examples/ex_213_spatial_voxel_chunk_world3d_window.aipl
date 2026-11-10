@@ -1,0 +1,160 @@
+module Ex213SpatialVoxelChunkWorld3dWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import {
+  VoxelBlock, VoxelRayHit, QuadFace3D,
+  voxelChunkWorldNew, voxelGetBlock, voxelSetBlock,
+  voxelRaycastDDA, voxelExtractGreedyFaces
+} from "../std/spatial/voxel_chunk_world3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepVoxelBuildPhase(frame: int): int:
+  ret (frame / 14) % 5
+
+pub fn stepVoxelRayOriginY(frame: int): float:
+  let rowIdx = (frame / 8) % 3
+  let baseRow = if rowIdx == 0: 2.0 else: (if rowIdx == 1: 4.0 else: 6.0)
+  ret baseRow + 0.25 + float((frame * 3) % 19) / 38.0
+
+pub fn buildSpatialVoxelChunkAudit(): int:
+  mut vworld = voxelChunkWorldNew(8)
+  let block = VoxelBlock(blockId = 42, metadata = 0, lightLevel = 15)
+  voxelSetBlock(vworld, 2, 2, 2, block)
+  voxelSetBlock(vworld, 3, 2, 2, block)
+  let vh: VoxelRayHit = voxelRaycastDDA(vworld, Vec3(x = 0.5, y = 2.5, z = 2.5), Vec3(x = 1.0, y = 0.0, z = 0.0), 10.0).unwrap()
+  let greedy = voxelExtractGreedyFaces(vworld.chunks[0])
+  let qf: QuadFace3D = greedy[0]
+  ret vh.blockId + vh.coord.x + greedy.len() + qf.width + qf.height
+
+pub fn main(): int:
+  let auditScore = buildSpatialVoxelChunkAudit()
+  mut vworld = voxelChunkWorldNew(8)
+  let empty = VoxelBlock(blockId = 0, metadata = 0, lightLevel = 0)
+  let emerald = VoxelBlock(blockId = 42, metadata = 0, lightLevel = 15)
+  let obsidian = VoxelBlock(blockId = 77, metadata = 1, lightLevel = 8)
+  let gold = VoxelBlock(blockId = 91, metadata = 2, lightLevel = 12)
+
+  // Base emerald 4x2 platform at y=2..3, x=2..5
+  mut x = 2
+  while x <= 5:
+    voxelSetBlock(vworld, x, 2, 2, emerald)
+    voxelSetBlock(vworld, x, 3, 2, emerald)
+    x = x + 1
+  // Base obsidian row at y=4, x=3..5
+  voxelSetBlock(vworld, 3, 4, 2, obsidian)
+  voxelSetBlock(vworld, 4, 4, 2, obsidian)
+  voxelSetBlock(vworld, 5, 4, 2, obsidian)
+  // Base gold blocks at y=6, x=2..4
+  voxelSetBlock(vworld, 2, 6, 2, gold)
+  voxelSetBlock(vworld, 3, 6, 2, gold)
+  voxelSetBlock(vworld, 4, 6, 2, gold)
+
+  initWindow(1280, 720, "AIPL ex_213: Spatial 16x16x16 Voxel Chunk World, 3D DDA Raycast & Greedy Meshing")
+  mut frame = 0
+  while not windowShouldClose():
+    let phase = stepVoxelBuildPhase(frame)
+    let _s1 = voxelSetBlock(vworld, 6, 2, 2, if phase >= 1: emerald else: empty)
+    let _s2 = voxelSetBlock(vworld, 6, 3, 2, if phase >= 2: emerald else: empty)
+    let _s3 = voxelSetBlock(vworld, 6, 4, 2, if phase >= 3: obsidian else: empty)
+    let _s4 = voxelSetBlock(vworld, 5, 6, 2, if phase >= 4: gold else: empty)
+
+    let greedyFaces = voxelExtractGreedyFaces(vworld.chunks[0])
+    let rayOriginY = stepVoxelRayOriginY(frame)
+    let rayHitOpt = voxelRaycastDDA(vworld, Vec3(x = 0.2, y = rayOriginY, z = 2.5), Vec3(x = 1.0, y = 0.0, z = 0.0), 12.0)
+    let vh: VoxelRayHit = rayHitOpt.unwrap()
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_213: 3D VOXEL CHUNK WORLD (AMANATIDES-WOO 3D DDA & GREEDY MESHING)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("ddaHitVoxel=(" + str(vh.coord.x) + "," + str(vh.coord.y) + "," + str(vh.coord.z) + ") blockId=" + str(vh.blockId) + " | buildPhase=" + str(phase) + " | greedyQuads=" + str(greedyFaces.len()) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Left Voxel Slice (Z = 2)
+    drawRect(44.0, 112.0, 560.0, 576.0, rgb(15, 23, 42))
+    drawRectOutline(44.0, 112.0, 560.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("Raw Voxel Chunk Slice (Z=2) & 3D DDA Ray Traversal", 68.0, 130.0, 18.0, rgb(125, 211, 252))
+
+    let cellPx = 54.0
+    let gx0 = 108.0
+    let gy0 = 172.0
+    mut solidCount = 0
+    mut vy = 0
+    while vy < 8:
+      mut vx = 0
+      while vx < 8:
+        let bOpt = voxelGetBlock(vworld, vx, vy, 2)
+        let b: VoxelBlock = bOpt.unwrap()
+        if b.blockId != 0:
+          solidCount = solidCount + 1
+        let sx = gx0 + float(vx) * cellPx
+        let sy = gy0 + float(vy) * cellPx
+        let isTraversed = vy == vh.coord.y and vx < vh.coord.x
+        let isHitCell = vy == vh.coord.y and vx == vh.coord.x
+        let col = if b.blockId == 42: rgb(16, 185, 129) else: (if b.blockId == 77: rgb(139, 92, 246) else: (if b.blockId == 91: rgb(217, 119, 6) else: (if isTraversed: rgb(30, 48, 75) else: rgb(22, 32, 50))))
+        drawRect(sx, sy, cellPx - 3.0, cellPx - 3.0, col)
+        drawRectOutline(sx, sy, cellPx - 3.0, cellPx - 3.0, if isHitCell: 2.5 else: 1.0, if isHitCell: rgb(250, 204, 21) else: (if isTraversed: rgb(56, 189, 248) else: rgb(51, 65, 85)))
+        if b.blockId != 0:
+          drawText("#" + str(b.blockId), sx + 9.0, sy + 12.0, 14.0, rgb(248, 250, 252))
+          drawText("L" + str(b.lightLevel), sx + 14.0, sy + 31.0, 12.0, rgb(203, 213, 225))
+        vx = vx + 1
+      vy = vy + 1
+
+    // DDA Ray Visualization with Hit Normal
+    let rayScreenY = gy0 + rayOriginY * cellPx
+    let rayStartX = gx0 + 0.2 * cellPx
+    let rayHitX = gx0 + float(vh.coord.x) * cellPx
+    drawCircle(rayStartX, rayScreenY, 5.5, rgb(250, 204, 21))
+    drawLine(rayStartX, rayScreenY, rayHitX, rayScreenY, rgb(250, 204, 21), 3.0)
+    drawCircle(rayHitX, rayScreenY, 7.0, rgb(239, 68, 68))
+    // Surface Normal vector (vh.normal.x = -1)
+    drawLine(rayHitX, rayScreenY, rayHitX + float(vh.normal.x) * 32.0, rayScreenY - 14.0, rgb(248, 113, 113), 2.5)
+    drawText("DDA Hit (" + str(vh.coord.x) + "," + str(vh.coord.y) + ",2) dist=" + str(int(vh.distance * 10.0)) + "dm | normal=(" + str(vh.normal.x) + ",0,0)", 68.0, 632.0, 15.0, rgb(250, 204, 21))
+    drawText("Unmerged Top Faces: " + str(solidCount) + " individual 1x1 voxel quads", 68.0, 656.0, 14.0, rgb(148, 163, 184))
+
+    // Right Greedy Meshing Inspector (Visual Merged Quads + Table)
+    drawRect(636.0, 112.0, 600.0, 576.0, rgb(15, 23, 42))
+    drawRectOutline(636.0, 112.0, 600.0, 576.0, 2.0, rgb(52, 211, 153))
+    drawText("Greedy Meshing Output (Merged Coplanar QuadFace3D)", 660.0, 130.0, 18.0, rgb(110, 231, 183))
+
+    let mgx0 = 720.0
+    let mgy0 = 172.0
+    // Draw background 8x8 reference grid on right
+    mut mvy = 0
+    while mvy < 8:
+      mut mvx = 0
+      while mvx < 8:
+        drawRectOutline(mgx0 + float(mvx) * cellPx, mgy0 + float(mvy) * cellPx, cellPx - 3.0, cellPx - 3.0, 1.0, rgb(30, 41, 59))
+        mvx = mvx + 1
+      mvy = mvy + 1
+
+    // Draw Merged Greedy QuadFace3D spans directly on the 8x8 mesh grid
+    mut fIdx = 0
+    while fIdx < greedyFaces.len():
+      let qf: QuadFace3D = greedyFaces[fIdx]
+      let qx = mgx0 + float(qf.u0) * cellPx
+      let qy = mgy0 + float(qf.v0) * cellPx
+      let qw = float(qf.width) * cellPx - 3.0
+      let qh = float(qf.height) * cellPx - 3.0
+      let qFill = if qf.blockId == 42: rgb(6, 95, 70) else: (if qf.blockId == 77: rgb(76, 29, 149) else: rgb(146, 64, 14))
+      let qRim = if qf.blockId == 42: rgb(52, 211, 153) else: (if qf.blockId == 77: rgb(192, 132, 252) else: rgb(251, 191, 36))
+      drawRect(qx, qy, qw, qh, qFill)
+      // Draw quad diagonal wireframe showing 2 merged triangles per greedy quad
+      drawLine(qx, qy, qx + qw, qy + qh, qRim, 1.5)
+      drawRectOutline(qx, qy, qw, qh, 2.8, qRim)
+      drawText("Q#" + str(fIdx + 1) + " [" + str(qf.width) + "x" + str(qf.height) + "] #" + str(qf.blockId), qx + 8.0, qy + qh * 0.5 - 6.0, 13.0, rgb(248, 250, 252))
+      fIdx = fIdx + 1
+
+    drawText("Greedy Compression: " + str(solidCount) + " raw voxel faces -> " + str(greedyFaces.len()) + " merged QuadFace3D (" + str(greedyFaces.len() * 2) + " tris)", 660.0, 632.0, 15.0, rgb(110, 231, 183))
+    drawText("Each homogeneous rectangular run in mask[y*cs+x] coalesces into 1 QuadFace3D", 660.0, 656.0, 14.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

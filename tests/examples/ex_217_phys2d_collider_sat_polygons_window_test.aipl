@@ -1,0 +1,54 @@
+module Ex217Phys2dColliderSatPolygonsWindowTest
+
+import {
+  buildPhys2dColliderSatAudit, stepSatSweepOffset, stepSatAngle2D
+} from "../../examples/ex_217_phys2d_collider_sat_polygons_window"
+import { Vec2 } from "../../std/math/vec_math"
+import { Rect2D } from "../../std/math/geom2d"
+import {
+  PhysicsMaterial2D, circleColliderNew, boxColliderNew,
+  polygonColliderNew, colliderComputeAABB
+} from "../../std/phys2d/collider2d"
+import {
+  ContactPoint2D, ContactManifold2D, testCircleCircle,
+  testCircleBoxSAT, testBoxBoxSAT, testGjkEpa2D
+} from "../../std/phys2d/narrowphase2d"
+
+pub fn test_phys2d_collider_sat_polygons(): void:
+  let mat = PhysicsMaterial2D(restitution = 0.5, friction = 0.2, density = 1.0)
+  let cCircle = circleColliderNew(10.0, mat)
+  let cBox = boxColliderNew(20.0, 10.0, mat)
+  let cPoly = polygonColliderNew([Vec2(x = -5.0, y = -5.0), Vec2(x = 5.0, y = -5.0), Vec2(x = 0.0, y = 5.0)], mat)
+  let aabbC: Rect2D = colliderComputeAABB(cCircle, Vec2(x = 10.0, y = 10.0), 0.0)
+  let aabbB: Rect2D = colliderComputeAABB(cBox, Vec2(x = 0.0, y = 0.0), 0.0)
+  let aabbP: Rect2D = colliderComputeAABB(cPoly, Vec2(x = 0.0, y = 0.0), 0.0)
+  assert(aabbC.w == 20.0 and aabbB.w == 20.0 and aabbP.w == 10.0, "Collider AABBs computed accurately")
+
+  let mCC: ContactManifold2D = testCircleCircle(Vec2(x = 0.0, y = 0.0), 10.0, Vec2(x = 15.0, y = 0.0), 10.0).unwrap()
+  let cp0: ContactPoint2D = mCC.points[0]
+  assert(cp0.penetration == 5.0, "Circle-circle penetration depth == 5.0")
+
+  assert(testCircleBoxSAT(Vec2(x = 12.0, y = 0.0), 5.0, Vec2(x = 0.0, y = 0.0), Vec2(x = 10.0, y = 10.0), 0.0).isSome(), "Circle-box SAT contact detected")
+  assert(testBoxBoxSAT(Vec2(x = 0.0, y = 0.0), Vec2(x = 10.0, y = 10.0), 0.0, Vec2(x = 15.0, y = 0.0), Vec2(x = 10.0, y = 10.0), 0.0).isSome(), "Box-box SAT contact detected")
+
+  let v1 = [Vec2(x = 0.0, y = 0.0), Vec2(x = 10.0, y = 0.0), Vec2(x = 5.0, y = 10.0)]
+  let v2 = [Vec2(x = 4.0, y = 0.0), Vec2(x = 14.0, y = 0.0), Vec2(x = 9.0, y = 10.0)]
+  assert(testGjkEpa2D(v1, v2).isSome(), "Convex polygon SAT/GJK overlap detected")
+  assert(buildPhys2dColliderSatAudit() == 58, "buildPhys2dColliderSatAudit returns 20 + 20 + 10 + 5 + 3 == 58")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let o0 = stepSatSweepOffset(0)
+  let o1 = stepSatSweepOffset(1)
+  let o20 = stepSatSweepOffset(20)
+  let o100 = stepSatSweepOffset(100)
+  assert(o0 != o1 and o1 != o20 and o20 != o100, "SAT sweep offset advances across t=0,1,20,100")
+
+  let a0 = stepSatAngle2D(0)
+  let a20 = stepSatAngle2D(20)
+  let a100 = stepSatAngle2D(100)
+  assert(a0 < a20 and a20 < a100, "SAT OBB rotation angle advances across t=0,20,100")
+
+pub fn main(): int:
+  test_phys2d_collider_sat_polygons()
+  println("PASS: ex_217_phys2d_collider_sat_polygons_window_test")
+  ret 0

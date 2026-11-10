@@ -1,0 +1,42 @@
+module Ex173Gfx3dPrimitives3dPlatonicSolidsWindowTest
+
+import {
+  buildPrimitives3dGalleryAudit, stepPrimitives3dGalleryYaw
+} from "../../examples/ex_173_gfx3d_primitives3d_platonic_solids_window"
+import {
+  generateBoxMesh, generateUvSphereMesh, generateIcosphereMesh,
+  generateCylinderMesh, generateConeMesh, generateTorusMesh,
+  generatePlaneMesh, generateCapsuleMesh
+} from "../../std/gfx3d/primitives3d"
+
+pub fn test_gfx3d_primitives3d_platonic_solids(): void:
+  let boxM = generateBoxMesh(2.0, 4.0, 6.0)
+  assert(boxM.vertices.len() == 24 and boxM.indices.len() == 36, "Box mesh 24 verts / 36 indices")
+
+  let ico0 = generateIcosphereMesh(1.0, 0)
+  let icoM = generateIcosphereMesh(1.0, 1)
+  assert(ico0.vertices.len() == 12 and icoM.vertices.len() > ico0.vertices.len(), "Icosphere subdivision increases vertex count")
+  let midV = icoM.vertices[20].pos
+  let midR2 = midV.x * midV.x + midV.y * midV.y + midV.z * midV.z
+  assert(midR2 > 0.99 and midR2 < 1.01, "Subdivided icosphere vertices lie on unit sphere surface")
+
+  let sphereM = generateUvSphereMesh(1.0, 12, 8)
+  let cylM = generateCylinderMesh(1.0, 3.0, 12, true)
+  let coneM = generateConeMesh(1.0, 3.0, 12)
+  let torusM = generateTorusMesh(2.0, 0.5, 12, 8)
+  let planeM = generatePlaneMesh(10.0, 10.0, 2, 2)
+  let capM = generateCapsuleMesh(0.5, 2.0, 4, 8)
+  assert(sphereM.vertices.len() > 0 and cylM.vertices.len() > 0 and coneM.vertices.len() > 0, "Sphere, cylinder, cone meshes generated")
+  assert(torusM.vertices.len() > 0 and planeM.vertices.len() == 9 and capM.vertices.len() > 0, "Torus, plane (9 verts), capsule generated")
+  assert(buildPrimitives3dGalleryAudit() == 69 + icoM.vertices.len(), "buildPrimitives3dGalleryAudit matches box(24+36) + plane(9) + icosphere verts")
+
+  let y0 = stepPrimitives3dGalleryYaw(0)
+  let y1 = stepPrimitives3dGalleryYaw(1)
+  let y20 = stepPrimitives3dGalleryYaw(20)
+  let y100 = stepPrimitives3dGalleryYaw(100)
+  assert(y0 < y1 and y1 < y20 and y20 < y100, "Gallery rotation yaw advances monotonically across frames 0, 1, 20, 100")
+
+pub fn main(): int:
+  test_gfx3d_primitives3d_platonic_solids()
+  println("PASS: ex_173_gfx3d_primitives3d_platonic_solids_window_test")
+  ret 0

@@ -1,0 +1,109 @@
+// ============================================================================
+// Module: std/collections/grid2d_array (Grid2DArray)
+// Layer 1 (Core Primitives & Math) — Contiguous FlatArray2D & FlatArray3D
+// ============================================================================
+module Grid2dArrayMod
+
+pub struct FlatArray2D[T]:
+  width: int
+  height: int
+  data: [T]
+
+pub struct FlatArray3D[T]:
+  width: int
+  height: int
+  depth: int
+  data: [T]
+
+pub fn flatArray2DNew[T](width: int, height: int, defaultVal: T): FlatArray2D[T]:
+  mut w = width
+  mut h = height
+  if w < 0:
+    w = 0
+  if h < 0:
+    h = 0
+  let total = w * h
+  mut d: [T] = []
+  for i in 0..total:
+    d.push(defaultVal)
+  ret FlatArray2D(width = w, height = h, data = d)
+
+pub fn (self: FlatArray2D[T]) inBounds(x: int, y: int): bool:
+  ret x >= 0 and x < self.width and y >= 0 and y < self.height
+
+pub fn (self: FlatArray2D[T]) index(x: int, y: int): int:
+  ret y * self.width + x
+
+pub fn (self: FlatArray2D[T]) get(x: int, y: int): Option[T]:
+  if not self.inBounds(x, y):
+    ret None
+  let idx = y * self.width + x
+  ret Some(self.data[idx])
+
+pub fn (mut self: FlatArray2D[T]) set(x: int, y: int, val: T): bool:
+  if not self.inBounds(x, y):
+    ret false
+  let idx = y * self.width + x
+  self.data[idx] = val
+  ret true
+
+pub fn (mut self: FlatArray2D[T]) fill(val: T): void:
+  let n = self.data.len
+  for i in 0..n:
+    self.data[i] = val
+
+pub fn (self: FlatArray2D[T]) neighbors4(x: int, y: int): [T]:
+  mut out: [T] = []
+  if self.inBounds(x, y - 1):
+    out.push(self.data[(y - 1) * self.width + x])
+  if self.inBounds(x + 1, y):
+    out.push(self.data[y * self.width + (x + 1)])
+  if self.inBounds(x, y + 1):
+    out.push(self.data[(y + 1) * self.width + x])
+  if self.inBounds(x - 1, y):
+    out.push(self.data[y * self.width + (x - 1)])
+  ret out
+
+pub fn (self: FlatArray2D[T]) neighbors8(x: int, y: int): [T]:
+  mut out: [T] = []
+  for dy in -1..2:
+    for dx in -1..2:
+      if not (dx == 0 and dy == 0):
+        let nx = x + dx
+        let ny = y + dy
+        if self.inBounds(nx, ny):
+          out.push(self.data[ny * self.width + nx])
+  ret out
+
+// FlatArray3D[T]
+pub fn flatArray3DNew[T](width: int, height: int, depth: int, defaultVal: T): FlatArray3D[T]:
+  mut w = width
+  mut h = height
+  mut dp = depth
+  if w < 0:
+    w = 0
+  if h < 0:
+    h = 0
+  if dp < 0:
+    dp = 0
+  let total = w * h * dp
+  mut d: [T] = []
+  for i in 0..total:
+    d.push(defaultVal)
+  ret FlatArray3D(width = w, height = h, depth = dp, data = d)
+
+pub fn (self: FlatArray3D[T]) inBounds(x: int, y: int, z: int): bool:
+  ret x >= 0 and x < self.width and y >= 0 and y < self.height and z >= 0 and z < self.depth
+
+pub fn (self: FlatArray3D[T]) get(x: int, y: int, z: int): Option[T]:
+  if not self.inBounds(x, y, z):
+    ret None
+  let idx = (z * self.height + y) * self.width + x
+  ret Some(self.data[idx])
+
+pub fn (mut self: FlatArray3D[T]) set(x: int, y: int, z: int, val: T): bool:
+  if not self.inBounds(x, y, z):
+    ret false
+  let idx = (z * self.height + y) * self.width + x
+  self.data[idx] = val
+  ret true

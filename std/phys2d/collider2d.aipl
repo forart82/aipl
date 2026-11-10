@@ -1,0 +1,121 @@
+/// # Module: `std/phys2d/collider2d` (`Collider2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 2D primitive collider shapes (Circle, Box/OBB, Capsule, ConvexPolygon, Segment)
+/// with physical material properties and tight world-space AABB calculation.
+module Collider2DMod
+
+import { absFloat, minFloat, maxFloat } from "std/math/consts"
+import { sin, cos } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { Rect2D } from "std/math/geom2d"
+
+pub enum ColliderShapeType2D:
+  Circle
+  Box
+  Capsule
+  ConvexPolygon
+  Segment
+
+pub struct PhysicsMaterial2D(restitution: float, friction: float, density: float)
+
+pub struct Collider2D(shapeType: ColliderShapeType2D, offset: Vec2, circleRadius: float, boxHalfExtents: Vec2, capsuleLength: float, polygonVertices: [Vec2], material: PhysicsMaterial2D, isSensor: bool, collisionLayer: int, collisionMask: int)
+
+pub fn circleColliderNew(radius: float, material: PhysicsMaterial2D): Collider2D:
+  mut emptyVerts: [Vec2] = []
+  ret Collider2D(
+    shapeType = ColliderShapeType2D.Circle,
+    offset = Vec2(x = 0.0, y = 0.0),
+    circleRadius = radius,
+    boxHalfExtents = Vec2(x = radius, y = radius),
+    capsuleLength = 0.0,
+    polygonVertices = emptyVerts,
+    material = material,
+    isSensor = false,
+    collisionLayer = 1,
+    collisionMask = -1
+  )
+
+pub fn boxColliderNew(width: float, height: float, material: PhysicsMaterial2D): Collider2D:
+  mut emptyVerts: [Vec2] = []
+  let hx = width * 0.5
+  let hy = height * 0.5
+  ret Collider2D(
+    shapeType = ColliderShapeType2D.Box,
+    offset = Vec2(x = 0.0, y = 0.0),
+    circleRadius = 0.0,
+    boxHalfExtents = Vec2(x = hx, y = hy),
+    capsuleLength = 0.0,
+    polygonVertices = emptyVerts,
+    material = material,
+    isSensor = false,
+    collisionLayer = 1,
+    collisionMask = -1
+  )
+
+pub fn capsuleColliderNew(radius: float, length: float, material: PhysicsMaterial2D): Collider2D:
+  mut emptyVerts: [Vec2] = []
+  ret Collider2D(
+    shapeType = ColliderShapeType2D.Capsule,
+    offset = Vec2(x = 0.0, y = 0.0),
+    circleRadius = radius,
+    boxHalfExtents = Vec2(x = radius, y = length * 0.5 + radius),
+    capsuleLength = length,
+    polygonVertices = emptyVerts,
+    material = material,
+    isSensor = false,
+    collisionLayer = 1,
+    collisionMask = -1
+  )
+
+pub fn polygonColliderNew(vertices: [Vec2], material: PhysicsMaterial2D): Collider2D:
+  ret Collider2D(
+    shapeType = ColliderShapeType2D.ConvexPolygon,
+    offset = Vec2(x = 0.0, y = 0.0),
+    circleRadius = 0.0,
+    boxHalfExtents = Vec2(x = 0.0, y = 0.0),
+    capsuleLength = 0.0,
+    polygonVertices = vertices,
+    material = material,
+    isSensor = false,
+    collisionLayer = 1,
+    collisionMask = -1
+  )
+
+pub fn colliderComputeAABB(collider: Collider2D, bodyPos: Vec2, bodyAngle: float): Rect2D:
+  let c = cos(bodyAngle)
+  let s = sin(bodyAngle)
+  let off: Vec2 = collider.offset
+  let cx = bodyPos.x + off.x * c - off.y * s
+  let cy = bodyPos.y + off.x * s + off.y * c
+
+  if collider.shapeType == ColliderShapeType2D.Circle:
+    let r = collider.circleRadius
+    ret Rect2D(x = cx - r, y = cy - r, w = r * 2.0, h = r * 2.0, width = r * 2.0, height = r * 2.0)
+
+  if collider.shapeType == ColliderShapeType2D.Box or collider.shapeType == ColliderShapeType2D.Capsule:
+    let he: Vec2 = collider.boxHalfExtents
+    let ex = absFloat(c) * he.x + absFloat(s) * he.y
+    let ey = absFloat(s) * he.x + absFloat(c) * he.y
+    ret Rect2D(x = cx - ex, y = cy - ey, w = ex * 2.0, h = ey * 2.0, width = ex * 2.0, height = ey * 2.0)
+
+  if collider.polygonVertices.len > 0:
+    mut minX = 1000000000.0
+    mut minY = 1000000000.0
+    mut maxX = -1000000000.0
+    mut maxY = -1000000000.0
+    mut i = 0
+    while i < collider.polygonVertices.len:
+      let v: Vec2 = collider.polygonVertices[i]
+      let wx = cx + v.x * c - v.y * s
+      let wy = cy + v.x * s + v.y * c
+      minX = minFloat(minX, wx)
+      minY = minFloat(minY, wy)
+      maxX = maxFloat(maxX, wx)
+      maxY = maxFloat(maxY, wy)
+      i = i + 1
+    let pw = maxX - minX
+    let ph = maxY - minY
+    ret Rect2D(x = minX, y = minY, w = pw, h = ph, width = pw, height = ph)
+
+  ret Rect2D(x = cx, y = cy, w = 0.0, h = 0.0, width = 0.0, height = 0.0)

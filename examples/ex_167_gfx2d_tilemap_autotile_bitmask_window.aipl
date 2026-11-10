@@ -1,0 +1,129 @@
+module Ex167Gfx2dTilemapAutotileBitmaskWindow
+
+import { createCamera2D, getCameraVisibleBounds } from "../std/gfx2d/camera2d"
+import {
+  TilemapLayer2D, createWangBlob47Autotiler,
+  evaluateAutotileBitmask, resolveWang47TileIndex, cullTilemapLayer
+} from "../std/gfx2d/tilemap_renderer2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepAutotileLayer(frame: int): TilemapLayer2D:
+  let t0 = if ((frame + (frame / 7)) % 2) == 1: 1 else: 0
+  let t1 = if (((frame / 11) + (frame % 3)) % 2) == 1: 1 else: 0
+  let t2 = if ((frame / 13) % 2) == 1: 1 else: 0
+  let mapTiles = [
+    t0, 1, 1, 1, 1, t1,
+    1, 1, 1, 1, 1, 0,
+    1, 1, 1, 1, 1, 1,
+    0, 1, 1, 1, 1, t2,
+    0, t2, 1, 1, 0, 0,
+    0, 0, 0, 1, 0, 0
+  ]
+  ret TilemapLayer2D(layerId = 1, width = 6, height = 6, tiles = mapTiles, zOrder = 0, opacity = 1.0)
+
+pub fn buildTilemapAutotileAudit(): int:
+  let autotiler = createWangBlob47Autotiler()
+  let layer = TilemapLayer2D(
+    layerId = 1,
+    width = 3,
+    height = 3,
+    tiles = [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    zOrder = 0,
+    opacity = 1.0
+  )
+  let mask = evaluateAutotileBitmask(layer, 1, 1, 1)
+  let tileIdx = resolveWang47TileIndex(autotiler, mask)
+  let vis = cullTilemapLayer(layer, getCameraVisibleBounds(createCamera2D(128.0, 128.0)), 32.0, 32.0)
+  ret mask + tileIdx + vis.len()
+
+pub fn main(): int:
+  let autotiler = createWangBlob47Autotiler()
+  let audit = buildTilemapAutotileAudit()
+
+  initWindow(1280, 720, "AIPL ex_167: Wang 47-Blob Autotile Bitmask & Tilemap Frustum Culling")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let layer = stepAutotileLayer(frame)
+    let vis = cullTilemapLayer(layer, getCameraVisibleBounds(createCamera2D(240.0 + float(frame % 29) * 6.0, 280.0)), 48.0, 48.0)
+    let coastCols = [1, 4, 1, 4, 1, 2, 3]
+    let coastRows = [0, 0, 1, 1, 3, 4, 4]
+    let inspIdx = (frame + (frame / 7)) % 7
+    let inspCol = coastCols[inspIdx]
+    let inspRow = coastRows[inspIdx]
+    let inspMask = evaluateAutotileBitmask(layer, inspCol, inspRow, 1)
+    let inspWang = resolveWang47TileIndex(autotiler, inspMask)
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_167: WANG 47-BLOB AUTOTILE BITMASK & TILEMAP FRUSTUM CULLING", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/tilemap_renderer2d: evaluateAutotileBitmask | resolveWang47TileIndex | cullTilemapLayer | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: 6x6 Autotiled Island Grid showing Bitmask & Resolved Wang47 Tile Index
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("6x6 TERRAIN GRID (Inspecting (" + str(inspCol) + "," + str(inspRow) + ") -> Mask=" + str(inspMask) + " Wang=" + str(inspWang) + ")", 60.0, 118.0, 15.0, rgb(125, 211, 252))
+
+    mut r: int = 0
+    while r < 6:
+      mut c: int = 0
+      while c < 6:
+        let tx = 80.0 + float(c) * 84.0
+        let ty = 152.0 + float(r) * 56.0
+        let cellVal = layer.tiles[r * 6 + c]
+        let isInsp = c == inspCol and r == inspRow
+        if cellVal == 1:
+          let bm = evaluateAutotileBitmask(layer, c, r, 1)
+          let wIdx = resolveWang47TileIndex(autotiler, bm)
+          let tileCol = if wIdx == 46: rgb(22, 163, 74) else: rgb(14, 165, 233)
+          drawRect(tx, ty, 78.0, 50.0, tileCol)
+          drawRectOutline(tx, ty, 78.0, 50.0, if isInsp: 3.5 else: 1.5, if isInsp: rgb(250, 204, 21) else: rgb(248, 250, 252))
+          drawText("M:" + str(bm), tx + 6.0, ty + 8.0, 13.0, rgb(248, 250, 252))
+          drawText("W:" + str(wIdx), tx + 6.0, ty + 28.0, 13.0, rgb(253, 224, 71))
+        else:
+          drawRect(tx, ty, 78.0, 50.0, rgb(30, 41, 59))
+          if isInsp:
+            drawRectOutline(tx, ty, 78.0, 50.0, 3.0, rgb(250, 204, 21))
+          drawText("water", tx + 16.0, ty + 18.0, 13.0, rgb(100, 116, 139))
+        c = c + 1
+      r = r + 1
+
+    // Right Panel: 8-Neighbor Bitmask Compass Weight Diagram for Inspected Cell
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(250, 204, 21))
+    drawText("8-NEIGHBOR BITMASK COMPASS FOR CELL (" + str(inspCol) + "," + str(inspRow) + ") = " + str(inspMask), 680.0, 118.0, 16.0, rgb(253, 224, 71))
+
+    let weights = ["NW:1", "N:2", "NE:4", "W:8", "SELF", "E:16", "SW:32", "S:64", "SE:128"]
+    let bitVals = [1, 2, 4, 8, 0, 16, 32, 64, 128]
+    mut nr: int = 0
+    while nr < 3:
+      mut nc: int = 0
+      while nc < 3:
+        let k = nr * 3 + nc
+        let bx = 760.0 + float(nc) * 125.0
+        let by = 175.0 + float(nr) * 95.0
+        let isCenter = k == 4
+        let bitSet = (inspMask & bitVals[k]) != 0
+        let boxCol = if isCenter: rgb(244, 63, 94) else: if bitSet: rgb(22, 163, 74) else: rgb(30, 41, 59)
+        drawRect(bx, by, 110.0, 80.0, boxCol)
+        drawRectOutline(bx, by, 110.0, 80.0, 2.0, if bitSet or isCenter: rgb(250, 204, 21) else: rgb(71, 85, 105))
+        drawText(weights[k], bx + 18.0, by + 22.0, 16.0, rgb(248, 250, 252))
+        drawText(if isCenter: "W:" + str(inspWang) else: if bitSet: "BIT=1" else: "BIT=0", bx + 22.0, by + 48.0, 13.0, rgb(253, 224, 71))
+        nc = nc + 1
+      nr = nr + 1
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("AUTOTILE & CAMERA FRUSTUM CULLING TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Visible Tile Range [minCol, minRow, maxCol, maxRow] = [" + str(vis[0]) + ", " + str(vis[1]) + ", " + str(vis[2]) + ", " + str(vis[3]) + "]", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Mask(0)->Tile 0 | Mask(85)->Tile " + str(resolveWang47TileIndex(autotiler, 85)) + " | Mask(255)->Tile 46 | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

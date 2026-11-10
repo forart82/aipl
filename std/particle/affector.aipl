@@ -1,0 +1,144 @@
+/// # Module: `std/particle/affector` (`ParticleAffectorMod`)
+///
+/// ## Purpose & Domain Scope
+/// Physical particle force affectors: gravity, air drag, vortex tangential acceleration,
+/// point attractors/repellers, and divergence-free curl-noise turbulence fields.
+module ParticleAffectorMod
+
+import { EPSILON, maxFloat } from "std/math/consts"
+import { sin, cos } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+
+pub let AFFECTOR_GRAVITY: int = 1
+pub let AFFECTOR_DRAG: int = 2
+pub let AFFECTOR_VORTEX: int = 3
+pub let AFFECTOR_CURL_NOISE: int = 4
+pub let AFFECTOR_POINT_ATTRACTOR: int = 5
+
+pub struct ParticleAffector(affectorType: int, strength: float, center: Vec3, direction: Vec3, falloffDistance: float, frequency: float)
+
+pub fn createGravityAffector(gravityVec: Vec3): ParticleAffector:
+  ret ParticleAffector(
+    affectorType = AFFECTOR_GRAVITY,
+    strength = 1.0,
+    center = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    direction = gravityVec,
+    falloffDistance = 0.0,
+    frequency = 0.0
+  )
+
+pub fn createDragAffector(dragCoefficient: float): ParticleAffector:
+  ret ParticleAffector(
+    affectorType = AFFECTOR_DRAG,
+    strength = maxFloat(dragCoefficient, 0.0),
+    center = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    direction = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    falloffDistance = 0.0,
+    frequency = 0.0
+  )
+
+pub fn createVortexAffector(axisOrigin: Vec3, axisDir: Vec3, angularSpeed: float): ParticleAffector:
+  let dirNorm = if axisDir.lenSq() > EPSILON: axisDir.norm() else: Vec3(x = 0.0, y = 1.0, z = 0.0)
+  ret ParticleAffector(
+    affectorType = AFFECTOR_VORTEX,
+    strength = angularSpeed,
+    center = axisOrigin,
+    direction = dirNorm,
+    falloffDistance = 100.0,
+    frequency = 0.0
+  )
+
+pub fn createCurlNoiseAffector(frequency: float, strength: float): ParticleAffector:
+  ret ParticleAffector(
+    affectorType = AFFECTOR_CURL_NOISE,
+    strength = strength,
+    center = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    direction = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    falloffDistance = 0.0,
+    frequency = maxFloat(frequency, 0.001)
+  )
+
+pub fn evaluateVortexForce(affector: ParticleAffector, pos: Vec3): Vec3:
+  let axis = if affector.direction.lenSq() > EPSILON: affector.direction.norm() else: Vec3(x = 0.0, y = 1.0, z = 0.0)
+  let rel = pos.sub(affector.center)
+  let proj = axis.scale(rel.dot(axis))
+  let radial = rel.sub(proj)
+  let tangent = axis.cross(radial)
+  ret tangent.scale(affector.strength)
+
+fn pseudoPotentialVec(x: float, y: float, z: float): Vec3:
+  let px = sin(y * 1.7 + z * 2.3) + cos(z * 1.3 - x * 0.7)
+  let py = sin(z * 1.9 + x * 2.1) + cos(x * 1.5 - y * 0.9)
+  let pz = sin(x * 2.3 + y * 1.3) + cos(y * 1.7 - z * 1.1)
+  ret Vec3(x = px, y = py, z = pz)
+
+pub fn evaluateCurlNoiseForce(affector: ParticleAffector, pos: Vec3): Vec3:
+  let f = maxFloat(affector.frequency, 0.001)
+  let sx = pos.x * f
+  let sy = pos.y * f
+  let sz = pos.z * f
+  let eps = 0.01
+  let inv2Eps = 1.0 / (2.0 * eps)
+
+  let dxPos = pseudoPotentialVec(sx + eps, sy, sz)
+  let dxNeg = pseudoPotentialVec(sx - eps, sy, sz)
+  let dyPos = pseudoPotentialVec(sx, sy + eps, sz)
+  let dyNeg = pseudoPotentialVec(sx, sy - eps, sz)
+  let dzPos = pseudoPotentialVec(sx, sy, sz + eps)
+  let dzNeg = pseudoPotentialVec(sx, sy, sz - eps)
+
+  let dPzDy = (dyPos.z - dyNeg.z) * inv2Eps
+  let dPyDz = (dzPos.y - dzNeg.y) * inv2Eps
+  let dPxDz = (dzPos.x - dzNeg.x) * inv2Eps
+  let dPzDx = (dxPos.z - dxNeg.z) * inv2Eps
+  let dPyDx = (dxPos.y - dxNeg.y) * inv2Eps
+  let dPxDy = (dyPos.x - dyNeg.x) * inv2Eps
+
+  let curl = Vec3(
+    x = dPzDy - dPyDz,
+    y = dPxDz - dPzDx,
+    z = dPyDx - dPxDy
+  )
+  ret curl.scale(affector.strength)
+
+pub fn createPointAttractorAffector(center: Vec3, strength: float, falloffDistance: float = 50.0): ParticleAffector:
+  ret ParticleAffector(
+    affectorType = AFFECTOR_POINT_ATTRACTOR,
+    strength = strength,
+    center = center,
+    direction = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    falloffDistance = maxFloat(falloffDistance, 0.001),
+    frequency = 0.0
+  )
+
+pub fn evaluatePointAttractorForce(affector: ParticleAffector, pos: Vec3): Vec3:
+  let toCenter: Vec3 = affector.center.sub(pos)
+  let dSq = toCenter.lenSq()
+  if dSq <= EPSILON:
+    ret Vec3(x = 0.0, y = 0.0, z = 0.0)
+  let dir = toCenter.norm()
+  let falloffSq = affector.falloffDistance * affector.falloffDistance
+  let atten = falloffSq / (falloffSq + dSq)
+  ret dir.scale(affector.strength * atten)
+
+pub fn evaluateAffectorForce3D(affector: ParticleAffector, pos: Vec3, vel: Vec3): Vec3:
+  if affector.affectorType == AFFECTOR_GRAVITY:
+    ret affector.direction.scale(affector.strength)
+  if affector.affectorType == AFFECTOR_DRAG:
+    ret vel.scale(-affector.strength)
+  if affector.affectorType == AFFECTOR_VORTEX:
+    ret evaluateVortexForce(affector, pos)
+  if affector.affectorType == AFFECTOR_CURL_NOISE:
+    ret evaluateCurlNoiseForce(affector, pos)
+  if affector.affectorType == AFFECTOR_POINT_ATTRACTOR:
+    ret evaluatePointAttractorForce(affector, pos)
+  ret Vec3(x = 0.0, y = 0.0, z = 0.0)
+
+pub fn combineAffectorForces3D(affectors: [ParticleAffector], pos: Vec3, vel: Vec3): Vec3:
+  mut total = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  mut i = 0
+  while i < affectors.len:
+    let f = evaluateAffectorForce3D(affectors[i], pos, vel)
+    total = total.add(f)
+    i = i + 1
+  ret total

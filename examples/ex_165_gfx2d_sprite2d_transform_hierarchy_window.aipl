@@ -1,0 +1,135 @@
+module Ex165Gfx2dSprite2dTransformHierarchyWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import {
+  UvRect, Sprite2D, SpriteOrigin, createSprite2D,
+  setSpriteUv, computeSpriteCorners
+} from "../std/gfx2d/sprite2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepSpriteHierarchyFrame(baseSpr: Sprite2D, frame: int): Sprite2D:
+  let cell = ((frame / 13) + (frame % 4)) % 4
+  let u0 = float(cell % 2) * 0.5
+  let v0 = float(cell / 2) * 0.5
+  let angle = float(frame) * 0.04
+  ret Sprite2D(
+    textureId = baseSpr.textureId,
+    uv = UvRect(u0 = u0, v0 = v0, u1 = u0 + 0.5, v1 = v0 + 0.5),
+    size = Vec2(x = 130.0, y = 84.0),
+    origin = SpriteOrigin(xRatio = 0.5, yRatio = 0.5),
+    position = Vec2(x = 340.0, y = 298.0),
+    rotationRad = angle,
+    scale = Vec2(x = 1.15, y = 1.15),
+    tint = baseSpr.tint,
+    flipX = false,
+    flipY = false,
+    zOrder = 1
+  )
+
+pub fn buildSprite2dTransformAudit(): int:
+  mut spr = createSprite2D(1, 120.0, 80.0)
+  spr = setSpriteUv(spr, UvRect(u0 = 0.25, v0 = 0.0, u1 = 0.5, v1 = 0.5))
+  let corners = computeSpriteCorners(spr)
+  let spanW = int(corners[2].x - corners[0].x)
+  let spanH = int(corners[2].y - corners[0].y)
+  ret spanW + spanH + corners.len()
+
+pub fn main(): int:
+  let baseSpr = setSpriteUv(createSprite2D(1, 140.0, 90.0), UvRect(u0 = 0.25, v0 = 0.25, u1 = 0.75, v1 = 0.75))
+  let audit = buildSprite2dTransformAudit()
+
+  initWindow(1280, 720, "AIPL ex_165: 2D Sprite UV Sub-Rects, Pivots & Transform Hierarchy")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let rotSpr = stepSpriteHierarchyFrame(baseSpr, frame)
+    let angle = rotSpr.rotationRad
+    let corners = computeSpriteCorners(rotSpr)
+    let childSpr = Sprite2D(
+      textureId = baseSpr.textureId,
+      uv = rotSpr.uv,
+      size = Vec2(x = 56.0, y = 38.0),
+      origin = SpriteOrigin(xRatio = 0.5, yRatio = 0.5),
+      position = corners[1],
+      rotationRad = 0.0 - angle * 1.8,
+      scale = Vec2(x = 1.0, y = 1.0),
+      tint = baseSpr.tint,
+      flipX = false,
+      flipY = false,
+      zOrder = 2
+    )
+    let childCorners = computeSpriteCorners(childSpr)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_165: 2D SPRITE UV SUB-RECTS, PIVOTS & TRANSFORM HIERARCHY", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/sprite2d: createSprite2D | setSpriteUv | computeSpriteCorners | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: Rotated World-Space Sprite Quad with 4 Computed Corners + Orbiting Child Satellite
+    drawRect(40.0, 96.0, 600.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 390.0, 2.0, rgb(56, 189, 248))
+    drawText("ROTATED SPRITE QUAD & CHILD SATELLITE HIERARCHY", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    // Draw the 4 edges + diagonal of the rotated parent sprite from computeSpriteCorners
+    drawLine(corners[0].x, corners[0].y, corners[1].x, corners[1].y, rgb(56, 189, 248), 3.0)
+    drawLine(corners[1].x, corners[1].y, corners[2].x, corners[2].y, rgb(56, 189, 248), 3.0)
+    drawLine(corners[2].x, corners[2].y, corners[3].x, corners[3].y, rgb(56, 189, 248), 3.0)
+    drawLine(corners[3].x, corners[3].y, corners[0].x, corners[0].y, rgb(56, 189, 248), 3.0)
+    drawLine(corners[0].x, corners[0].y, corners[2].x, corners[2].y, rgb(30, 58, 138), 1.5)
+
+    // Draw corner handles and pivot
+    drawCircle(rotSpr.position.x, rotSpr.position.y, 7.0, rgb(250, 204, 21))
+    drawCircle(corners[0].x, corners[0].y, 6.0, rgb(244, 63, 94))
+    drawCircle(corners[1].x, corners[1].y, 6.0, rgb(34, 197, 94))
+    drawCircle(corners[2].x, corners[2].y, 6.0, rgb(168, 85, 247))
+    drawCircle(corners[3].x, corners[3].y, 6.0, rgb(56, 189, 248))
+
+    // Child rotated quad attached to corner[1] + grandchild satellite at childCorners[2]
+    drawLine(rotSpr.position.x, rotSpr.position.y, corners[1].x, corners[1].y, rgb(250, 204, 21), 2.0)
+    drawLine(childCorners[0].x, childCorners[0].y, childCorners[1].x, childCorners[1].y, rgb(34, 197, 94), 2.5)
+    drawLine(childCorners[1].x, childCorners[1].y, childCorners[2].x, childCorners[2].y, rgb(34, 197, 94), 2.5)
+    drawLine(childCorners[2].x, childCorners[2].y, childCorners[3].x, childCorners[3].y, rgb(34, 197, 94), 2.5)
+    drawLine(childCorners[3].x, childCorners[3].y, childCorners[0].x, childCorners[0].y, rgb(34, 197, 94), 2.5)
+    drawLine(corners[1].x, corners[1].y, childCorners[2].x, childCorners[2].y, rgb(244, 63, 94), 1.5)
+    drawCircle(childCorners[2].x, childCorners[2].y, 7.0, rgb(244, 63, 94))
+
+    // Right Panel: Normalized UV Atlas Sub-Rect Inspector
+    drawRect(660.0, 96.0, 580.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 390.0, 2.0, rgb(168, 85, 247))
+    drawText("TEXTURE ATLAS NORMALIZED UV SUB-RECT (u0..u1, v0..v1)", 680.0, 118.0, 16.0, rgb(216, 180, 254))
+
+    drawRect(700.0, 165.0, 260.0, 260.0, rgb(30, 41, 59))
+    drawRectOutline(700.0, 165.0, 260.0, 260.0, 2.0, rgb(100, 116, 139))
+    drawLine(830.0, 165.0, 830.0, 425.0, rgb(71, 85, 105), 1.0)
+    drawLine(700.0, 295.0, 960.0, 295.0, rgb(71, 85, 105), 1.0)
+    let uvX = 700.0 + rotSpr.uv.u0 * 260.0
+    let uvY = 165.0 + rotSpr.uv.v0 * 260.0
+    let uvW = (rotSpr.uv.u1 - rotSpr.uv.u0) * 260.0
+    let uvH = (rotSpr.uv.v1 - rotSpr.uv.v0) * 260.0
+    drawRect(uvX, uvY, uvW, uvH, rgb(88, 28, 135))
+    drawRectOutline(uvX, uvY, uvW, uvH, 2.5, rgb(250, 204, 21))
+    drawText("u=[" + str(rotSpr.uv.u0) + ".." + str(rotSpr.uv.u1) + "]", uvX + 12.0, uvY + 46.0, 13.0, rgb(253, 224, 71))
+    drawText("v=[" + str(rotSpr.uv.v0) + ".." + str(rotSpr.uv.v1) + "]", uvX + 12.0, uvY + 68.0, 13.0, rgb(253, 224, 71))
+
+    drawText("Parent Pivot: (0.5, 0.5)", 985.0, 190.0, 15.0, rgb(248, 250, 252))
+    drawText("Parent Scale: (1.15, 1.15)", 985.0, 224.0, 15.0, rgb(134, 239, 172))
+    drawText("Child Pos: C1(" + str(int(corners[1].x)) + "," + str(int(corners[1].y)) + ")", 985.0, 258.0, 15.0, rgb(125, 211, 252))
+    drawText("Grandchild: (" + str(int(childCorners[2].x)) + "," + str(int(childCorners[2].y)) + ")", 985.0, 292.0, 15.0, rgb(253, 164, 175))
+    drawText("zOrder = " + str(rotSpr.zOrder) + " -> " + str(childSpr.zOrder), 985.0, 326.0, 15.0, rgb(253, 224, 71))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 506.0, 1200.0, 170.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 506.0, 1200.0, 170.0, 2.0, rgb(51, 65, 85))
+    drawText("COMPUTED WORLD-SPACE QUAD CORNERS", 60.0, 528.0, 18.0, rgb(56, 189, 248))
+    drawText("C0=(" + str(int(corners[0].x)) + "," + str(int(corners[0].y)) + ") C1=(" + str(int(corners[1].x)) + "," + str(int(corners[1].y)) + ") C2=(" + str(int(corners[2].x)) + "," + str(int(corners[2].y)) + ") C3=(" + str(int(corners[3].x)) + "," + str(int(corners[3].y)) + ")", 60.0, 566.0, 16.0, rgb(226, 232, 240))
+    drawText("RotationRad=" + str(angle) + " | Child C2=(" + str(int(childCorners[2].x)) + "," + str(int(childCorners[2].y)) + ") | Audit=" + str(audit), 60.0, 602.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

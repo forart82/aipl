@@ -1,0 +1,118 @@
+// Generated function test suite for std/particle/emitter2d.aipl (8 functions)
+module tests.functions.particle.emitter2d_test
+
+import * from "std/particle/emitter2d"
+import { ColorRgba8 } from "std/gfx/color"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { ParticleAffector, AFFECTOR_GRAVITY, AFFECTOR_DRAG, AFFECTOR_VORTEX, AFFECTOR_CURL_NOISE, evaluateVortexForce, evaluateCurlNoiseForce } from "std/particle/affector"
+import { TAU, maxFloat, clampFloat } from "std/math/consts"
+import { Vec2, Vec3 } from "std/math/vec_math"
+import { sin, cos, sqrt } from "std/math/trig"
+
+pub fn test_emitter2d_createParticlePool2D_1(): int:
+  let arg_maxParticles = 4
+  let edge_maxParticles = 1
+  let arg_emissionRate = 2.0
+  let edge_emissionRate = 1.0
+  let resNom = createParticlePool2D(arg_maxParticles, arg_emissionRate)
+  let resEdge = createParticlePool2D(edge_maxParticles, edge_emissionRate)
+  assertEqInt(resNom.particles.len(), 0, "createParticlePool2D nominal resNom.particles.len() == 0")
+  assertEqInt(resEdge.particles.len(), 0, "createParticlePool2D boundary resEdge.particles.len() == 0")
+  ret 0
+
+pub fn test_emitter2d_sampleEmissionPosition2D_2(): int:
+  let arg_shape = EmissionShape2D(shapeType = 1, radius = 2.0, innerRadius = 2.0, boxExtents = Vec2(x = 1.0, y = 1.0))
+  let edge_shape = EmissionShape2D(shapeType = 0, radius = 1.0, innerRadius = 1.0, boxExtents = Vec2(x = 0.5, y = 0.5))
+  let arg_rngRoll1 = 1.0
+  let edge_rngRoll1 = 0.5
+  let arg_rngRoll2 = 1.0
+  let edge_rngRoll2 = 0.5
+  let resNom = sampleEmissionPosition2D(arg_shape, arg_rngRoll1, arg_rngRoll2)
+  let resEdge = sampleEmissionPosition2D(edge_shape, edge_rngRoll1, edge_rngRoll2)
+  assertApproxEq(resNom.x, 2.0, 0.001, "sampleEmissionPosition2D nominal resNom.x ~= 2.0")
+  assertApproxEq(resEdge.x, 0.0, 0.001, "sampleEmissionPosition2D boundary resEdge.x ~= 0.0")
+  ret 0
+
+pub fn test_emitter2d_stepParticlePool2D_3(): int:
+  let arg_pool = ParticlePool2D(particles = [], maxParticles = 4, liveCount = 4, emissionRatePerSec = 2.0, emissionAccumulator = 1.0)
+  let edge_pool = ParticlePool2D(particles = [], maxParticles = 1, liveCount = 1, emissionRatePerSec = 1.0, emissionAccumulator = 0.5)
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let arg_affectors = [ParticleAffector(affectorType = 1, strength = 2.0, center = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), falloffDistance = 0.0, frequency = 2.0)]
+  let edge_affectors = []
+  let resNom = stepParticlePool2D(arg_pool, arg_dt, arg_affectors)
+  let resEdge = stepParticlePool2D(edge_pool, edge_dt, edge_affectors)
+  assertEqInt(resNom.particles.len(), 0, "stepParticlePool2D nominal resNom.particles.len() == 0")
+  assertEqInt(resEdge.particles.len(), 0, "stepParticlePool2D boundary resEdge.particles.len() == 0")
+  ret 0
+
+pub fn test_emitter2d_spawnParticle2D_4(): int:
+  let arg_pool = ParticlePool2D(particles = [], maxParticles = 4, liveCount = 4, emissionRatePerSec = 2.0, emissionAccumulator = 1.0)
+  let edge_pool = ParticlePool2D(particles = [], maxParticles = 1, liveCount = 1, emissionRatePerSec = 1.0, emissionAccumulator = 0.5)
+  let arg_p = Particle2D(pos = Vec2(x = 1.0, y = 1.0), vel = Vec2(x = 1.0, y = 1.0), startColor = ColorRgba8(r = 2, g = 2, b = 4, a = 2), endColor = ColorRgba8(r = 2, g = 2, b = 4, a = 2), size = 1.0, rotationRad = 1.0, rotSpeedRad = 1.0, ageSec = 1.0, lifetimeSec = 1.0, isAlive = true)
+  let edge_p = Particle2D(pos = Vec2(x = 0.5, y = 0.5), vel = Vec2(x = 0.5, y = 0.5), startColor = ColorRgba8(r = 0, g = 0, b = 1, a = 0), endColor = ColorRgba8(r = 0, g = 0, b = 1, a = 0), size = 0.5, rotationRad = 0.5, rotSpeedRad = 0.5, ageSec = 0.5, lifetimeSec = 0.5, isAlive = false)
+  let resNom = spawnParticle2D(arg_pool, arg_p)
+  let resEdge = spawnParticle2D(edge_pool, edge_p)
+  assertEqInt(resNom.particles.len(), 1, "spawnParticle2D nominal resNom.particles.len() == 1")
+  assertEqInt(resEdge.particles.len(), 1, "spawnParticle2D boundary resEdge.particles.len() == 1")
+  ret 0
+
+pub fn test_emitter2d_emitParticleBurst2D_5(): int:
+  let arg_pool = ParticlePool2D(particles = [], maxParticles = 4, liveCount = 4, emissionRatePerSec = 2.0, emissionAccumulator = 1.0)
+  let edge_pool = ParticlePool2D(particles = [], maxParticles = 1, liveCount = 1, emissionRatePerSec = 1.0, emissionAccumulator = 0.5)
+  let arg_origin = Vec2(x = 1.0, y = 1.0)
+  let edge_origin = Vec2(x = 0.5, y = 0.5)
+  let arg_count = 4
+  let edge_count = 1
+  let arg_speed = 1.0
+  let edge_speed = 0.5
+  let arg_lifetimeSec = 1.0
+  let edge_lifetimeSec = 0.5
+  let arg_startColor = ColorRgba8(r = 2, g = 2, b = 4, a = 2)
+  let edge_startColor = ColorRgba8(r = 0, g = 0, b = 1, a = 0)
+  let arg_endColor = ColorRgba8(r = 2, g = 2, b = 4, a = 2)
+  let edge_endColor = ColorRgba8(r = 0, g = 0, b = 1, a = 0)
+  let resNom = emitParticleBurst2D(arg_pool, arg_origin, arg_count, arg_speed, arg_lifetimeSec, arg_startColor, arg_endColor)
+  let resEdge = emitParticleBurst2D(edge_pool, edge_origin, edge_count, edge_speed, edge_lifetimeSec, edge_startColor, edge_endColor)
+  assertEqInt(resNom.particles.len(), 4, "emitParticleBurst2D nominal resNom.particles.len() == 4")
+  assertEqInt(resEdge.particles.len(), 1, "emitParticleBurst2D boundary resEdge.particles.len() == 1")
+  ret 0
+
+pub fn test_emitter2d_particleNormalizedAge2D_6(): int:
+  let arg_p = Particle2D(pos = Vec2(x = 1.0, y = 1.0), vel = Vec2(x = 1.0, y = 1.0), startColor = ColorRgba8(r = 2, g = 2, b = 4, a = 2), endColor = ColorRgba8(r = 2, g = 2, b = 4, a = 2), size = 1.0, rotationRad = 1.0, rotSpeedRad = 1.0, ageSec = 1.0, lifetimeSec = 1.0, isAlive = true)
+  let edge_p = Particle2D(pos = Vec2(x = 0.5, y = 0.5), vel = Vec2(x = 0.5, y = 0.5), startColor = ColorRgba8(r = 0, g = 0, b = 1, a = 0), endColor = ColorRgba8(r = 0, g = 0, b = 1, a = 0), size = 0.5, rotationRad = 0.5, rotSpeedRad = 0.5, ageSec = 0.5, lifetimeSec = 0.5, isAlive = false)
+  let resNom = particleNormalizedAge2D(arg_p)
+  let resEdge = particleNormalizedAge2D(edge_p)
+  assertApproxEq(resNom, 1.0, 0.001, "particleNormalizedAge2D nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "particleNormalizedAge2D boundary resEdge ~= 1.0")
+  ret 0
+
+pub fn test_emitter2d_clearParticlePool2D_7(): int:
+  let arg_pool = ParticlePool2D(particles = [], maxParticles = 4, liveCount = 4, emissionRatePerSec = 2.0, emissionAccumulator = 1.0)
+  let edge_pool = ParticlePool2D(particles = [], maxParticles = 1, liveCount = 1, emissionRatePerSec = 1.0, emissionAccumulator = 0.5)
+  let resNom = clearParticlePool2D(arg_pool)
+  let resEdge = clearParticlePool2D(edge_pool)
+  assertEqInt(resNom.particles.len(), 0, "clearParticlePool2D nominal resNom.particles.len() == 0")
+  assertEqInt(resEdge.particles.len(), 0, "clearParticlePool2D boundary resEdge.particles.len() == 0")
+  ret 0
+
+pub fn test_emitter2d_countActiveParticles2D_8(): int:
+  let arg_pool = ParticlePool2D(particles = [], maxParticles = 4, liveCount = 4, emissionRatePerSec = 2.0, emissionAccumulator = 1.0)
+  let edge_pool = ParticlePool2D(particles = [], maxParticles = 1, liveCount = 1, emissionRatePerSec = 1.0, emissionAccumulator = 0.5)
+  let resNom = countActiveParticles2D(arg_pool)
+  let resEdge = countActiveParticles2D(edge_pool)
+  assertEqInt(resNom, 0, "countActiveParticles2D nominal resNom == 0")
+  assertEqInt(resEdge, 0, "countActiveParticles2D boundary resEdge == 0")
+  ret 0
+
+pub fn main(): int:
+  test_emitter2d_createParticlePool2D_1()
+  test_emitter2d_sampleEmissionPosition2D_2()
+  test_emitter2d_stepParticlePool2D_3()
+  test_emitter2d_spawnParticle2D_4()
+  test_emitter2d_emitParticleBurst2D_5()
+  test_emitter2d_particleNormalizedAge2D_6()
+  test_emitter2d_clearParticlePool2D_7()
+  test_emitter2d_countActiveParticles2D_8()
+  println("PASS: tests/functions/particle/emitter2d_test.aipl")
+  ret 0

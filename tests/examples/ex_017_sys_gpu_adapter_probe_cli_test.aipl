@@ -1,0 +1,40 @@
+// ============================================================================
+// Twin Test Suite 017: Low-Level GPU Context, Buffer Upload & Swapchain CLI
+// Verifies examples/ex_017_sys_gpu_adapter_probe_cli.aipl
+// ============================================================================
+module Ex017SysGpuAdapterProbeCliTest
+
+import {
+  GpuAdapterReport,
+  uploadVertexPayloadToGpu,
+  alignUniformBufferBytes,
+  describeGpuBackendId,
+  buildGpuAdapterReport
+} from "../../examples/ex_017_sys_gpu_adapter_probe_cli.aipl"
+
+pub fn test_gpu_buffer_upload_and_alignment(): int:
+  assert(uploadVertexPayloadToGpu(128) == 128, "sysGpuUploadBuffer uploads 128 bytes")
+  assert(alignUniformBufferBytes(200) == 256, "200 aligns up to 256-byte std140 boundary")
+  assert(alignUniformBufferBytes(256) == 256, "256 stays 256")
+  ret 0
+
+pub fn test_gpu_backend_classification(): int:
+  assert(describeGpuBackendId(1) == "GPU:VULKAN_WEBGPU", "backend 1")
+  assert(describeGpuBackendId(2) == "GPU:OPENGL_ES3", "backend 2")
+  assert(describeGpuBackendId(0) == "GPU:SOFTWARE_RASTER", "backend 0")
+  ret 0
+
+pub fn test_build_gpu_adapter_report(): int:
+  let rep = buildGpuAdapterReport(1, 200)
+  assert(rep.contextHandle > 0, "sysGpuInitContext > 0")
+  assert(rep.bufferHandle > 0, "sysGpuCreateBuffer > 0")
+  assert(rep.uploadedBytes == 256, "aligned 256 bytes uploaded")
+  assert(rep.backendTag == "GPU:VULKAN_WEBGPU", "backendTag")
+  ret 0
+
+pub fn main(): int:
+  test_gpu_buffer_upload_and_alignment()
+  test_gpu_backend_classification()
+  test_build_gpu_adapter_report()
+  println("PASS: ex_017_sys_gpu_adapter_probe_cli_test")
+  ret 0

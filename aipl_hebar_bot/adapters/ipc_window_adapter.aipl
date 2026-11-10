@@ -1,0 +1,212 @@
+// ============================================================================
+// AIPL Universal HEBAR IPC Window Adapter (`aipl_hebar_bot/adapters/ipc_window_adapter.aipl`)
+// ============================================================================
+// Drives live .aipl and native X11 window processes via /tmp/aipl_windows/
+// per-seat command envelopes (.cmd.<seat_id> / .ack.<seat_id>) and reads
+// zero-config scene-graph telemetry from win_<pid>.state.json.
+// ============================================================================
+
+module IpcWindowAdapter
+
+import {
+  targetWindowAction,
+  targetWindowSeatAction,
+  targetWindowScreenshot
+} from "std/canvas"
+
+import {
+  fileExists,
+  readFile,
+  isDir,
+  listDir
+} from "std/fs"
+
+import {
+  parseInt
+} from "std/string"
+
+import {
+  isPidAlive
+} from "std/process"
+
+import {
+  SceneSnapshot,
+  emptySceneSnapshot,
+  parseSceneSnapshotJson,
+  extractJsonIntField,
+  extractJsonStringField
+} from "../core/scene_sensor.aipl"
+
+pub struct IpcWindowTarget:
+  targetSpec: str
+  resolvedPid: int
+  windowTitle: str
+  connected: bool
+
+pub fn parseInfoPid(content: str, fileName: str): int:
+  let lns = content.lines()
+  mut i = 0
+  while i < lns.len:
+    let ln = lns[i].trim()
+    if ln.startsWith("pid="):
+      let p = parseInt(ln.slice(4, ln.len).trim())
+      if p > 0:
+        ret p
+    i += 1
+  let jPid = extractJsonIntField(content, "pid", 0)
+  if jPid > 0:
+    ret jPid
+  if fileName.startsWith("win_") and fileName.endsWith(".info"):
+    let mid = fileName.slice(4, fileName.len - 5)
+    let fPid = parseInt(mid)
+    if fPid > 0:
+      ret fPid
+  ret 0
+
+pub fn parseInfoTitle(content: str, fallback: str): str:
+  let lns = content.lines()
+  mut i = 0
+  while i < lns.len:
+    let ln = lns[i].trim()
+    if ln.startsWith("title="):
+      let t = ln.slice(6, ln.len).trim()
+      if t.len > 0:
+        ret t
+    i += 1
+  ret extractJsonStringField(content, "title", fallback)
+
+pub fn parseInfoTargetType(content: str, fallback: str): str:
+  let lns = content.lines()
+  mut i = 0
+  while i < lns.len:
+    let ln = lns[i].trim()
+    if ln.startsWith("targetType="):
+      let t = ln.slice(11, ln.len).trim().toLowerCase()
+      if t.len > 0:
+        ret t
+    i += 1
+  let jt = extractJsonStringField(content, "targetType", fallback).trim().toLowerCase()
+  ret if jt.len > 0: jt else: fallback
+
+pub fn matchesWindowTitle(titleVal: str, targetSpec: str): bool:
+  let specLower = targetSpec.trim().toLowerCase()
+  if specLower == "" or specLower == "all":
+    ret true
+  let titleLower = titleVal.toLowerCase()
+  if titleLower.contains(specLower):
+    ret true
+  // Extract path segments and stem keywords
+  let slashParts = specLower.split("/")
+  let lastSeg = if slashParts.len > 0: slashParts[slashParts.len - 1] else: specLower
+  let parentSeg = if slashParts.len >= 2: slashParts[slashParts.len - 2] else: ""
+  mut stem = lastSeg
+  let dotIdx = stem.indexOf(".")
+  if dotIdx > 0:
+    stem = stem.slice(0, dotIdx)
+  if stem.endsWith("_bin"):
+    stem = stem.slice(0, stem.len - 4)
+  if stem.endsWith("_wasm"):
+    stem = stem.slice(0, stem.len - 5)
+  if stem.len >= 3 and stem != "main" and titleLower.contains(stem):
+    ret true
+  if parentSeg.len >= 3 and parentSeg != "demos" and parentSeg != "examples" and parentSeg != "aipl_hebar_bot" and titleLower.contains(parentSeg):
+    ret true
+  let words = stem.split("_")
+  mut wi = 0
+  while wi < words.len:
+    let w = words[wi].trim()
+    if w.len >= 4 and w != "main" and w != "demo" and w != "test" and titleLower.contains(w):
+      ret true
+    wi += 1
+  ret false
+
+pub fn discoverIpcWindowTarget(targetSpec: str): IpcWindowTarget:
+  let maybePid = parseInt(targetSpec)
+  if maybePid > 0 and isPidAlive(maybePid):
+    let infoPath = "/tmp/aipl_windows/win_" + str(maybePid) + ".info"
+    if fileExists(infoPath):
+      let infoTxt = readFile(infoPath)
+      ret IpcWindowTarget(
+        targetSpec = targetSpec,
+        resolvedPid = maybePid,
+        windowTitle = parseInfoTitle(infoTxt, targetSpec),
+        connected = true
+      )
+    let statePath = "/tmp/aipl_windows/win_" + str(maybePid) + ".state.json"
+    if fileExists(statePath):
+      let stTxt = readFile(statePath)
+      ret IpcWindowTarget(
+        targetSpec = targetSpec,
+        resolvedPid = maybePid,
+        windowTitle = extractJsonStringField(stTxt, "title", targetSpec),
+        connected = true
+      )
+
+  if isDir("/tmp/aipl_windows"):
+    let files = listDir("/tmp/aipl_windows")
+    mut bestMatchPid = 0
+    mut bestMatchTitle = ""
+    mut firstLivePid = 0
+    mut firstLiveTitle = ""
+    mut i = 0
+    while i < files.len:
+      let f = files[i]
+      if f.startsWith("win_") and f.endsWith(".info"):
+        let fullPath = "/tmp/aipl_windows/" + f
+        let content = readFile(fullPath)
+        let pidVal = parseInfoPid(content, f)
+        let titleVal = parseInfoTitle(content, "AIPL Window")
+        let isLive = pidVal > 0 and isPidAlive(pidVal)
+        if isLive and pidVal > 0:
+          if firstLivePid == 0 or pidVal > firstLivePid:
+            firstLivePid = pidVal
+            firstLiveTitle = titleVal
+          if matchesWindowTitle(titleVal, targetSpec):
+            if pidVal > bestMatchPid:
+              bestMatchPid = pidVal
+              bestMatchTitle = titleVal
+      i += 1
+    if bestMatchPid > 0:
+      ret IpcWindowTarget(
+        targetSpec = targetSpec,
+        resolvedPid = bestMatchPid,
+        windowTitle = bestMatchTitle,
+        connected = true
+      )
+    if firstLivePid > 0 and (targetSpec == "" or targetSpec == "all"):
+      ret IpcWindowTarget(
+        targetSpec = targetSpec,
+        resolvedPid = firstLivePid,
+        windowTitle = firstLiveTitle,
+        connected = true
+      )
+
+  ret IpcWindowTarget(
+    targetSpec = targetSpec,
+    resolvedPid = 0,
+    windowTitle = targetSpec,
+    connected = false
+  )
+
+pub fn readIpcWindowStateSnapshot(target: IpcWindowTarget): SceneSnapshot:
+  if target.resolvedPid > 0:
+    let statePath = "/tmp/aipl_windows/win_" + str(target.resolvedPid) + ".state.json"
+    if fileExists(statePath):
+      let raw = readFile(statePath)
+      if raw.trim().len > 4:
+        ret parseSceneSnapshotJson(raw)
+  mut snap = emptySceneSnapshot()
+  snap.pid = target.resolvedPid
+  snap.title = target.windowTitle
+  snap.targetType = "native"
+  ret snap
+
+pub fn sendIpcSeatAction(target: IpcWindowTarget, seatId: int, botScript: str): bool:
+  let tgtKey = if target.resolvedPid > 0: str(target.resolvedPid) else: target.targetSpec
+  if seatId >= 1 and seatId <= 8:
+    ret targetWindowSeatAction(tgtKey, seatId, botScript)
+  ret targetWindowAction(tgtKey, botScript)
+
+pub fn captureIpcWindowScreenshot(target: IpcWindowTarget, outPath: str): bool:
+  let tgtKey = if target.resolvedPid > 0: str(target.resolvedPid) else: target.targetSpec
+  ret targetWindowScreenshot(tgtKey, outPath)

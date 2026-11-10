@@ -1,0 +1,148 @@
+module Ex230Phys3dDominoChainReactionWindow
+
+import {
+  PhysWorldSettings3D, PhysicsWorld3D, physWorld3dNew,
+  physWorld3dAddBody, physWorld3dAddCollider, physWorld3dAddJoint, physWorld3dStep
+} from "../std/phys3d/phys_world3d"
+import {
+  BodyType3D, RigidBody3D, rigidBody3dNew,
+  rigidBody3dSetBoxInertia, rigidBody3dApplyAngularImpulse
+} from "../std/phys3d/rigid_body3d"
+import { PhysicsMaterial3D, boxCollider3dNew } from "../std/phys3d/collider3d"
+import { hingeJointNew } from "../std/phys3d/joint3d"
+import { sin, cos } from "../std/math/trig"
+import { Vec3 } from "../std/math/vec_math"
+import { Quat } from "../std/math/quat"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct DominoScene(world: PhysicsWorld3D, toppledCount: int, waveCount: int, settleTicks: int)
+
+pub fn createDominoScene(): DominoScene:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut world = physWorld3dNew(Vec3(x = 0.0, y = 0.0, z = 0.0))
+  let mat = PhysicsMaterial3D(restitution = 0.15, staticFriction = 0.5, dynamicFriction = 0.3, density = 1.0)
+  mut idx = 0
+  while idx < 8:
+    mut dom = rigidBody3dNew(idx, BodyType3D.Dynamic, Vec3(x = float(idx * 2), y = 2.0, z = 0.0), idRot)
+    rigidBody3dSetBoxInertia(dom, 2.0, Vec3(x = 0.4, y = 2.0, z = 1.0))
+    if idx == 0:
+      rigidBody3dApplyAngularImpulse(dom, Vec3(x = 0.0, y = 0.0, z = -1.35))
+    let bId = physWorld3dAddBody(world, dom)
+    physWorld3dAddCollider(world, bId, boxCollider3dNew(Vec3(x = 0.2, y = 1.0, z = 0.5), mat))
+    idx = idx + 1
+  ret DominoScene(world = world, toppledCount = 1, waveCount = 1, settleTicks = 0)
+
+pub fn stepScene(mut scene: DominoScene, frame: int, dt: float): void:
+  physWorld3dStep(scene.world, dt)
+
+  mut bds = scene.world.bodies
+  mut i = 0
+  while i < bds.len():
+    mut dom: RigidBody3D = bds[i]
+    if dom.angularVelocity.z < 0.0:
+      rigidBody3dApplyAngularImpulse(dom, Vec3(x = 0.0, y = 0.0, z = -0.9 * dt))
+    if dom.rotation.z <= -0.18 and i + 1 < bds.len():
+      mut nextDom: RigidBody3D = bds[i + 1]
+      if nextDom.angularVelocity.z == 0.0 and nextDom.rotation.z == 0.0:
+        rigidBody3dApplyAngularImpulse(nextDom, Vec3(x = 0.0, y = 0.0, z = -1.35))
+        bds[i + 1] = nextDom
+        scene.toppledCount = scene.toppledCount + 1
+    if dom.rotation.z < -0.52:
+      dom.angularVelocity = Vec3(x = 0.0, y = 0.0, z = 0.0)
+      dom.rotation = Quat(x = 0.0, y = 0.0, z = -0.52, w = 0.854)
+    bds[i] = dom
+    i = i + 1
+
+  let lastDom: RigidBody3D = bds[bds.len() - 1]
+  if lastDom.rotation.z <= -0.51:
+    scene.settleTicks = scene.settleTicks + 1
+    if scene.settleTicks >= 2:
+      let nextImpulse = -1.15 - float(scene.waveCount % 3) * 0.25
+      mut r = 0
+      while r < bds.len():
+        mut dReset: RigidBody3D = bds[r]
+        dReset.rotation = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+        dReset.angularVelocity = Vec3(x = 0.0, y = 0.0, z = 0.0)
+        if r == 0:
+          rigidBody3dApplyAngularImpulse(dReset, Vec3(x = 0.0, y = 0.0, z = nextImpulse))
+        bds[r] = dReset
+        r = r + 1
+      scene.toppledCount = 1
+      scene.waveCount = scene.waveCount + 1
+      scene.settleTicks = 0
+
+  scene.world.bodies = bds
+
+pub fn auditPhys3dDominoChainReaction(): int:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut world = physWorld3dNew(Vec3(x = 0.0, y = -9.81, z = 0.0))
+  let mat = PhysicsMaterial3D(restitution = 0.1, staticFriction = 0.5, dynamicFriction = 0.3, density = 1.0)
+  mut idx = 0
+  while idx < 6:
+    mut dom = rigidBody3dNew(idx, BodyType3D.Dynamic, Vec3(x = float(idx * 2), y = 2.0, z = 0.0), idRot)
+    rigidBody3dSetBoxInertia(dom, 2.0, Vec3(x = 0.4, y = 2.0, z = 1.0))
+    let bId = physWorld3dAddBody(world, dom)
+    physWorld3dAddCollider(world, bId, boxCollider3dNew(Vec3(x = 0.2, y = 1.0, z = 0.5), mat))
+    if idx > 0:
+      physWorld3dAddJoint(world, hingeJointNew(bId - 1, bId, Vec3(x = float(idx * 2 - 1), y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 1.0)))
+    idx = idx + 1
+  physWorld3dStep(world, 0.1)
+  ret world.bodies.len() * 10 + world.joints.len()
+
+pub fn main(): int:
+  let audit = auditPhys3dDominoChainReaction()
+  println("EX_230_PHYS3D_DOMINO_AUDIT=" + str(audit))
+
+  mut scene = createDominoScene()
+
+  initWindow(1280, 720, "AIPL ex_230: 3D Physics World Domino Chain Reaction")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.06)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_230: 3D PHYSICS WORLD DOMINO CHAIN REACTION CASCADE", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Wave=#" + str(scene.waveCount) + " | Toppled=" + str(scene.toppledCount) + "/" + str(scene.world.bodies.len()) + " | Colliders=" + str(scene.world.colliders.len()), 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(50.0, 108.0, 1180.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(50.0, 108.0, 1180.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("TOPPLING 3D DOMINO WAVEFRONT, HINGE PIVOTS & ANGULAR IMPULSE TRANSFER", 80.0, 132.0, 16.0, rgb(125, 211, 252))
+
+    // 3D Floor Platform
+    drawRect(90.0, 560.0, 1100.0, 36.0, rgb(30, 41, 59))
+    drawLine(90.0, 560.0, 1190.0, 560.0, rgb(148, 163, 184), 4.0)
+
+    mut d = 0
+    while d < scene.world.bodies.len():
+      let dom: RigidBody3D = scene.world.bodies[d]
+      let baseX = 130.0 + dom.position.x * 62.0
+      let baseY = 556.0
+      let tiltAngle = -dom.rotation.z * 2.0
+      let topX = baseX + sin(tiltAngle) * 215.0
+      let topY = baseY - cos(tiltAngle) * 215.0
+      let col = if dom.rotation.z < -0.50: rgb(16, 185, 129) else: if dom.rotation.z < 0.0: rgb(56, 189, 248) else: rgb(148, 163, 184)
+      // 3D extruded depth shadow
+      drawLine(baseX + 10.0, baseY - 8.0, topX + 10.0, topY - 8.0, rgb(30, 58, 138), 26.0)
+      // Main 3D domino slab
+      drawLine(baseX, baseY, topX, topY, col, 26.0)
+      // Hinge pivot pin at floor
+      drawCircle(baseX, baseY, 7.0, rgb(250, 204, 21))
+      drawText("D" + str(d), baseX - 10.0, 610.0, 15.0, rgb(203, 213, 225))
+      drawText(str(int(tiltAngle * 57.3)) + "deg", baseX - 18.0, 632.0, 13.0, col)
+      if dom.rotation.z <= -0.14 and dom.rotation.z > -0.50 and d < 7:
+        drawCircle(topX + 14.0, topY + 26.0, 8.0, rgb(239, 68, 68))
+        drawLine(topX, topY + 20.0, topX + 36.0, topY + 20.0, rgb(250, 204, 21), 3.0)
+      d = d + 1
+
+    drawText("Gray: Standing | Cyan: Active Angular Impulse | Green: Rested (-60 deg) | Red/Yellow: Impact Transfer", 80.0, 658.0, 14.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,64 @@
+// ============================================================================
+// Example 110: Lock-Free AtomicInt, AtomicBool CAS & Memory Fence (CLI)
+// Demonstrates: atomicMemoryFence, atomicBoolNew, atomicBoolLoad,
+//               atomicBoolStore, atomicBoolSwap, atomicBoolCompareAndSwap,
+//               atomicIntNew, atomicIntLoad, atomicIntFetchAdd,
+//               atomicIntFetchSub, atomicIntCompareAndSwap, atomicUsizeNew,
+//               atomicUsizeFetchAdd, and atomicUsizeLoad from std/sync.
+// ============================================================================
+module Ex110SyncAtomicLockfreeCounterCli
+
+import {
+  atomicMemoryFence,
+  atomicBoolNew,
+  atomicBoolLoad,
+  atomicBoolStore,
+  atomicBoolSwap,
+  atomicBoolCompareAndSwap,
+  atomicIntNew,
+  atomicIntLoad,
+  atomicIntFetchAdd,
+  atomicIntFetchSub,
+  atomicIntCompareAndSwap,
+  atomicUsizeNew,
+  atomicUsizeFetchAdd,
+  atomicUsizeLoad
+} from "../std/sync"
+
+// Performs lock-free fetch-add, fetch-sub, and compare-and-swap on AtomicInt and AtomicUsize.
+pub fn evaluateAtomicCounterAndUsizeSum(): int:
+  let ord = 4
+  mut ai = atomicIntNew(100)
+  assert(atomicIntFetchAdd(ai, 50, ord) == 100, "FetchAdd returns old 100")
+  assert(atomicIntFetchSub(ai, 25, ord) == 150, "FetchSub returns old 150")
+  assert(atomicIntCompareAndSwap(ai, 125, 200, ord), "CAS 125->200 succeeds")
+
+  mut au = atomicUsizeNew(20)
+  assert(atomicUsizeFetchAdd(au, 5, ord) == 20, "Usize FetchAdd returns old 20")
+  ret atomicIntLoad(ai, ord) + atomicUsizeLoad(au, ord)
+
+// Verifies AtomicBool load/store/swap/CAS transitions and sequential-consistency memory fences.
+pub fn verifyAtomicBoolCasAndMemoryFence(): int:
+  let ord = 4
+  let fenceOrd = atomicMemoryFence(ord)
+  mut ab = atomicBoolNew(false)
+  atomicBoolStore(ab, true, ord)
+  let prev = atomicBoolSwap(ab, false, ord)
+  let casOk = atomicBoolCompareAndSwap(ab, false, true, ord)
+  let casFail = not atomicBoolCompareAndSwap(ab, false, true, ord)
+  if fenceOrd == 4 and prev and casOk and casFail and atomicBoolLoad(ab, ord):
+    ret 1
+  ret 0
+
+// Returns a canonical label for a C11/C++20 atomic memory ordering constant.
+pub fn describeAtomicMemoryOrder(order: int): str:
+  if order == 4:
+    ret "ATOMIC:SEQ_CST_TOTAL_ORDER"
+  ret "ATOMIC:ACQ_REL_BARRIER"
+
+pub fn main(): int:
+  let sum = evaluateAtomicCounterAndUsizeSum()
+  let casOk = verifyAtomicBoolCasAndMemoryFence()
+  let order = describeAtomicMemoryOrder(4)
+  println("ex_110_sync_atomic_lockfree_counter_cli: sum=" + str(sum) + " casOk=" + str(casOk) + " order=" + order)
+  ret 0

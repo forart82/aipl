@@ -1,0 +1,94 @@
+// ============================================================================
+// Module: std/std_root (StdRoot)
+// Layer 0-5 Umbrella Barrel & Standard Library Metadata
+// ============================================================================
+module StdRoot
+
+pub struct StdlibVersion:
+  major: int
+  minor: int
+  patch: int
+  prerelease: str
+
+pub struct StdlibDomainDescriptor:
+  name: str
+  layer: int
+  barrelPath: str
+  moduleCount: int
+
+pub fn stdlibVersion(): StdlibVersion:
+  ret StdlibVersion(major = 4, minor = 0, patch = 0, prerelease = "")
+
+pub fn stdlibVersionString(): str:
+  let v = stdlibVersion()
+  if v.prerelease.len > 0:
+    ret str(v.major) + "." + str(v.minor) + "." + str(v.patch) + "-" + v.prerelease
+  ret str(v.major) + "." + str(v.minor) + "." + str(v.patch)
+
+pub fn stdlibBuildTarget(): str:
+  ret "native"
+
+pub fn stdlibHasFeature(feature: str): bool:
+  let f = feature.trim().toLowerCase()
+  if f == "simd" or f == "threads" or f == "x11" or f == "posix" or f == "c99" or f == "native" or f == "wasm" or f == "html" or f == "crypto" or f == "compress" or f == "sqlite" or f == "audio" or f == "gfx2d" or f == "gfx3d" or f == "ecs":
+    ret true
+  ret false
+
+pub fn stdlibDomainCount(): int:
+  ret stdlibCanonicalDomains().len
+
+pub fn stdlibLayerCount(): int:
+  ret 6
+
+pub fn stdlibCanonicalDomains(): [str]:
+  ret [
+    "sys", "rt", "alloc",
+    "math", "collections", "fmt", "regex", "time",
+    "encoding", "compress", "crypto", "db",
+    "io", "fs", "os", "sync", "thread", "net", "test",
+    "window", "input", "asset", "audio", "gfx", "gfx2d", "gfx3d", "particle", "ui",
+    "ecs", "spatial", "phys2d", "phys3d", "procgen", "ai", "mechanics"
+  ]
+
+pub fn stdlibIsCanonicalDomain(domain: str): bool:
+  let doms = stdlibCanonicalDomains()
+  mut i = 0
+  while i < doms.len:
+    if doms[i] == domain:
+      ret true
+    i += 1
+  ret false
+
+pub fn stdlibDomainLayer(domain: str): int:
+  if domain == "sys" or domain == "rt" or domain == "alloc":
+    ret 0
+  if domain == "prelude" or domain == "math" or domain == "collections" or domain == "fmt" or domain == "regex" or domain == "time":
+    ret 1
+  if domain == "encoding" or domain == "compress" or domain == "crypto" or domain == "db":
+    ret 2
+  if domain == "io" or domain == "fs" or domain == "os" or domain == "sync" or domain == "thread" or domain == "net" or domain == "test":
+    ret 3
+  if domain == "window" or domain == "input" or domain == "asset" or domain == "audio" or domain == "gfx" or domain == "gfx2d" or domain == "gfx3d" or domain == "particle" or domain == "ui":
+    ret 4
+  if domain == "ecs" or domain == "spatial" or domain == "phys2d" or domain == "phys3d" or domain == "procgen" or domain == "ai" or domain == "mechanics":
+    ret 5
+  ret -1
+
+pub fn stdlibDomainBarrelPath(domain: str): str:
+  if domain == "prelude":
+    ret "std/prelude.aipl"
+  if domain == "std_root":
+    ret "std/std_root.aipl"
+  if stdlibIsCanonicalDomain(domain):
+    ret "std/" + domain + "/" + domain + "_mod.aipl"
+  ret ""
+
+pub fn stdlibCanImportLayer(fromLayer: int, toLayer: int): bool:
+  if fromLayer < 0 or toLayer < 0:
+    ret false
+  ret toLayer <= fromLayer
+
+pub fn stdlibCanDomainImport(fromDomain: str, toDomain: str): bool:
+  let lFrom = stdlibDomainLayer(fromDomain)
+  let lTo = stdlibDomainLayer(toDomain)
+  ret stdlibCanImportLayer(lFrom, lTo)

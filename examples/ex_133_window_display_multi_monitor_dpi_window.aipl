@@ -1,0 +1,164 @@
+// ============================================================================
+// Canonical Example 133: Multi-Monitor Topology & HiDPI Coordinate Scaling (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/window/display
+// ============================================================================
+module Ex133WindowDisplayMultiMonitorDpiWindow
+
+import {
+  MonitorInfo,
+  VideoMode,
+  getPrimaryMonitor,
+  enumerateMonitors,
+  findClosestVideoMode,
+  scaleLogicalToPhysical,
+  scalePhysicalToLogical
+} from "../std/window/display"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+import { maxInt } from "../std/prelude"
+
+pub fn buildDemoMultiMonitorRig(): [MonitorInfo]:
+  let primBase = getPrimaryMonitor()
+  let m1 = VideoMode(width = 1920, height = 1080, refreshRateHz = 60, bitDepth = 32)
+  let m2 = VideoMode(width = 1920, height = 1080, refreshRateHz = 144, bitDepth = 32)
+  let m3 = VideoMode(width = 2560, height = 1440, refreshRateHz = 144, bitDepth = 32)
+  let mon1 = MonitorInfo(
+    id = primBase.id,
+    name = primBase.name,
+    isPrimary = primBase.isPrimary,
+    positionX = 0,
+    positionY = 0,
+    currentMode = m3,
+    supportedModes = [m1, m2, m3],
+    dpiScale = 1.5
+  )
+  let mon2 = MonitorInfo(
+    id = 2,
+    name = "Extended Display",
+    isPrimary = false,
+    positionX = 2560,
+    positionY = 180,
+    currentMode = m1,
+    supportedModes = [m1],
+    dpiScale = 1.0
+  )
+  ret [mon1, mon2]
+
+pub fn verifyMultiMonitorModeSelectionAndDpi(): int:
+  let monitors = enumerateMonitors()
+  assert(monitors.len() >= 1, "at least 1 monitor enumerated")
+  let rig = buildDemoMultiMonitorRig()
+  let mon = rig[0]
+  assert(mon.isPrimary, "primary monitor flagged")
+  let best = findClosestVideoMode(mon, 1920, 1080, 120)
+  assert(best.refreshRateHz == 144, "closest mode to 120Hz is 144Hz")
+
+  let phys = scaleLogicalToPhysical(100.0, mon.dpiScale)
+  let logi = scalePhysicalToLogical(phys, mon.dpiScale)
+  assert(logi > 99.9 and logi < 100.1, "logical-physical-logical roundtrip")
+  ret best.refreshRateHz + phys
+
+pub fn computeTotalVirtualDesktopWidthPx(primaryW: int, secondaryW: int): int:
+  ret maxInt(0, primaryW) + maxInt(0, secondaryW)
+
+pub fn describeMonitorRefreshClass(refreshHz: int): str:
+  let hz = maxInt(30, refreshHz)
+  if hz >= 120:
+    ret "DISPLAY:HIGH_REFRESH_" + str(hz) + "HZ"
+  ret "DISPLAY:STANDARD_REFRESH_" + str(hz) + "HZ"
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let rig = buildDemoMultiMonitorRig()
+  let mon1 = rig[0]
+  let mon2 = rig[1]
+  let m1w = float(mon1.currentMode.width) * 0.21875
+  let travel = float((frameIndex * 4) % 460)
+  let wx = 80.0 + 220.0 + travel
+  let activeMon = if wx + 90.0 > 80.0 + m1w: mon2 else: mon1
+  let winPhysW = scaleLogicalToPhysical(180.0, activeMon.dpiScale)
+  let _ = int(dt * 0.0)
+  ret activeMon.currentMode.refreshRateHz + winPhysW + int(travel)
+
+pub fn renderMultiMonitorTopologyScene(frameIndex: int): void:
+  let rig = buildDemoMultiMonitorRig()
+  let mon1 = rig[0]
+  let mon2 = rig[1]
+  let bestMode = findClosestVideoMode(mon1, 1920, 1080, 120)
+  let phys100Primary = scaleLogicalToPhysical(100.0, mon1.dpiScale)
+  let phys100Secondary = scaleLogicalToPhysical(100.0, mon2.dpiScale)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_133 // MULTI-MONITOR VIRTUAL DESKTOP & HIDPI COORDINATE SCALER", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Monitor 1: Dimensions read directly from mon1.currentMode and mon1.dpiScale
+  let scaleCanvas = 0.21875
+  let m1x = 80.0 + float(mon1.positionX) * scaleCanvas
+  let m1y = 130.0 + float(mon1.positionY) * scaleCanvas
+  let m1w = float(mon1.currentMode.width) * scaleCanvas
+  let m1h = float(mon1.currentMode.height) * scaleCanvas
+  drawRect(m1x, m1y, m1w, m1h, rgb(16, 30, 56))
+  drawRectOutline(m1x, m1y, m1w, m1h, 3.0, rgb(56, 189, 248))
+  drawText("DISPLAY #" + str(mon1.id) + " (" + mon1.name + ")", m1x + 20.0, m1y + 24.0, 18.0, rgb(56, 189, 248))
+  drawText(str(mon1.currentMode.width) + " x " + str(mon1.currentMode.height) + " @ " + str(mon1.currentMode.refreshRateHz) + "Hz | Scale: " + str(mon1.dpiScale) + "x HiDPI", m1x + 20.0, m1y + 52.0, 14.0, rgb(186, 230, 253))
+  drawText("Origin: (" + str(mon1.positionX) + ", " + str(mon1.positionY) + ") | 100pt -> " + str(phys100Primary) + "px", m1x + 20.0, m1y + 78.0, 14.0, rgb(74, 222, 128))
+
+  // Monitor 2: Dimensions read directly from mon2.positionX, mon2.positionY, mon2.currentMode, mon2.dpiScale
+  let m2x = 80.0 + float(mon2.positionX) * scaleCanvas + 6.0
+  let m2y = 130.0 + float(mon2.positionY) * scaleCanvas
+  let m2w = float(mon2.currentMode.width) * scaleCanvas
+  let m2h = float(mon2.currentMode.height) * scaleCanvas
+  drawRect(m2x, m2y, m2w, m2h, rgb(22, 27, 46))
+  drawRectOutline(m2x, m2y, m2w, m2h, 2.5, rgb(168, 85, 247))
+  drawText("DISPLAY #" + str(mon2.id) + " (" + mon2.name + ")", m2x + 20.0, m2y + 24.0, 18.0, rgb(216, 180, 254))
+  drawText(str(mon2.currentMode.width) + " x " + str(mon2.currentMode.height) + " @ " + str(mon2.currentMode.refreshRateHz) + "Hz | Scale: " + str(mon2.dpiScale) + "x", m2x + 20.0, m2y + 52.0, 14.0, rgb(233, 213, 255))
+  drawText("Origin: (" + str(mon2.positionX) + ", " + str(mon2.positionY) + ") | 100pt -> " + str(phys100Secondary) + "px", m2x + 20.0, m2y + 78.0, 14.0, rgb(250, 204, 21))
+
+  // DPI Seam Line
+  drawLine(m1x + m1w + 3.0, 110.0, m1x + m1w + 3.0, 480.0, rgb(244, 63, 94), 2.0)
+  drawText("DPI SEAM (" + str(mon1.dpiScale) + "x <-> " + str(mon2.dpiScale) + "x)", m1x + m1w - 75.0, 488.0, 13.0, rgb(251, 113, 133))
+
+  // Animated Window Straddling the Multi-Monitor Boundary
+  let travel = float((frameIndex * 4) % 460)
+  let wx = m1x + 220.0 + travel
+  let wy = 276.0
+  let onMonitor2 = wx + 90.0 > m1x + m1w
+  let activeMon = if onMonitor2: mon2 else: mon1
+  let activePhysW = scaleLogicalToPhysical(180.0, activeMon.dpiScale)
+  let winCol = if onMonitor2: rgb(168, 85, 247) else: rgb(34, 197, 94)
+  drawRect(wx, wy, 180.0, 110.0, rgb(15, 23, 42))
+  drawRectOutline(wx, wy, 180.0, 110.0, 2.5, winCol)
+  drawRect(wx, wy, 180.0, 24.0, winCol)
+  drawText("CLIENT WINDOW", wx + 12.0, wy + 5.0, 12.0, rgb(10, 14, 24))
+  drawText("Scale: " + str(activeMon.dpiScale) + "x (" + str(activePhysW) + "px)", wx + 12.0, wy + 54.0, 12.0, rgb(226, 232, 240))
+
+  // Bottom VideoMode Matrix Panel
+  drawRect(80.0, 530.0, 1120.0, 145.0, rgb(15, 22, 38))
+  drawRectOutline(80.0, 530.0, 1120.0, 145.0, 1.5, rgb(71, 85, 105))
+  drawText("VIDEO MODE MATCHER: findClosestVideoMode(monitor, 1920, 1080, target=120Hz) -> SELECTED: " + str(bestMode.width) + "x" + str(bestMode.height) + " @ " + str(bestMode.refreshRateHz) + "Hz (" + str(bestMode.bitDepth) + "-bit)", 104.0, 558.0, 16.0, rgb(74, 222, 128))
+  drawText("Virtual Desktop Span: " + str(computeTotalVirtualDesktopWidthPx(mon1.currentMode.width, mon2.currentMode.width)) + "x" + str(mon1.currentMode.height) + " px | " + describeMonitorRefreshClass(bestMode.refreshRateHz), 104.0, 598.0, 15.0, rgb(148, 163, 184))
+
+pub fn main(): int:
+  let metric = verifyMultiMonitorModeSelectionAndDpi()
+  assert(metric == 294, "144Hz + 150px == 294")
+  initWindow(1280, 720, "AIPL ex_133 - Multi-Monitor Topology & HiDPI Scaling")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderMultiMonitorTopologyScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

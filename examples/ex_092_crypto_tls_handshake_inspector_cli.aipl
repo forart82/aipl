@@ -1,0 +1,57 @@
+// ============================================================================
+// Example 092: TLS 1.3 Record Framing, ClientHello & X.509 Inspector (CLI)
+// Demonstrates: X509Cert, tlsFrameRecord, tlsParseRecord,
+//               tlsBuildClientHello, and verifyX509Validity from std/crypto.
+// ============================================================================
+module Ex092CryptoTlsHandshakeInspectorCli
+
+import {
+  X509Cert,
+  tlsFrameRecord,
+  tlsParseRecord,
+  tlsBuildClientHello,
+  verifyX509Validity
+} from "../std/crypto"
+
+// Frames a TLS 1.3 handshake fragment (ContentType=22), parses it back, and returns total consumed bytes.
+pub fn evaluateTlsFramedRecordConsumedBytes(fragmentStr: str): int:
+  let payload = fragmentStr.toBytes()
+  let framed = tlsFrameRecord(22, payload)
+  assert(framed[0] == 22, "TLS ContentType 0x16 (22)")
+
+  let parsedRes = tlsParseRecord(framed, 0).unwrap()
+  let record = parsedRes[0]
+  let consumed = parsedRes[1]
+  assert(record.contentType == 22 and record.fragment.toStringLossy() == fragmentStr, "TLS fragment roundtrip")
+  ret consumed
+
+// Builds a TLS 1.3 ClientHello with SNI and verifies X.509 certificate validity timestamps.
+pub fn verifyTlsClientHelloAndX509Window(): int:
+  let clientHello = tlsBuildClientHello("example.com", [4865, 4866], bytesNew(32), bytesNew(32))
+  let cert = X509Cert(
+    issuer = "CN=AIPL Root CA",
+    subject = "CN=example.com",
+    notBefore = 1000,
+    notAfter = 2000,
+    publicKey = bytesNew(32)
+  )
+  let validNow = verifyX509Validity(cert, 1500)
+  let expiredLater = not verifyX509Validity(cert, 2500)
+  if clientHello.len() > 40 and validNow and expiredLater:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a TLS 1.3 record content type byte.
+pub fn describeTlsRecordContentType(contentType: int): str:
+  if contentType == 22:
+    ret "TLS:CONTENT_TYPE_22_HANDSHAKE"
+  if contentType == 23:
+    ret "TLS:CONTENT_TYPE_23_APPDATA"
+  ret "TLS:CONTENT_TYPE_ALERT"
+
+pub fn main(): int:
+  let consumed = evaluateTlsFramedRecordConsumedBytes("PING")
+  let tlsOk = verifyTlsClientHelloAndX509Window()
+  let ctype = describeTlsRecordContentType(22)
+  println("ex_092_crypto_tls_handshake_inspector_cli: consumed=" + str(consumed) + " tlsOk=" + str(tlsOk) + " ctype=" + ctype)
+  ret 0

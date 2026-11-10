@@ -1,0 +1,63 @@
+// ============================================================================
+// Canonical Example 118: IPv4/IPv6, CIDR Subnet & URL Parser Calculator (CLI)
+// Target Profile: CLI | Standard Library Module: std/net
+// ============================================================================
+module Ex118NetAddrCidrSubnetCalcCli
+
+import {
+  parseIpv4,
+  formatIpv4,
+  parseIpv6,
+  formatIpv6,
+  parseCidr,
+  cidrContains,
+  parseSocketAddr,
+  formatSocketAddr,
+  parseUrl,
+  formatUrl,
+  decodeQueryString,
+  encodeQueryString
+} from "../std/net/net_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyIpv4Ipv6CidrAndUrlRoundtrip(): int:
+  let ip = parseIpv4("192.168.1.50").unwrap()
+  assert(formatIpv4(ip) == "192.168.1.50", "IPv4 format roundtrip")
+
+  let v6 = parseIpv6("2001:db8:0:0:0:0:0:1").unwrap()
+  assert(formatIpv6(v6) == "2001:db8:0:0:0:0:0:1", "IPv6 format roundtrip")
+
+  let cidr24 = parseCidr("192.168.1.0/24").unwrap()
+  assert(cidrContains(cidr24, ip), "192.168.1.50 in 192.168.1.0/24")
+  let externalIp = parseIpv4("10.0.0.1").unwrap()
+  assert(not cidrContains(cidr24, externalIp), "10.0.0.1 outside 192.168.1.0/24")
+
+  let sock = parseSocketAddr("127.0.0.1:8080").unwrap()
+  assert(formatSocketAddr(sock) == "127.0.0.1:8080", "SocketAddr roundtrip")
+
+  let rawUrl = "https://engine.aipl.org:8443/v1/assets?category=texture&filter=compressed#manifest"
+  let u = parseUrl(rawUrl).unwrap()
+  assert(formatUrl(u).contains("engine.aipl.org:8443"), "URL format roundtrip")
+
+  let qMap = decodeQueryString("token=xyz123&limit=50")
+  assert(encodeQueryString(qMap).contains("token=xyz123"), "Query string roundtrip")
+  ret u.port
+
+pub fn evaluateUsableSubnetHostCapacity(prefixLen: int): int:
+  let p = clampInt(prefixLen, 8, 30)
+  let hostBits = 32 - p
+  let totalAddrs = 1 << hostBits
+  ret maxInt(0, totalAddrs - 2)
+
+pub fn describeCidrPrefixClass(prefixLen: int): str:
+  let p = clampInt(prefixLen, 0, 32)
+  ret "NET:SUBNET_SLASH_" + str(p)
+
+pub fn main(): int:
+  let port = verifyIpv4Ipv6CidrAndUrlRoundtrip()
+  let hosts = evaluateUsableSubnetHostCapacity(24)
+  let tag = describeCidrPrefixClass(24)
+  assert(port == 8443, "URL port 8443")
+  assert(hosts == 254, "254 usable hosts in /24")
+  println(tag + " | hosts=" + str(hosts) + " | urlPort=" + str(port))
+  ret 0

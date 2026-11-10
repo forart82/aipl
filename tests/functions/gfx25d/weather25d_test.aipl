@@ -1,0 +1,54 @@
+module tests.functions.gfx25d.weather25d_test
+
+import { assert, assertEqInt } from "std/prelude"
+import {
+  rgb,
+  rgba,
+  initCanvas,
+  clearScreen,
+  getBlendMode,
+  createProceduralTexture
+} from "std/gfx2d/shape2d"
+import {
+  createCamera25D,
+  RainDrop25D,
+  RainSystem25D,
+  createRainSystem25D,
+  stepAndDrawRain25D,
+  EmberParticle25D,
+  EmberSmokeEmitter25D,
+  createEmberSmokeEmitter25D,
+  stepAndDrawEmberSmoke25D,
+  drawGroundMist25D
+} from "std/gfx25d/gfx25d_mod"
+
+pub fn test_weather25d_rain_embers_and_mist(): int:
+  initCanvas(320, 240)
+  clearScreen(rgb(12, 16, 24))
+
+  let cam = createCamera25D(320.0, 240.0, 1.0, 45.0, 30.0)
+  let cookieTex = createProceduralTexture("light_cookie", 32, 32, 3)
+  let mistTex = createProceduralTexture("mist", 64, 64, 9)
+  assert(mistTex > 0, "mist procedural texture allocated")
+
+  mut rain = createRainSystem25D(32, 180.0, -16.0, 10.0, 120.0)
+  assertEqInt(rain.drops.len, 32, "createRainSystem25D allocates 32 raindrops")
+  let z0 = rain.drops[0].wz
+  rain = stepAndDrawRain25D(cam, rain, 0.0, 0.0, 4.0, 0.05)
+  assert(rain.drops[0].wz != z0, "stepAndDrawRain25D updates raindrop vertical position")
+
+  mut emitter = createEmberSmokeEmitter25D(0.0, 0.0, 6.0, 24)
+  assertEqInt(emitter.particles.len, 24, "createEmberSmokeEmitter25D allocates 24 smoke/ember particles")
+  emitter = stepAndDrawEmberSmoke25D(cam, emitter, cookieTex, 0.05)
+  assert(emitter.timeAccum > 0.04, "stepAndDrawEmberSmoke25D advances emitter timeAccum")
+  assertEqInt(getBlendMode(), 0, "stepAndDrawEmberSmoke25D restores blendModeAlpha(0)")
+
+  let mistQuads = drawGroundMist25D(cam, mistTex, 80.0, 80.0, 4.0, 160.0, 1.2, rgba(150, 175, 205, 0.30))
+  assertEqInt(mistQuads, 2, "drawGroundMist25D renders 2 counter-scrolling fog layers")
+  assertEqInt(getBlendMode(), 0, "drawGroundMist25D restores blendModeAlpha(0)")
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_weather25d_rain_embers_and_mist(), 0, "test_weather25d_rain_embers_and_mist")
+  println("PASS: weather25d_test")
+  ret 0

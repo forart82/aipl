@@ -1,0 +1,375 @@
+/// # Module: `std/ai/navmesh` (`NavMeshMod`)
+///
+/// ## Purpose & Domain Scope
+/// 2D polygon navigation meshes, shared portal edges, and pathfinding across
+/// convex polygons.
+module NavMeshMod
+
+import { absFloat, maxFloat, minFloat, maxInt } from "../math/consts"
+import { sqrt } from "../math/trig"
+import { Vec2 } from "../math/vec_math"
+
+pub struct NavMeshPortalEdge(leftVertex: Vec2, rightVertex: Vec2, neighborPolyIdx: int)
+
+pub struct NavMeshPoly2D(id: int, vertices: [Vec2], center: Vec2, portals: [NavMeshPortalEdge])
+
+pub struct NavMesh2D(polygons: [NavMeshPoly2D])
+
+pub struct NavWaypoint(x: float, y: float, z: float, cost: float)
+
+pub struct CrowdFlowField2D(width: int, height: int, goalX: int, goalY: int, costField: [int], integrationField: [float], flowDirX: [float], flowDirY: [float])
+
+pub fn navMeshNew(polygons: [NavMeshPoly2D]): NavMesh2D:
+  ret NavMesh2D(polygons = polygons)
+
+fn findClosestPolyIndex(mesh: NavMesh2D, pt: Vec2): int:
+  mut bestIdx = -1
+  mut bestDistSq = 1000000000.0
+  mut i = 0
+  while i < mesh.polygons.len:
+    let poly: NavMeshPoly2D = mesh.polygons[i]
+    let dSq = poly.center.sub(pt).lenSq()
+    if dSq < bestDistSq:
+      bestDistSq = dSq
+      bestIdx = i
+    i = i + 1
+  ret bestIdx
+
+pub fn navMeshFindPath(mesh: NavMesh2D, start: Vec2, goal: Vec2): Option[[Vec2]]:
+  let n = mesh.polygons.len
+  if n == 0:
+    ret None
+  let startIdx = findClosestPolyIndex(mesh, start)
+  let goalIdx = findClosestPolyIndex(mesh, goal)
+  if startIdx < 0 or goalIdx < 0:
+    ret None
+  if startIdx == goalIdx:
+    ret Some([start, goal])
+
+  mut visited: [bool] = []
+  mut prev: [int] = []
+  mut i = 0
+  while i < n:
+    visited.push(false)
+    prev.push(-1)
+    i = i + 1
+
+  mut queue: [int] = [startIdx]
+  visited[startIdx] = true
+  mut head = 0
+  mut found = false
+
+  while head < queue.len and (not found):
+    let u = queue[head]
+    head = head + 1
+    if u == goalIdx:
+      found = true
+    else:
+      let poly: NavMeshPoly2D = mesh.polygons[u]
+      mut p = 0
+      while p < poly.portals.len:
+        let portal: NavMeshPortalEdge = poly.portals[p]
+        let v = portal.neighborPolyIdx
+        if v >= 0 and v < n and (not visited[v]):
+          visited[v] = true
+          prev[v] = u
+          queue.push(v)
+        p = p + 1
+
+  if not found:
+    ret None
+
+  mut polySeq: [int] = []
+  mut cur = goalIdx
+  while cur >= 0:
+    polySeq.push(cur)
+    cur = prev[cur]
+
+  mut path: [Vec2] = [start]
+  mut k = polySeq.len - 1
+  while k > 0:
+    let u = polySeq[k]
+    let v = polySeq[k - 1]
+    let polyU: NavMeshPoly2D = mesh.polygons[u]
+    mut portalMid = polyU.center
+    mut p = 0
+    while p < polyU.portals.len:
+      let portal: NavMeshPortalEdge = polyU.portals[p]
+      if portal.neighborPolyIdx == v:
+        let lv: Vec2 = portal.leftVertex
+        let rv: Vec2 = portal.rightVertex
+        portalMid = lv.add(rv).scale(0.5)
+      p = p + 1
+    path.push(portalMid)
+    k = k - 1
+  path.push(goal)
+  ret Some(path)
+
+pub fn navPortalsCross2D(ax: float, ay: float, bx: float, by: float, cx: float, cy: float): float:
+  let abx = bx - ax
+  let aby = by - ay
+  let acx = cx - ax
+  let acy = cy - ay
+  ret acx * aby - abx * acy
+
+pub fn navFunnelSmoothPortals(lefts: [float], rights: [float]): [float]:
+  mut path: [float] = []
+  let nPortals = lefts.len / 2
+  if nPortals <= 0 or rights.len < lefts.len:
+    ret path
+
+  mut apexX = lefts[0]
+  mut apexY = lefts[1]
+  mut leftX = lefts[0]
+  mut leftY = lefts[1]
+  mut rightX = rights[0]
+  mut rightY = rights[1]
+  mut apexIdx = 0
+  mut leftIdx = 0
+  mut rightIdx = 0
+
+  path.push(apexX)
+  path.push(apexY)
+
+  mut i = 1
+  while i < nPortals:
+    let lx = lefts[i * 2]
+    let ly = lefts[i * 2 + 1]
+    let rx = rights[i * 2]
+    let ry = rights[i * 2 + 1]
+
+    if navPortalsCross2D(apexX, apexY, rightX, rightY, rx, ry) <= 0.0:
+      let sameApex = (apexX == rightX and apexY == rightY)
+      if sameApex or navPortalsCross2D(apexX, apexY, leftX, leftY, rx, ry) > 0.0:
+        rightX = rx
+        rightY = ry
+        rightIdx = i
+      else:
+        path.push(leftX)
+        path.push(leftY)
+        apexX = leftX
+        apexY = leftY
+        apexIdx = leftIdx
+        leftX = apexX
+        leftY = apexY
+        rightX = apexX
+        rightY = apexY
+        leftIdx = apexIdx
+        rightIdx = apexIdx
+        i = apexIdx + 1
+        continue
+
+    if navPortalsCross2D(apexX, apexY, leftX, leftY, lx, ly) >= 0.0:
+      let sameApex = (apexX == leftX and apexY == leftY)
+      if sameApex or navPortalsCross2D(apexX, apexY, rightX, rightY, lx, ly) < 0.0:
+        leftX = lx
+        leftY = ly
+        leftIdx = i
+      else:
+        path.push(rightX)
+        path.push(rightY)
+        apexX = rightX
+        apexY = rightY
+        apexIdx = rightIdx
+        leftX = apexX
+        leftY = apexY
+        rightX = apexX
+        rightY = apexY
+        leftIdx = apexIdx
+        rightIdx = apexIdx
+        i = apexIdx + 1
+        continue
+
+    i = i + 1
+
+  let goalX = lefts[(nPortals - 1) * 2]
+  let goalY = lefts[(nPortals - 1) * 2 + 1]
+  let nOut = path.len
+  if nOut < 2 or path[nOut - 2] != goalX or path[nOut - 1] != goalY:
+    path.push(goalX)
+    path.push(goalY)
+  ret path
+
+pub fn navHeuristicOctile(x0: float, y0: float, x1: float, y1: float): float:
+  let dx = absFloat(x1 - x0)
+  let dy = absFloat(y1 - y0)
+  let hi = maxFloat(dx, dy)
+  let lo = minFloat(dx, dy)
+  ret hi + 0.41421356 * lo
+
+pub fn navStepTowardTarget(curX: float, curY: float, tgtX: float, tgtY: float, maxStep: float): [float]:
+  if maxStep <= 0.0:
+    ret [curX, curY]
+  let dx = tgtX - curX
+  let dy = tgtY - curY
+  let dist = sqrt(dx * dx + dy * dy)
+  if dist <= maxStep or dist <= 0.0001:
+    ret [tgtX, tgtY]
+  let inv = maxStep / dist
+  ret [curX + dx * inv, curY + dy * inv]
+
+pub fn navBresenhamLineOfSight(x0: int, y0: int, x1: int, y1: int, blockerX: int, blockerY: int, blockerRadius: int): bool:
+  let r = maxInt(0, blockerRadius)
+  let rSq = r * r
+  mut cx = x0
+  mut cy = y0
+  mut dx = x1 - x0
+  if dx < 0:
+    dx = -dx
+  mut dy = y1 - y0
+  if dy < 0:
+    dy = -dy
+  let sx = if x0 < x1: 1 else: -1
+  let sy = if y0 < y1: 1 else: -1
+  mut err = dx - dy
+  mut steps = 0
+  while steps < 512:
+    if steps > 0:
+      let bdx = cx - blockerX
+      let bdy = cy - blockerY
+      if (bdx * bdx + bdy * bdy) <= rSq:
+        ret false
+    if cx == x1 and cy == y1:
+      ret true
+    let e2 = err * 2
+    if e2 > -dy:
+      err = err - dy
+      cx = cx + sx
+    if e2 < dx:
+      err = err + dx
+      cy = cy + sy
+    steps += 1
+  ret true
+
+pub fn navComputeBhopVelocity(curSpeed: float, wishSpeed: float, airAccelerate: float, dt: float): float:
+  let baseSpd = maxFloat(0.0, curSpeed)
+  if wishSpeed <= 0.0 or airAccelerate <= 0.0 or dt <= 0.0:
+    ret baseSpd
+  let wishCap = minFloat(wishSpeed, 30.0)
+  let accelGain = airAccelerate * wishSpeed * dt
+  let addSpeed = minFloat(wishCap, accelGain)
+  ret baseSpd + addSpeed
+
+pub fn navIsWithinLeashRadius(unitX: float, unitY: float, campX: float, campY: float, leashRadius: float): bool:
+  let r = maxFloat(0.0, leashRadius)
+  let dx = unitX - campX
+  let dy = unitY - campY
+  ret (dx * dx + dy * dy) <= (r * r)
+
+pub fn gridComputeRadialVisibility(gridW: int, gridH: int, viewerX: int, viewerY: int, radius: int): [bool]:
+  let total = maxInt(0, gridW * gridH)
+  mut vis: [bool] = []
+  mut i = 0
+  while i < total:
+    vis.push(false)
+    i += 1
+  let r2 = radius * radius
+  mut dy = -radius
+  while dy <= radius:
+    mut dx = -radius
+    while dx <= radius:
+      if dx * dx + dy * dy <= r2:
+        let gx = viewerX + dx
+        let gy = viewerY + dy
+        if gx >= 0 and gx < gridW and gy >= 0 and gy < gridH:
+          vis[gy * gridW + gx] = true
+      dx += 1
+    dy += 1
+  ret vis
+
+pub fn rtsUpdateFogOfWarGrid(gridW: int, gridH: int, viewerX: int, viewerY: int, radius: int): [bool]:
+  ret gridComputeRadialVisibility(gridW, gridH, viewerX, viewerY, radius)
+
+pub fn navComputeNavMeshAreaCost(areaWidth: float, areaHeight: float, dangerPenalty: float, crouchPenalty: float, baseDist: float): float:
+  let dist = maxFloat(1.0, baseDist)
+  let minSpan = minFloat(maxFloat(1.0, areaWidth), maxFloat(1.0, areaHeight))
+  let chokeMult = if minSpan < 36.0: 1.25 else: 1.0
+  let danger = maxFloat(0.0, dangerPenalty)
+  let crouch = maxFloat(0.0, crouchPenalty)
+  ret dist * chokeMult + danger + crouch
+
+pub fn navComputePortalShortcutDist(directDist: float, distToGateA: float, distFromGateB: float, gateCost: float): float:
+  let dDirect = maxFloat(0.0, directDist)
+  let dGate = maxFloat(0.0, distToGateA) + maxFloat(0.0, gateCost) + maxFloat(0.0, distFromGateB)
+  ret minFloat(dDirect, dGate)
+
+pub fn navBuildFlowField2D(width: int, height: int, costField: [int], goalX: int, goalY: int): CrowdFlowField2D:
+  let total = width * height
+  let inf = 1000000.0
+  mut integ: [float] = []
+  mut dirX: [float] = []
+  mut dirY: [float] = []
+  for i in 0..total:
+    integ.push(inf)
+    dirX.push(0.0)
+    dirY.push(0.0)
+
+  if width <= 0 or height <= 0 or costField.len < total or goalX < 0 or goalX >= width or goalY < 0 or goalY >= height:
+    ret CrowdFlowField2D(width = width, height = height, goalX = goalX, goalY = goalY, costField = costField, integrationField = integ, flowDirX = dirX, flowDirY = dirY)
+
+  let goalIdx = goalY * width + goalX
+  integ[goalIdx] = 0.0
+  mut queue: [int] = [goalIdx]
+  mut head = 0
+  let dx4 = [1, -1, 0, 0]
+  let dy4 = [0, 0, 1, -1]
+
+  while head < queue.len:
+    let curr = queue[head]
+    head = head + 1
+    let cx = curr % width
+    let cy = curr / width
+    let baseCost = integ[curr]
+    for d in 0..4:
+      let nx = cx + dx4[d]
+      let ny = cy + dy4[d]
+      if nx >= 0 and nx < width and ny >= 0 and ny < height:
+        let nIdx = ny * width + nx
+        let cVal = costField[nIdx]
+        if cVal > 0 and cVal < 255:
+          let nextCost = baseCost + float(cVal)
+          if nextCost < integ[nIdx]:
+            integ[nIdx] = nextCost
+            queue.push(nIdx)
+
+  let dx8 = [1, -1, 0, 0, 1, 1, -1, -1]
+  let dy8 = [0, 0, 1, -1, 1, -1, 1, -1]
+  for y in 0..height:
+    for x in 0..width:
+      let idx = y * width + x
+      if costField[idx] < 255 and idx != goalIdx:
+        mut bestCost = integ[idx]
+        mut bestDx = 0.0
+        mut bestDy = 0.0
+        for d in 0..8:
+          let nx = x + dx8[d]
+          let ny = y + dy8[d]
+          if nx >= 0 and nx < width and ny >= 0 and ny < height:
+            let nIdx = ny * width + nx
+            if integ[nIdx] < bestCost:
+              bestCost = integ[nIdx]
+              bestDx = float(dx8[d])
+              bestDy = float(dy8[d])
+        let len = sqrt(bestDx * bestDx + bestDy * bestDy)
+        if len > 0.0001:
+          dirX[idx] = bestDx / len
+          dirY[idx] = bestDy / len
+
+  ret CrowdFlowField2D(
+    width = width,
+    height = height,
+    goalX = goalX,
+    goalY = goalY,
+    costField = costField,
+    integrationField = integ,
+    flowDirX = dirX,
+    flowDirY = dirY
+  )
+
+pub fn navSampleFlowField2D(ff: CrowdFlowField2D, cellX: int, cellY: int): [float]:
+  if cellX < 0 or cellX >= ff.width or cellY < 0 or cellY >= ff.height:
+    ret [0.0, 0.0]
+  let idx = cellY * ff.width + cellX
+  if idx < 0 or idx >= ff.flowDirX.len:
+    ret [0.0, 0.0]
+  ret [ff.flowDirX[idx], ff.flowDirY[idx]]

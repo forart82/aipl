@@ -1,0 +1,63 @@
+// ============================================================================
+// Example 101: Directory Walker, Glob Filter & TempDir Cleanup (CLI)
+// Demonstrates: DirEntry, FsNodeType, WalkOptions, fsDirEntryNew,
+//               fsDirFilterEntries, fsDirSortByName, fsGlobMatch,
+//               fsDirGlobFilter, fsTempDirCreate, and fsTempDirCleanup
+//               from std/fs.
+// ============================================================================
+module Ex101FsDirFindAndTreeCli
+
+import {
+  DirEntry,
+  FsNodeType,
+  WalkOptions,
+  fsDirEntryNew,
+  fsDirFilterEntries,
+  fsDirSortByName,
+  fsGlobMatch,
+  fsDirGlobFilter,
+  fsTempDirCreate,
+  fsTempDirCleanup
+} from "../std/fs"
+
+// Filters hidden dotfiles out of a directory listing and applies a '*.aipl' glob filter.
+pub fn evaluateVisibleAndGlobMatchedEntryCounts(): int:
+  mut entries: [DirEntry] = []
+  entries.push(fsDirEntryNew("/src/main.aipl", FsNodeType::RegularFile, 1, 1200))
+  entries.push(fsDirEntryNew("/src/lexer.aipl", FsNodeType::RegularFile, 1, 3400))
+  entries.push(fsDirEntryNew("/src/.env", FsNodeType::RegularFile, 1, 100))
+  entries.push(fsDirEntryNew("/src/README.md", FsNodeType::RegularFile, 1, 800))
+
+  let opts = WalkOptions(maxDepth = 2, followSymlinks = false, includeHidden = false)
+  let visible = fsDirFilterEntries(entries, opts)
+  let aiplFiles = fsDirGlobFilter(visible, "*.aipl")
+  ret visible.len() + aiplFiles.len()
+
+// Verifies lexicographical entry sorting, '?' and '*' glob matching, and TempDir RAII cleanup.
+pub fn verifyDirSortingWildcardAndTempCleanup(): int:
+  mut entries: [DirEntry] = []
+  entries.push(fsDirEntryNew("/src/main.aipl", FsNodeType::RegularFile, 1, 1200))
+  entries.push(fsDirEntryNew("/src/README.md", FsNodeType::RegularFile, 1, 800))
+  let sorted = fsDirSortByName(entries)
+
+  let globOk = fsGlobMatch("*.aipl", "main.aipl") and fsGlobMatch("test_??.aipl", "test_01.aipl") and not fsGlobMatch("*.md", "main.aipl")
+
+  mut tmp = fsTempDirCreate("/tmp", "aipl_build_", 999)
+  assert(not tmp.cleanedUp, "TempDir active initially")
+  tmp = fsTempDirCleanup(tmp)
+  if sorted[0].name == "README.md" and globOk and tmp.cleanedUp:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a directory walker dotfile filter policy.
+pub fn describeDirWalkFilterMode(includeHidden: bool): str:
+  if includeHidden:
+    ret "WALK:INCLUDE_ALL_ENTRIES"
+  ret "WALK:SKIP_HIDDEN_DOTFILES"
+
+pub fn main(): int:
+  let countSum = evaluateVisibleAndGlobMatchedEntryCounts()
+  let walkOk = verifyDirSortingWildcardAndTempCleanup()
+  let mode = describeDirWalkFilterMode(false)
+  println("ex_101_fs_dir_find_and_tree_cli: countSum=" + str(countSum) + " walkOk=" + str(walkOk) + " mode=" + mode)
+  ret 0

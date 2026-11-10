@@ -1,0 +1,132 @@
+module tests.functions.gfx25d.ribbon25d_test
+
+import { Vec3 } from "std/math/vec_math"
+import { assert, assertEqInt, assertApproxEq } from "std/prelude"
+import {
+  rgb,
+  rgba,
+  initCanvas,
+  clearScreen,
+  setDepthTest,
+  clearDepth,
+  createProceduralTexture,
+  getPixel
+} from "std/gfx2d/shape2d"
+import {
+  createCamera25D,
+  project3DToIso,
+  RibbonVertex25D,
+  extrudeSplineRibbon25D,
+  drawSplineRibbon25D,
+  drawSplineRibbonTextured25D
+} from "std/gfx25d/gfx25d_mod"
+
+pub fn test_ribbon25d_extrusion_invariants(): int:
+  let shortNodes: [Vec3] = [Vec3(x = 0.0, y = 0.0, z = 0.0)]
+  let emptyRib = extrudeSplineRibbon25D(shortNodes, 6.0, 2.0)
+  assertEqInt(emptyRib.len, 0, "extrudeSplineRibbon25D with < 2 nodes returns empty array")
+
+  let nodes: [Vec3] = [
+    Vec3(x = -40.0, y = -20.0, z = 12.0),
+    Vec3(x = -10.0, y = 0.0, z = 8.0),
+    Vec3(x = 20.0, y = 15.0, z = 5.0),
+    Vec3(x = 55.0, y = 40.0, z = 2.0)
+  ]
+  let halfW = 7.5
+  let featherW = 2.5
+  let verts: [RibbonVertex25D] = extrudeSplineRibbon25D(nodes, halfW, featherW)
+  assertEqInt(verts.len, 4, "extrudeSplineRibbon25D produces 1 RibbonVertex25D per node")
+
+  mut i = 0
+  while i < verts.len:
+    let v = verts[i]
+    let tLen = sqrt(v.tangent.x * v.tangent.x + v.tangent.y * v.tangent.y)
+    let nLen = sqrt(v.normal.x * v.normal.x + v.normal.y * v.normal.y)
+    let dotTN = v.tangent.x * v.normal.x + v.tangent.y * v.normal.y
+    assertApproxEq(tLen, 1.0, 0.0001, "unit tangent length")
+    assertApproxEq(nLen, 1.0, 0.0001, "unit normal length")
+    assertApproxEq(dotTN, 0.0, 0.0001, "tangent and normal are orthogonal")
+
+    let dxCore = v.leftPt.x - v.rightPt.x
+    let dyCore = v.leftPt.y - v.rightPt.y
+    let coreWidth = sqrt(dxCore * dxCore + dyCore * dyCore)
+    assertApproxEq(coreWidth, halfW * 2.0, 0.001, "core ribbon width == 2 * halfWidth")
+
+    let dxOuter = v.leftFeatherPt.x - v.rightFeatherPt.x
+    let dyOuter = v.leftFeatherPt.y - v.rightFeatherPt.y
+    let outerWidth = sqrt(dxOuter * dxOuter + dyOuter * dyOuter)
+    assertApproxEq(outerWidth, (halfW + featherW) * 2.0, 0.001, "feathered ribbon width == 2 * (halfWidth + featherWidth)")
+    i += 1
+  ret 0
+
+pub fn test_ribbon25d_rendering(): int:
+  initCanvas(320, 240)
+  clearScreen(rgb(0, 0, 0))
+  setDepthTest(true)
+  clearDepth()
+
+  let cam = createCamera25D(320.0, 240.0, 1.0, 45.0, 30.0)
+  let nodes: [Vec3] = [
+    Vec3(x = -30.0, y = -30.0, z = 0.0),
+    Vec3(x = 0.0, y = 0.0, z = 0.0),
+    Vec3(x = 30.0, y = 30.0, z = 0.0),
+    Vec3(x = 60.0, y = 50.0, z = 0.0)
+  ]
+  let quads = drawSplineRibbon25D(
+    cam,
+    nodes,
+    12.0,
+    rgb(14, 165, 233),
+    rgba(56, 189, 248, 0.85),
+    4.0
+  )
+  assertEqInt(quads, 12, "3 segments with feather > 0 render 12 Gouraud quads")
+
+  let centerScreen = project3DToIso(cam, 0.0, 0.0, 0.25)
+  let px = getPixel(int(centerScreen.x), int(centerScreen.y))
+  let bChan = (px >> 8) & 255
+  assert(bChan > 100, "river spline center pixel has strong blue channel")
+
+  setDepthTest(false)
+  ret 0
+
+pub fn test_ribbon25d_textured_rendering(): int:
+  initCanvas(320, 240)
+  clearScreen(rgb(0, 0, 0))
+  setDepthTest(true)
+  clearDepth()
+
+  let waterTex = createProceduralTexture("water", 32, 32, 303)
+  let cam = createCamera25D(320.0, 240.0, 1.0, 45.0, 30.0)
+  let nodes: [Vec3] = [
+    Vec3(x = -30.0, y = -30.0, z = 0.0),
+    Vec3(x = 0.0, y = 0.0, z = 0.0),
+    Vec3(x = 30.0, y = 30.0, z = 0.0),
+    Vec3(x = 60.0, y = 50.0, z = 0.0)
+  ]
+  let quads = drawSplineRibbonTextured25D(
+    cam,
+    nodes,
+    12.0,
+    waterTex,
+    0.35,
+    0.04,
+    rgb(230, 245, 255),
+    0.25
+  )
+  assertEqInt(quads, 6, "3 spline segments render 6 textured ribbon quads")
+
+  let centerScreen = project3DToIso(cam, 0.0, 0.0, 0.25)
+  let px = getPixel(int(centerScreen.x), int(centerScreen.y))
+  let bChan = (px >> 8) & 255
+  assert(bChan > 90, "textured water spline ribbon center pixel has strong blue channel")
+
+  setDepthTest(false)
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_ribbon25d_extrusion_invariants(), 0, "test_ribbon25d_extrusion_invariants")
+  assertEqInt(test_ribbon25d_rendering(), 0, "test_ribbon25d_rendering")
+  assertEqInt(test_ribbon25d_textured_rendering(), 0, "test_ribbon25d_textured_rendering")
+  println("PASS: ribbon25d_test")
+  ret 0

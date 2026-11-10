@@ -1,0 +1,71 @@
+module tests.functions.ecs.entity_test
+
+import * from "std/ecs/entity"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_entity_createEntityPool_1(): int:
+  let resNom = createEntityPool()
+  let resEdge = createEntityPool()
+  assertEqInt(resNom.generations.len(), 0, "createEntityPool nominal resNom.generations.len() == 0")
+  assertEqInt(resEdge.generations.len(), 0, "createEntityPool boundary resEdge.generations.len() == 0")
+  ret 0
+
+pub fn test_entity_allocateEntity_2(): int:
+  let arg_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let edge_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let resNom = allocateEntity(arg_pool)
+  let resEdge = allocateEntity(edge_pool)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.generations.len(), 1, "allocateEntity nominal n_t0.generations.len() == 1")
+  assertEqInt(e_t0.generations.len(), 1, "allocateEntity boundary e_t0.generations.len() == 1")
+  ret 0
+
+pub fn test_entity_recycleEntity_3(): int:
+  let arg_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let edge_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let arg_id = EntityId(index = 0, generation = 4)
+  let edge_id = EntityId(index = 0, generation = 1)
+  let resNom = recycleEntity(arg_pool, arg_id)
+  let resEdge = recycleEntity(edge_pool, edge_id)
+  assertEqInt(resNom.generations.len(), 0, "recycleEntity nominal resNom.generations.len() == 0")
+  assertEqInt(resEdge.generations.len(), 0, "recycleEntity boundary resEdge.generations.len() == 0")
+  ret 0
+
+pub fn test_entity_isEntityAlive_4(): int:
+  let arg_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let edge_pool = EntityPool(generations = [], alive = [], freeIndices = [])
+  let arg_id = EntityId(index = 0, generation = 4)
+  let edge_id = EntityId(index = 0, generation = 1)
+  let resNom = isEntityAlive(arg_pool, arg_id)
+  let resEdge = isEntityAlive(edge_pool, edge_id)
+  assert(resNom == false, "isEntityAlive nominal resNom == false")
+  assert(resEdge == false, "isEntityAlive boundary resEdge == false")
+  ret 0
+
+pub fn test_entity_packEntityU64_5(): int:
+  let arg_id = EntityId(index = 0, generation = 4)
+  let edge_id = EntityId(index = 0, generation = 1)
+  let resNom = packEntityU64(arg_id)
+  let resEdge = packEntityU64(edge_id)
+  assertEqInt(resNom, 17179869184, "packEntityU64 nominal resNom == 17179869184")
+  assertEqInt(resEdge, 4294967296, "packEntityU64 boundary resEdge == 4294967296")
+  ret 0
+
+pub fn test_entity_unpackEntityU64_6(): int:
+  let arg_packed = 4
+  let edge_packed = 1
+  let resNom = unpackEntityU64(arg_packed)
+  let resEdge = unpackEntityU64(edge_packed)
+  assertEqInt(resNom.index, 4, "unpackEntityU64 nominal resNom.index == 4")
+  assertEqInt(resEdge.index, 1, "unpackEntityU64 boundary resEdge.index == 1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_entity_createEntityPool_1(), 0, "test_entity_createEntityPool_1")
+  assertEqInt(test_entity_allocateEntity_2(), 0, "test_entity_allocateEntity_2")
+  assertEqInt(test_entity_recycleEntity_3(), 0, "test_entity_recycleEntity_3")
+  assertEqInt(test_entity_isEntityAlive_4(), 0, "test_entity_isEntityAlive_4")
+  assertEqInt(test_entity_packEntityU64_5(), 0, "test_entity_packEntityU64_5")
+  assertEqInt(test_entity_unpackEntityU64_6(), 0, "test_entity_unpackEntityU64_6")
+  ret 0

@@ -1,0 +1,127 @@
+module Ex164Gfx2dCamera2dTraumaScreenshakeWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import {
+  Camera2D, createCamera2D, setCameraCenter, setCameraZoom,
+  addCameraTrauma, updateCameraShake, computeCameraShakeOffset,
+  screenToWorld2D, worldToScreen2D, getCameraVisibleBounds
+} from "../std/gfx2d/camera2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepCameraTraumaFrame(camIn: Camera2D, frame: int): Camera2D:
+  mut cam = camIn
+  if frame % 37 == 0 and frame > 0:
+    cam = addCameraTrauma(cam, 0.72)
+  cam = updateCameraShake(cam, 0.016, 1.15)
+  cam = setCameraZoom(cam, 1.25 + float(frame % 23) * 0.04)
+  ret cam
+
+pub fn buildCamera2dTraumaAudit(): int:
+  mut cam = createCamera2D(1280.0, 720.0)
+  let originScr = worldToScreen2D(cam, Vec2(x = 0.0, y = 0.0))
+  cam = addCameraTrauma(cam, 0.8)
+  let t0 = int(cam.trauma * 100.0)
+  let decayed = updateCameraShake(cam, 0.5, 1.0)
+  let t1 = int(decayed.trauma * 100.0 + 0.5)
+  ret int(originScr.x) + t0 + t1
+
+pub fn main(): int:
+  mut cam = createCamera2D(1280.0, 720.0)
+  cam = setCameraCenter(cam, Vec2(x = 0.0, y = 0.0))
+  cam = setCameraZoom(cam, 1.5)
+  cam = addCameraTrauma(cam, 0.9)
+  let audit = buildCamera2dTraumaAudit()
+
+  initWindow(1280, 720, "AIPL ex_164: 2D Camera Trauma^2 Screen Shake & Unprojection")
+  mut frame: int = 0
+  while not windowShouldClose():
+    cam = stepCameraTraumaFrame(cam, frame)
+    let shakeOff = computeCameraShakeOffset(cam, float(frame) * 0.23, 0.1, 34.0)
+    let bounds = getCameraVisibleBounds(cam)
+    let scrOrig = worldToScreen2D(cam, Vec2(x = 0.0, y = 0.0))
+    let wldTarget = screenToWorld2D(cam, Vec2(x = scrOrig.x + shakeOff.x, y = scrOrig.y + shakeOff.y))
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_164: 2D CAMERA QUADRATIC TRAUMA^2 SCREEN SHAKE & UNPROJECTION", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/camera2d: addCameraTrauma | computeCameraShakeOffset | worldToScreen2D | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: Shaking World Viewport with Target Reticle
+    drawRect(40.0, 96.0, 620.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 620.0, 390.0, 2.0, rgb(56, 189, 248))
+    drawText("SHAKING CAMERA VIEWPORT (Zoom=" + str(cam.zoom) + "x, Offset=" + str(int(shakeOff.x)) + "," + str(int(shakeOff.y)) + ")", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    // Static reference world frame & origin crosshair
+    drawRectOutline(140.0, 165.0, 420.0, 260.0, 1.0, rgb(51, 65, 85))
+    drawLine(310.0, 295.0, 390.0, 295.0, rgb(71, 85, 105), 1.0)
+    drawLine(350.0, 255.0, 350.0, 335.0, rgb(71, 85, 105), 1.0)
+
+    let cx = 350.0 + shakeOff.x
+    let cy = 295.0 + shakeOff.y
+    drawRectOutline(140.0 + shakeOff.x, 165.0 + shakeOff.y, 420.0, 260.0, 2.5, rgb(244, 63, 94))
+    drawLine(350.0, 295.0, cx, cy, rgb(250, 204, 21), 2.5)
+    drawCircleOutline(cx, cy, 48.0, 2.5, rgb(56, 189, 248))
+    drawCircle(cx, cy, 8.0, rgb(250, 204, 21))
+    drawLine(cx - 65.0, cy, cx + 65.0, cy, rgb(56, 189, 248), 1.5)
+    drawLine(cx, cy - 65.0, cx, cy + 65.0, rgb(56, 189, 248), 1.5)
+
+    // Right Panel: Linear Trauma vs Quadratic Shake Intensity (Trauma^2) Envelope
+    drawRect(680.0, 96.0, 560.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(680.0, 96.0, 560.0, 390.0, 2.0, rgb(250, 204, 21))
+    drawText("SQUIRREL EISERLOH TRAUMA vs TRAUMA^2 SHAKE CURVE", 700.0, 118.0, 16.0, rgb(253, 224, 71))
+
+    // Live meters
+    let traumaBarW = cam.trauma * 460.0
+    let shakeBarW = cam.trauma * cam.trauma * 460.0
+    drawText("Linear Trauma [0..1]: " + str(cam.trauma), 700.0, 164.0, 15.0, rgb(226, 232, 240))
+    drawRect(700.0, 190.0, 460.0, 28.0, rgb(30, 41, 59))
+    drawRect(700.0, 190.0, traumaBarW, 28.0, rgb(56, 189, 248))
+
+    drawText("Quadratic Shake Intensity (Trauma^2): " + str(cam.trauma * cam.trauma), 700.0, 238.0, 15.0, rgb(226, 232, 240))
+    drawRect(700.0, 264.0, 460.0, 28.0, rgb(30, 41, 59))
+    drawRect(700.0, 264.0, shakeBarW, 28.0, rgb(244, 63, 94))
+
+    // Plot curve points and live trauma playhead
+    mut s: int = 0
+    mut prevX: float = 700.0
+    mut prevLinY: float = 450.0
+    mut prevQuadY: float = 450.0
+    while s <= 20:
+      let t = float(s) / 20.0
+      let px = 700.0 + t * 460.0
+      let pyLin = 450.0 - t * 120.0
+      let pyQuad = 450.0 - (t * t) * 120.0
+      if s > 0:
+        drawLine(prevX, prevLinY, px, pyLin, rgb(56, 189, 248), 2.0)
+        drawLine(prevX, prevQuadY, px, pyQuad, rgb(244, 63, 94), 2.5)
+      drawCircle(px, pyLin, 3.0, rgb(56, 189, 248))
+      drawCircle(px, pyQuad, 4.0, rgb(244, 63, 94))
+      prevX = px
+      prevLinY = pyLin
+      prevQuadY = pyQuad
+      s = s + 1
+
+    let curX = 700.0 + cam.trauma * 460.0
+    let curLinY = 450.0 - cam.trauma * 120.0
+    let curQuadY = 450.0 - (cam.trauma * cam.trauma) * 120.0
+    drawLine(curX, 325.0, curX, 455.0, rgb(250, 204, 21), 1.5)
+    drawCircle(curX, curLinY, 6.5, rgb(248, 250, 252))
+    drawCircle(curX, curQuadY, 7.5, rgb(250, 204, 21))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 506.0, 1200.0, 170.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 506.0, 1200.0, 170.0, 2.0, rgb(51, 65, 85))
+    drawText("CAMERA FRUSTUM BOUNDS & COORDINATE UNPROJECTION", 60.0, 528.0, 18.0, rgb(56, 189, 248))
+    drawText("Visible AABB: min=(" + str(int(bounds.minX)) + ", " + str(int(bounds.minY)) + ") max=(" + str(int(bounds.maxX)) + ", " + str(int(bounds.maxY)) + ")", 60.0, 566.0, 16.0, rgb(226, 232, 240))
+    drawText("worldToScreen2D(0,0)=(" + str(int(scrOrig.x)) + "," + str(int(scrOrig.y)) + ") | screenToWorld2D=(" + str(int(wldTarget.x)) + "," + str(int(wldTarget.y)) + ") | Audit=" + str(audit), 60.0, 602.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

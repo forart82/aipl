@@ -1,0 +1,60 @@
+// ============================================================================
+// Example 009: Option[T], Result[T, E] & Postfix '?' Propagation CLI
+// Demonstrates: Option[int] (Some, None, isSome, unwrapOr), Result[int, str]
+//               (Ok, Err, isOk, unwrapErr), and postfix '?' error propagation
+//               from std/prelude.
+// ============================================================================
+module Ex009OptionAndResultErrorHandlingCli
+
+import { Some, None, Ok, Err, clampInt } from "../std/prelude"
+
+pub struct ValidationOutcome:
+  resolvedPort: int
+  score: int
+  statusTag: str
+
+pub fn lookupPortInTable(serviceName: str): Option[int]:
+  if serviceName == "http":
+    ret Some(8080)
+  if serviceName == "https":
+    ret Some(8443)
+  if serviceName == "ssh":
+    ret Some(22)
+  ret None()
+
+pub fn validatePortRange(port: int): Result[int, str]:
+  if port < 1024:
+    ret Err("ERR:PRIVILEGED_PORT")
+  if port > 65535:
+    ret Err("ERR:PORT_OUT_OF_RANGE")
+  ret Ok(port)
+
+pub fn computeEndpointScore(serviceName: str, weight: int): Result[int, str]:
+  let optPort = lookupPortInTable(serviceName)
+  if optPort.isNone():
+    ret Err("ERR:UNKNOWN_SERVICE")
+  let validPort = validatePortRange(optPort.unwrap())?
+  let w = clampInt(weight, 1, 10)
+  ret Ok(validPort * w)
+
+pub fn buildValidationOutcome(serviceName: str, weight: int): ValidationOutcome:
+  let port = lookupPortInTable(serviceName).unwrapOr(0)
+  let scoreRes = computeEndpointScore(serviceName, weight)
+  if scoreRes.isOk():
+    ret ValidationOutcome(
+      resolvedPort = port,
+      score = scoreRes.unwrap(),
+      statusTag = "RES:OK"
+    )
+  ret ValidationOutcome(
+    resolvedPort = port,
+    score = -1,
+    statusTag = scoreRes.unwrapErr()
+  )
+
+pub fn main(): int:
+  let okOut = buildValidationOutcome("http", 2)
+  let errOut = buildValidationOutcome("ssh", 2)
+  println("[ex_009_option_and_result_error_handling_cli] http -> port=" + str(okOut.resolvedPort) + ", score=" + str(okOut.score) + ", status=" + okOut.statusTag)
+  println("[ex_009_option_and_result_error_handling_cli] ssh  -> port=" + str(errOut.resolvedPort) + ", score=" + str(errOut.score) + ", status=" + errOut.statusTag)
+  ret 0

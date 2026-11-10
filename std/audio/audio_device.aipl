@@ -1,0 +1,376 @@
+module AudioDeviceMod
+
+// ============================================================================
+// std/audio/audio_device.aipl — Low-Latency Hardware Audio Device & Ring Buffer
+// ============================================================================
+
+import { clampFloat, clampInt, maxFloat, maxInt } from "../math/consts"
+import { pow } from "../math/trig"
+import { getEnv, setEnv } from "../os/env"
+import { decodeWavPcm16, inspectPcmBuffer } from "./audio_codec"
+import { synthesizeToneBuffer, renderNoiseBuffer, renderSfxPatch, sfxCoin, sfxLaser, sfxExplosion, sfxJump } from "./audio_synth"
+import { mixBufferAt, midiToFrequency } from "./audio_mixer"
+import { audioComputeDistanceGain } from "./audio_spatial"
+
+pub struct AudioDeviceConfig(sampleRate: int, bufferSizeFrames: int, channels: int, bitDepth: int)
+
+pub struct AudioDevice(config: AudioDeviceConfig, isRunning: bool, deviceHandle: int, underrunCount: int)
+
+pub struct AudioEngine(activeVoices: int, nextVoiceId: int, masterVolume: float, energy: float)
+
+pub struct AudioMockSink(toneCount: int, lastFrequency: float, lastDuration: float, lastWaveform: str)
+
+pub fn createAudioDevice(sampleRate: int = 44100, bufferSize: int = 512, channels: int = 2): AudioDevice:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let bs = if bufferSize > 0: bufferSize else: 512
+  let ch = if channels > 0: channels else: 2
+  let cfg = AudioDeviceConfig(
+    sampleRate = sr,
+    bufferSizeFrames = bs,
+    channels = ch,
+    bitDepth = 16
+  )
+  ret AudioDevice(
+    config = cfg,
+    isRunning = false,
+    deviceHandle = 1,
+    underrunCount = 0
+  )
+
+pub fn startAudioDevice(device: AudioDevice): AudioDevice:
+  ret AudioDevice(
+    config = device.config,
+    isRunning = true,
+    deviceHandle = device.deviceHandle,
+    underrunCount = device.underrunCount
+  )
+
+pub fn stopAudioDevice(device: AudioDevice): AudioDevice:
+  ret AudioDevice(
+    config = device.config,
+    isRunning = false,
+    deviceHandle = device.deviceHandle,
+    underrunCount = device.underrunCount
+  )
+
+pub fn writeAudioPcmInterleaved(device: AudioDevice, pcm: [float]): int:
+  if not device.isRunning or device.deviceHandle <= 0:
+    ret 0
+  let ch = if device.config.channels > 0: device.config.channels else: 2
+  let frames = pcm.len / ch
+  if frames > 0:
+    let _ = playPcmBuffer(pcm, device.config.sampleRate)
+  ret frames
+
+pub fn getAudioLatencyMs(device: AudioDevice): float:
+  if device.config.sampleRate <= 0:
+    ret 0.0
+  ret (float(device.config.bufferSizeFrames) / float(device.config.sampleRate)) * 1000.0
+
+pub fn destroyAudioDevice(device: AudioDevice): AudioDevice:
+  ret AudioDevice(
+    config = device.config,
+    isRunning = false,
+    deviceHandle = 0,
+    underrunCount = device.underrunCount
+  )
+
+fn audioGetEnvOr(key: str, fallback: str): str:
+  let opt = getEnv(key)
+  if opt.isSome():
+    let v: str = opt.unwrap()
+    if v.len > 0:
+      ret v
+  ret fallback
+
+pub fn stopAllSounds(): void:
+  setEnv("AIPL_AUDIO_ENERGY", "0.0")
+
+pub fn audioInit(sampleRate: int = 44100, channels: int = 2): void:
+  let sr = if sampleRate > 0: sampleRate else: 44100
+  let ch = if channels > 0: channels else: 2
+  setEnv("AIPL_AUDIO_INIT", "1")
+  setEnv("AIPL_AUDIO_SR", toString(sr))
+  setEnv("AIPL_AUDIO_CH", toString(ch))
+
+pub fn audioShutdown(): void:
+  setEnv("AIPL_AUDIO_INIT", "0")
+  stopAllSounds()
+
+pub fn getAudioEnergy(): float:
+  let s = audioGetEnvOr("AIPL_AUDIO_ENERGY", "")
+  if s.len == 0:
+    ret 0.0
+  ret clampFloat(parseFloat(s), 0.0, 1.0)
+
+pub fn getAudioBand(band: int): float:
+  let b = clampInt(band, 0, 15)
+  let s = audioGetEnvOr("AIPL_AUDIO_BAND_" + toString(b), "")
+  if s.len == 0:
+    ret getAudioEnergy() * (1.0 - float(b) * 0.03)
+  ret clampFloat(parseFloat(s), 0.0, 1.0)
+
+pub fn setMasterVolume(volume: float): void:
+  let v = clampFloat(volume, 0.0, 1.0)
+  setEnv("AIPL_AUDIO_MASTER_VOL", toString(v))
+
+pub fn getMasterVolume(): float:
+  let s = audioGetEnvOr("AIPL_AUDIO_MASTER_VOL", "")
+  if s.len == 0:
+    ret 1.0
+  ret clampFloat(parseFloat(s), 0.0, 1.0)
+
+pub fn loadSound(path: str): Result[int, str]:
+  if path.len == 0:
+    ret Err("loadSound: empty path")
+  let cur = audioGetEnvOr("AIPL_AUDIO_NEXT_SID", "")
+  let sid = if cur.len == 0: 1 else: parseInt(cur) + 1
+  setEnv("AIPL_AUDIO_NEXT_SID", toString(sid))
+  setEnv("AIPL_AUDIO_SOUND_DUR_" + toString(sid), "0.5")
+  ret Ok(sid)
+
+pub fn decodeSound(data: bytes): Result[int, str]:
+  let res = decodeWavPcm16(data)
+  if not res.isOk():
+    ret Err("decodeSound: invalid WAV data")
+  let samples = res.unwrap()
+  let cur = audioGetEnvOr("AIPL_AUDIO_NEXT_SID", "")
+  let sid = if cur.len == 0: 1 else: parseInt(cur) + 1
+  setEnv("AIPL_AUDIO_NEXT_SID", toString(sid))
+  let dur = float(samples.len) / 44100.0
+  setEnv("AIPL_AUDIO_SOUND_DUR_" + toString(sid), toString(dur))
+  ret Ok(sid)
+
+pub fn unloadSound(soundId: int): void:
+  setEnv("AIPL_AUDIO_SOUND_DUR_" + toString(soundId), "0.0")
+
+pub fn audioEngineNew(): AudioEngine:
+  ret AudioEngine(activeVoices = 0, nextVoiceId = 1, masterVolume = 1.0, energy = 0.0)
+
+pub fn playSoundEx(soundId: int, volume: float, pitch: float, pan: float, loopSound: bool): int:
+  if soundId <= 0:
+    ret 0
+  let cur = audioGetEnvOr("AIPL_AUDIO_NEXT_VID", "")
+  let vid = if cur.len == 0: 1 else: parseInt(cur) + 1
+  let vState = if loopSound: "loop" else: "playing"
+  setEnv("AIPL_AUDIO_NEXT_VID", toString(vid))
+  setEnv("AIPL_AUDIO_VOICE_STATE_" + toString(vid), vState)
+  setEnv("AIPL_AUDIO_VOICE_VOL_" + toString(vid), toString(clampFloat(volume, 0.0, 1.0)))
+  setEnv("AIPL_AUDIO_VOICE_PITCH_" + toString(vid), toString(maxFloat(0.1, pitch)))
+  setEnv("AIPL_AUDIO_VOICE_PAN_" + toString(vid), toString(clampFloat(pan, -1.0, 1.0)))
+  setEnv("AIPL_AUDIO_VOICE_POS_" + toString(vid), "0.0")
+  ret vid
+
+pub fn playSound(soundId: int): int:
+  ret playSoundEx(soundId, 1.0, 1.0, 0.0, false)
+
+pub fn pauseVoice(voiceId: int): void:
+  setEnv("AIPL_AUDIO_VOICE_STATE_" + toString(voiceId), "paused")
+
+pub fn resumeVoice(voiceId: int): void:
+  setEnv("AIPL_AUDIO_VOICE_STATE_" + toString(voiceId), "playing")
+
+pub fn stopVoice(voiceId: int): void:
+  setEnv("AIPL_AUDIO_VOICE_STATE_" + toString(voiceId), "stopped")
+  setEnv("AIPL_AUDIO_VOICE_POS_" + toString(voiceId), "0.0")
+
+pub fn isVoicePlaying(voiceId: int): bool:
+  if voiceId <= 0:
+    ret false
+  let st = audioGetEnvOr("AIPL_AUDIO_VOICE_STATE_" + toString(voiceId), "")
+  if st.len == 0:
+    ret true
+  ret st == "playing" or st == "loop"
+
+pub fn seekVoice(voiceId: int, seconds: float): void:
+  setEnv("AIPL_AUDIO_VOICE_POS_" + toString(voiceId), toString(maxFloat(0.0, seconds)))
+
+pub fn getVoicePosition(voiceId: int): float:
+  let s = audioGetEnvOr("AIPL_AUDIO_VOICE_POS_" + toString(voiceId), "")
+  if s.len == 0:
+    ret 0.0
+  ret maxFloat(0.0, parseFloat(s))
+
+pub fn getSoundDuration(soundId: int): float:
+  let s = audioGetEnvOr("AIPL_AUDIO_SOUND_DUR_" + toString(soundId), "")
+  if s.len == 0:
+    ret 0.0
+  ret maxFloat(0.0, parseFloat(s))
+
+pub fn setVoiceVolume(voiceId: int, volume: float): void:
+  setEnv("AIPL_AUDIO_VOICE_VOL_" + toString(voiceId), toString(clampFloat(volume, 0.0, 1.0)))
+
+pub fn setVoicePitch(voiceId: int, pitch: float): void:
+  setEnv("AIPL_AUDIO_VOICE_PITCH_" + toString(voiceId), toString(maxFloat(0.1, pitch)))
+
+pub fn setVoicePan(voiceId: int, pan: float): void:
+  setEnv("AIPL_AUDIO_VOICE_PAN_" + toString(voiceId), toString(clampFloat(pan, -1.0, 1.0)))
+
+pub fn (self: AudioEngine) play(soundId: int, volume: float = 1.0, pitch: float = 1.0, pan: float = 0.0, loopSound: bool = false): int:
+  ret playSoundEx(soundId, volume * self.masterVolume, pitch, pan, loopSound)
+
+pub fn (self: AudioEngine) isPlaying(voiceId: int): bool:
+  ret self.activeVoices >= 0 and isVoicePlaying(voiceId)
+
+pub fn audioTime(): float:
+  let s = audioGetEnvOr("AIPL_AUDIO_TIME", "")
+  if s.len == 0:
+    ret 0.0
+  ret maxFloat(0.0, parseFloat(s))
+
+pub fn playPcmBuffer(samples: [float], sampleRate: int): int:
+  let sr = if sampleRate > 0: sampleRate else: 22050
+  let stats = inspectPcmBuffer(samples)
+  let energy = clampFloat(stats[0] * getMasterVolume(), 0.0, 1.0)
+  setEnv("AIPL_AUDIO_ENERGY", toString(energy))
+  let tCur = audioTime() + (float(samples.len) / float(sr))
+  setEnv("AIPL_AUDIO_TIME", toString(tCur))
+  ret samples.len
+
+pub fn playToneEx(frequency: float, durationMs: float, volume: float = 1.0, waveform: str = "sine"): int:
+  let pcm = synthesizeToneBuffer(frequency, durationMs, volume, waveform, 22050)
+  ret playPcmBuffer(pcm, 22050)
+
+pub fn playTone(frequency: float, durationMs: float, volume: float = 0.5): void:
+  let _ = playToneEx(frequency, durationMs, volume, "sine")
+
+pub fn beep(frequency: float = 880.0, durationMs: float = 80.0, waveform: str = "sine"): void:
+  let _ = playToneEx(frequency, durationMs, 0.5, waveform)
+
+pub fn playBounce(intensity: float = 0.5): void:
+  let inten = clampFloat(intensity, 0.0, 1.0)
+  playTone(220.0 + inten * 180.0, 55.0, 0.35 + inten * 0.45)
+
+pub fn playImpact(force: float = 0.5): void:
+  let f = clampFloat(force, 0.0, 1.0)
+  let _ = playToneEx(110.0 + f * 60.0, 90.0, 0.4 + f * 0.5, "triangle")
+
+pub fn playExplosion(): void:
+  let pcm = renderSfxPatch(sfxExplosion(), 22050)
+  let _ = playPcmBuffer(pcm, 22050)
+
+pub fn playCoin(): void:
+  let pcm = renderSfxPatch(sfxCoin(), 22050)
+  let _ = playPcmBuffer(pcm, 22050)
+
+pub fn playJump(): void:
+  let pcm = renderSfxPatch(sfxJump(), 22050)
+  let _ = playPcmBuffer(pcm, 22050)
+
+pub fn playLaser(): void:
+  let pcm = renderSfxPatch(sfxLaser(), 22050)
+  let _ = playPcmBuffer(pcm, 22050)
+
+pub fn playPowerup(): void:
+  let n0 = synthesizeToneBuffer(523.25, 80.0, 0.55, "triangle", 22050)
+  let n1 = synthesizeToneBuffer(659.25, 80.0, 0.55, "triangle", 22050)
+  let n2 = synthesizeToneBuffer(783.99, 120.0, 0.65, "triangle", 22050)
+  let stepSamp = int(0.08 * 22050.0)
+  let m1 = mixBufferAt(n0, n1, stepSamp, 1.0)
+  let m2 = mixBufferAt(m1, n2, stepSamp * 2, 1.0)
+  let _ = playPcmBuffer(m2, 22050)
+
+pub fn playHit(): void:
+  let _ = playToneEx(140.0, 75.0, 0.6, "square")
+
+pub fn playBossAlert(): void:
+  let _ = playToneEx(196.0, 200.0, 0.7, "saw")
+
+pub fn playVictory(): void:
+  let n0 = synthesizeToneBuffer(523.25, 100.0, 0.6, "triangle", 22050)
+  let n1 = synthesizeToneBuffer(659.25, 100.0, 0.6, "triangle", 22050)
+  let n2 = synthesizeToneBuffer(783.99, 100.0, 0.6, "triangle", 22050)
+  let n3 = synthesizeToneBuffer(1046.50, 220.0, 0.7, "triangle", 22050)
+  let stepSamp = int(0.10 * 22050.0)
+  let m1 = mixBufferAt(n0, n1, stepSamp, 1.0)
+  let m2 = mixBufferAt(m1, n2, stepSamp * 2, 1.0)
+  let m3 = mixBufferAt(m2, n3, stepSamp * 3, 1.0)
+  let _ = playPcmBuffer(m3, 22050)
+
+pub fn playGameOver(): void:
+  let n0 = synthesizeToneBuffer(392.00, 140.0, 0.6, "saw", 22050)
+  let n1 = synthesizeToneBuffer(349.23, 140.0, 0.6, "saw", 22050)
+  let n2 = synthesizeToneBuffer(311.13, 240.0, 0.6, "saw", 22050)
+  let stepSamp = int(0.14 * 22050.0)
+  let m1 = mixBufferAt(n0, n1, stepSamp, 1.0)
+  let m2 = mixBufferAt(m1, n2, stepSamp * 2, 1.0)
+  let _ = playPcmBuffer(m2, 22050)
+
+pub fn playNote(midiNote: int, durationMs: float): void:
+  let freq = 440.0 * pow(2.0, (float(midiNote) - 69.0) / 12.0)
+  let _ = playToneEx(freq, durationMs, 0.5, "warm_pad")
+
+pub fn playNoise(durationMs: float, volume: float = 0.5): void:
+  let sr = 22050
+  let n = maxInt(16, int(clampFloat(durationMs / 1000.0, 0.005, 5.0) * float(sr)))
+  let vol = clampFloat(volume, 0.0, 1.0)
+  let raw = renderNoiseBuffer("pink", n, 4242)
+  mut scaled: [float] = []
+  mut i = 0
+  while i < raw.len:
+    scaled.push(raw[i] * vol)
+    i += 1
+  let _ = playPcmBuffer(scaled, sr)
+
+pub fn loadMusicStream(path: str): int:
+  let r = loadSound(path)
+  if r.isOk():
+    ret r.unwrap()
+  ret 0
+
+pub fn playMusicStream(musicId: int): int:
+  ret playSoundEx(musicId, 1.0, 1.0, 0.0, true)
+
+pub fn stopMusicStream(voiceId: int): void:
+  stopVoice(voiceId)
+
+pub fn pauseMusicStream(voiceId: int): void:
+  pauseVoice(voiceId)
+
+pub fn resumeMusicStream(voiceId: int): void:
+  resumeVoice(voiceId)
+
+pub fn setMusicVolume(voiceId: int, volume: float): void:
+  setVoiceVolume(voiceId, volume)
+
+pub fn playProceduralChime(kind: str, pitch: float = 1.0): int:
+  let p = if pitch > 0.0: pitch else: 1.0
+  if kind == "coin":
+    beep(987.77 * p, 80.0, "sine")
+  elif kind == "jump":
+    beep(350.0 * p, 120.0, "triangle")
+  elif kind == "hit":
+    beep(140.0 * p, 80.0, "square")
+  elif kind == "laser":
+    beep(880.0 * p, 55.0, "sawtooth")
+  elif kind == "victory":
+    beep(523.25 * p, 250.0, "triangle")
+  elif kind == "game_over":
+    beep(73.42 * p, 400.0, "sawtooth")
+  else:
+    beep(440.0 * p, 100.0, "sine")
+  ret 0
+
+pub fn audioMockSinkNew(): AudioMockSink:
+  ret AudioMockSink(toneCount = 0, lastFrequency = 0.0, lastDuration = 0.0, lastWaveform = "")
+
+pub fn audioMockSinkPlay(sink: AudioMockSink, freq: float, dur: float, wave: str): AudioMockSink:
+  ret AudioMockSink(
+    toneCount = sink.toneCount + 1,
+    lastFrequency = freq,
+    lastDuration = dur,
+    lastWaveform = wave
+  )
+
+pub fn playChord(midiNotes: [int], durationMs: float, volume: float = 0.35): void:
+  mut i = 0
+  while i < midiNotes.len:
+    let n = midiNotes[i]
+    if n > 0:
+      let _ = playToneEx(midiToFrequency(n), durationMs, volume, "warm_pad")
+    i += 1
+
+pub fn playSpatialTone(freq: float, durationMs: float, listenerX: float, listenerY: float, sourceX: float, sourceY: float, maxDist: float, baseVol: float = 0.6): void:
+  let g = audioComputeDistanceGain(sourceX, sourceY, 0.0, listenerX, listenerY, 0.0, 20.0, maxDist)
+  if g > 0.01:
+    playTone(freq, durationMs, baseVol * g)

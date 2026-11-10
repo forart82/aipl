@@ -1,0 +1,59 @@
+module Ex199UiHudRadarMinimapAndToastsWindowTest
+
+import {
+  buildUiHudAudit, stepRadialGaugeValue, stepShieldSegments, stepSlotRemainingSec
+} from "../../examples/ex_199_ui_hud_radar_minimap_and_toasts_window"
+import { ColorRgba8 } from "../../std/gfx/color"
+import {
+  RadialGaugeWidget, SegmentedBarWidget, CooldownActionSlot,
+  ResourceRateBadge, computeRadialGaugeSweep, evaluateActionSlotUsability
+} from "../../std/ui/ui_hud"
+
+pub fn test_ui_hud_radar_minimap_and_toasts(): void:
+  let gauge = RadialGaugeWidget(
+    currentValue = 75.0,
+    maxValue = 100.0,
+    startAngleRad = 0.0,
+    sweepAngleRad = 3.14159,
+    innerRadius = 40.0,
+    outerRadius = 50.0,
+    fillColor = ColorRgba8(r = 52, g = 211, b = 153, a = 255)
+  )
+  let sweep = computeRadialGaugeSweep(gauge)
+  assert(sweep > 2.35 and sweep < 2.36, "computeRadialGaugeSweep computes 75% of pi")
+
+  let slotReady = CooldownActionSlot(slotId = 1, iconTextureId = 10, cooldownPct = 0.0, remainingSeconds = 0.0, isUsable = true)
+  let slotCooling = CooldownActionSlot(slotId = 2, iconTextureId = 11, cooldownPct = 0.4, remainingSeconds = 2.5, isUsable = true)
+  assert(evaluateActionSlotUsability(slotReady) and not evaluateActionSlotUsability(slotCooling), "evaluateActionSlotUsability checks cooldown and usability")
+
+  let seg = SegmentedBarWidget(
+    totalSegments = 10,
+    filledSegments = 8,
+    segmentSpacing = 4.0,
+    filledColor = ColorRgba8(r = 56, g = 189, b = 248, a = 255),
+    emptyColor = ColorRgba8(r = 30, g = 41, b = 59, a = 255)
+  )
+  let resBadge = ResourceRateBadge(resourceName = "Energy", currentAmount = 420, netRatePerSec = 15.0)
+  assert(seg.filledSegments == 8 and resBadge.currentAmount == 420, "SegmentedBarWidget and ResourceRateBadge initialized")
+  assert(buildUiHudAudit() == 665, "buildUiHudAudit returns 235 + 1 + 9 + 420 == 665")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let g0 = stepRadialGaugeValue(0)
+  let g1 = stepRadialGaugeValue(1)
+  let g20 = stepRadialGaugeValue(20)
+  let g100 = stepRadialGaugeValue(100)
+  assert(g0 != g1 and g1 != g20 and g20 != g100, "radial gauge value evolves across t=0,1,20,100")
+
+  let s0 = stepShieldSegments(0)
+  let s20 = stepShieldSegments(20)
+  let s100 = stepShieldSegments(100)
+  assert(s0 >= 6 and s0 <= 12 and s20 >= 6 and s100 >= 6, "shield segments stay within [6, 12]")
+
+  let r0 = stepSlotRemainingSec(0, 0)
+  let r20 = stepSlotRemainingSec(0, 20)
+  assert(r0 >= 0.0 and r20 >= 0.0 and r0 != r20, "slot cooldown progresses across frames")
+
+pub fn main(): int:
+  test_ui_hud_radar_minimap_and_toasts()
+  println("PASS: ex_199_ui_hud_radar_minimap_and_toasts_window_test")
+  ret 0

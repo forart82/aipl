@@ -1,0 +1,57 @@
+// ============================================================================
+// Example 107: POSIX Signal Coordinator & Priority Shutdown Hooks (CLI)
+// Demonstrates: signalCoordinatorNew, registerSignalHandler,
+//               unregisterSignalHandler, gracefulShutdownRegister,
+//               raiseSignal, pollSignal, isShutdownRequested,
+//               gracefulShutdownTrigger, and exitProcess from std/os.
+// ============================================================================
+module Ex107OsSignalGracefulShutdownCli
+
+import {
+  signalCoordinatorNew,
+  registerSignalHandler,
+  unregisterSignalHandler,
+  gracefulShutdownRegister,
+  raiseSignal,
+  pollSignal,
+  isShutdownRequested,
+  gracefulShutdownTrigger,
+  exitProcess
+} from "../std/os"
+
+// Registers priority-ordered shutdown hooks on a SignalCoordinator and returns their execution order.
+pub fn evaluateShutdownHookExecutionOrder(): str:
+  mut coord = signalCoordinatorNew()
+  let _ = gracefulShutdownRegister(coord, "flush_db", 10)
+  let _ = gracefulShutdownRegister(coord, "close_sockets", 20)
+  let order = gracefulShutdownTrigger(coord, 15)
+  assert(order.len() == 2, "two shutdown hooks executed")
+  ret order[0] + "->" + order[1]
+
+// Verifies signal handler registration, SIGINT(2) raising/polling, shutdown flag, and exit code.
+pub fn verifySignalQueueAndHandlerLifecycle(): int:
+  mut coord = signalCoordinatorNew()
+  let handle = registerSignalHandler(2, 101).unwrap()
+  let unregOk = unregisterSignalHandler(handle)
+  let raised = raiseSignal(coord, 2)
+  let polled = pollSignal(coord).unwrap()
+  let shutdownReq = isShutdownRequested(coord)
+  let exitCode = exitProcess(0)
+  if unregOk and raised and polled == 2 and shutdownReq and exitCode == 0:
+    ret 1
+  ret 0
+
+// Maps a POSIX signal number to its canonical graceful-shutdown policy.
+pub fn describePosixSignalAction(sigNum: int): str:
+  if sigNum == 15:
+    ret "SIGNAL:SIGTERM_GRACEFUL_DRAIN"
+  if sigNum == 2:
+    ret "SIGNAL:SIGINT_INTERRUPT_ABORT"
+  ret "SIGNAL:SIGHUP_RELOAD_CONFIG"
+
+pub fn main(): int:
+  let orderStr = evaluateShutdownHookExecutionOrder()
+  let sigOk = verifySignalQueueAndHandlerLifecycle()
+  let action = describePosixSignalAction(15)
+  println("ex_107_os_signal_graceful_shutdown_cli: order=" + orderStr + " sigOk=" + str(sigOk) + " action=" + action)
+  ret 0

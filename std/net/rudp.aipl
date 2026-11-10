@@ -1,0 +1,135 @@
+/// # Module: `std/net/rudp` (`NetRudp`)
+///
+/// ## Purpose & Domain Scope
+/// Reliable UDP session protocol (`RudpConnection`) with 12-byte sequence/ACK headers
+/// (`RudpHeader`), 32-bit sliding window ACK bitfields, MTU packet fragmentation/reassembly
+/// (`RudpFragment`), and Jacobson/Karels smoothed RTT calculation.
+module NetRudp
+
+import "net_addr.aipl"
+
+pub struct RudpHeader:
+  sequence: int
+  ack: int
+  ackBits: int
+  flags: int
+  channel: int
+
+pub struct RudpFragment:
+  packetId: int
+  fragmentIndex: int
+  totalFragments: int
+  payload: [int]
+
+pub struct RudpConnection:
+  remoteAddr: SocketAddr
+  mut localSequence: int
+  mut remoteSequence: int
+  mut ackBitfield: int
+  mut rttMs: float
+  mut rttVariance: float
+  sendWindowSize: int
+  mut unackedQueue: [RudpFragment]
+
+pub fn rudpCreateConnection(remote: SocketAddr): RudpConnection:
+  ret RudpConnection(
+    remoteAddr: remote,
+    localSequence: 1,
+    remoteSequence: 0,
+    ackBitfield: 0,
+    rttMs: 50.0,
+    rttVariance: 10.0,
+    sendWindowSize: 32,
+    unackedQueue: []
+  )
+
+pub fn rudpBuildPacket(mut conn: RudpConnection, channel: int, flags: int, payload: [int]): [int]:
+  let seq = conn.localSequence
+  conn.localSequence = seq + 1
+  let ack = conn.remoteSequence
+  let bits = conn.ackBitfield
+  mut out: [int] = [
+    (seq >> 8) & 255, seq & 255,
+    (ack >> 8) & 255, ack & 255,
+    (bits >> 24) & 255, (bits >> 16) & 255, (bits >> 8) & 255, bits & 255,
+    flags & 255,
+    channel & 255,
+    (payload.len() >> 8) & 255, payload.len() & 255
+  ]
+  mut i = 0
+  while i < payload.len():
+    out.push(payload[i] & 255)
+    i = i + 1
+  ret out
+
+pub fn rudpParsePacket(bytes: [int]): Option[RudpHeader]:
+  if bytes.len() < 12:
+    ret None
+  let seq = ((bytes[0] & 255) << 8) | (bytes[1] & 255)
+  let ack = ((bytes[2] & 255) << 8) | (bytes[3] & 255)
+  let bits = ((bytes[4] & 255) << 24) | ((bytes[5] & 255) << 16) | ((bytes[6] & 255) << 8) | (bytes[7] & 255)
+  let flags = bytes[8] & 255
+  let channel = bytes[9] & 255
+  ret Some(RudpHeader(sequence: seq, ack: ack, ackBits: bits, flags: flags, channel: channel))
+
+pub fn rudpProcessAck(mut conn: RudpConnection, remoteSeq: int, ackBitfield: int): int:
+  conn.remoteSequence = remoteSeq
+  conn.ackBitfield = ackBitfield
+  mut acked = 1
+  mut bit = 0
+  while bit < 32:
+    if ((ackBitfield >> bit) & 1) != 0:
+      acked = acked + 1
+    bit = bit + 1
+  ret acked
+
+pub fn rudpFragmentPayload(packetId: int, payload: [int], maxFragmentBytes: int): [RudpFragment]:
+  mut mtu = maxFragmentBytes
+  if mtu <= 0:
+    mtu = 1024
+  let totalLen = payload.len()
+  if totalLen == 0:
+    ret [RudpFragment(packetId: packetId, fragmentIndex: 0, totalFragments: 1, payload: [])]
+  let totalFrags = (totalLen + mtu - 1) / mtu
+  mut out: [RudpFragment] = []
+  mut fIdx = 0
+  mut offset = 0
+  while fIdx < totalFrags:
+    mut chunk: [int] = []
+    mut k = 0
+    while k < mtu and offset < totalLen:
+      chunk.push(payload[offset])
+      offset = offset + 1
+      k = k + 1
+    out.push(RudpFragment(packetId: packetId, fragmentIndex: fIdx, totalFragments: totalFrags, payload: chunk))
+    fIdx = fIdx + 1
+  ret out
+
+pub fn rudpTryReassemble(fragments: [RudpFragment], totalCount: int): Option[[int]]:
+  if totalCount <= 0 or fragments.len() < totalCount:
+    ret None
+  mut out: [int] = []
+  mut idx = 0
+  while idx < totalCount:
+    mut found = false
+    mut i = 0
+    while i < fragments.len():
+      if fragments[i].fragmentIndex == idx:
+        let p = fragments[i].payload
+        mut k = 0
+        while k < p.len():
+          out.push(p[k])
+          k = k + 1
+        found = true
+        break
+      i = i + 1
+    if not found:
+      ret None
+    idx = idx + 1
+  ret Some(out)
+
+pub fn rudpCalculateRtt(mut conn: RudpConnection, sampleRttMs: float): RudpConnection:
+  let diff = if sampleRttMs >= conn.rttMs: sampleRttMs - conn.rttMs else: conn.rttMs - sampleRttMs
+  conn.rttVariance = 0.75 * conn.rttVariance + 0.25 * diff
+  conn.rttMs = 0.875 * conn.rttMs + 0.125 * sampleRttMs
+  ret conn

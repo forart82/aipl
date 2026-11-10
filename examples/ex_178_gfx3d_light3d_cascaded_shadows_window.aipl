@@ -1,0 +1,125 @@
+module Ex178Gfx3dLight3dCascadedShadowsWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import { LinearColorF32 } from "../std/gfx/color"
+import {
+  createDirectionalLight, createPointLight, createSpotLight,
+  computePointLightAttenuation, computeSpotLightAttenuation, computeCascadedShadowSplits
+} from "../std/gfx3d/light3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepCsmLambda(frame: int): float:
+  ret 0.25 + float(frame % 37) * 0.019
+
+pub fn buildLight3dCsmAudit(): int:
+  let white = LinearColorF32(r = 1.0, g = 1.0, b = 1.0, a = 1.0)
+  let _ = createDirectionalLight(Vec3(x = 0.0, y = -1.0, z = 0.0), white, 2.5)
+  let ptL = createPointLight(Vec3(x = 0.0, y = 3.0, z = 0.0), white, 15.0, 2.0)
+  let _ = createSpotLight(Vec3(x = 0.0, y = 5.0, z = 0.0), Vec3(x = 0.0, y = -1.0, z = 0.0), white, 20.0, 15.0, 30.0)
+  let splits = computeCascadedShadowSplits(0.1, 100.0, 4, 0.75)
+  ret splits.len() + int(ptL.range) + int(splits[4])
+
+pub fn main(): int:
+  let white = LinearColorF32(r = 1.0, g = 1.0, b = 1.0, a = 1.0)
+  let dirL = createDirectionalLight(Vec3(x = -0.5, y = -1.0, z = -0.3), white, 2.5)
+  let ptL = createPointLight(Vec3(x = 0.0, y = 3.0, z = 0.0), white, 15.0, 2.0)
+  let spotL = createSpotLight(Vec3(x = 0.0, y = 5.0, z = 0.0), Vec3(x = 0.0, y = -1.0, z = 0.0), white, 20.0, 15.0, 30.0)
+  let audit = buildLight3dCsmAudit()
+
+  initWindow(1280, 720, "AIPL ex_178: 3D Cascaded Shadow Maps (CSM) & Light Attenuation")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let lambda = stepCsmLambda(frame)
+    let splits = computeCascadedShadowSplits(0.1, 100.0, 4, lambda)
+    let spotAtt = computeSpotLightAttenuation(spotL, Vec3(x = float(frame % 23) * 0.08, y = -4.0, z = 0.0))
+    let distProbe = 0.5 + float(frame % 43) * 0.38
+    let attProbe = computePointLightAttenuation(distProbe, ptL.range)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_178: 3D CASCADED SHADOW MAPS (CSM) & PUNCTUAL LIGHT ATTENUATION", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/light3d: computeCascadedShadowSplits | spotAtt=" + str(spotAtt) + " | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: 4-Cascade Practical Split Frustum Partitioning
+    drawRect(40.0, 96.0, 620.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 620.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("4-CASCADE PRACTICAL SHADOW SPLIT PLANES (Lambda=" + str(lambda) + ", 0.1..100m)", 60.0, 118.0, 15.0, rgb(125, 211, 252))
+
+    // Top-down camera frustum wedge showing live split planes
+    let eyeX = 82.0
+    let eyeY = 205.0
+    let farX = 620.0
+    drawLine(eyeX, eyeY, farX, 148.0, rgb(100, 116, 139), 1.5)
+    drawLine(eyeX, eyeY, farX, 262.0, rgb(100, 116, 139), 1.5)
+    drawCircle(eyeX, eyeY, 6.0, rgb(250, 204, 21))
+
+    let cCols = [rgb(34, 197, 94), rgb(56, 189, 248), rgb(168, 85, 247), rgb(244, 63, 94)]
+    mut cIdx: int = 0
+    while cIdx < 4:
+      let s0 = splits[cIdx]
+      let s1 = splits[cIdx + 1]
+      // Nonlinear visual depth mapping so near cascades are clearly visible in the wedge
+      let t1 = s1 / 100.0
+      let splitX = eyeX + t1 * (farX - eyeX)
+      let halfH = 4.0 + t1 * 57.0
+      drawLine(splitX, eyeY - halfH, splitX, eyeY + halfH, cCols[cIdx], 2.5)
+
+      let by = 278.0 + float(cIdx) * 52.0
+      let spanPct = (s1 - s0) / 100.0
+      let fillW = 36.0 + spanPct * 520.0
+      drawRect(65.0, by, 570.0, 42.0, rgb(30, 41, 59))
+      drawRect(65.0, by, fillW, 42.0, cCols[cIdx])
+      drawRectOutline(65.0, by, 570.0, 42.0, 1.5, cCols[cIdx])
+      drawText("Cascade #" + str(cIdx) + ": [" + str(s0) + "m .. " + str(s1) + "m] (2048x2048 Tile)", 80.0, by + 13.0, 14.0, rgb(248, 250, 252))
+      cIdx = cIdx + 1
+
+    // Right Panel: Windowed Inverse-Square Point Light Attenuation Curve
+    drawRect(680.0, 96.0, 560.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(680.0, 96.0, 560.0, 410.0, 2.0, rgb(250, 204, 21))
+    drawText("WINDOWED INVERSE-SQUARE POINT LIGHT FALLOFF (Range=15m)", 700.0, 118.0, 15.0, rgb(253, 224, 71))
+
+    drawLine(710.0, 170.0, 710.0, 440.0, rgb(71, 85, 105), 1.5)
+    drawLine(710.0, 440.0, 1190.0, 440.0, rgb(100, 116, 139), 1.5)
+
+    mut dStep: int = 0
+    mut prevPx: float = 710.0
+    mut prevPy: float = 180.0
+    while dStep <= 20:
+      let distM = float(dStep) * 0.85
+      let att = computePointLightAttenuation(distM, ptL.range)
+      let px = 710.0 + float(dStep) * 24.0
+      let py = 440.0 - (if att > 1.0: 1.0 else: att) * 260.0
+      let col = if distM <= ptL.range: rgb(250, 204, 21) else: rgb(244, 63, 94)
+      if dStep > 0:
+        drawLine(prevPx, prevPy, px, py, col, 2.2)
+      drawCircle(px, py, 4.5, col)
+      prevPx = px
+      prevPy = py
+      dStep = dStep + 1
+
+    // Live distance probe on attenuation curve
+    let probePx = 710.0 + (distProbe / 17.0) * 480.0
+    let probePy = 440.0 - (if attProbe > 1.0: 1.0 else: attProbe) * 260.0
+    drawLine(probePx, 170.0, probePx, 440.0, rgb(56, 189, 248), 1.5)
+    drawCircle(probePx, probePy, 7.0, rgb(56, 189, 248))
+    drawText("d=" + str(distProbe) + "m att=" + str(attProbe), 735.0, 155.0, 14.0, rgb(125, 211, 252))
+
+    drawText("Smoothly reaches 0.0 at Range=" + str(ptL.range) + "m (Red = Culled Outside Range)", 700.0, 464.0, 14.0, rgb(203, 213, 225))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("CSM SPLIT & PUNCTUAL LIGHT TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Splits: C0=" + str(splits[0]) + " | C1=" + str(splits[1]) + " | C2=" + str(splits[2]) + " | C3=" + str(splits[3]) + " | C4=" + str(splits[4]), 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Sun Intensity=" + str(dirL.intensity) + " lux | Point Range=" + str(ptL.range) + "m | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

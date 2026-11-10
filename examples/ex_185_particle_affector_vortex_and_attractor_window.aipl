@@ -1,0 +1,119 @@
+module Ex185ParticleAffectorVortexAndAttractorWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import {
+  createGravityAffector, createDragAffector, createVortexAffector,
+  createCurlNoiseAffector, createPointAttractorAffector,
+  evaluateVortexForce, evaluateCurlNoiseForce,
+  evaluatePointAttractorForce, combineAffectorForces3D
+} from "../std/particle/affector"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepVortexCenter3D(frame: int): Vec3:
+  let cx = 335.0 + sin(float(frame) * 0.053) * 48.0
+  let cz = 310.0 + cos(float(frame) * 0.041) * 38.0
+  ret Vec3(x = cx, y = 0.0, z = cz)
+
+pub fn buildParticleAffectorVortexAudit(): int:
+  let grav = createGravityAffector(Vec3(x = 0.0, y = -9.81, z = 0.0))
+  let drag = createDragAffector(0.4)
+  let vortex = createVortexAffector(Vec3(x = 0.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 1.0, z = 0.0), 12.0)
+  let vf = evaluateVortexForce(vortex, Vec3(x = 5.0, y = 0.0, z = 0.0))
+  let attr = createPointAttractorAffector(Vec3(x = 10.0, y = 0.0, z = 0.0), 25.0, 40.0)
+  let combined = combineAffectorForces3D([grav, attr], Vec3(x = 0.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 0.0))
+  let vzAbs = if vf.z < 0.0: -vf.z else: vf.z
+  ret int(vzAbs) + int(combined.x) + int(drag.strength * 10.0)
+
+pub fn main(): int:
+  let curl = createCurlNoiseAffector(0.025, 22.0)
+  let drag = createDragAffector(0.4)
+  let audit = buildParticleAffectorVortexAudit()
+
+  initWindow(1280, 720, "AIPL ex_185: Particle Force Affectors — Vortex, Attractor & Curl Noise")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let vCenter = stepVortexCenter3D(frame)
+    let vortex = createVortexAffector(vCenter, Vec3(x = 0.0, y = 1.0, z = 0.0), 0.14)
+    let aCenter = Vec3(x = 945.0 + cos(float(frame) * 0.047) * 42.0, y = 310.0 + sin(float(frame) * 0.059) * 34.0, z = 0.0)
+    let attr = createPointAttractorAffector(aCenter, 65.0, 95.0)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_185: PARTICLE FORCE AFFECTORS — VORTEX SWIRL, ATTRACTOR & CURL NOISE", 40.0, 28.0, 20.0, rgb(248, 250, 252))
+    drawText("std/particle/affector: evaluateVortexForce | evaluatePointAttractorForce | evaluateCurlNoiseForce | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Tangential Vortex Force Field (Axis x Radial Vector)
+    drawRect(40.0, 96.0, 590.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 590.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("TANGENTIAL VORTEX FORCE FIELD (F = Axis x Radial)", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    mut gy: int = 0
+    while gy < 7:
+      mut gx: int = 0
+      while gx < 9:
+        let px = 115.0 + float(gx) * 55.0
+        let pz = 160.0 + float(gy) * 42.0
+        let vf = evaluateVortexForce(vortex, Vec3(x = px, y = 0.0, z = pz))
+        let ex = px + vf.x * 0.85
+        let ez = pz + vf.z * 0.85
+        drawLine(px, pz, ex, ez, rgb(56, 189, 248), 2.0)
+        drawCircle(ex, ez, 2.8, rgb(125, 211, 252))
+        gx = gx + 1
+      gy = gy + 1
+
+    // Orbiting tracer particles following tangential vortex streamlines
+    drawCircleOutline(vCenter.x, vCenter.z, 65.0, 1.0, rgb(51, 65, 85))
+    drawCircleOutline(vCenter.x, vCenter.z, 115.0, 1.0, rgb(51, 65, 85))
+    drawCircle(vCenter.x, vCenter.z, 9.0, rgb(250, 204, 21))
+    mut ti: int = 0
+    while ti < 8:
+      let rOrbit = 55.0 + float(ti % 3) * 32.0
+      let ang = float(frame) * 0.075 + float(ti) * 0.7854
+      let tx = vCenter.x + cos(ang) * rOrbit
+      let tz = vCenter.z + sin(ang) * rOrbit
+      drawCircle(tx, tz, 5.0, rgb(250, 204, 21))
+      ti = ti + 1
+    drawText("Yellow Eye = Vortex Axis Origin | Cyan Arrows = Tangential Swirl Vectors", 60.0, 476.0, 13.0, rgb(148, 163, 184))
+
+    // Right Panel: Point Attractor Sink + Divergence-Free Curl Noise Turbulence
+    drawRect(650.0, 96.0, 590.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 96.0, 590.0, 410.0, 2.0, rgb(168, 85, 247))
+    drawText("POINT ATTRACTOR SINK + 3D CURL NOISE TURBULENCE", 670.0, 118.0, 16.0, rgb(216, 180, 254))
+    drawCircleOutline(aCenter.x, aCenter.y, 95.0, 1.5, rgb(100, 116, 139))
+    drawCircle(aCenter.x, aCenter.y, 10.0, rgb(244, 63, 94))
+
+    mut ay: int = 0
+    while ay < 7:
+      mut ax: int = 0
+      while ax < 9:
+        let qx = 725.0 + float(ax) * 55.0
+        let qy = 160.0 + float(ay) * 42.0
+        let af = evaluatePointAttractorForce(attr, Vec3(x = qx, y = qy, z = 0.0))
+        let cf = evaluateCurlNoiseForce(curl, Vec3(x = qx, y = qy, z = float(frame) * 1.8))
+        let comb = combineAffectorForces3D([attr, drag], Vec3(x = qx, y = qy, z = 0.0), Vec3(x = 5.0, y = 5.0, z = 0.0))
+        let fx = (af.x + cf.x + comb.x * 0.25) * 0.42
+        let fy = (af.y + cf.y + comb.y * 0.25) * 0.42
+        drawLine(qx, qy, qx + fx, qy + fy, rgb(34, 197, 94), 2.0)
+        drawCircle(qx + fx, qy + fy, 2.8, rgb(168, 85, 247))
+        ax = ax + 1
+      ay = ay + 1
+
+    drawText("Red Core = Attractor Sink (Falloff=95 px) + Divergence-Free Curl Swirls", 670.0, 476.0, 13.0, rgb(148, 163, 184))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("FORCE AFFECTOR SUPERPOSITION TELEMETRY (Frame " + str(frame) + ")", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Vortex Eye=(" + str(int(vCenter.x)) + ", " + str(int(vCenter.z)) + ") | Attractor Sink=(" + str(int(aCenter.x)) + ", " + str(int(aCenter.y)) + ") | Drag=" + str(drag.strength), 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Curl Noise Divergence: div(curl(A)) = 0 (Incompressible Fluid Swirls) | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

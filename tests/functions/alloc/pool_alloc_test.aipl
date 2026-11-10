@@ -1,0 +1,116 @@
+// ============================================================================
+// Step 4.5: Exhaustive Per-Function Unit Tests for std/alloc/pool_alloc.aipl (20)
+// Target: tests/functions/alloc/pool_alloc_test.aipl
+// ============================================================================
+module PoolAllocTest
+
+import {
+  assert,
+  assertEqInt,
+  assertEqStr
+} from "../../../std/prelude.aipl"
+
+import {
+  GenerationalHandle,
+  PoolHandle,
+  FixedObjectPool,
+  Pool,
+  poolNew,
+  poolAcquire,
+  poolRelease,
+  poolIsActive,
+  poolActiveIndices,
+  poolActiveCount,
+  poolClear,
+  poolAlloc,
+  poolFree,
+  poolGenerationsNew,
+  poolAcquireHandle,
+  poolIsHandleValid,
+  poolReleaseHandle
+} from "../../../std/alloc/pool_alloc.aipl"
+
+pub fn test_fixed_object_pool_generic(): int:
+  mut pool: FixedObjectPool[str] = poolNew(4)
+  assertEqInt(pool.count(), 0, "initial count is 0")
+  assert(pool.isFull() == false, "initial isFull is false")
+
+  let h0Opt = pool.acquire("item0")
+  assert(h0Opt.isSome() == true, "acquire item0")
+  let h0 = h0Opt.unwrap()
+  assert(pool.isValid(h0) == true, "h0 is valid")
+  assertEqStr(pool.get(h0).unwrap(), "item0", "get h0 is item0")
+
+  let h1Opt = pool.acquire("item1")
+  let h2Opt = pool.acquire("item2")
+  let h3Opt = pool.acquire("item3")
+  assert(h3Opt.isSome() == true, "acquire item3")
+  assertEqInt(pool.count(), 4, "count is 4")
+  assert(pool.isFull() == true, "pool is full")
+
+  let hOverflow = pool.acquire("overflow")
+  assert(hOverflow.isNone() == true, "acquire on full pool returns None")
+
+  // Release h1
+  let h1 = h1Opt.unwrap()
+  assert(pool.release(h1) == true, "release h1")
+  assert(pool.isValid(h1) == false, "h1 invalid after release")
+  assert(pool.get(h1).isNone() == true, "get h1 returns None")
+  assert(pool.release(h1) == false, "double release rejected")
+  assertEqInt(pool.count(), 3, "count is 3 after release")
+  assert(pool.isFull() == false, "not full after release")
+
+  // Re-acquire reuses slot with incremented generation
+  let h1NextOpt = pool.acquire("item1_new")
+  let h1Next = h1NextOpt.unwrap()
+  assert(h1Next.index == h1.index, "reused same slot")
+  assert(h1Next.generation > h1.generation, "generation incremented (ABA safety!)")
+  assert(pool.isValid(h1) == false, "stale h1 still invalid")
+  assert(pool.isValid(h1Next) == true, "new handle is valid")
+
+  pool.clear()
+  assertEqInt(pool.count(), 0, "count 0 after clear")
+  assert(pool.isValid(h1Next) == false, "handle invalid after clear")
+  ret 0
+
+pub fn test_raw_pool_and_handles(): int:
+  mut rawPool: FixedObjectPool[int] = poolNew[int](4)
+  assertEqInt(poolActiveCount(rawPool), 0, "poolActiveCount 0")
+
+  let s0Opt = poolAlloc(rawPool)
+  assert(s0Opt.isSome() == true, "poolAlloc s0")
+  let s0 = s0Opt.unwrap()
+  assert(poolIsActive(rawPool, s0) == true, "s0 is active")
+
+  let s1Opt = poolAcquire(rawPool)
+  let s1 = s1Opt.unwrap()
+  assertEqInt(poolActiveCount(rawPool), 2, "active count 2")
+
+  let indices = poolActiveIndices(rawPool)
+  assertEqInt(indices.len(), 2, "active indices len 2")
+
+  assert(poolFree(rawPool, s0) == true, "poolFree s0")
+  assert(poolRelease(rawPool, s1) == true, "poolRelease s1")
+  assertEqInt(poolActiveCount(rawPool), 0, "active count 0")
+
+  let _ = poolClear(rawPool)
+  assertEqInt(poolActiveCount(rawPool), 0, "active count 0 after poolClear")
+
+  // Handle-based generation table
+  mut genTable = poolGenerationsNew(4)
+  assertEqInt(genTable.len(), 4, "genTable len 4")
+
+  let phOpt = poolAcquireHandle(rawPool, genTable)
+  assert(phOpt.isSome() == true, "acquire handle")
+  let ph = phOpt.unwrap()
+  assert(poolIsHandleValid(rawPool, genTable, ph) == true, "poolIsHandleValid true")
+
+  assert(poolReleaseHandle(rawPool, genTable, ph) == true, "poolReleaseHandle true")
+  assert(poolIsHandleValid(rawPool, genTable, ph) == false, "poolIsHandleValid false after release")
+  ret 0
+
+pub fn main(): int:
+  test_fixed_object_pool_generic()
+  test_raw_pool_and_handles()
+  println("PASS: pool_alloc_test")
+  ret 0

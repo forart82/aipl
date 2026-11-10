@@ -1,0 +1,121 @@
+/// # Module: `std/net/http_server` (`NetHttpServer`)
+///
+/// ## Purpose & Domain Scope
+/// HTTP server router (`HttpRouter`), parameterized route matching (`HttpRoute`, `HttpContext`),
+/// W3C Server-Sent Events (`ServerSentEvent`), and HTTP/1.1 wire response serialization.
+module NetHttpServer
+
+import "net_addr.aipl"
+import "http_client.aipl"
+
+pub struct HttpRoute:
+  method: int
+  pathPattern: str
+  handlerId: int
+  paramNames: [str]
+
+pub struct HttpRouter:
+  mut routes: [HttpRoute]
+  mut staticPrefixes: Map[str, str]
+
+pub struct HttpContext:
+  req: HttpRequest
+  mut resHeaders: [HttpHeader]
+  mut resStatus: int
+  pathParams: Map[str, str]
+  queryParams: Map[str, str]
+  handlerId: int = 0
+
+pub struct ServerSentEvent:
+  event: str
+  data: str
+  id: str
+  retryMs: int
+
+pub fn createHttpRouter(): HttpRouter:
+  ret HttpRouter(routes: [], staticPrefixes: mapNew())
+
+pub fn routerAddRoute(mut router: HttpRouter, method: int, pathPattern: str, handlerId: int): HttpRouter:
+  let segs = pathPattern.split("/")
+  mut params: [str] = []
+  mut i = 0
+  while i < segs.len():
+    let s = segs[i]
+    if s.startsWith(":"):
+      params.push(s.slice(1, s.len()))
+    i = i + 1
+  router.routes.push(HttpRoute(method: method, pathPattern: pathPattern, handlerId: handlerId, paramNames: params))
+  ret router
+
+pub fn routerMatch(router: HttpRouter, method: int, requestPath: str): Option[HttpContext]:
+  mut pathOnly = requestPath
+  mut qs = ""
+  let qIdx = requestPath.indexOf("?")
+  if qIdx >= 0:
+    pathOnly = requestPath.slice(0, qIdx)
+    qs = requestPath.slice(qIdx + 1, requestPath.len())
+  let reqSegs = pathOnly.split("/")
+
+  mut ri = 0
+  while ri < router.routes.len():
+    let route = router.routes[ri]
+    if route.method == method:
+      let patSegs = route.pathPattern.split("/")
+      if patSegs.len() == reqSegs.len():
+        mut matched = true
+        mut pathParams = mapNew()
+        mut si = 0
+        while si < patSegs.len():
+          let ps = patSegs[si]
+          let rs = reqSegs[si]
+          if ps.startsWith(":"):
+            let pName = ps.slice(1, ps.len())
+            pathParams.set(pName, rs)
+          elif ps != "*" and ps != rs:
+            matched = false
+            break
+          si = si + 1
+        if matched:
+          let dummyUrl = Url(scheme: "http", user: "", host: "localhost", port: 80, path: pathOnly, query: decodeQueryString(qs), fragment: "")
+          let dummyReq = HttpRequest(method: "GET", url: dummyUrl, headers: [], body: [], timeoutMs: 5000, maxRedirects: 0)
+          ret Some(HttpContext(
+            req: dummyReq,
+            resHeaders: [],
+            resStatus: 200,
+            pathParams: pathParams,
+            queryParams: decodeQueryString(qs),
+            handlerId: route.handlerId
+          ))
+    ri = ri + 1
+  ret None
+
+pub fn formatSseMessage(sse: ServerSentEvent): str:
+  mut lines: [str] = []
+  if sse.id.len() > 0:
+    lines.push("id: " + sse.id)
+  if sse.event.len() > 0:
+    lines.push("event: " + sse.event)
+  if sse.retryMs > 0:
+    lines.push("retry: " + str(sse.retryMs))
+  lines.push("data: " + sse.data)
+  ret lines.join("\n") + "\n\n"
+
+pub fn renderHttpResponse(ctx: HttpContext, body: [int]): [int]:
+  mut head = "HTTP/1.1 " + str(ctx.resStatus) + " OK\r\n"
+  mut i = 0
+  while i < ctx.resHeaders.len():
+    let h = ctx.resHeaders[i]
+    head = head + h.name + ": " + h.value + "\r\n"
+    i = i + 1
+  head = head + "Content-Length: " + str(body.len()) + "\r\n\r\n"
+  let headBytes = head.toBytes()
+  mut out: [int] = []
+  mut hi = 0
+  while hi < headBytes.len():
+    out.push(headBytes[hi] & 255)
+    hi = hi + 1
+  mut bi = 0
+  while bi < body.len():
+    out.push(body[bi] & 255)
+    bi = bi + 1
+  ret out

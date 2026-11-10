@@ -1,0 +1,55 @@
+module Ex247MechanicsInventorySpatialGridWindowTest
+
+import { InventoryItem, slotListNew, slotListInsert, slotListCountTag, slotListTotalWeight, spatialMatrixNew, spatialMatrixCanFit, spatialMatrixInsert, spatialMatrixOccupiedCells } from "../../std/mechanics/inventory_container"
+import { InventoryScene, initScene, stepScene, auditMechanicsInventorySpatialGrid } from "../../examples/ex_247_mechanics_inventory_spatial_grid_window"
+
+fn test_mechanics_inventory_spatial_grid(): void:
+  mut slots = slotListNew(2)
+  let potion = InventoryItem(id = 10, itemTag = "Potion", quantity = 3, maxStack = 5, gridWidth = 1, gridHeight = 1, unitWeight = 0.5)
+  assert(slotListInsert(slots, potion) and slotListInsert(slots, potion), "slotListInsert merges and spills")
+  assert(slotListCountTag(slots, "Potion") == 6, "slotListCountTag == 6")
+  assert(slotListTotalWeight(slots) == 3.0, "slotListTotalWeight == 3.0")
+
+  mut matrix = spatialMatrixNew(5, 5)
+  let item2x2 = InventoryItem(id = 1, itemTag = "GearBox", quantity = 1, maxStack = 1, gridWidth = 2, gridHeight = 2, unitWeight = 5.0)
+  assert(spatialMatrixCanFit(matrix, item2x2, 0, 0, false), "vacant matrix accepts 2x2 item")
+  spatialMatrixInsert(matrix, item2x2, 0, 0, false)
+  assert(spatialMatrixOccupiedCells(matrix) == 4, "spatialMatrixOccupiedCells == 4")
+
+  mut scene = initScene()
+  let occ0 = scene.occupiedCount
+  let w0 = scene.totalWeight
+  scene = stepScene(scene, 0, 0.1)
+  let occ1 = scene.occupiedCount
+  let w1 = scene.totalWeight
+  assert(occ1 > occ0, "t=0 -> t=1 loot roll inserts item into spatial matrix")
+  assert(w1 > w0, "t=0 -> t=1 total inventory weight increases")
+
+  mut f = 1
+  while f < 20:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  let occ20 = scene.occupiedCount
+  let w20 = scene.totalWeight
+  assert(occ20 > occ1, "t=1 -> t=20 more spatial matrix cells occupied by rolled loot")
+  assert(w20 > w1, "t=1 -> t=20 total weight progresses")
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  mut sawSmeltCycle = false
+  while f < 100:
+    let prevOcc = scene.occupiedCount
+    scene = stepScene(scene, f, 0.1)
+    if scene.occupiedCount < prevOcc:
+      sawSmeltCycle = true
+    f = f + 1
+  assert(sawSmeltCycle, "t=20 -> t=100 spatial matrix auto-smelts/clears oldest loot when full so placements continue")
+  assert(scene.occupiedCount >= 11 and scene.occupiedCount <= 30, "t=100 spatial matrix occupancy stays within valid bounds")
+  assert(scene.stepCount == 100, "scene tracks 100 steps")
+
+  let audit = auditMechanicsInventorySpatialGrid()
+  assert(audit == 104, "Spatial inventory grid and loot table audit")
+
+pub fn main(): int:
+  test_mechanics_inventory_spatial_grid()
+  println("PASS: ex_247_mechanics_inventory_spatial_grid_window_test")
+  ret 0

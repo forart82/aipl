@@ -1,0 +1,108 @@
+module tests.functions.spatial.continuous_world2d_test
+
+import * from "std/spatial/continuous_world2d"
+import { sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { Rect2D } from "std/math/geom2d"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_continuous_world2d_continuousWorld2dNew_1(): int:
+  let arg_bounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0)
+  let edge_bounds = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0)
+  let arg_cellSize = 1.0
+  let edge_cellSize = 0.5
+  let resNom = continuousWorld2dNew(arg_bounds, arg_cellSize)
+  let resEdge = continuousWorld2dNew(edge_bounds, edge_cellSize)
+  assertApproxEq(resNom.cellSize, 1.0, 0.001, "continuousWorld2dNew nominal resNom.cellSize ~= 1.0")
+  assertApproxEq(resEdge.cellSize, 0.5, 0.001, "continuousWorld2dNew boundary resEdge.cellSize ~= 0.5")
+  ret 0
+
+pub fn test_continuous_world2d_continuousWorld2dInsert_2(): int:
+  let arg_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), cellSize = 1.0, objects = [], alive = [])
+  let edge_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0), cellSize = 0.5, objects = [], alive = [])
+  let arg_obj = SpatialObject2D(id = 1, position = Vec2(x = 1.0, y = 1.0), radius = 2.0, layerMask = 4, bounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0))
+  let edge_obj = SpatialObject2D(id = 0, position = Vec2(x = 0.5, y = 0.5), radius = 1.0, layerMask = 1, bounds = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0))
+  let resNom = continuousWorld2dInsert(arg_world, arg_obj)
+  let resEdge = continuousWorld2dInsert(edge_world, edge_obj)
+  assertEqInt(resNom, 1, "continuousWorld2dInsert nominal resNom == 1")
+  assertEqInt(resEdge, 0, "continuousWorld2dInsert boundary resEdge == 0")
+  ret 0
+
+pub fn test_continuous_world2d_continuousWorld2dUpdate_3(): int:
+  let arg_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), cellSize = 1.0, objects = [], alive = [])
+  let edge_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0), cellSize = 0.5, objects = [], alive = [])
+  let arg_id = 1
+  let edge_id = 0
+  let arg_newPos = Vec2(x = 1.0, y = 1.0)
+  let edge_newPos = Vec2(x = 0.5, y = 0.5)
+  let resNom = continuousWorld2dUpdate(arg_world, arg_id, arg_newPos)
+  let resEdge = continuousWorld2dUpdate(edge_world, edge_id, edge_newPos)
+  assert(resNom == false, "continuousWorld2dUpdate nominal resNom == false")
+  assert(resEdge == false, "continuousWorld2dUpdate boundary resEdge == false")
+  ret 0
+
+pub fn test_continuous_world2d_continuousWorld2dRemove_4(): int:
+  let arg_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), cellSize = 1.0, objects = [], alive = [])
+  let edge_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0), cellSize = 0.5, objects = [], alive = [])
+  let arg_id = 1
+  let edge_id = 0
+  let resNom = continuousWorld2dRemove(arg_world, arg_id)
+  let resEdge = continuousWorld2dRemove(edge_world, edge_id)
+  assert(resNom == false, "continuousWorld2dRemove nominal resNom == false")
+  assert(resEdge == false, "continuousWorld2dRemove boundary resEdge == false")
+  ret 0
+
+pub fn test_continuous_world2d_continuousWorld2dQueryRadius_5(): int:
+  let arg_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), cellSize = 1.0, objects = [], alive = [])
+  let edge_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0), cellSize = 0.5, objects = [], alive = [])
+  let arg_center = Vec2(x = 1.0, y = 1.0)
+  let edge_center = Vec2(x = 0.5, y = 0.5)
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let arg_layerMask = 4
+  let edge_layerMask = 1
+  let resNom = continuousWorld2dQueryRadius(arg_world, arg_center, arg_radius, arg_layerMask)
+  let resEdge = continuousWorld2dQueryRadius(edge_world, edge_center, edge_radius, edge_layerMask)
+  assertEqInt(resNom.len(), 0, "continuousWorld2dQueryRadius nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "continuousWorld2dQueryRadius boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_continuous_world2d_continuousWorld2dQueryAABB_6(): int:
+  let arg_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), cellSize = 1.0, objects = [], alive = [])
+  let edge_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0), cellSize = 0.5, objects = [], alive = [])
+  let arg_aabb = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0)
+  let edge_aabb = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0)
+  let arg_layerMask = 4
+  let edge_layerMask = 1
+  let resNom = continuousWorld2dQueryAABB(arg_world, arg_aabb, arg_layerMask)
+  let resEdge = continuousWorld2dQueryAABB(edge_world, edge_aabb, edge_layerMask)
+  assertEqInt(resNom.len(), 0, "continuousWorld2dQueryAABB nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "continuousWorld2dQueryAABB boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_continuous_world2d_continuousWorld2dRaycast_7(): int:
+  let arg_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 1.0, y = 1.0, w = 2.0, h = 2.0, width = 2.0, height = 2.0), cellSize = 1.0, objects = [], alive = [])
+  let edge_world = ContinuousSpaceWorld2D(worldBounds = Rect2D(x = 0.5, y = 0.5, w = 1.0, h = 1.0, width = 1.0, height = 1.0), cellSize = 0.5, objects = [], alive = [])
+  let arg_origin = Vec2(x = 1.0, y = 1.0)
+  let edge_origin = Vec2(x = 0.5, y = 0.5)
+  let arg_direction = Vec2(x = 1.0, y = 1.0)
+  let edge_direction = Vec2(x = 0.5, y = 0.5)
+  let arg_maxDist = 2.0
+  let edge_maxDist = 1.0
+  let arg_layerMask = 4
+  let edge_layerMask = 1
+  let resNom = continuousWorld2dRaycast(arg_world, arg_origin, arg_direction, arg_maxDist, arg_layerMask)
+  let resEdge = continuousWorld2dRaycast(edge_world, edge_origin, edge_direction, edge_maxDist, edge_layerMask)
+  assert(resNom.isSome() == false, "continuousWorld2dRaycast nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "continuousWorld2dRaycast boundary resEdge.isSome() == false")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_continuous_world2d_continuousWorld2dNew_1(), 0, "test_continuous_world2d_continuousWorld2dNew_1")
+  assertEqInt(test_continuous_world2d_continuousWorld2dInsert_2(), 0, "test_continuous_world2d_continuousWorld2dInsert_2")
+  assertEqInt(test_continuous_world2d_continuousWorld2dUpdate_3(), 0, "test_continuous_world2d_continuousWorld2dUpdate_3")
+  assertEqInt(test_continuous_world2d_continuousWorld2dRemove_4(), 0, "test_continuous_world2d_continuousWorld2dRemove_4")
+  assertEqInt(test_continuous_world2d_continuousWorld2dQueryRadius_5(), 0, "test_continuous_world2d_continuousWorld2dQueryRadius_5")
+  assertEqInt(test_continuous_world2d_continuousWorld2dQueryAABB_6(), 0, "test_continuous_world2d_continuousWorld2dQueryAABB_6")
+  assertEqInt(test_continuous_world2d_continuousWorld2dRaycast_7(), 0, "test_continuous_world2d_continuousWorld2dRaycast_7")
+  ret 0

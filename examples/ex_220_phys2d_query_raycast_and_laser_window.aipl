@@ -1,0 +1,167 @@
+module Ex220Phys2dQueryRaycastAndLaserWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import { sin, cos } from "../std/math/trig"
+import { Ray2D } from "../std/math/geom2d"
+import { PhysicsMaterial2D, circleColliderNew, boxColliderNew } from "../std/phys2d/collider2d"
+import {
+  RayHit2D, raycast2dSegment, raycast2dCircle,
+  raycast2dBox, shapeCastCircle2D
+} from "../std/phys2d/phys_query2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepLaserScanY(frame: int): float:
+  let cyc = (frame * 3) % 640
+  let offset = if cyc <= 320: float(cyc) else: float(640 - cyc)
+  ret 210.0 + offset
+
+pub fn stepTargetBoxAngle(frame: int): float:
+  ret 0.18 + float(frame) * 0.021
+
+fn drawRotatedBox2D(center: Vec2, halfExt: Vec2, angle: float, col: int): void:
+  let c = cos(angle)
+  let s = sin(angle)
+  let dxX = halfExt.x * c
+  let dxY = halfExt.x * s
+  let dyX = -halfExt.y * s
+  let dyY = halfExt.y * c
+  let p0x = center.x - dxX - dyX
+  let p0y = center.y - dxY - dyY
+  let p1x = center.x + dxX - dyX
+  let p1y = center.y + dxY - dyY
+  let p2x = center.x + dxX + dyX
+  let p2y = center.y + dxY + dyY
+  let p3x = center.x - dxX + dyX
+  let p3y = center.y - dxY + dyY
+  drawLine(p0x, p0y, p1x, p1y, col, 2.5)
+  drawLine(p1x, p1y, p2x, p2y, col, 2.5)
+  drawLine(p2x, p2y, p3x, p3y, col, 2.5)
+  drawLine(p3x, p3y, p0x, p0y, col, 2.5)
+
+pub fn buildPhys2dQueryRaycastAudit(): int:
+  let ray = Ray2D(origin = Vec2(x = -20.0, y = 0.0), dir = Vec2(x = 1.0, y = 0.0), direction = Vec2(x = 1.0, y = 0.0), maxDistance = 100.0)
+  let hSeg = raycast2dSegment(ray, Vec2(x = 0.0, y = -10.0), Vec2(x = 0.0, y = 10.0))
+  let hc: RayHit2D = raycast2dCircle(ray, Vec2(x = 0.0, y = 0.0), 10.0).unwrap()
+  let hBox = raycast2dBox(ray, Vec2(x = 0.0, y = 0.0), Vec2(x = 5.0, y = 5.0), 0.0)
+  let mat = PhysicsMaterial2D(restitution = 0.2, friction = 0.3, density = 1.0)
+  let colC = circleColliderNew(5.0, mat)
+  let hSweep = shapeCastCircle2D(Vec2(x = -20.0, y = 0.0), 2.0, Vec2(x = 40.0, y = 0.0), [colC])
+  ret int(-hc.point.x) + (if hSeg.isSome(): 1 else: 0) + (if hBox.isSome(): 1 else: 0) + (if hSweep.isSome(): 1 else: 0)
+
+pub fn main(): int:
+  let auditScore = buildPhys2dQueryRaycastAudit()
+
+  initWindow(1280, 720, "AIPL ex_220: Phys2D Raycast (Segment, Circle, Box) & Circle ShapeCast Laser")
+  mut frame = 0
+  while not windowShouldClose():
+    let laserY = stepLaserScanY(frame)
+    let boxAngle = stepTargetBoxAngle(frame)
+    let sweepRadius = 18.0
+    let cirCenter = Vec2(x = 460.0, y = 255.0)
+    let cirRadius = 64.0
+    let boxCenter = Vec2(x = 800.0, y = 385.0)
+    let boxHalf = Vec2(x = 74.0, y = 58.0)
+    let segA = Vec2(x = 1100.0, y = 150.0)
+    let segB = Vec2(x = 1100.0, y = 580.0)
+
+    let ray = Ray2D(origin = Vec2(x = 110.0, y = laserY), dir = Vec2(x = 1.0, y = 0.0), direction = Vec2(x = 1.0, y = 0.0), maxDistance = 1040.0)
+    let hCir = raycast2dCircle(ray, cirCenter, cirRadius)
+    let hBox = raycast2dBox(ray, boxCenter, boxHalf, boxAngle)
+    let hSeg = raycast2dSegment(ray, segA, segB)
+    let mat = PhysicsMaterial2D(restitution = 0.2, friction = 0.3, density = 1.0)
+    mut colC = circleColliderNew(cirRadius, mat)
+    colC.offset = cirCenter
+    mut colB = boxColliderNew(boxHalf.x * 2.0, boxHalf.y * 2.0, mat)
+    colB.offset = boxCenter
+    let hSweep = shapeCastCircle2D(Vec2(x = 110.0, y = laserY), sweepRadius, Vec2(x = 990.0, y = 0.0), [colC, colB])
+
+    // Determine earliest hit along laser
+    mut hitPt = Vec2(x = 1100.0, y = laserY)
+    mut hitNorm = Vec2(x = -1.0, y = 0.0)
+    mut hitFrac = 1.0
+    mut hitTag = "SEGMENT WALL"
+    if hSeg.isSome():
+      let hs: RayHit2D = hSeg.unwrap()
+      hitPt = hs.point
+      hitNorm = hs.normal
+      hitFrac = hs.fraction
+    if hBox.isSome():
+      let hb: RayHit2D = hBox.unwrap()
+      if hb.fraction < hitFrac:
+        hitPt = hb.point
+        hitNorm = hb.normal
+        hitFrac = hb.fraction
+        hitTag = "ROTATED OBB"
+    if hCir.isSome():
+      let hc: RayHit2D = hCir.unwrap()
+      if hc.fraction < hitFrac:
+        hitPt = hc.point
+        hitNorm = hc.normal
+        hitFrac = hc.fraction
+        hitTag = "CIRCLE TARGET"
+
+    beginDrawing()
+    clearScreen(rgb(9, 13, 22))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_220: PHYS2D RAYCAST (CIRCLE, OBB, SEGMENT) & SHAPECAST LASER", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("laserY=" + str(int(laserY)) + " | hit=" + hitTag + " | hitX=" + str(int(hitPt.x)) + " | sweepHit=" + str(hSweep.isSome()) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Main Arena Frame
+    drawRect(44.0, 112.0, 1192.0, 576.0, rgb(13, 19, 34))
+    drawRectOutline(44.0, 112.0, 1192.0, 576.0, 1.5, rgb(51, 65, 85))
+
+    // Draw Circle Target + Minkowski Sweep Margin
+    drawCircleOutline(cirCenter.x, cirCenter.y, cirRadius + sweepRadius, 1.0, rgb(51, 95, 135))
+    drawCircle(cirCenter.x, cirCenter.y, cirRadius, rgb(20, 38, 62))
+    drawCircleOutline(cirCenter.x, cirCenter.y, cirRadius, 2.5, rgb(56, 189, 248))
+    drawText("Circle Target (r=64)", cirCenter.x - 68.0, cirCenter.y - 102.0, 15.0, rgb(125, 211, 252))
+
+    // Draw Rotated OBB Box Target
+    drawRotatedBox2D(boxCenter, boxHalf, boxAngle, rgb(168, 85, 247))
+    drawCircle(boxCenter.x, boxCenter.y, 4.0, rgb(192, 132, 252))
+    drawText("Rotated OBB Target", boxCenter.x - 72.0, boxCenter.y - 122.0, 15.0, rgb(216, 180, 254))
+
+    // Draw Backstop Segment Wall
+    drawLine(segA.x, segA.y, segB.x, segB.y, rgb(52, 211, 153), 5.0)
+    drawText("Segment Backstop", 1018.0, 596.0, 15.0, rgb(110, 231, 183))
+
+    // Draw Swept Circle ShapeCast2D TOI Ghost (stops tangent to surface before point ray hits)
+    if hSweep.isSome():
+      let sw: RayHit2D = hSweep.unwrap()
+      let swCenterX = sw.point.x
+      drawCircleOutline(swCenterX, laserY, sweepRadius, 2.0, rgb(34, 211, 238))
+      drawCircle(swCenterX, laserY, 3.5, rgb(34, 211, 238))
+      drawText("ShapeCast TOI", swCenterX - 96.0, laserY + 22.0, 12.0, rgb(34, 211, 238))
+
+    // Draw Primary Laser Beam, Surface Hit Normal & Specular Reflection Ray
+    drawRect(78.0, laserY - 12.0, 32.0, 24.0, rgb(71, 85, 105))
+    drawCircle(110.0, laserY, 8.0, rgb(250, 204, 21))
+    drawLine(110.0, laserY, hitPt.x, hitPt.y, rgb(239, 68, 68), 3.0)
+    drawCircle(hitPt.x, hitPt.y, 6.5, rgb(250, 204, 21))
+
+    // Surface Normal Vector N
+    let normEndX = hitPt.x + hitNorm.x * 46.0
+    let normEndY = hitPt.y + hitNorm.y * 46.0
+    drawLine(hitPt.x, hitPt.y, normEndX, normEndY, rgb(250, 204, 21), 2.5)
+    drawCircle(normEndX, normEndY, 4.0, rgb(250, 204, 21))
+
+    // Reflected Laser Bounce Vector R = D - 2*(D.N)*N where D = (1, 0)
+    let dotDN = hitNorm.x
+    let refX = 1.0 - 2.0 * dotDN * hitNorm.x
+    let refY = -2.0 * dotDN * hitNorm.y
+    drawLine(hitPt.x, hitPt.y, hitPt.x + refX * 82.0, hitPt.y + refY * 82.0, rgb(249, 115, 22), 2.0)
+
+    drawText("Red: Primary Raycast2D | Cyan Ring: ShapeCastCircle2D (r=18) | Yellow: Surface Normal | Orange: Reflected Bounce", 68.0, 654.0, 14.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

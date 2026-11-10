@@ -1,0 +1,108 @@
+/// # Module: `std/phys2d/rigid_body2d` (`RigidBody2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Explicit dynamic, kinematic, and static 2D rigid bodies with mass,
+/// moment of inertia, velocity damping, and symplectic Euler integration.
+module RigidBody2DMod
+
+import { maxFloat } from "std/math/consts"
+import { Vec2 } from "std/math/vec_math"
+
+pub enum BodyType2D:
+  Static
+  Kinematic
+  Dynamic
+
+pub struct MassProperties2D(mass: float, invMass: float, inertia: float, invInertia: float, localCenter: Vec2)
+
+pub struct RigidBody2D(id: int, bodyType: BodyType2D, position: Vec2, angle: float, linearVelocity: Vec2, angularVelocity: float, linearDamping: float, angularDamping: float, gravityScale: float, massProps: MassProperties2D, isAwake: bool, isBullet: bool)
+
+pub fn rigidBody2dNew(id: int, bodyType: BodyType2D, position: Vec2, angle: float): RigidBody2D:
+  let isDyn = bodyType == BodyType2D.Dynamic
+  let m = if isDyn: 1.0 else: 0.0
+  let invM = if isDyn: 1.0 else: 0.0
+  ret RigidBody2D(
+    id = id,
+    bodyType = bodyType,
+    position = position,
+    angle = angle,
+    linearVelocity = Vec2(x = 0.0, y = 0.0),
+    angularVelocity = 0.0,
+    linearDamping = 0.0,
+    angularDamping = 0.0,
+    gravityScale = 1.0,
+    massProps = MassProperties2D(
+      mass = m,
+      invMass = invM,
+      inertia = m,
+      invInertia = invM,
+      localCenter = Vec2(x = 0.0, y = 0.0)
+    ),
+    isAwake = true,
+    isBullet = false
+  )
+
+pub fn rigidBody2dSetMass(mut body: RigidBody2D, mass: float, inertia: float): void:
+  let isDyn = body.bodyType == BodyType2D.Dynamic
+  let invM = if isDyn and mass > 0.0: 1.0 / mass else: 0.0
+  let invI = if isDyn and inertia > 0.0: 1.0 / inertia else: 0.0
+  let oldMp: MassProperties2D = body.massProps
+  body.massProps = MassProperties2D(
+    mass = if isDyn: mass else: 0.0,
+    invMass = invM,
+    inertia = if isDyn: inertia else: 0.0,
+    invInertia = invI,
+    localCenter = oldMp.localCenter
+  )
+
+pub fn rigidBody2dApplyForce(mut body: RigidBody2D, force: Vec2, worldPoint: Vec2): void:
+  if body.bodyType != BodyType2D.Dynamic:
+    ret
+  let mp: MassProperties2D = body.massProps
+  let vel: Vec2 = body.linearVelocity
+  body.linearVelocity = Vec2(
+    x = vel.x + force.x * mp.invMass,
+    y = vel.y + force.y * mp.invMass
+  )
+  let rx = worldPoint.x - body.position.x
+  let ry = worldPoint.y - body.position.y
+  let torque = rx * force.y - ry * force.x
+  body.angularVelocity = body.angularVelocity + torque * mp.invInertia
+
+pub fn rigidBody2dApplyLinearImpulse(mut body: RigidBody2D, impulse: Vec2): void:
+  if body.bodyType != BodyType2D.Dynamic:
+    ret
+  let mp: MassProperties2D = body.massProps
+  let vel: Vec2 = body.linearVelocity
+  body.linearVelocity = Vec2(
+    x = vel.x + impulse.x * mp.invMass,
+    y = vel.y + impulse.y * mp.invMass
+  )
+
+pub fn rigidBody2dApplyAngularImpulse(mut body: RigidBody2D, impulse: float): void:
+  if body.bodyType != BodyType2D.Dynamic:
+    ret
+  let mp: MassProperties2D = body.massProps
+  body.angularVelocity = body.angularVelocity + impulse * mp.invInertia
+
+pub fn rigidBody2dIntegrateVelocity(mut body: RigidBody2D, gravity: Vec2, dt: float): void:
+  if body.bodyType != BodyType2D.Dynamic or (not body.isAwake):
+    ret
+  let vel: Vec2 = body.linearVelocity
+  let vx = vel.x + gravity.x * body.gravityScale * dt
+  let vy = vel.y + gravity.y * body.gravityScale * dt
+  let linDamp = 1.0 / (1.0 + maxFloat(0.0, body.linearDamping * dt))
+  let angDamp = 1.0 / (1.0 + maxFloat(0.0, body.angularDamping * dt))
+  body.linearVelocity = Vec2(x = vx * linDamp, y = vy * linDamp)
+  body.angularVelocity = body.angularVelocity * angDamp
+
+pub fn rigidBody2dIntegratePosition(mut body: RigidBody2D, dt: float): void:
+  if body.bodyType == BodyType2D.Static or (not body.isAwake):
+    ret
+  let pos: Vec2 = body.position
+  let vel: Vec2 = body.linearVelocity
+  body.position = Vec2(
+    x = pos.x + vel.x * dt,
+    y = pos.y + vel.y * dt
+  )
+  body.angle = body.angle + body.angularVelocity * dt

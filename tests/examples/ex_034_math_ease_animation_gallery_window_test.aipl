@@ -1,0 +1,44 @@
+// ============================================================================
+// Twin Test Suite 034: Easing Animation Gallery & Curve Plotter Window
+// Verifies examples/ex_034_math_ease_animation_gallery_window.aipl
+// ============================================================================
+module Ex034MathEaseAnimationGalleryWindowTest
+
+import {
+  EaseGalleryState,
+  evaluateMidpointEaseSumPermille,
+  verifyBoundaryEasingInvariants,
+  describeEaseCurveFamily,
+  buildEaseGalleryState,
+  renderFrameStep
+} from "../../examples/ex_034_math_ease_animation_gallery_window"
+
+pub fn test_easing_midpoints_and_boundaries(): int:
+  // At t = 0.5: easeInQuad(0.25) + easeOutQuad(0.75) + easeInOutCubic(0.5) + easeSmoothstep(0.5) == 2.0 -> 2000 permille
+  assert(evaluateMidpointEaseSumPermille() == 2000, "midpoint ease sum == 2000 permille")
+  assert(verifyBoundaryEasingInvariants() == 1, "Back, Elastic, and Bounce satisfy f(0)=0 and f(1)=1")
+  ret 0
+
+pub fn test_ease_gallery_state_and_step(): int:
+  let st0 = buildEaseGalleryState(0)
+  let st1 = buildEaseGalleryState(1)
+  let st20 = buildEaseGalleryState(20)
+  let st60 = buildEaseGalleryState(60)
+  let st100 = buildEaseGalleryState(100)
+  assert(st0.tPermille == 0 and st1.tPermille > 0 and st20.tPermille > st1.tPermille and st100.tPermille > st20.tPermille, "tPermille advances across 0 -> 1 -> 20 -> 100")
+  assert(st60.tPermille == 500, "frame 60 / 120 -> t = 500 permille")
+  assert(st60.quadPermille == 250, "easeInQuad(0.5) == 250 permille")
+  assert(st100.cubicPermille > st60.cubicPermille, "easeInOutCubic advances past midpoint at frame 100")
+  assert(describeEaseCurveFamily(0) == "EASE:ROBERT_PENNER_GALLERY_6_LANE", "family 0")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m1 > m0 and m20 > m1 and m100 > m20, "renderFrameStep progresses across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_easing_midpoints_and_boundaries()
+  test_ease_gallery_state_and_step()
+  println("PASS: ex_034_math_ease_animation_gallery_window_test")
+  ret 0

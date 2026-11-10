@@ -1,0 +1,68 @@
+module Ex249MechanicsEconomyCraftingAndMarketWindowTest
+
+import { CraftingIngredient, CraftingRecipe, resourceLedgerNew, ledgerDeposit, ledgerGetBalance, ledgerTransfer, craftingCanFulfill, craftingMaxBatchCount, craftingExecute, computeSupplyDemandPrice } from "../../std/mechanics/economy_ledger"
+import { EconomyScene, initScene, stepScene, auditMechanicsEconomyCraftingMarket } from "../../examples/ex_249_mechanics_economy_crafting_and_market_window"
+
+fn test_mechanics_economy_crafting_and_market(): void:
+  mut ledger = resourceLedgerNew()
+  ledgerDeposit(ledger, "treasury", 1000)
+  ledgerDeposit(ledger, "player", 500)
+  assert(ledgerTransfer(ledger, "player", "treasury", 200), "ledgerTransfer")
+  assert(ledgerGetBalance(ledger, "player") == 300 and ledgerGetBalance(ledger, "treasury") == 1200, "double-entry balances")
+
+  ledgerDeposit(ledger, "player:iron_ore", 4)
+  ledgerDeposit(ledger, "player:coal", 2)
+  let recipe = CraftingRecipe(
+    recipeId = "smelt_steel",
+    inputs = [CraftingIngredient(itemTag = "iron_ore", amount = 2), CraftingIngredient(itemTag = "coal", amount = 1)],
+    outputs = [CraftingIngredient(itemTag = "steel_ingot", amount = 1)],
+    craftDurationSec = 2.0
+  )
+  assert(craftingCanFulfill(ledger, "player", recipe) and craftingMaxBatchCount(ledger, "player", recipe) == 2, "craftingCanFulfill")
+  assert(craftingExecute(ledger, "player", recipe) and ledgerGetBalance(ledger, "player:steel_ingot") == 1, "craftingExecute")
+  assert(computeSupplyDemandPrice(10.0, 100, 150, 0.5) == 12.5, "computeSupplyDemandPrice")
+
+  mut scene = initScene()
+  let pGold0 = ledgerGetBalance(scene.ledger, "player")
+  let tGold0 = ledgerGetBalance(scene.ledger, "treasury")
+  let steel0 = ledgerGetBalance(scene.ledger, "player:steel_ingot")
+  scene = stepScene(scene, 0, 0.1)
+  let pGold1 = ledgerGetBalance(scene.ledger, "player")
+  let tGold1 = ledgerGetBalance(scene.ledger, "treasury")
+  let steel1 = ledgerGetBalance(scene.ledger, "player:steel_ingot")
+  assert(steel1 > steel0, "t=0 -> t=1 craftingExecute smelts steel ingot")
+  assert(pGold1 > pGold0 and tGold1 > tGold0, "t=0 -> t=1 market sale and progressive tax transfer update balances")
+
+  mut f = 1
+  while f < 20:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  let pGold20 = ledgerGetBalance(scene.ledger, "player")
+  let tGold20 = ledgerGetBalance(scene.ledger, "treasury")
+  let steel20 = ledgerGetBalance(scene.ledger, "player:steel_ingot")
+  assert(pGold20 > pGold1 and steel20 > steel1, "t=1 -> t=20 economy ledger and crafting output accumulate")
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  while f < 100:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  let pGold100 = ledgerGetBalance(scene.ledger, "player")
+  let tGold100 = ledgerGetBalance(scene.ledger, "treasury")
+  let steel100 = ledgerGetBalance(scene.ledger, "player:steel_ingot")
+  assert(pGold100 > pGold20 and tGold100 > tGold20 and steel100 > steel20, "t=20 -> t=100 economy ledger, tax treasury, and crafted steel continue progressing")
+  assert(scene.marketPrice >= 5.0 and scene.marketPrice <= 25.0, "t=100 market price stays bounded within equilibrium corridor")
+  assert(scene.stepCount == 100, "scene tracks 100 steps")
+
+  while f < 300:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  let pGold300 = ledgerGetBalance(scene.ledger, "player")
+  assert(pGold300 > 0 and pGold300 < 9000, "sovereign export settlement keeps player gold bounded over long runs")
+
+  let audit = auditMechanicsEconomyCraftingMarket()
+  assert(audit == 316, "Economy ledger, crafting, and market audit")
+
+pub fn main(): int:
+  test_mechanics_economy_crafting_and_market()
+  println("PASS: ex_249_mechanics_economy_crafting_and_market_window_test")
+  ret 0

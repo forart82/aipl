@@ -1,0 +1,98 @@
+module AssetBundleMod
+
+// ============================================================================
+// std/asset/asset_bundle.aipl — Virtual Packed Archive (.pak) & VFS Mount
+// ============================================================================
+
+pub const BUNDLE_MAGIC: int = 1346456369
+pub const COMPRESS_NONE: int = 0
+pub const COMPRESS_DEFLATE: int = 1
+pub const COMPRESS_LZ4: int = 2
+
+pub struct BundleHeader(magic: int, version: int, fileCount: int, tocOffset: int, tocSizeBytes: int)
+
+pub struct BundleEntry(pathHash: int, virtualPath: str, offsetBytes: int, compressedSize: int, uncompressedSize: int, compressionMethod: int)
+
+pub struct AssetBundle(header: BundleHeader, entries: Map[str, BundleEntry], archiveData: [int])
+
+pub fn createAssetBundle(entries: [BundleEntry], data: [int]): AssetBundle:
+  mut m: Map[str, BundleEntry] = Map.new()
+  mut i = 0
+  while i < entries.len:
+    let e = entries[i]
+    m.set(e.virtualPath, e)
+    i += 1
+  let hdr = BundleHeader(
+    magic = BUNDLE_MAGIC,
+    version = 1,
+    fileCount = entries.len,
+    tocOffset = data.len,
+    tocSizeBytes = entries.len * 32
+  )
+  ret AssetBundle(header = hdr, entries = m, archiveData = data)
+
+fn readU32BEAt(b: [int], off: int): int:
+  if off + 4 > b.len:
+    ret 0
+  ret ((b[off] & 255) << 24) | ((b[off + 1] & 255) << 16) | ((b[off + 2] & 255) << 8) | (b[off + 3] & 255)
+
+pub fn openAssetBundle(archiveBytes: [int]): Option[AssetBundle]:
+  if archiveBytes.len < 20:
+    ret None
+  let magic = readU32BEAt(archiveBytes, 0)
+  if magic != BUNDLE_MAGIC:
+    ret None
+  let version = readU32BEAt(archiveBytes, 4)
+  let fileCount = readU32BEAt(archiveBytes, 8)
+  let tocOff = readU32BEAt(archiveBytes, 12)
+  let tocSize = readU32BEAt(archiveBytes, 16)
+  let hdr = BundleHeader(
+    magic = magic,
+    version = version,
+    fileCount = fileCount,
+    tocOffset = tocOff,
+    tocSizeBytes = tocSize
+  )
+  mut m: Map[str, BundleEntry] = Map.new()
+  if fileCount > 0 and tocOff >= 20 and tocOff + fileCount * 20 <= archiveBytes.len:
+    mut idx = 0
+    mut cursor = tocOff
+    while idx < fileCount and cursor + 20 <= archiveBytes.len:
+      let pHash = readU32BEAt(archiveBytes, cursor)
+      let offBytes = readU32BEAt(archiveBytes, cursor + 4)
+      let compSz = readU32BEAt(archiveBytes, cursor + 8)
+      let uncompSz = readU32BEAt(archiveBytes, cursor + 12)
+      let compMethod = readU32BEAt(archiveBytes, cursor + 16)
+      let vPath = "entry_" + str(idx)
+      m.set(vPath, BundleEntry(
+        pathHash = pHash,
+        virtualPath = vPath,
+        offsetBytes = offBytes,
+        compressedSize = compSz,
+        uncompressedSize = uncompSz,
+        compressionMethod = compMethod
+      ))
+      cursor = cursor + 20
+      idx = idx + 1
+  ret Some(AssetBundle(header = hdr, entries = m, archiveData = archiveBytes))
+
+pub fn hasBundleFile(bundle: AssetBundle, virtualPath: str): bool:
+  ret bundle.entries.containsKey(virtualPath)
+
+pub fn extractBundleEntry(bundle: AssetBundle, entry: BundleEntry): [int]:
+  mut out: [int] = []
+  let start = entry.offsetBytes
+  let end = start + entry.compressedSize
+  if start < 0 or end > bundle.archiveData.len:
+    ret out
+  mut i = start
+  while i < end:
+    out.push(bundle.archiveData[i])
+    i += 1
+  ret out
+
+pub fn readBundleFile(bundle: AssetBundle, virtualPath: str): Option[[int]]:
+  if not bundle.entries.containsKey(virtualPath):
+    ret None
+  let entry = bundle.entries.get(virtualPath).unwrap()
+  ret Some(extractBundleEntry(bundle, entry))

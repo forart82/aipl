@@ -1,0 +1,70 @@
+// ============================================================================
+// Example 108: ANSI TrueColor Terminal Table, ProgressBar & Sparkline (CLI)
+// Demonstrates: ansiBold, ansiRgbFg, ansiRed, visibleWidth, cursorMoveTo,
+//               termTableNew, termTableAddColumn, termTableAddRow,
+//               termTableRender, progressBarNew, progressBarUpdate,
+//               progressBarFinish, spinnerNew, spinnerTick, spinnerFinish,
+//               and termSparkline from std/os.
+// ============================================================================
+module Ex108OsAnsiTermDashboardCli
+
+import {
+  ansiBold,
+  ansiRgbFg,
+  ansiRed,
+  visibleWidth,
+  cursorMoveTo,
+  termTableNew,
+  termTableAddColumn,
+  termTableAddRow,
+  termTableRender,
+  progressBarNew,
+  progressBarUpdate,
+  progressBarFinish,
+  spinnerNew,
+  spinnerTick,
+  spinnerFinish,
+  termSparkline
+} from "../std/os"
+
+// Measures the ANSI-stripped visible width of a styled banner and a 4-point Unicode sparkline.
+pub fn evaluateVisibleWidthAndSparklineLen(): int:
+  let styled = ansiRed("Dashboard")
+  let vis = visibleWidth(styled)
+  let boldHdr = ansiBold("Alert")
+  let rgbTxt = ansiRgbFg(255, 128, 0, "Orange")
+  assert(boldHdr.contains("Alert") and rgbTxt.contains("38;2;255;128;0m"), "ANSI escape sequences applied")
+  let spark = termSparkline([10.0, 20.0, 30.0, 40.0])
+  assert(spark.len > 0 and cursorMoveTo(5, 10).contains("5;10H"), "sparkline & cursor move")
+  ret vis + 2
+
+// Verifies ASCII/Unicode table rendering, progress bar percentages, and spinner frame transitions.
+pub fn verifyTermTableProgressBarAndSpinner(): int:
+  mut tbl = termTableNew(["Module", "LOC"])
+  tbl = termTableAddColumn(tbl, "Status", 0)
+  tbl = termTableAddRow(tbl, ["std/os", "1420", "PASS"])
+  let renderedTbl = termTableRender(tbl)
+
+  mut pb = progressBarNew(100, 10, "Build")
+  let midPb = progressBarUpdate(pb, 50)
+  let endPb = progressBarFinish(pb)
+
+  mut sp = spinnerNew("Compiling")
+  let tickSp = spinnerTick(sp)
+  let doneSp = spinnerFinish(sp, "Done")
+  if renderedTbl.contains("std/os") and midPb.contains("50%") and endPb.contains("100%") and tickSp.contains("Compiling") and doneSp.contains("Done"):
+    ret 1
+  ret 0
+
+// Returns a canonical label for a terminal's ANSI color depth.
+pub fn describeAnsiColorCapability(bitDepth: int): str:
+  if bitDepth == 24:
+    ret "TERM:TRUECOLOR_24BIT_RGB"
+  ret "TERM:ANSI_16_PALETTE"
+
+pub fn main(): int:
+  let widthMetric = evaluateVisibleWidthAndSparklineLen()
+  let widgetsOk = verifyTermTableProgressBarAndSpinner()
+  let cap = describeAnsiColorCapability(24)
+  println("ex_108_os_ansi_term_dashboard_cli: widthMetric=" + str(widthMetric) + " widgetsOk=" + str(widgetsOk) + " cap=" + cap)
+  ret 0

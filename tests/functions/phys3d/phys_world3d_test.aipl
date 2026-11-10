@@ -1,0 +1,71 @@
+module tests.functions.phys3d.phys_world3d_test
+
+import * from "std/phys3d/phys_world3d"
+import { Vec3 } from "std/math/vec_math"
+import { RigidBody3D, rigidBody3dIntegrate } from "std/phys3d/rigid_body3d"
+import { Collider3D } from "std/phys3d/collider3d"
+import { Joint3D, joint3dSolveVelocity } from "std/phys3d/joint3d"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_phys_world3d_physWorld3dNew_1(): int:
+  let arg_gravity = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_gravity = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let resNom = physWorld3dNew(arg_gravity)
+  let resEdge = physWorld3dNew(edge_gravity)
+  assertEqInt(resNom.bodies.len(), 0, "physWorld3dNew nominal resNom.bodies.len() == 0")
+  assertEqInt(resEdge.bodies.len(), 0, "physWorld3dNew boundary resEdge.bodies.len() == 0")
+  ret 0
+
+pub fn test_phys_world3d_physWorld3dAddBody_2(): int:
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_body = RigidBody3D(id = 1, bodyType = BodyType3D.Static, position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), linearVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), angularVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0), linearDamping = 1.0, angularDamping = 1.0, mass = 2.0, invMass = 2.0, localInertia = InertiaTensor3x3(ixx = 1.0, iyy = 1.0, izz = 1.0, ixy = 1.0, ixz = 1.0, iyz = 1.0), invInertiaWorld = Mat3(m00 = 1.0, m01 = 1.0, m02 = 1.0, m10 = 1.0, m11 = 1.0, m12 = 1.0, m20 = 1.0, m21 = 1.0, m22 = 1.0), isAwake = true, isBulletCCD = true)
+  let edge_body = RigidBody3D(id = 0, bodyType = BodyType3D.Static, position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), linearVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), angularVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5), linearDamping = 0.5, angularDamping = 0.5, mass = 1.0, invMass = 1.0, localInertia = InertiaTensor3x3(ixx = 0.5, iyy = 0.5, izz = 0.5, ixy = 0.5, ixz = 0.5, iyz = 0.5), invInertiaWorld = Mat3(m00 = 0.5, m01 = 0.5, m02 = 0.5, m10 = 0.5, m11 = 0.5, m12 = 0.5, m20 = 0.5, m21 = 0.5, m22 = 0.5), isAwake = false, isBulletCCD = false)
+  let resNom = physWorld3dAddBody(arg_world, arg_body)
+  let resEdge = physWorld3dAddBody(edge_world, edge_body)
+  assertEqInt(resNom, 0, "physWorld3dAddBody nominal resNom == 0")
+  assertEqInt(resEdge, 0, "physWorld3dAddBody boundary resEdge == 0")
+  ret 0
+
+pub fn test_phys_world3d_physWorld3dAddCollider_3(): int:
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_bodyId = 4
+  let edge_bodyId = 1
+  let arg_collider = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), rotation = Quat(x = 1.0, y = 1.0, z = 1.0, w = 2.0), scale = Vec3(x = 1.0, y = 1.0, z = 1.0)), sphereRadius = 2.0, boxHalfExtents = Vec3(x = 1.0, y = 1.0, z = 1.0), capsuleRadius = 2.0, capsuleHeight = 2.0, cylinderRadius = 2.0, cylinderHeight = 2.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 1.0, staticFriction = 1.0, dynamicFriction = 1.0, density = 1.0), isSensor = true, collisionLayer = 4, collisionMask = 4)
+  let edge_collider = Collider3D(shapeType = ColliderShapeType3D.Sphere, localTransform = Transform3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), rotation = Quat(x = 0.5, y = 0.5, z = 0.5, w = 1.0), scale = Vec3(x = 0.5, y = 0.5, z = 0.5)), sphereRadius = 1.0, boxHalfExtents = Vec3(x = 0.5, y = 0.5, z = 0.5), capsuleRadius = 1.0, capsuleHeight = 1.0, cylinderRadius = 1.0, cylinderHeight = 1.0, convexVertices = [], material = PhysicsMaterial3D(restitution = 0.5, staticFriction = 0.5, dynamicFriction = 0.5, density = 0.5), isSensor = false, collisionLayer = 1, collisionMask = 1)
+  let resNom = physWorld3dAddCollider(arg_world, arg_bodyId, arg_collider)
+  let resEdge = physWorld3dAddCollider(edge_world, edge_bodyId, edge_collider)
+  assertEqInt(resNom, 0, "physWorld3dAddCollider nominal resNom == 0")
+  assertEqInt(resEdge, 0, "physWorld3dAddCollider boundary resEdge == 0")
+  ret 0
+
+pub fn test_phys_world3d_physWorld3dAddJoint_4(): int:
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_joint = Joint3D(id = 1, jointType = JointType3D.BallSocket, bodyIdA = 4, bodyIdB = 4, localAnchorA = Vec3(x = 1.0, y = 1.0, z = 1.0), localAnchorB = Vec3(x = 1.0, y = 1.0, z = 1.0), localAxisA = Vec3(x = 1.0, y = 1.0, z = 1.0), localAxisB = Vec3(x = 1.0, y = 1.0, z = 1.0), minLimits = Vec3(x = 1.0, y = 1.0, z = 1.0), maxLimits = Vec3(x = 1.0, y = 1.0, z = 1.0), enableMotor = true, motorTargetVelocity = 0.0, motorMaxForce = 2.0)
+  let edge_joint = Joint3D(id = 0, jointType = JointType3D.BallSocket, bodyIdA = 1, bodyIdB = 1, localAnchorA = Vec3(x = 0.5, y = 0.5, z = 0.5), localAnchorB = Vec3(x = 0.5, y = 0.5, z = 0.5), localAxisA = Vec3(x = 0.5, y = 0.5, z = 0.5), localAxisB = Vec3(x = 0.5, y = 0.5, z = 0.5), minLimits = Vec3(x = 0.5, y = 0.5, z = 0.5), maxLimits = Vec3(x = 0.5, y = 0.5, z = 0.5), enableMotor = false, motorTargetVelocity = 0.0, motorMaxForce = 1.0)
+  let resNom = physWorld3dAddJoint(arg_world, arg_joint)
+  let resEdge = physWorld3dAddJoint(edge_world, edge_joint)
+  assertEqInt(resNom, 0, "physWorld3dAddJoint nominal resNom == 0")
+  assertEqInt(resEdge, 0, "physWorld3dAddJoint boundary resEdge == 0")
+  ret 0
+
+pub fn test_phys_world3d_physWorld3dStep_5(): int:
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  physWorld3dStep(arg_world, arg_dt)
+  physWorld3dStep(edge_world, edge_dt)
+  assertEqInt(arg_world.bodies.len(), 0, "physWorld3dStep nominal arg_world.bodies.len() == 0")
+  assertEqInt(edge_world.bodies.len(), 0, "physWorld3dStep boundary edge_world.bodies.len() == 0")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_phys_world3d_physWorld3dNew_1(), 0, "test_phys_world3d_physWorld3dNew_1")
+  assertEqInt(test_phys_world3d_physWorld3dAddBody_2(), 0, "test_phys_world3d_physWorld3dAddBody_2")
+  assertEqInt(test_phys_world3d_physWorld3dAddCollider_3(), 0, "test_phys_world3d_physWorld3dAddCollider_3")
+  assertEqInt(test_phys_world3d_physWorld3dAddJoint_4(), 0, "test_phys_world3d_physWorld3dAddJoint_4")
+  assertEqInt(test_phys_world3d_physWorld3dStep_5(), 0, "test_phys_world3d_physWorld3dStep_5")
+  ret 0

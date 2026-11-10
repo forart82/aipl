@@ -1,0 +1,56 @@
+// ============================================================================
+// Example 089: HKDF-SHA256, PBKDF2-HMAC-SHA256 & Argon2id KDF (CLI)
+// Demonstrates: hkdfExtract, hkdfExpand, hkdfSha256, pbkdf2HmacSha256,
+//               Argon2Params, argon2idHash, and argon2idVerify from std/crypto.
+// ============================================================================
+module Ex089CryptoKdfPbkdf2HkdfCli
+
+import {
+  Argon2Params,
+  hkdfExtract,
+  hkdfExpand,
+  hkdfSha256,
+  pbkdf2HmacSha256,
+  argon2idHash,
+  argon2idVerify
+} from "../std/crypto"
+
+// Derives HKDF-SHA256 PRK/OKM and PBKDF2-HMAC-SHA256 key material and returns their byte length sum.
+pub fn evaluateDerivedKeyBytesSum(): int:
+  let ikm = "input_key_material".toBytes()
+  let salt = "salt_value".toBytes()
+  let info = "application_context".toBytes()
+
+  let prk = hkdfExtract(salt, ikm)
+  let okm = hkdfExpand(prk, info, 48)
+  let pbkdfKey = pbkdf2HmacSha256("password".toBytes(), salt, 100, 32)
+  ret prk.len() + okm.len() + pbkdfKey.len()
+
+// Verifies one-shot HKDF-SHA256 and memory-hard Argon2id password hashing and verification.
+pub fn verifyArgon2idAndHkdfStages(): int:
+  let ikm = "input_key_material".toBytes()
+  let salt = "salt_value".toBytes()
+  let info = "application_context".toBytes()
+  let derived32 = hkdfSha256(salt, ikm, info, 32)
+
+  let pwd = "password".toBytes()
+  let params = Argon2Params(timeCost = 2, memoryCostKiB = 64, parallelism = 2, keyLen = 32, salt = salt)
+  let hash = argon2idHash(pwd, params)
+  let okMatch = argon2idVerify(pwd, hash, params)
+  let rejectWrong = not argon2idVerify("wrong".toBytes(), hash, params)
+  if derived32.len() == 32 and hash.len() == 32 and okMatch and rejectWrong:
+    ret 1
+  ret 0
+
+// Returns a canonical label for the Argon2id memory-hard configuration.
+pub fn describeKdfSecurityProfile(memKiB: int): str:
+  if memKiB == 64:
+    ret "KDF:ARGON2ID_MEMORY_HARD_64KIB"
+  ret "KDF:PBKDF2_HMAC_SHA256"
+
+pub fn main(): int:
+  let keyBytes = evaluateDerivedKeyBytesSum()
+  let kdfOk = verifyArgon2idAndHkdfStages()
+  let profile = describeKdfSecurityProfile(64)
+  println("ex_089_crypto_kdf_pbkdf2_hkdf_cli: keyBytes=" + str(keyBytes) + " kdfOk=" + str(kdfOk) + " profile=" + profile)
+  ret 0

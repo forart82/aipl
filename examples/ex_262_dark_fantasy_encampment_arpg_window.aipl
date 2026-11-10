@@ -1,0 +1,390 @@
+// ============================================================================
+// Canonical Example 262: Dark-Fantasy Encampment 2.5D ARPG Showcase (WINDOW)
+// Showcases the Classic Dark-Fantasy "Outcast Encampment / Crimson Moor" 2.5D ARPG upgrade:
+// - Multi-biome alpha-splatted terrain (drawHeightfieldSplat25D) + mud decals (drawGroundDecal25D)
+// - Fortified timber palisades, watchtower, gothic dead trees & contact shadows (drawContactShadow25D)
+// - 8-directional pre-rendered 3D isometric knight & skeleton rigs (IsoSpriteRig25D, direction8FromVelocity)
+// - True 2.5D lighting pipeline: ambient multiply pass + flickering additive light cookies (renderLightingPass25D)
+// - Atmospheric 3D rain + ground splashes, campfire embers/smoke & scrolling ground mist (weather25d)
+// ============================================================================
+module Ex262DarkFantasyEncampmentArpgWindow
+
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  setWindowMode,
+  getWindowMode,
+  setDepthTest,
+  clearDepth,
+  beginWorldPass,
+  endWorldPass,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  loadImage,
+  createProceduralTexture,
+  createIsometricSpriteSheet,
+  saveTextureToPpm,
+  rgb,
+  rgba
+} from "../std/gfx2d/shape2d.aipl"
+import { fileExists, isDir } from "../std/prelude.aipl"
+import { Vec3 } from "../std/math/vec_math.aipl"
+import {
+  TerrainHeightfield,
+  sampleHeightAt
+} from "../std/gfx3d/terrain3d.aipl"
+import {
+  Camera25D,
+  createCamera25D,
+  updateCamera25D,
+  project3DToIso,
+  drawHeightfieldSplat25D,
+  drawGroundDecal25D,
+  drawPrismTextured25D,
+  PointLight25D,
+  createPointLight25D,
+  renderLightingPass25D,
+  IsoSpriteRig25D,
+  createIsoSpriteRig25D,
+  stepIsoSpriteRig25D,
+  drawContactShadow25D,
+  drawSpriteBillboard25D,
+  drawIsoSpriteRig25D,
+  RainSystem25D,
+  createRainSystem25D,
+  stepAndDrawRain25D,
+  EmberSmokeEmitter25D,
+  createEmberSmokeEmitter25D,
+  stepAndDrawEmberSmoke25D,
+  drawGroundMist25D
+} from "../std/gfx25d/gfx25d_mod.aipl"
+
+pub struct EncampmentAssets25D(grassTex: int, dirtTex: int, rockTex: int, cobbleTex: int, brickTex: int, roofTex: int, palisadeTex: int, lightCookieTex: int, mistTex: int, heroSheet: int, skeletonSheet: int, campfireSheet: int, treeSheet: int)
+
+pub struct EncampmentState25D(viewportW: float, viewportH: float, terrain: TerrainHeightfield, cam: Camera25D, assets: EncampmentAssets25D, heroRig: IsoSpriteRig25D, skeletonRig: IsoSpriteRig25D, campfireRig: IsoSpriteRig25D, rain: RainSystem25D, emberEmitter: EmberSmokeEmitter25D, timeSec: float, tick: int)
+
+pub fn resolveEncampmentAssetPath(relPath: str): str:
+  if fileExists(relPath) or isDir("examples/assets"):
+    ret relPath
+  let upPath = "../../" + relPath
+  if fileExists(upPath) or isDir("../../examples/assets"):
+    ret upPath
+  ret relPath
+
+pub fn loadOrBakeProceduralTex(assetPath: str, kind: str, w: int, h: int, seed: int): int:
+  let resolved = resolveEncampmentAssetPath(assetPath)
+  if not fileExists(resolved):
+    let genId = createProceduralTexture(kind, w, h, seed)
+    if saveTextureToPpm(genId, resolved):
+      ret genId
+    ret genId
+  let loaded = loadImage(resolved)
+  if loaded.isOk():
+    ret loaded.unwrap()
+  ret createProceduralTexture(kind, w, h, seed)
+
+pub fn loadOrBakeIsoSheet(assetPath: str, archetype: str, fw: int, fh: int, dirs: int, fpd: int, seed: int): int:
+  let resolved = resolveEncampmentAssetPath(assetPath)
+  if not fileExists(resolved):
+    let genId = createIsometricSpriteSheet(archetype, fw, fh, dirs, fpd, seed)
+    if saveTextureToPpm(genId, resolved):
+      ret genId
+    ret genId
+  let loaded = loadImage(resolved)
+  if loaded.isOk():
+    ret loaded.unwrap()
+  ret createIsometricSpriteSheet(archetype, fw, fh, dirs, fpd, seed)
+
+pub fn createEncampmentState25D(viewportW: float, viewportH: float): EncampmentState25D:
+  mut heights: [float] = []
+  mut gz = 0
+  while gz < 14:
+    mut gx = 0
+    while gx < 14:
+      let dx = float(gx) - 6.5
+      let dz = float(gz) - 6.5
+      let distSq = dx * dx + dz * dz
+      // Flat central encampment plateau surrounded by rolling Crimson Moor ridges
+      let plateauMask = if distSq < 9.0: 0.15 else: 0.45
+      let wave = plateauMask * sin(float(gx) * 0.55) * cos(float(gz) * 0.48)
+      let rim = if distSq > 16.0: (distSq - 16.0) * 0.018 else: 0.0
+      heights.push(0.22 + wave + rim)
+      gx += 1
+    gz += 1
+
+  let terrain = TerrainHeightfield(
+    width = 14,
+    depth = 14,
+    heightValues = heights,
+    heightScale = 38.0,
+    horizontalScale = 18.0
+  )
+
+  let assets = EncampmentAssets25D(
+    grassTex = loadOrBakeProceduralTex("examples/assets/grass_tile.ppm", "grass", 64, 64, 101),
+    dirtTex = loadOrBakeProceduralTex("examples/assets/mud_track.ppm", "dirt", 64, 64, 202),
+    rockTex = createProceduralTexture("cliff", 64, 64, 303),
+    cobbleTex = loadOrBakeProceduralTex("examples/assets/cobble_road.ppm", "cobble", 64, 64, 404),
+    brickTex = loadOrBakeProceduralTex("examples/assets/brick_wall.ppm", "brick", 64, 64, 505),
+    roofTex = createProceduralTexture("roof", 64, 64, 606),
+    palisadeTex = createProceduralTexture("palisade", 64, 64, 707),
+    lightCookieTex = loadOrBakeProceduralTex("examples/assets/light_cookie.ppm", "light_cookie", 64, 64, 808),
+    mistTex = createProceduralTexture("mist", 64, 64, 909),
+    heroSheet = loadOrBakeIsoSheet("examples/assets/hero_knight_8dir.ppm", "hero_knight", 48, 48, 8, 6, 42),
+    skeletonSheet = createIsometricSpriteSheet("skeleton", 44, 44, 8, 6, 77),
+    campfireSheet = loadOrBakeIsoSheet("examples/assets/campfire_anim.ppm", "campfire", 40, 40, 1, 6, 99),
+    treeSheet = createIsometricSpriteSheet("gothic_tree", 56, 64, 1, 4, 123)
+  )
+
+  let cx = 117.0
+  let cy = 117.0
+  let cz = sampleHeightAt(terrain, cx, cy)
+  let baseCam = createCamera25D(viewportW, viewportH, 1.32, 45.0, 30.0)
+  let cam = baseCam { worldX = cx, worldY = cy, worldZ = cz }
+
+  let heroZ = sampleHeightAt(terrain, cx + 18.0, cy + 12.0)
+  let heroRig = createIsoSpriteRig25D(assets.heroSheet, 48, 48, 8, 6, cx + 18.0, cy + 12.0, heroZ, 1.15, 11.0)
+
+  let skelZ = sampleHeightAt(terrain, cx + 56.0, cy + 44.0)
+  let skeletonRig = createIsoSpriteRig25D(assets.skeletonSheet, 44, 44, 8, 6, cx + 56.0, cy + 44.0, skelZ, 1.10, 9.5)
+
+  let campfireRig = createIsoSpriteRig25D(assets.campfireSheet, 40, 40, 1, 6, cx, cy, cz, 1.15, 12.0)
+
+  let rain = createRainSystem25D(48, 150.0, -20.0, 14.0, 125.0)
+  let emberEmitter = createEmberSmokeEmitter25D(cx, cy, cz + 6.0, 32)
+
+  ret EncampmentState25D(
+    viewportW = viewportW,
+    viewportH = viewportH,
+    terrain = terrain,
+    cam = cam,
+    assets = assets,
+    heroRig = heroRig,
+    skeletonRig = skeletonRig,
+    campfireRig = campfireRig,
+    rain = rain,
+    emberEmitter = emberEmitter,
+    timeSec = 0.0,
+    tick = 0
+  )
+
+pub fn stepEncampmentState25D(state: EncampmentState25D, dt: float): EncampmentState25D:
+  let nextTick = state.tick + 1
+  let nextTime = state.timeSec + dt
+  let cx = 117.0
+  let cy = 117.0
+
+  // Hero patrols an 8-direction circuit around the campfire and out toward the gate
+  let heroAng = nextTime * 0.85
+  let targetHx = cx + cos(heroAng) * 28.0
+  let targetHy = cy + sin(heroAng) * 26.0
+  let hvx = -sin(heroAng) * 28.0 * 0.85
+  let hvy = cos(heroAng) * 26.0 * 0.85
+  let nextHz = sampleHeightAt(state.terrain, targetHx, targetHy)
+  mut nextHero = stepIsoSpriteRig25D(state.heroRig, hvx, hvy, nextHz, dt)
+  nextHero = nextHero { wx = targetHx, wy = targetHy, wz = nextHz }
+
+  // Skeleton prowls outside the southeastern palisade gate in the Crimson Moor
+  let skelAng = -nextTime * 0.72 + 1.1
+  let targetSx = cx + 54.0 + cos(skelAng) * 20.0
+  let targetSy = cy + 42.0 + sin(skelAng) * 18.0
+  let svx = sin(skelAng) * 20.0 * 0.72
+  let svy = -cos(skelAng) * 18.0 * 0.72
+  let nextSz = sampleHeightAt(state.terrain, targetSx, targetSy)
+  mut nextSkel = stepIsoSpriteRig25D(state.skeletonRig, svx, svy, nextSz, dt)
+  nextSkel = nextSkel { wx = targetSx, wy = targetSy, wz = nextSz }
+
+  let campZ = sampleHeightAt(state.terrain, cx, cy)
+  let nextCamp = stepIsoSpriteRig25D(state.campfireRig, 0.0, 0.0, campZ, dt)
+
+  // Camera smoothly tracks midway between the central campfire and the patrolling hero
+  let focusWx = cx * 0.65 + nextHero.wx * 0.35
+  let focusWy = cy * 0.65 + nextHero.wy * 0.35
+  let focusWz = sampleHeightAt(state.terrain, focusWx, focusWy)
+  let nextCam = updateCamera25D(state.cam, focusWx, focusWy, focusWz, dt)
+
+  ret state {
+    cam = nextCam,
+    heroRig = nextHero,
+    skeletonRig = nextSkel,
+    campfireRig = nextCamp,
+    timeSec = nextTime,
+    tick = nextTick
+  }
+
+fn drawGothicTree25D(cam: Camera25D, treeSheet: int, shadowTex: int, wx: float, wy: float, wz: float, variant: int): int:
+  let v = variant % 4
+  let u0 = float(v) * 0.25 + 0.002
+  let u1 = float(v + 1) * 0.25 - 0.002
+  let s = drawContactShadow25D(cam, shadowTex, wx, wy, wz, 38.0, 20.0, 0.60)
+  let b = drawSpriteBillboard25D(cam, treeSheet, wx, wy, wz, 62.0, 74.0, u0, 0.0, u1, 1.0, rgb(225, 232, 240))
+  ret s + b
+
+pub fn renderEncampmentScene25D(mut state: EncampmentState25D): int:
+  clearScreen(rgb(10, 14, 22))
+  setDepthTest(true)
+  clearDepth()
+  beginWorldPass()
+
+  let sunDir = Vec3(x = -0.38, y = -0.46, z = 0.80)
+  let cx = 117.0
+  let cy = 117.0
+
+  // 1. Multi-biome alpha-splatted terrain (grass, dirt wagon road, cobblestone courtyard, rocky cliffs)
+  let splatQuads = drawHeightfieldSplat25D(
+    state.cam,
+    state.terrain,
+    0,
+    0,
+    12,
+    12,
+    sunDir,
+    state.assets.grassTex,
+    state.assets.dirtTex,
+    state.assets.rockTex,
+    state.assets.cobbleTex,
+    cx,
+    cy,
+    54.0,
+    0.42
+  )
+
+  // 2. Muddy wagon-track & campfire scorch ground decals
+  let campZ = sampleHeightAt(state.terrain, cx, cy)
+  let decalA = drawGroundDecal25D(state.cam, state.assets.dirtTex, cx + 28.0, cy + 24.0, sampleHeightAt(state.terrain, cx + 28.0, cy + 24.0), 22.0, 11.0, 0.68, rgba(165, 132, 96, 0.82), 0.16)
+  let decalB = drawGroundDecal25D(state.cam, state.assets.dirtTex, cx + 52.0, cy + 44.0, sampleHeightAt(state.terrain, cx + 52.0, cy + 44.0), 24.0, 12.0, 0.68, rgba(155, 124, 88, 0.78), 0.16)
+  let decalScorch = drawGroundDecal25D(state.cam, state.assets.lightCookieTex, cx, cy, campZ, 16.0, 12.0, 0.0, rgba(28, 22, 18, 0.72), 0.18)
+
+  // 3. Fortified Encampment Watchtower, Armory & Timber Palisade Walls
+  let towerWx = cx - 32.0
+  let towerWy = cy - 28.0
+  let towerZ = sampleHeightAt(state.terrain, towerWx, towerWy)
+  let towerShadow = drawContactShadow25D(state.cam, state.assets.lightCookieTex, towerWx, towerWy, towerZ, 44.0, 26.0, 0.65)
+  let towerFaces = towerShadow + drawPrismTextured25D(
+    state.cam,
+    towerWx,
+    towerWy,
+    towerZ,
+    26.0,
+    26.0,
+    42.0,
+    state.assets.brickTex,
+    state.assets.roofTex,
+    rgb(220, 215, 210),
+    sunDir
+  )
+
+  let armoryWx = cx + 28.0
+  let armoryWy = cy - 30.0
+  let armoryZ = sampleHeightAt(state.terrain, armoryWx, armoryWy)
+  let armoryShadow = drawContactShadow25D(state.cam, state.assets.lightCookieTex, armoryWx, armoryWy, armoryZ, 42.0, 24.0, 0.60)
+  let armoryFaces = armoryShadow + drawPrismTextured25D(
+    state.cam,
+    armoryWx,
+    armoryWy,
+    armoryZ,
+    28.0,
+    22.0,
+    26.0,
+    state.assets.brickTex,
+    state.assets.roofTex,
+    rgb(215, 205, 195),
+    sunDir
+  )
+
+  // Spiked log palisade segments & gateposts flanking the southeastern road
+  let gateLeftWx = cx + 24.0
+  let gateLeftWy = cy + 34.0
+  let gateLeftZ = sampleHeightAt(state.terrain, gateLeftWx, gateLeftWy)
+  let gateRightWx = cx + 38.0
+  let gateRightWy = cy + 20.0
+  let gateRightZ = sampleHeightAt(state.terrain, gateRightWx, gateRightWy)
+
+  let palisadeA = drawPrismTextured25D(state.cam, gateLeftWx - 18.0, gateLeftWy + 10.0, sampleHeightAt(state.terrain, gateLeftWx - 18.0, gateLeftWy + 10.0), 22.0, 6.0, 22.0, state.assets.palisadeTex, state.assets.roofTex, rgb(195, 175, 150), sunDir)
+  let palisadeB = drawPrismTextured25D(state.cam, gateRightWx + 10.0, gateRightWy - 18.0, sampleHeightAt(state.terrain, gateRightWx + 10.0, gateRightWy - 18.0), 6.0, 22.0, 22.0, state.assets.palisadeTex, state.assets.roofTex, rgb(195, 175, 150), sunDir)
+  let postLeft = drawSpriteBillboard25D(state.cam, state.assets.palisadeTex, gateLeftWx, gateLeftWy, gateLeftZ, 24.0, 34.0, 0.0, 0.0, 1.0, 1.0, rgb(225, 205, 180))
+  let postRight = drawSpriteBillboard25D(state.cam, state.assets.palisadeTex, gateRightWx, gateRightWy, gateRightZ, 24.0, 34.0, 0.0, 0.0, 1.0, 1.0, rgb(225, 205, 180))
+
+  // 4. Gothic Dead Trees around the Crimson Moor perimeter
+  mut treeQuads = 0
+  treeQuads += drawGothicTree25D(state.cam, state.assets.treeSheet, state.assets.lightCookieTex, cx - 58.0, cy + 16.0, sampleHeightAt(state.terrain, cx - 58.0, cy + 16.0), 0)
+  treeQuads += drawGothicTree25D(state.cam, state.assets.treeSheet, state.assets.lightCookieTex, cx - 18.0, cy + 58.0, sampleHeightAt(state.terrain, cx - 18.0, cy + 58.0), 1)
+  treeQuads += drawGothicTree25D(state.cam, state.assets.treeSheet, state.assets.lightCookieTex, cx + 62.0, cy - 12.0, sampleHeightAt(state.terrain, cx + 62.0, cy - 12.0), 2)
+  treeQuads += drawGothicTree25D(state.cam, state.assets.treeSheet, state.assets.lightCookieTex, cx + 68.0, cy + 56.0, sampleHeightAt(state.terrain, cx + 68.0, cy + 56.0), 3)
+
+  // 5. Animated Central Campfire, 8-Dir Hero Knight & 8-Dir Skeleton Patrol
+  let campQuads = drawIsoSpriteRig25D(state.cam, state.campfireRig, state.assets.lightCookieTex, rgb(255, 255, 255))
+  let heroQuads = drawIsoSpriteRig25D(state.cam, state.heroRig, state.assets.lightCookieTex, rgb(255, 252, 245))
+  let skelQuads = drawIsoSpriteRig25D(state.cam, state.skeletonRig, state.assets.lightCookieTex, rgb(230, 240, 255))
+
+  // 6. Crawling Ground Mist, Campfire Smoke/Embers & Driving Rain
+  let mistQuads = drawGroundMist25D(state.cam, state.assets.mistTex, cx + 25.0, cy + 25.0, campZ, 115.0, state.timeSec, rgba(148, 172, 204, 0.24))
+  state.emberEmitter = stepAndDrawEmberSmoke25D(state.cam, state.emberEmitter, state.assets.lightCookieTex, 0.016)
+
+  // 7. True 2.5D Dark-Fantasy Lighting Pass (Ambient Multiply + Flickering Additive Light Cookies)
+  let lights: [PointLight25D] = [
+    createPointLight25D(cx, cy, campZ + 8.0, 155.0, rgba(255, 172, 76, 0.96), 1.30, 0.14, 8.5),
+    createPointLight25D(gateLeftWx, gateLeftWy, gateLeftZ + 20.0, 88.0, rgba(255, 148, 58, 0.88), 1.05, 0.12, 7.2),
+    createPointLight25D(gateRightWx, gateRightWy, gateRightZ + 20.0, 88.0, rgba(255, 148, 58, 0.88), 1.05, 0.12, 6.8),
+    createPointLight25D(state.heroRig.wx, state.heroRig.wy, state.heroRig.wz + 14.0, 95.0, rgba(255, 210, 135, 0.84), 0.95, 0.06, 5.0)
+  ]
+  let lightPasses = renderLightingPass25D(
+    state.cam,
+    state.viewportW,
+    state.viewportH,
+    rgba(86, 102, 136, 0.64),
+    state.assets.lightCookieTex,
+    lights,
+    state.timeSec
+  )
+
+  state.rain = stepAndDrawRain25D(state.cam, state.rain, cx, cy, campZ, 0.016)
+
+  endWorldPass()
+  setDepthTest(false)
+
+  // 8. Dark-Fantasy HUD Overlay
+  drawRect(16.0, 14.0, 610.0, 62.0, rgba(12, 16, 26, 0.88))
+  drawRectOutline(16.0, 14.0, 610.0, 62.0, 1.5, rgb(217, 119, 6))
+  drawText("AIPL ex_262: DARK-FANTASY ENCAMPMENT 2.5D ARPG ENGINE", 30.0, 24.0, 16.0, rgb(254, 243, 199))
+  drawText(
+    "SplatQuads=" + str(splatQuads) + " | HeroDir8=" + str(state.heroRig.dir8) + " | SkelDir8=" + str(state.skeletonRig.dir8) + " | LightPasses=" + str(lightPasses),
+    30.0,
+    48.0,
+    13.0,
+    rgb(203, 213, 225)
+  )
+
+  let decals = decalA + decalB + decalScorch
+  let structures = towerFaces + armoryFaces + palisadeA + palisadeB + postLeft + postRight
+  let rigs = campQuads + heroQuads + skelQuads
+  ret splatQuads + decals + structures + treeQuads + rigs + mistQuads + lightPasses
+
+pub fn renderEncampmentFrameStep(frameIndex: int, dt: float): int:
+  setWindowMode("glx")
+  mut st = createEncampmentState25D(640.0, 360.0)
+  mut i = 0
+  let steps = (frameIndex % 4) + 1
+  while i < steps:
+    st = stepEncampmentState25D(st, dt)
+    i += 1
+  ret renderEncampmentScene25D(st)
+
+pub fn main(): int:
+  setWindowMode("glx")
+  initWindow(1280, 720, "AIPL ex_262 - Dark-Fantasy Encampment 2.5D ARPG Showcase")
+  mut state = createEncampmentState25D(1280.0, 720.0)
+  mut frame: int = 0
+  while not windowShouldClose():
+    state = stepEncampmentState25D(state, 0.025)
+    beginDrawing()
+    renderEncampmentScene25D(state)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,54 @@
+// ============================================================================
+// Example 072: YAML CI/CD Pipeline Parser & JSON Bridge (CLI)
+// Demonstrates: parseYaml, serializeYaml, parseYamlEntries, parseYamlMap,
+//               getYamlValue, toYamlMap, parseYamlList, toYamlList, and
+//               yamlToJson from std/encoding.
+// ============================================================================
+module Ex072EncodingYamlPipelineCli
+
+import {
+  parseYaml,
+  serializeYaml,
+  parseYamlEntries,
+  parseYamlMap,
+  getYamlValue,
+  toYamlMap,
+  parseYamlList,
+  toYamlList,
+  yamlToJson
+} from "../std/encoding"
+
+// Parses a YAML key-value block and a YAML stage list, returning the total item count.
+pub fn evaluateYamlEntriesAndStageListCount(): int:
+  let yMapSrc = "service: aipl-ci\nrunner: linux-x64\n"
+  let entries = parseYamlEntries(yMapSrc)
+  let yMap = parseYamlMap(yMapSrc)
+  assert(getYamlValue(yMapSrc, "service", "") == "aipl-ci", "getYamlValue service")
+  assert(toYamlMap(yMap).contains("service: aipl-ci"), "toYamlMap roundtrip")
+
+  let yListSrc = "- build\n- test\n- deploy\n"
+  let stages = parseYamlList(yListSrc)
+  assert(toYamlList(stages).contains("- deploy"), "toYamlList roundtrip")
+  ret entries.len + stages.len
+
+// Verifies AST parsing, serialization, and YAML-to-JSON conversion.
+pub fn verifyYamlToJsonBridge(yamlSrc: str): int:
+  let node = parseYaml(yamlSrc).unwrap()
+  let yOut = serializeYaml(node, 2)
+  let jOut = yamlToJson(yamlSrc)
+  if yOut.contains("host: localhost") and jOut.contains("\"host\":\"localhost\""):
+    ret 1
+  ret 0
+
+// Maps a CI/CD stage name to a canonical pipeline stage descriptor.
+pub fn describeYamlPipelineStage(stageName: str): str:
+  if stageName == "deploy":
+    ret "YAML_STAGE:PRODUCTION_DEPLOY"
+  ret "YAML_STAGE:VERIFY_STEP"
+
+pub fn main(): int:
+  let totalItems = evaluateYamlEntriesAndStageListCount()
+  let bridgeOk = verifyYamlToJsonBridge("host: localhost\nport: 5432\n")
+  let stageDesc = describeYamlPipelineStage("deploy")
+  println("ex_072_encoding_yaml_pipeline_cli: totalItems=" + str(totalItems) + " bridgeOk=" + str(bridgeOk) + " stage=" + stageDesc)
+  ret 0

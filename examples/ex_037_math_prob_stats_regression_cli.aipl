@@ -1,0 +1,60 @@
+// ============================================================================
+// Example 037: Probability Distributions, Summary Stats & Kalman 1D (CLI)
+// Demonstrates: computeMean, computeVariance, computeStdDev,
+//               computeSummaryStats, sampleWeightedIndex, gaussianSample,
+//               poissonSample, kalman1DNew, and kalman1DUpdate from
+//               std/math/prob_stats.
+// ============================================================================
+module Ex037MathProbStatsRegressionCli
+
+import { absFloat } from "../std/math/consts"
+import {
+  sampleWeightedIndex,
+  gaussianSample,
+  poissonSample,
+  computeMean,
+  computeVariance,
+  computeStdDev,
+  computeSummaryStats,
+  kalman1DNew,
+  kalman1DUpdate
+} from "../std/math/prob_stats"
+
+pub fn analyzeDatasetSummaryStats(): int:
+  let samples = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+  let m = computeMean(samples)
+  let v = computeVariance(samples)
+  let sd = computeStdDev(samples)
+  let st = computeSummaryStats(samples)
+  if st.count == 8 and st.minVal == 2.0:
+    ret int(m + v + sd + st.maxVal)
+  ret -1
+
+pub fn verifyWeightedAndPoissonSampling(): int:
+  let wIdx = sampleWeightedIndex([10, 20, 70], 25)
+  let gSample = gaussianSample(0.0, 1.0, 0.5, 0.25)
+  let p0 = poissonSample(2.0, 0.05)
+  let p2 = poissonSample(2.0, 0.60)
+  if wIdx == 1 and absFloat(gSample) < 0.01 and p0 == 0 and p2 >= 2:
+    ret 1
+  ret 0
+
+pub fn evaluateKalmanFilterConvergenceMilli(targetSignal: float): int:
+  mut kf = kalman1DNew(0.0, 1.0, 0.1, 0.2)
+  for step in 0..4:
+    kf = kalman1DUpdate(kf, targetSignal)
+  ret int(kf.estimate * 1000.0 + 0.5)
+
+pub fn describeKalmanConvergence(estMilli: int): str:
+  if estMilli > 8000:
+    ret "KALMAN1D:CONVERGED_LOCK"
+  ret "KALMAN1D:TRANSIENT_TRACKING"
+
+pub fn main(): int:
+  let statMetric = analyzeDatasetSummaryStats()
+  let distOk = verifyWeightedAndPoissonSampling()
+  let kfMilli = evaluateKalmanFilterConvergenceMilli(10.0)
+  println("Dataset Summary Stats Metric (mean+var+sd+max): " + str(statMetric))
+  println("Weighted & Poisson Inverse-CDF Verified: " + str(distOk))
+  println("1D Kalman Estimate (milli): " + str(kfMilli) + " (" + describeKalmanConvergence(kfMilli) + ")")
+  ret 0

@@ -1,0 +1,55 @@
+module Ex236ProcgenMarchingSquaresContoursWindowTest
+
+import {
+  IsolineSegment2D, MeshTriangle3D, ScalarField3D,
+  marchingSquaresExtract, marchingCubesExtract
+} from "../../std/procgen/marching_isosurface"
+import { ScalarField2D } from "../../std/procgen/cellular_automata"
+import {
+  MarchingScene, createMarchingScene, stepScene, auditProcgenMarchingIsosurfaces
+} from "../../examples/ex_236_procgen_marching_squares_contours_window"
+
+pub fn test_procgen_marching_squares_contours(): void:
+  let sf2 = ScalarField2D(width = 2, height = 2, values = [0.0, 1.0, 0.0, 1.0])
+  let isoSegs = marchingSquaresExtract(sf2, 0.5, 10.0)
+  assert(isoSegs.len() == 1, "marchingSquaresExtract contour segment")
+
+  let sf3 = ScalarField3D(width = 2, height = 2, depth = 2, values = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+  let tris = marchingCubesExtract(sf3, 0.5, 1.0)
+  assert(tris.len() == 1, "marchingCubesExtract corner triangle")
+
+  mut scene: MarchingScene = createMarchingScene()
+  let seg0: IsolineSegment2D = scene.isoSegments[0]
+  let tri0: MeshTriangle3D = scene.meshTriangles[0]
+  let sx0 = seg0.startPoint.x
+  let sy0 = seg0.startPoint.y
+  let tx0 = tri0.v0.x
+  stepScene(scene, 0, 0.03)
+  let seg1: IsolineSegment2D = scene.isoSegments[0]
+  let tri1: MeshTriangle3D = scene.meshTriangles[0]
+  let sx1 = seg1.startPoint.x
+  let sy1 = seg1.startPoint.y
+  let tx1 = tri1.v0.x
+  assert((sx1 != sx0 or sy1 != sy0) and tx1 != tx0, "t=0 -> t=1 interpolates Marching Squares & Marching Cubes vertices")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.03)
+    f = f + 1
+  let tri20: MeshTriangle3D = scene.meshTriangles[0]
+  let tx20 = tri20.v0.x
+  assert(tx20 != tx1 and scene.isoSegments.len() > 0, "t=1 -> t=20 sweeps isosurface threshold")
+
+  while f <= 100:
+    stepScene(scene, f, 0.03)
+    f = f + 1
+  let tri100: MeshTriangle3D = scene.meshTriangles[0]
+  assert(tri100.v0.x != tx20 and scene.isoSegments.len() > 0, "t=20 -> t=100 continues oscillating isosurface threshold without freezing")
+
+  let audit = auditProcgenMarchingIsosurfaces()
+  assert(audit == 41, "Marching squares and cubes audit")
+
+pub fn main(): int:
+  test_procgen_marching_squares_contours()
+  println("PASS: ex_236_procgen_marching_squares_contours_window_test")
+  ret 0

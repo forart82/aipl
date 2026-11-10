@@ -1,0 +1,152 @@
+/// # Module: `std/ai/goap` (`GoapMod`)
+///
+/// ## Purpose & Domain Scope
+/// Goal-Oriented Action Planning (GOAP) using A* search over world-state
+/// bitmasks, plus Utility AI logistic response curves.
+module GoapMod
+
+import { popcnt, clampFloat } from "../math/consts"
+import { exp, sqrt, lnFloat } from "../math/trig"
+
+pub struct GoapWorldState(stateMask: int, careMask: int)
+
+pub struct GoapAction(name: str, cost: float, preconditionMask: int, preconditionCareMask: int, effectSetMask: int, effectClearMask: int)
+
+pub struct GoapPlanner(actions: [GoapAction])
+
+pub fn goapPlannerNew(): GoapPlanner:
+  mut acts: [GoapAction] = []
+  ret GoapPlanner(actions = acts)
+
+pub fn goapAddAction(mut planner: GoapPlanner, action: GoapAction): void:
+  mut acts = planner.actions
+  acts.push(action)
+  planner.actions = acts
+
+fn satisfiesGoal(stateMask: int, goal: GoapWorldState): bool:
+  ret (stateMask & goal.careMask) == (goal.stateMask & goal.careMask)
+
+pub fn goapHasGoalSatisfied(currentState: GoapWorldState, goalState: GoapWorldState): bool:
+  ret satisfiesGoal(currentState.stateMask, goalState)
+
+pub fn goapHeuristicDistance(currentState: GoapWorldState, goalState: GoapWorldState): int:
+  ret popcnt((currentState.stateMask ^ goalState.stateMask) & goalState.careMask)
+
+fn actionApplicable(stateMask: int, act: GoapAction): bool:
+  ret (stateMask & act.preconditionCareMask) == (act.preconditionMask & act.preconditionCareMask)
+
+fn applyActionEffects(stateMask: int, act: GoapAction): int:
+  ret (stateMask | act.effectSetMask) & (~act.effectClearMask)
+
+pub fn goapPlanAStar(planner: GoapPlanner, currentState: GoapWorldState, goalState: GoapWorldState): Option[[GoapAction]]:
+  if satisfiesGoal(currentState.stateMask, goalState):
+    mut emptyPlan: [GoapAction] = []
+    ret Some(emptyPlan)
+
+  mut openStates: [int] = [currentState.stateMask]
+  mut openG: [float] = [0.0]
+  mut openF: [float] = [float(popcnt((currentState.stateMask ^ goalState.stateMask) & goalState.careMask))]
+  mut openParentIdx: [int] = [-1]
+  mut openActionIdx: [int] = [-1]
+  mut openUsed: [bool] = [false]
+
+  mut steps = 0
+  while steps < 256:
+    mut bestNode = -1
+    mut bestF = 1000000000.0
+    mut i = 0
+    while i < openStates.len:
+      if (not openUsed[i]) and openF[i] < bestF:
+        bestF = openF[i]
+        bestNode = i
+      i = i + 1
+
+    if bestNode < 0:
+      ret None
+
+    let curMask = openStates[bestNode]
+    if satisfiesGoal(curMask, goalState):
+      mut revActs: [GoapAction] = []
+      mut walk = bestNode
+      while walk >= 0 and openActionIdx[walk] >= 0:
+        revActs.push(planner.actions[openActionIdx[walk]])
+        walk = openParentIdx[walk]
+      mut plan: [GoapAction] = []
+      mut k = revActs.len - 1
+      while k >= 0:
+        plan.push(revActs[k])
+        k = k - 1
+      ret Some(plan)
+
+    openUsed[bestNode] = true
+    let curG = openG[bestNode]
+
+    mut a = 0
+    while a < planner.actions.len:
+      let act: GoapAction = planner.actions[a]
+      if actionApplicable(curMask, act):
+        let nextMask = applyActionEffects(curMask, act)
+        let nextG = curG + act.cost
+        let h = float(popcnt((nextMask ^ goalState.stateMask) & goalState.careMask))
+        openStates.push(nextMask)
+        openG.push(nextG)
+        openF.push(nextG + h)
+        openParentIdx.push(bestNode)
+        openActionIdx.push(a)
+        openUsed.push(false)
+      a = a + 1
+    steps = steps + 1
+
+  ret None
+
+pub fn utilityResponseCurveLogistic(x: float, midpoint: float, steepness: float): float:
+  ret 1.0 / (1.0 + exp(-steepness * (x - midpoint)))
+
+pub fn utilityLinear(val: float, minVal: float, maxVal: float): float:
+  if maxVal <= minVal:
+    if val >= maxVal:
+      ret 1.0
+    ret 0.0
+  let norm = (val - minVal) / (maxVal - minVal)
+  ret clampFloat(norm, 0.0, 1.0)
+
+pub fn utilityQuadratic(val: float, minVal: float, maxVal: float, exponent: float): float:
+  let u = utilityLinear(val, minVal, maxVal)
+  if exponent == 0.0:
+    ret 1.0
+  if u <= 0.0:
+    ret 0.0
+  if u >= 1.0:
+    ret 1.0
+  if exponent == 1.0:
+    ret u
+  if exponent == 2.0:
+    ret u * u
+  if exponent == 3.0:
+    ret u * u * u
+  if exponent == 0.5:
+    ret sqrt(u)
+  let lx = lnFloat(u)
+  let res = exp(exponent * lx)
+  ret clampFloat(res, 0.0, 1.0)
+
+pub fn utilityExponential(val: float, growthRate: float): float:
+  ret clampFloat(1.0 - exp(-growthRate * val), 0.0, 1.0)
+
+pub fn utilityGaussian(val: float, center: float, sigma: float): float:
+  let s = if sigma > 0.0001: sigma else: 1.0
+  let d = (val - center) / s
+  ret clampFloat(exp(-0.5 * d * d), 0.0, 1.0)
+
+pub fn utilitySelectBest(scores: [float]): int:
+  let n = scores.len
+  if n == 0:
+    ret -1
+  mut bestIdx = 0
+  mut bestScore = scores[0]
+  for i in 1..n:
+    let sc = scores[i]
+    if sc > bestScore:
+      bestScore = sc
+      bestIdx = i
+  ret bestIdx

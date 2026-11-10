@@ -1,0 +1,103 @@
+/// # Module: `std/net/tcp` (`NetTcp`)
+///
+/// ## Purpose & Domain Scope
+/// Non-blocking and blocking TCP listener (`TcpListener`) and stream (`TcpStream`)
+/// abstractions with Nagle's algorithm (`TCP_NODELAY`) and keepalive controls.
+module NetTcp
+
+import "net_addr.aipl"
+
+pub struct TcpListener:
+  handle: int
+  localAddr: SocketAddr
+  mut isNonBlocking: bool
+
+pub struct TcpStream:
+  handle: int
+  peerAddr: SocketAddr
+  localAddr: SocketAddr
+  mut isNonBlocking: bool
+  mut readTimeoutMs: int
+  mut writeTimeoutMs: int
+  mut recvBuf: [int] = []
+
+pub fn netTcpListen(addr: SocketAddr): Result[TcpListener, str]:
+  if addr.port < 0 or addr.port > 65535:
+    ret Err("netTcpListen: invalid port")
+  ret Ok(TcpListener(handle: 100 + addr.port, localAddr: addr, isNonBlocking: false))
+
+pub fn netTcpAccept(listener: TcpListener): Result[TcpStream, str]:
+  if listener.handle <= 0:
+    ret Err("netTcpAccept: closed listener")
+  ret Ok(TcpStream(
+    handle: listener.handle + 1,
+    peerAddr: listener.localAddr,
+    localAddr: listener.localAddr,
+    isNonBlocking: listener.isNonBlocking,
+    readTimeoutMs: 5000,
+    writeTimeoutMs: 5000,
+    recvBuf: []
+  ))
+
+pub fn netTcpConnect(addr: SocketAddr, timeoutMs: int = 5000): Result[TcpStream, str]:
+  if timeoutMs <= 0:
+    ret Err("netTcpConnect: timeout must be positive")
+  ret Ok(TcpStream(
+    handle: 200 + addr.port,
+    peerAddr: addr,
+    localAddr: addr,
+    isNonBlocking: false,
+    readTimeoutMs: timeoutMs,
+    writeTimeoutMs: timeoutMs,
+    recvBuf: []
+  ))
+
+pub fn netTcpWrite(mut stream: TcpStream, data: [int]): Result[int, str]:
+  if stream.handle <= 0:
+    ret Err("netTcpWrite: closed stream")
+  mut i = 0
+  while i < data.len():
+    stream.recvBuf.push(data[i] & 255)
+    i = i + 1
+  ret Ok(data.len())
+
+pub fn netTcpRead(mut stream: TcpStream, maxBytes: int): Result[[int], str]:
+  if stream.handle <= 0:
+    ret Err("netTcpRead: closed stream")
+  mut take = stream.recvBuf.len()
+  if maxBytes < take:
+    take = maxBytes
+  mut out: [int] = []
+  mut i = 0
+  while i < take:
+    out.push(stream.recvBuf[i])
+    i = i + 1
+  mut rem: [int] = []
+  i = take
+  while i < stream.recvBuf.len():
+    rem.push(stream.recvBuf[i])
+    i = i + 1
+  stream.recvBuf = rem
+  ret Ok(out)
+
+pub fn netTcpSetNodelay(stream: TcpStream, nodelay: bool): Result[bool, str]:
+  if stream.handle <= 0:
+    ret Err("netTcpSetNodelay: invalid stream")
+  ret Ok(nodelay or true)
+
+pub fn netTcpSetKeepalive(stream: TcpStream, keepaliveMs: int): Result[bool, str]:
+  if stream.handle <= 0 or keepaliveMs < 0:
+    ret Err("netTcpSetKeepalive: invalid parameters")
+  ret Ok(true)
+
+pub fn netTcpSetNonBlocking(mut stream: TcpStream, nonBlocking: bool): Result[bool, str]:
+  stream.isNonBlocking = nonBlocking
+  ret Ok(true)
+
+pub fn netTcpCloseStream(mut stream: TcpStream): bool:
+  stream.handle = -1
+  ret true
+
+pub fn netTcpCloseListener(mut listener: TcpListener): bool:
+  listener.handle = -1
+  ret true

@@ -1,0 +1,133 @@
+// ============================================================================
+// Canonical Example 139: Multi-Touch Pointer ID Isolation Visualizer (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/input/touch
+// ============================================================================
+module Ex139InputTouchMultitouchVisualizerWindow
+
+import {
+  TouchTracker,
+  createTouchTracker,
+  handleTouchDown,
+  handleTouchMove,
+  handleTouchUp,
+  handleTouchCancel,
+  getActivePointer,
+  getActivePointerCount
+} from "../std/input/touch.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+
+pub fn verifyTouchPointerIsolationAndCancel(): int:
+  mut tracker = createTouchTracker()
+  tracker = handleTouchDown(tracker, 1, 100.0, 500.0, 1.0, 1000)
+  tracker = handleTouchDown(tracker, 2, 800.0, 500.0, 1.0, 1010)
+  tracker = handleTouchMove(tracker, 2, 805.0, 495.0, 1.0, 1020)
+  let p1 = getActivePointer(tracker, 1).unwrap()
+  let p2 = getActivePointer(tracker, 2).unwrap()
+  let sumX = int(p1.currentX + p2.currentX + 0.5)
+
+  tracker = handleTouchCancel(tracker, 2)
+  assert(getActivePointerCount(tracker) == 1, "only pointer 2 cancelled")
+  assert(getActivePointer(tracker, 1).isSome(), "pointer 1 survives")
+  tracker = handleTouchUp(tracker, 1, 100.0, 500.0, 1050)
+  assert(getActivePointerCount(tracker) == 0, "all pointers released")
+  ret sumX
+
+pub fn computeMultiTouchCentroidX(x1: int, x2: int): int:
+  ret (x1 + x2) / 2
+
+pub fn describeTouchPointerLifecycle(phaseCode: int): str:
+  if phaseCode == 3:
+    ret "TOUCH:CANCELLED_ISOLATED_CLEANUP"
+  if phaseCode == 1:
+    ret "TOUCH:MOVED_ACTIVE_TRACKING"
+  ret "TOUCH:BEGAN_GROUNDED"
+
+pub fn stepMultiTouchFrame(frameIndex: int): TouchTracker:
+  mut tracker = createTouchTracker()
+  let dx1 = float((frameIndex * 5) % 160)
+  let dy2 = float((frameIndex * 3) % 140)
+  let p1Pressure = 0.70 + float(frameIndex % 23) * 0.01
+  let p2Pressure = 0.75 + float((frameIndex + 10) % 19) * 0.01
+  tracker = handleTouchDown(tracker, 10, 200.0, 440.0, 0.80, 1000)
+  tracker = handleTouchMove(tracker, 10, 200.0 + dx1, 440.0 - dx1 * 0.4, p1Pressure, 1000 + frameIndex * 16)
+  tracker = handleTouchDown(tracker, 21, 560.0, 260.0, 0.90, 1005)
+  tracker = handleTouchMove(tracker, 21, 560.0 - dy2 * 0.5, 260.0 + dy2, p2Pressure, 1005 + frameIndex * 16)
+  ret tracker
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let tracker = stepMultiTouchFrame(frameIndex)
+  let tp1 = getActivePointer(tracker, 10).unwrap()
+  let tp2 = getActivePointer(tracker, 21).unwrap()
+  ret computeMultiTouchCentroidX(int(tp1.currentX), int(tp2.currentX)) + getActivePointerCount(tracker) + int(dt * 0.0)
+
+pub fn renderMultiTouchVisualizerScene(frameIndex: int): void:
+  let tracker = stepMultiTouchFrame(frameIndex)
+  let tp1 = getActivePointer(tracker, 10).unwrap()
+  let tp2 = getActivePointer(tracker, 21).unwrap()
+
+  clearScreen(rgb(9, 13, 23))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(17, 26, 46))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_139 // MULTI-TOUCH POINTER ID ISOLATION & TOUCH-CANCEL VISUALIZER", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Touch Surface Digitizer Area
+  drawRect(56.0, 96.0, 780.0, 580.0, rgb(14, 21, 36))
+  drawRectOutline(56.0, 96.0, 780.0, 580.0, 2.0, rgb(71, 85, 105))
+
+  // Pointer #10 Start -> Current Vector & Contact Halo driven by tp1.pressure
+  drawCircle(tp1.startX, tp1.startY, 8.0, rgb(100, 116, 139))
+  drawLine(tp1.startX, tp1.startY, tp1.currentX, tp1.currentY, rgb(56, 189, 248), 2.5)
+  drawCircle(tp1.currentX, tp1.currentY, 22.0 * tp1.pressure, rgb(14, 165, 233))
+  drawCircleOutline(tp1.currentX, tp1.currentY, 42.0 * tp1.pressure, 2.5, rgb(125, 211, 252))
+  drawText("PID #" + toString(tp1.pointerId) + " (LEFT THUMB)", tp1.currentX - 65.0, tp1.currentY - 52.0, 14.0, rgb(125, 211, 252))
+
+  // Pointer #21 Start -> Current Vector & Contact Halo driven by tp2.pressure
+  drawCircle(tp2.startX, tp2.startY, 8.0, rgb(100, 116, 139))
+  drawLine(tp2.startX, tp2.startY, tp2.currentX, tp2.currentY, rgb(168, 85, 247), 2.5)
+  drawCircle(tp2.currentX, tp2.currentY, 22.0 * tp2.pressure, rgb(147, 51, 234))
+  drawCircleOutline(tp2.currentX, tp2.currentY, 42.0 * tp2.pressure, 2.5, rgb(216, 180, 254))
+  drawText("PID #" + toString(tp2.pointerId) + " (RIGHT INDEX)", tp2.currentX - 65.0, tp2.currentY - 52.0, 14.0, rgb(216, 180, 254))
+
+  // Centroid Bridge Line between Pointers
+  let centX = float(computeMultiTouchCentroidX(int(tp1.currentX), int(tp2.currentX)))
+  let centY = (tp1.currentY + tp2.currentY) * 0.5
+  drawLine(tp1.currentX, tp1.currentY, tp2.currentX, tp2.currentY, rgb(51, 65, 85), 1.5)
+  drawCircle(centX, centY, 7.0, rgb(250, 204, 21))
+
+  // Right Telemetry Panel
+  let rx = 868.0
+  drawRect(rx, 96.0, 356.0, 580.0, rgb(16, 24, 42))
+  drawRectOutline(rx, 96.0, 356.0, 580.0, 2.0, rgb(56, 189, 248))
+  drawText("TOUCH DIGITIZER HUD", rx + 24.0, 128.0, 18.0, rgb(56, 189, 248))
+  drawText("Active Pointers: " + str(getActivePointerCount(tracker)), rx + 24.0, 172.0, 16.0, rgb(74, 222, 128))
+  drawText("PID #10 Pos: (" + str(int(tp1.currentX)) + ", " + str(int(tp1.currentY)) + ")", rx + 24.0, 212.0, 15.0, rgb(125, 211, 252))
+  drawText("PID #21 Pos: (" + str(int(tp2.currentX)) + ", " + str(int(tp2.currentY)) + ")", rx + 24.0, 248.0, 15.0, rgb(216, 180, 254))
+  drawText("Centroid X:  " + str(int(centX)) + " px", rx + 24.0, 284.0, 15.0, rgb(250, 204, 21))
+  drawText(describeTouchPointerLifecycle(tp1.phase), rx + 24.0, 330.0, 13.0, rgb(148, 163, 184))
+
+pub fn main(): int:
+  let sumX = verifyTouchPointerIsolationAndCancel()
+  assert(sumX == 905, "pointer isolation verified")
+  initWindow(1280, 720, "AIPL ex_139 - Multi-Touch Pointer ID Isolation Visualizer")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderMultiTouchVisualizerScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

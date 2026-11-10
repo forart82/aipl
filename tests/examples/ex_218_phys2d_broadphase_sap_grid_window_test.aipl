@@ -1,0 +1,41 @@
+module Ex218Phys2dBroadphaseSapGridWindowTest
+
+import {
+  buildPhys2dBroadphaseAudit, stepMovingProxyRect
+} from "../../examples/ex_218_phys2d_broadphase_sap_grid_window"
+import { Vec2 } from "../../std/math/vec_math"
+import { Rect2D } from "../../std/math/geom2d"
+import {
+  dynamicAABBTreeNew, dynamicAABBTreeInsert, dynamicAABBTreeUpdate,
+  dynamicAABBTreeRemove, dynamicAABBTreeFindPairs
+} from "../../std/phys2d/broadphase2d"
+
+pub fn test_phys2d_broadphase_sap_grid(): void:
+  mut tree = dynamicAABBTreeNew()
+  let n0 = dynamicAABBTreeInsert(tree, 1, Rect2D(x = 0.0, y = 0.0, w = 20.0, h = 20.0))
+  let n1 = dynamicAABBTreeInsert(tree, 2, Rect2D(x = 10.0, y = 10.0, w = 20.0, h = 20.0))
+  let n2 = dynamicAABBTreeInsert(tree, 3, Rect2D(x = 200.0, y = 200.0, w = 20.0, h = 20.0))
+  let pairs = dynamicAABBTreeFindPairs(tree)
+  assert(pairs.len() == 1, "Dynamic AABB tree detects 1 overlapping pair (1,2)")
+
+  let refitted = dynamicAABBTreeUpdate(tree, n2, Rect2D(x = 15.0, y = 15.0, w = 20.0, h = 20.0), Vec2(x = 2.0, y = 2.0))
+  assert(refitted, "dynamicAABBTreeUpdate refits fat AABB with velocity margin")
+  let pairs2 = dynamicAABBTreeFindPairs(tree)
+  assert(pairs2.len() == 3, "Moving body 3 into cluster creates 3 overlapping pairs")
+
+  dynamicAABBTreeRemove(tree, n0)
+  let pairs3 = dynamicAABBTreeFindPairs(tree)
+  assert(pairs3.len() == 1, "Removing body 1 leaves 1 overlapping pair (2,3)")
+  assert(buildPhys2dBroadphaseAudit() == 6, "buildPhys2dBroadphaseAudit returns 1 + 3 + 1 + 1 == 6")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let r0 = stepMovingProxyRect(0)
+  let r1 = stepMovingProxyRect(1)
+  let r20 = stepMovingProxyRect(20)
+  let r100 = stepMovingProxyRect(100)
+  assert(r0.x != r1.x and r1.x != r20.x and r20.x != r100.x, "moving broadphase proxy rect advances across t=0,1,20,100")
+
+pub fn main(): int:
+  test_phys2d_broadphase_sap_grid()
+  println("PASS: ex_218_phys2d_broadphase_sap_grid_window_test")
+  ret 0

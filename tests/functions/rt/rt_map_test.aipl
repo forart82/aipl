@@ -1,0 +1,94 @@
+// ============================================================================
+// Step 3.13: Exhaustive Per-Function Unit Tests for std/rt/rt_map.aipl (16)
+// Target: tests/functions/rt/rt_map_test.aipl
+// ============================================================================
+module RtMapTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  RtMap,
+  RtHashMap,
+  rtHashFnv1a,
+  rtMapNew,
+  rtMapSet,
+  rtMapGet,
+  rtMapHas,
+  rtMapDelete,
+  rtMapSize,
+  rtMapKeys,
+  rtMapValues,
+  rtHashMapNew,
+  rtMapInsert,
+  rtMapFind,
+  rtMapRemove,
+  rtMapRehash,
+  rtMapFree
+} from "../../../std/rt/rt_map.aipl"
+
+pub fn test_rt_map_robin_hood(): int:
+  assert(rtHashFnv1a("test") > 0, "fnv1a hash > 0")
+
+  mut m = rtMapNew(8)
+  assertEqInt(rtMapSize(m), 0, "initial size 0")
+
+  rtMapSet(m, "foo", 42)
+  rtMapSet(m, "bar", 84)
+  assertEqInt(rtMapSize(m), 2, "size 2 after 2 sets")
+  assert(rtMapHas(m, "foo") == true, "has foo")
+  assert(rtMapHas(m, "bar") == true, "has bar")
+  assert(rtMapHas(m, "baz") == false, "does not have baz")
+
+  assertEqInt(rtMapGet(m, "foo"), 42, "get foo is 42")
+  assertEqInt(rtMapGet(m, "bar"), 84, "get bar is 84")
+
+  // Overwrite
+  rtMapSet(m, "foo", 99)
+  assertEqInt(rtMapSize(m), 2, "size unchanged on overwrite")
+  assertEqInt(rtMapGet(m, "foo"), 99, "get foo is 99")
+
+  // Keys and values
+  let keys = rtMapKeys(m)
+  assertEqInt(keys.len(), 2, "keys len is 2")
+  let vals = rtMapValues(m)
+  assertEqInt(vals.len(), 2, "vals len is 2")
+
+  // Delete
+  assert(rtMapDelete(m, "bar") == true, "delete bar returns true")
+  assertEqInt(rtMapSize(m), 1, "size 1 after delete")
+  assert(rtMapHas(m, "bar") == false, "has bar false after delete")
+  ret 0
+
+pub fn test_rt_swiss_hash_map(): int:
+  mut shm = rtHashMapNew(16)
+  assert(shm.ctrlPtr > 0, "ctrlPtr > 0")
+  assertEqInt(shm.size, 0, "size 0")
+
+  let kh1 = rtHashFnv1a("alpha")
+  let kh2 = rtHashFnv1a("beta")
+  assert(rtMapInsert(shm, kh1, 101, 1001) == true, "insert alpha")
+  assert(rtMapInsert(shm, kh2, 102, 1002) == true, "insert beta")
+  assertEqInt(shm.size, 2, "size 2")
+
+  assertEqInt(rtMapFind(shm, kh1, 101), 1001, "find alpha value")
+  assertEqInt(rtMapFind(shm, kh2, 102), 1002, "find beta value")
+
+  rtMapRehash(shm, 32)
+  assert(shm.capacity >= 32, "rehashed capacity >= 32")
+  assertEqInt(rtMapFind(shm, kh1, 101), 1001, "find alpha after rehash")
+
+  assert(rtMapRemove(shm, kh1, 101) == true, "remove alpha")
+  assertEqInt(rtMapFind(shm, kh1, 101), 0, "alpha missing after remove")
+
+  rtMapFree(shm)
+  assertEqInt(shm.ctrlPtr, 0, "ctrlPtr 0 after free")
+  ret 0
+
+pub fn main(): int:
+  test_rt_map_robin_hood()
+  test_rt_swiss_hash_map()
+  println("PASS: rt_map_test")
+  ret 0

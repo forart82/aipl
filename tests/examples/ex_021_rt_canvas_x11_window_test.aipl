@@ -1,0 +1,48 @@
+// ============================================================================
+// Twin Test Suite 021: X11 Software Framebuffer, Bresenham Lines & Blit Window
+// Verifies examples/ex_021_rt_canvas_x11_window.aipl
+// ============================================================================
+module Ex021RtCanvasX11WindowTest
+
+import {
+  X11CanvasState,
+  probeSoftwareCanvasBlit,
+  probeBresenhamFramebuffer,
+  describeScanlineSyncMode,
+  buildX11CanvasState,
+  renderFrameStep
+} from "../../examples/ex_021_rt_canvas_x11_window"
+
+pub fn test_rt_canvas_blit_and_bresenham_fb(): int:
+  assert(probeSoftwareCanvasBlit(32, 32) == 4096, "32x32 RGBA canvas presents 4096 bytes")
+  let diagPixel = probeBresenhamFramebuffer(16, 16)
+  assert(diagPixel == 0xFFFFFFFF, "Bresenham diagonal sets pixel (5, 5) to white (0xFFFFFFFF)")
+  ret 0
+
+pub fn test_scanline_sync_description(): int:
+  assert(describeScanlineSyncMode(0) == "X11:VSYNC_LOCKED_60HZ", "mode 0")
+  assert(describeScanlineSyncMode(1) == "X11:IMMEDIATE_SHM_BLIT", "mode 1")
+  ret 0
+
+pub fn test_window_state_and_render_step(): int:
+  let st0 = buildX11CanvasState(64, 64, 0)
+  let st1 = buildX11CanvasState(64, 64, 1)
+  let st20 = buildX11CanvasState(64, 64, 20)
+  let st100 = buildX11CanvasState(64, 64, 100)
+  assert(st0.presentBytes == 16384, "64x64 * 4 == 16384 bytes")
+  assert(st0.activeScanline == 0 and st1.activeScanline == 1, "activeScanline advances 0 -> 1")
+  assert(st20.activeScanline == 20 and st100.activeScanline == 36, "activeScanline wraps modulo 64 at frame 100")
+  assert(st0.centerPixel == 0xFFFFFFFF, "Bresenham center pixel set")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m1 > m0 and m20 > m1 and m100 > m20, "renderFrameStep progresses across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_rt_canvas_blit_and_bresenham_fb()
+  test_scanline_sync_description()
+  test_window_state_and_render_step()
+  println("PASS: ex_021_rt_canvas_x11_window_test")
+  ret 0

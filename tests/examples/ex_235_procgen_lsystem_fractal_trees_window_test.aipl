@@ -1,0 +1,48 @@
+module Ex235ProcgenLsystemFractalTreesWindowTest
+
+import {
+  LSystemRule, LSystemGrammar, TurtleSegment3D,
+  lsystemGrammarNew, lsystemAddRule, lsystemEvaluate, lsystemInterpretTurtle3D
+} from "../../std/procgen/lsystem"
+import {
+  LSystemScene, createLSystemScene, stepScene, auditProcgenLsystemFractalTrees
+} from "../../examples/ex_235_procgen_lsystem_fractal_trees_window"
+
+pub fn test_procgen_lsystem_fractal_trees(): void:
+  mut grammar = lsystemGrammarNew("A", 90.0, 10.0)
+  lsystemAddRule(grammar, "A", "AB", 1.0)
+  lsystemAddRule(grammar, "B", "A", 1.0)
+  let expanded = lsystemEvaluate(grammar, 3, 0)
+  assert(expanded == "ABAAB", "lsystemEvaluate Fibonacci string")
+  let segs = lsystemInterpretTurtle3D("F+F-F", 90.0, 5.0)
+  assert(segs.len() == 3, "lsystemInterpretTurtle3D 3 segments")
+
+  mut scene: LSystemScene = createLSystemScene()
+  let s0: TurtleSegment3D = scene.segments[1]
+  let y0 = s0.endPoint.y
+  stepScene(scene, 0, 0.1)
+  let s1: TurtleSegment3D = scene.segments[1]
+  let y1 = s1.endPoint.y
+  assert(y1 != y0, "t=0 -> t=1 updates L-System turtle branching geometry")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let s20: TurtleSegment3D = scene.segments[1]
+  let y20 = s20.endPoint.y
+  assert(y20 != y1 and scene.segments.len() == 25, "t=1 -> t=20 sways L-System canopy branches")
+
+  while f <= 100:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let s100: TurtleSegment3D = scene.segments[1]
+  assert(s100.endPoint.y != y20 and scene.segments.len() == 25, "t=20 -> t=100 continues swaying L-System canopy without freezing")
+
+  let audit = auditProcgenLsystemFractalTrees()
+  assert(audit == 35, "L-System fractal trees audit")
+
+pub fn main(): int:
+  test_procgen_lsystem_fractal_trees()
+  println("PASS: ex_235_procgen_lsystem_fractal_trees_window_test")
+  ret 0

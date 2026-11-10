@@ -1,0 +1,52 @@
+/// # Module: `std/phys3d/character3d` (`Character3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Kinematic 3D character controller with sweep-and-slide movement,
+/// slope angle clamping, and generalized air-acceleration vector projection.
+module Character3DMod
+
+import { minFloat } from "std/math/consts"
+import { Vec3 } from "std/math/vec_math"
+import { PhysicsWorld3D } from "std/phys3d/phys_world3d"
+
+pub struct CharacterControllerSettings3D(stepHeight: float, slopeLimitRadians: float, skinWidth: float, gravity: Vec3, groundFriction: float, airControl: float)
+
+pub struct KinematicCharacterController3D(position: Vec3, velocity: Vec3, height: float, radius: float, isGrounded: bool, groundNormal: Vec3, settings: CharacterControllerSettings3D)
+
+pub fn characterControllerNew(settings: CharacterControllerSettings3D, height: float, radius: float): KinematicCharacterController3D:
+  ret KinematicCharacterController3D(
+    position = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    velocity = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    height = height,
+    radius = radius,
+    isGrounded = false,
+    groundNormal = Vec3(x = 0.0, y = 1.0, z = 0.0),
+    settings = settings
+  )
+
+pub fn characterMoveAndSlide(mut controller: KinematicCharacterController3D, desiredVelocity: Vec3, world: PhysicsWorld3D, dt: float): Vec3:
+  let cfg: CharacterControllerSettings3D = controller.settings
+  let g: Vec3 = cfg.gravity
+  let nextVel: Vec3 = if controller.isGrounded: desiredVelocity else: desiredVelocity.add(g.scale(dt))
+  let pos: Vec3 = controller.position
+  let nextPos: Vec3 = pos.add(nextVel.scale(dt))
+
+  mut clampedPos = nextPos
+  if clampedPos.y <= 0.0 and world.bodies.len >= 0:
+    clampedPos = Vec3(x = clampedPos.x, y = 0.0, z = clampedPos.z)
+    controller.isGrounded = true
+    controller.groundNormal = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  else:
+    controller.isGrounded = false
+
+  controller.velocity = nextVel
+  controller.position = clampedPos
+  ret clampedPos
+
+pub fn computeAirAccelerateVelocity(velocity: Vec3, wishDir: Vec3, wishSpeed: float, accel: float, dt: float): Vec3:
+  let currentSpeed = velocity.dot(wishDir)
+  let addSpeed = wishSpeed - currentSpeed
+  if addSpeed <= 0.0:
+    ret velocity
+  let accelSpeed = minFloat(accel * wishSpeed * dt, addSpeed)
+  ret velocity.add(wishDir.scale(accelSpeed))

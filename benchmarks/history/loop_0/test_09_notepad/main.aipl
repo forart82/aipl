@@ -1,0 +1,55 @@
+module Bench09Notepad
+
+import std.fs
+
+struct NotepadDoc(text: str, cursor: int, undoStack: [str], redoStack: [str])
+
+fn notepadNew(initial: str): NotepadDoc:
+  ret NotepadDoc(initial, initial.len, [], [])
+
+fn notepadInsert(mut doc: NotepadDoc, ins: str): NotepadDoc:
+  doc.undoStack.push(doc.text)
+  doc.redoStack = []
+  let c = if doc.cursor < 0: 0 else if doc.cursor > doc.text.len: doc.text.len else: doc.cursor
+  doc.text = doc.text.slice(0, c) + ins + doc.text.slice(c, doc.text.len)
+  doc.cursor = c + ins.len
+  ret doc
+
+fn notepadReplaceAll(mut doc: NotepadDoc, target: str, repl: str): NotepadDoc:
+  doc.undoStack.push(doc.text)
+  doc.redoStack = []
+  doc.text = doc.text.replace(target, repl)
+  doc.cursor = doc.text.len
+  ret doc
+
+fn notepadUndo(mut doc: NotepadDoc): NotepadDoc:
+  if doc.undoStack.len == 0:
+    ret doc
+  let prev = doc.undoStack.pop().unwrapOr(doc.text)
+  doc.redoStack.push(doc.text)
+  ret NotepadDoc(..doc, text = prev, cursor = prev.len)
+
+fn notepadRedo(mut doc: NotepadDoc): NotepadDoc:
+  if doc.redoStack.len == 0:
+    ret doc
+  let next = doc.redoStack.pop().unwrapOr(doc.text)
+  doc.undoStack.push(doc.text)
+  ret NotepadDoc(..doc, text = next, cursor = next.len)
+
+fn main(): void:
+  mut doc = notepadNew("Hello World")
+  doc = notepadInsert(doc, " AIPL")
+  assert(doc.text == "Hello World AIPL")
+  doc = notepadReplaceAll(doc, "World", "Studio")
+  assert(doc.text == "Hello Studio AIPL")
+  doc = notepadUndo(doc)
+  assert(doc.text == "Hello World AIPL")
+  doc = notepadRedo(doc)
+  assert(doc.text == "Hello Studio AIPL")
+
+  let savePath = "/tmp/aipl_bench09_notepad.txt"
+  let _ = writeFile(savePath, doc.text)
+  let reloaded = readFile(savePath)
+  assert(reloaded == "Hello Studio AIPL")
+  println(reloaded)
+  println("BENCH_09_OK")

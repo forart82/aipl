@@ -1,0 +1,45 @@
+// ============================================================================
+// Twin Test Suite 001: Hello World, Standard Streams & Banner Telemetry CLI
+// Verifies examples/ex_001_hello_world_and_io_cli.aipl (written before example)
+// ============================================================================
+module Ex001HelloWorldAndIoCliTest
+
+import {
+  BannerFrame,
+  computeBannerChecksum,
+  clampTerminalColumns,
+  formatGreetingStatus,
+  buildBannerFrame,
+  captureStdioGreetingLine
+} from "../../examples/ex_001_hello_world_and_io_cli.aipl"
+
+pub fn test_banner_checksum_and_columns(): int:
+  assert(computeBannerChecksum(24, 3) == 765, "computeBannerChecksum(24, 3) == 765")
+  assert(computeBannerChecksum(0, 1) == 7, "computeBannerChecksum(0, 1) == 7")
+  assert(clampTerminalColumns(120, 80) == 120, "clampTerminalColumns(120, 80) == 120")
+  assert(clampTerminalColumns(30, 80) == 80, "clampTerminalColumns clamps to minCols 80")
+  assert(clampTerminalColumns(300, 80) == 240, "clampTerminalColumns clamps to max 240")
+  ret 0
+
+pub fn test_stdio_stream_capture_and_flush(): int:
+  let captured = captureStdioGreetingLine("AIPL")
+  assert(captured == "Hello, AIPL!", "stdioWriteBytes + stdioReadLineMock roundtrip")
+  let frame = buildBannerFrame(24, 3)
+  assert(frame.columns == 24, "BannerFrame.columns == 24")
+  assert(frame.lines == 3, "BannerFrame.lines == 3")
+  assert(frame.checksum == 765, "BannerFrame.checksum == 765")
+  assert(frame.bytesWritten == 26, "stdioPrintln('Hello from AIPL v4 std/io') writes 26 bytes")
+  ret 0
+
+pub fn test_greeting_status_classification(): int:
+  assert(formatGreetingStatus(0) == "BANNER:OK", "exit 0 -> BANNER:OK")
+  assert(formatGreetingStatus(1) == "BANNER:WARN", "exit 1 -> BANNER:WARN")
+  assert(formatGreetingStatus(2) == "BANNER:ERR", "exit 2 -> BANNER:ERR")
+  ret 0
+
+pub fn main(): int:
+  test_banner_checksum_and_columns()
+  test_stdio_stream_capture_and_flush()
+  test_greeting_status_classification()
+  println("PASS: ex_001_hello_world_and_io_cli_test")
+  ret 0

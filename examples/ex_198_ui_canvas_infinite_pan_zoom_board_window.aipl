@@ -1,0 +1,114 @@
+module Ex198UiCanvasInfinitePanZoomBoardWindow
+
+import {
+  ScissorRect, UiCanvas, pushScissor, popScissor,
+  computeAspectViewport, viewportPanZoomBoardToScreenX, viewportPanZoomBoardToScreenY,
+  drawViewportQuadrantGrid, viewportComputeSymmetryMandalaPointX, viewportComputeSymmetryMandalaPointY
+} from "../std/ui/ui_canvas"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepBoardPanX(frame: int): float:
+  ret sin(float(frame) * 0.05) * 45.0
+
+pub fn stepBoardPanY(frame: int): float:
+  ret cos(float(frame) * 0.04) * 28.0
+
+pub fn stepBoardZoomPct(frame: int): float:
+  ret 105.0 + sin(float(frame) * 0.035) * 18.0
+
+pub fn buildUiCanvasBoardAudit(): int:
+  mut canvas = UiCanvas(width = 1280.0, height = 720.0, scissorStack = [])
+  canvas = pushScissor(canvas, ScissorRect(x = 0, y = 0, w = 600, h = 400))
+  canvas = pushScissor(canvas, ScissorRect(x = 200, y = 100, w = 600, h = 400))
+  let clippedW = canvas.scissorStack[1].w
+  canvas = popScissor(canvas)
+  let sx = int(viewportPanZoomBoardToScreenX(100.0, 40.0, 150.0, 0.0))
+  let sy = int(viewportPanZoomBoardToScreenY(80.0, 20.0, 150.0, 0.0))
+  ret clippedW + canvas.scissorStack.len() + sx + sy
+
+pub fn main(): int:
+  let auditScore = buildUiCanvasBoardAudit()
+  let vp = computeAspectViewport(1280.0, 720.0, 1280.0, 720.0)
+
+  mut canvas = UiCanvas(width = 1280.0, height = 720.0, scissorStack = [])
+  canvas = pushScissor(canvas, ScissorRect(x = 60, y = 128, w = 1160, h = 540))
+
+  initWindow(1280, 720, "AIPL ex_198: UI Canvas Scissor Stack & Infinite Pan-Zoom Board")
+  mut frame = 0
+  while not windowShouldClose():
+    let clipPad = int(12.0 + sin(float(frame) * 0.045) * 10.0)
+    mut frameCanvas = pushScissor(canvas, ScissorRect(x = 110 + clipPad, y = 152 + clipPad / 2, w = 1060 - clipPad * 2, h = 504 - clipPad))
+    let parentClip = frameCanvas.scissorStack[0]
+    let activeClip = frameCanvas.scissorStack[1]
+    frameCanvas = popScissor(frameCanvas)
+
+    let panX = stepBoardPanX(frame)
+    let panY = stepBoardPanY(frame)
+    let zoomPct = stepBoardZoomPct(frame)
+    let zoomScale = zoomPct / 100.0
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawVPCanvasBoard(vp)
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_198: UI CANVAS SCISSOR STACK & INFINITE PAN-ZOOM BOARD", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("clip=[" + str(activeClip.x) + "," + str(activeClip.y) + " " + str(activeClip.w) + "x" + str(activeClip.h) + "] | pan=(" + str(int(panX)) + "," + str(int(panY)) + ") | zoom=" + str(int(zoomPct)) + "% | audit=" + str(auditScore), 52.0, 66.0, 15.0, rgb(125, 211, 252))
+
+    // Parent Scissor Boundary (depth 0)
+    drawRectOutline(float(parentClip.x), float(parentClip.y), float(parentClip.w), float(parentClip.h), 1.5, rgb(100, 116, 139))
+    drawText("Parent Scissor [0]: " + str(parentClip.w) + "x" + str(parentClip.h), float(parentClip.x) + 12.0, float(parentClip.y) + 6.0, 13.0, rgb(148, 163, 184))
+
+    // Intersected Child Scissor Boundary (depth 1)
+    drawRect(float(activeClip.x), float(activeClip.y), float(activeClip.w), float(activeClip.h), rgb(13, 19, 33))
+    drawRectOutline(float(activeClip.x), float(activeClip.y), float(activeClip.w), float(activeClip.h), 2.0, rgb(56, 189, 248))
+    drawText("Intersected Child Scissor [1]: " + str(activeClip.w) + "x" + str(activeClip.h) + " (World Origin 640,404)", float(activeClip.x) + 14.0, float(activeClip.y) + 10.0, 14.0, rgb(56, 189, 248))
+
+    // Pan-Zoom World Origin Crosshair & 8-Fold Symmetry Mandala Ring
+    let originScreenX = viewportPanZoomBoardToScreenX(0.0, panX, zoomPct, 640.0)
+    let originScreenY = viewportPanZoomBoardToScreenY(0.0, panY, zoomPct, 404.0)
+    drawLine(originScreenX - 24.0, originScreenY, originScreenX + 24.0, originScreenY, rgb(71, 85, 105), 1.5)
+    drawLine(originScreenX, originScreenY - 24.0, originScreenX, originScreenY + 24.0, rgb(71, 85, 105), 1.5)
+    mut mIdx = 0
+    while mIdx < 8:
+      let mx = viewportComputeSymmetryMandalaPointX(originScreenX, originScreenY, originScreenX + 54.0 * zoomScale, originScreenY, mIdx, 8)
+      let my = viewportComputeSymmetryMandalaPointY(originScreenX, originScreenY, originScreenX + 54.0 * zoomScale, originScreenY, mIdx, 8)
+      drawCircle(mx, my, 4.0, rgb(168, 85, 247))
+      mIdx = mIdx + 1
+
+    let cardW = 148.0 * zoomScale
+    let cardH = 92.0 * zoomScale
+    mut cardIdx = 0
+    while cardIdx < 5:
+      let wx = -380.0 + float(cardIdx) * 165.0
+      let wy = if cardIdx % 2 == 0: -115.0 else: 35.0
+      let sx = viewportPanZoomBoardToScreenX(wx, panX, zoomPct, 640.0)
+      let sy = viewportPanZoomBoardToScreenY(wy, panY, zoomPct, 404.0)
+      if cardIdx + 1 < 5:
+        let nextWx = -380.0 + float(cardIdx + 1) * 165.0
+        let nextWy = if (cardIdx + 1) % 2 == 0: -115.0 else: 35.0
+        let nsx = viewportPanZoomBoardToScreenX(nextWx, panX, zoomPct, 640.0)
+        let nsy = viewportPanZoomBoardToScreenY(nextWy, panY, zoomPct, 404.0)
+        drawLine(sx + cardW * 0.5, sy + cardH * 0.5, nsx + cardW * 0.5, nsy + cardH * 0.5, rgb(52, 211, 153), 2.0)
+      drawRect(sx, sy, cardW, cardH, rgb(23, 37, 68))
+      drawRect(sx, sy, cardW, 24.0 * zoomScale, rgb(30, 58, 138))
+      drawRectOutline(sx, sy, cardW, cardH, 2.0, rgb(125, 211, 252))
+      drawText("Board Card #" + str(cardIdx + 1), sx + 10.0, sy + 6.0, 14.0, rgb(240, 249, 255))
+      drawText("w=(" + str(int(wx)) + "," + str(int(wy)) + ")", sx + 10.0, sy + 34.0 * zoomScale, 13.0, rgb(186, 230, 253))
+      drawText("Zoom " + str(int(zoomPct)) + "%", sx + 10.0, sy + 58.0 * zoomScale, 13.0, rgb(167, 243, 208))
+      cardIdx = cardIdx + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0
+
+fn drawVPCanvasBoard(vp: any): void:
+  drawViewportQuadrantGrid(vp, 6, 0x1E293B)

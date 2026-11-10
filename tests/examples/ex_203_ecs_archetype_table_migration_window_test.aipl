@@ -1,0 +1,42 @@
+module Ex203EcsArchetypeTableMigrationWindowTest
+
+import {
+  buildEcsArchetypeMigrationAudit, stepMigrationBridgeT
+} from "../../examples/ex_203_ecs_archetype_table_migration_window"
+import { EntityId } from "../../std/ecs/entity"
+import {
+  ComponentColumn, ArchetypeTable, createArchetypeTable,
+  insertArchetypeRow, swapRemoveArchetypeRow, migrateEntityBetweenArchetypes
+} from "../../std/ecs/archetype"
+
+pub fn test_ecs_archetype_table_migration(): void:
+  mut tbl = createArchetypeTable(3, [0, 1])
+  tbl = insertArchetypeRow(tbl, EntityId(index = 0, generation = 1), [10.0, 100.0])
+  tbl = insertArchetypeRow(tbl, EntityId(index = 1, generation = 1), [20.0, 200.0])
+  tbl = insertArchetypeRow(tbl, EntityId(index = 2, generation = 1), [30.0, 300.0])
+  assert(tbl.entities.len() == 3, "3 rows inserted into ArchetypeTable")
+
+  tbl = swapRemoveArchetypeRow(tbl, 0)
+  assert(tbl.entities.len() == 2 and tbl.entities[0].index == 2, "swapRemoveArchetypeRow moves last row into index 0 in O(1)")
+
+  let dst = createArchetypeTable(7, [0, 1, 2])
+  let (nextSrc, nextDst, dstRow) = migrateEntityBetweenArchetypes(tbl, dst, 0)
+  let srcTbl: ArchetypeTable = nextSrc
+  let dstTbl: ArchetypeTable = nextDst
+  let dstCol0: ComponentColumn = dstTbl.columns[0]
+  let dstCol1: ComponentColumn = dstTbl.columns[1]
+  assert(srcTbl.entities.len() == 1 and dstTbl.entities.len() == 1 and dstRow == 0, "Entity migrated from src to dst")
+  assert(dstCol0.values[0] == 30.0 and dstCol1.values[0] == 300.0, "Existing component columns preserved across migration")
+  assert(buildEcsArchetypeMigrationAudit() == 332, "buildEcsArchetypeMigrationAudit returns 30 + 300 + 1 + 1 == 332")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let b0 = stepMigrationBridgeT(0)
+  let b1 = stepMigrationBridgeT(1)
+  let b20 = stepMigrationBridgeT(20)
+  let b100 = stepMigrationBridgeT(100)
+  assert(b0 != b1 and b1 != b20 and b20 != b100, "migration bridge pulse advances across t=0,1,20,100")
+
+pub fn main(): int:
+  test_ecs_archetype_table_migration()
+  println("PASS: ex_203_ecs_archetype_table_migration_window_test")
+  ret 0

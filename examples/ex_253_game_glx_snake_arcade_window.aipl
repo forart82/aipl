@@ -1,0 +1,219 @@
+// ============================================================================
+// Canonical Example 253: Game GLX Snake Arcade Classic (WINDOW - X11 + libGL)
+// Target Profile: WINDOW (Game GLX Mode) | Mode: setWindowMode("glx")
+// ============================================================================
+module Ex253GameGlxSnakeArcadeWindow
+
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, setWindowMode, getWindowMode, drawRect, drawRectOutline,
+  drawRoundedRect, drawCircle, drawEllipse, drawLine, drawText, rgb,
+  isKeyPressed, isKeyHeld
+} from "../std/gfx2d/shape2d.aipl"
+import { playToneEx } from "../std/audio/audio_device.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub struct SnakeGame(body: [int], dirX: int, dirY: int, nextDirX: int, nextDirY: int, appleCell: int, score: int, highScore: int, gameOver: bool, paused: bool, tickCount: int)
+
+pub fn computeSnakeSynthArpHz(stepIdx: int): float:
+  let notes = [220.0, 261.63, 329.63, 392.00, 440.00, 523.25, 659.25, 523.25]
+  ret notes[clampInt(stepIdx % 8, 0, 7)]
+
+pub fn createSnakeGame(bestScore: int): SnakeGame:
+  ret SnakeGame(
+    body = [7 * 24 + 10, 7 * 24 + 9, 7 * 24 + 8, 7 * 24 + 7],
+    dirX = 1, dirY = 0, nextDirX = 1, nextDirY = 0, appleCell = 7 * 24 + 15,
+    score = 0, highScore = bestScore, gameOver = false, paused = false, tickCount = 0
+  )
+
+pub fn snakeOccupiesCell(body: [int], cell: int, ignoreTailTip: bool): bool:
+  let limit = if ignoreTailTip and body.len > 0: body.len - 1 else: body.len
+  mut i = 0
+  while i < limit:
+    if body[i] == cell:
+      ret true
+    i = i + 1
+  ret false
+
+pub fn pickUnoccupiedAppleCell(body: [int], seed: int): int:
+  mut cand = clampInt(((seed * 73 + 41) % 360 + 360) % 360, 0, 359)
+  mut tries = 0
+  while tries < 360:
+    if not snakeOccupiesCell(body, cand, false):
+      ret cand
+    cand = (cand + 1) % 360
+    tries = tries + 1
+  ret 0
+
+pub fn steerSnake(mut game: SnakeGame, wantX: int, wantY: int): SnakeGame:
+  if (wantX != 0 or wantY != 0) and not (wantX == -game.dirX and wantY == -game.dirY):
+    game.nextDirX = wantX
+    game.nextDirY = wantY
+  ret game
+
+pub fn pollSnakeControls(mut game: SnakeGame): SnakeGame:
+  if isKeyPressed("P"):
+    game.paused = not game.paused
+  if isKeyPressed("R") or isKeyPressed("Space"):
+    ret createSnakeGame(game.highScore)
+  if isKeyPressed("Left") or isKeyPressed("A") or isKeyHeld(263) or isKeyHeld(65):
+    game = steerSnake(game, -1, 0)
+  elif isKeyPressed("Right") or isKeyPressed("D") or isKeyHeld(262) or isKeyHeld(68):
+    game = steerSnake(game, 1, 0)
+  elif isKeyPressed("Up") or isKeyPressed("W") or isKeyHeld(265) or isKeyHeld(87):
+    game = steerSnake(game, 0, -1)
+  elif isKeyPressed("Down") or isKeyPressed("S") or isKeyHeld(264) or isKeyHeld(83):
+    game = steerSnake(game, 0, 1)
+  ret game
+
+pub fn stepSnakeGame(mut game: SnakeGame): SnakeGame:
+  if game.gameOver or game.paused:
+    ret game
+  if not (game.nextDirX == -game.dirX and game.nextDirY == -game.dirY):
+    game.dirX = game.nextDirX
+    game.dirY = game.nextDirY
+  let head = game.body[0]
+  let nx = (head % 24) + game.dirX
+  let ny = (head / 24) + game.dirY
+  let outOfBounds = nx < 0 or nx >= 24 or ny < 0 or ny >= 15
+  let nextCell = ny * 24 + nx
+  let ateApple = not outOfBounds and nextCell == game.appleCell
+  if outOfBounds or snakeOccupiesCell(game.body, nextCell, not ateApple):
+    game.gameOver = true
+    let _ = playToneEx(196.00, 420.0, 0.34, "warm_pad")
+    let _ = playToneEx(233.08, 420.0, 0.28, "warm_pad")
+    let _ = playToneEx(293.66, 480.0, 0.26, "pluck")
+    ret game
+  mut nextBody: [int] = [nextCell]
+  let keepLen = if ateApple: game.body.len else: game.body.len - 1
+  mut i = 0
+  while i < keepLen:
+    nextBody.push(game.body[i])
+    i = i + 1
+  game.body = nextBody
+  game.tickCount = game.tickCount + 1
+  if ateApple:
+    game.score = game.score + 10
+    if game.score > game.highScore:
+      game.highScore = game.score
+    game.appleCell = pickUnoccupiedAppleCell(game.body, game.tickCount * 17 + game.score)
+    let _ = playToneEx(587.33, 140.0, 0.32, "pluck")
+    let _ = playToneEx(880.00, 210.0, 0.28, "bell")
+  ret game
+
+pub fn triggerSnakeAmbientAudio(frameIndex: int): int:
+  mut voices = 0
+  if frameIndex % 12 == 0:
+    let _ = playToneEx(computeSnakeSynthArpHz((frameIndex / 12) % 8), 170.0, 0.22, "synth_lead")
+    voices = voices + 1
+  if frameIndex % 48 == 0:
+    let roots = [110.0, 87.31, 130.81, 98.00]
+    let root = roots[(frameIndex / 48) % 4]
+    let _ = playToneEx(root, 680.0, 0.28, "warm_pad")
+    let _ = playToneEx(root * 1.5, 680.0, 0.20, "warm_pad")
+    voices = voices + 2
+  ret voices
+
+pub fn renderSnakeArena(game: SnakeGame, frameIndex: int): int:
+  clearScreen(rgb(7, 11, 22))
+  drawRect(24.0, 14.0, 1232.0, 48.0, rgb(14, 22, 38))
+  drawRectOutline(24.0, 14.0, 1232.0, 48.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_253 // GLX ARCADE CLASSICS: NEON SNAKE (WASD / ARROWS STEER, P PAUSE, R/SPACE RESTART)", 42.0, 31.0, 17.0, rgb(240, 249, 255))
+
+  let ox = 208.0
+  let oy = 82.0
+  let cellPx = 36.0
+  drawRect(ox, oy, 864.0, 540.0, rgb(10, 17, 32))
+  mut gx = 1
+  while gx < 24:
+    let lx = ox + float(gx) * cellPx
+    drawLine(lx, oy, lx, oy + 540.0, rgb(18, 30, 52), 1.0)
+    gx = gx + 1
+  mut gy = 1
+  while gy < 15:
+    let ly = oy + float(gy) * cellPx
+    drawLine(ox, ly, ox + 864.0, ly, rgb(18, 30, 52), 1.0)
+    gy = gy + 1
+  drawRectOutline(ox, oy, 864.0, 540.0, 2.5, rgb(56, 189, 248))
+
+  let ax = ox + float(game.appleCell % 24) * cellPx + 18.0
+  let ay = oy + float(game.appleCell / 24) * cellPx + 18.0
+  let pulse = float((frameIndex % 12) - 6) * 0.25
+  drawCircle(ax, ay, 12.5 + pulse, rgb(244, 63, 94))
+  drawCircle(ax - 3.5, ay - 3.5, 4.0, rgb(253, 164, 175))
+  drawEllipse(ax + 4.0, ay - 12.0, 5.5, 2.8, rgb(74, 222, 128))
+
+  mut visualMetric = game.score * 10 + game.body.len * 17 + int(ax)
+  mut i = 0
+  while i < game.body.len:
+    let cell = game.body[i]
+    let sx = ox + float(cell % 24) * cellPx + 3.0
+    let sy = oy + float(cell / 24) * cellPx + 3.0
+    if i == 0:
+      drawRoundedRect(sx, sy, 30.0, 30.0, 7.0, rgb(56, 189, 248))
+      drawCircle(sx + 15.0 + float(game.dirX * 6 - game.dirY * 5), sy + 15.0 + float(game.dirY * 6 + game.dirX * 5), 3.0, rgb(15, 23, 42))
+      drawCircle(sx + 15.0 + float(game.dirX * 6 + game.dirY * 5), sy + 15.0 + float(game.dirY * 6 - game.dirX * 5), 3.0, rgb(15, 23, 42))
+    else:
+      let segCol = if i % 2 == 0: rgb(34, 197, 94) else: rgb(16, 185, 129)
+      drawRoundedRect(sx + 1.5, sy + 1.5, 27.0, 27.0, 6.0, segCol)
+    visualMetric = visualMetric + cell
+    i = i + 1
+
+  let speedLvl = clampInt(1 + game.score / 30, 1, 8)
+  drawRect(24.0, 82.0, 168.0, 540.0, rgb(14, 22, 38))
+  drawRectOutline(24.0, 82.0, 168.0, 540.0, 1.5, rgb(34, 197, 94))
+  drawText("SCORE: " + str(game.score), 38.0, 118.0, 18.0, rgb(74, 222, 128))
+  drawText("HIGH: " + str(game.highScore), 38.0, 164.0, 18.0, rgb(250, 204, 21))
+  drawText("LENGTH: " + str(game.body.len), 38.0, 210.0, 16.0, rgb(125, 211, 252))
+  drawText("SPEED LVL: " + str(speedLvl), 38.0, 252.0, 16.0, rgb(216, 180, 254))
+
+  drawRect(1088.0, 82.0, 168.0, 540.0, rgb(14, 22, 38))
+  drawRectOutline(1088.0, 82.0, 168.0, 540.0, 1.5, rgb(168, 85, 247))
+  drawText("CONTROLS", 1104.0, 112.0, 16.0, rgb(216, 180, 254))
+  drawText("ARROWS / WASD", 1104.0, 146.0, 13.0, rgb(226, 232, 240))
+  drawText("P : PAUSE", 1104.0, 178.0, 13.0, rgb(226, 232, 240))
+  drawText("R / SPACE : RESET", 1104.0, 210.0, 13.0, rgb(226, 232, 240))
+
+  if game.gameOver:
+    drawRect(360.0, 310.0, 560.0, 84.0, rgb(15, 23, 42))
+    drawRectOutline(360.0, 310.0, 560.0, 84.0, 2.5, rgb(244, 63, 94))
+    drawText("GAME OVER! PRESS SPACE OR R TO RESTART", 402.0, 344.0, 18.0, rgb(253, 164, 175))
+  elif game.paused:
+    drawRect(430.0, 310.0, 420.0, 76.0, rgb(15, 23, 42))
+    drawRectOutline(430.0, 310.0, 420.0, 76.0, 2.0, rgb(250, 204, 21))
+    drawText("PAUSED - PRESS P TO RESUME", 488.0, 340.0, 18.0, rgb(250, 204, 21))
+
+  drawRect(24.0, 642.0, 1232.0, 52.0, rgb(14, 22, 38))
+  drawRectOutline(24.0, 642.0, 1232.0, 52.0, 1.5, rgb(56, 189, 248))
+  drawText("Mode=" + getWindowMode() + " | Grid=24x15 (36px) | Score=" + str(game.score) + " | Length=" + str(game.body.len) + " | Speed=" + str(speedLvl), 42.0, 661.0, 15.0, rgb(134, 239, 172))
+  ret visualMetric + frameIndex
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  setWindowMode("glx")
+  mut g = createSnakeGame(40)
+  mut s = 0
+  let steps = (frameIndex % 6) + 1
+  while s < steps:
+    g = stepSnakeGame(g)
+    s = s + 1
+  let voices = triggerSnakeAmbientAudio(frameIndex)
+  ret renderSnakeArena(g, frameIndex) + voices * 10 + int(dt * 0.0)
+
+pub fn main(): int:
+  setWindowMode("glx")
+  assert(getWindowMode() == "glx", "Snake arcade uses glx game mode")
+  initWindow(1280, 720, "AIPL ex_253 - GLX Snake Arcade Classic")
+  mut game = createSnakeGame(0)
+  mut frame: int = 0
+  while not windowShouldClose():
+    game = pollSnakeControls(game)
+    let stepInterval = clampInt(8 - (game.score / 30), 3, 8)
+    if frame > 0 and (frame % stepInterval) == 0:
+      game = stepSnakeGame(game)
+    let _ = triggerSnakeAmbientAudio(frame)
+    beginDrawing()
+    let _ = renderSnakeArena(game, frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,139 @@
+// ============================================================================
+// Canonical Example 131: Fixed-Timestep App Loop & Alpha Interpolation (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/window/app_loop
+// ============================================================================
+module Ex131WindowAppLoopFixedTimestepWindow
+
+import {
+  AppConfig,
+  AppLoopState,
+  AppLifecycleHooks,
+  createAppConfig,
+  createAppLoopState,
+  stepAppLoop,
+  calculateAlpha,
+  clampDeltaTime,
+  requestAppExit
+} from "../std/window/app_loop"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+import { clampInt, maxInt } from "../std/prelude"
+
+pub fn verifyAppLoopFixedTimestepAccumulator(): int:
+  let cfg = createAppConfig("FixedTimestepApp", 60, 60)
+  let clampedSpike = clampDeltaTime(1.5, 0.25)
+  assert(clampedSpike == 0.25, "lag spike clamped to 0.25s")
+  let fixedDt = 1.0 / 60.0
+  let alphaHalf = calculateAlpha(fixedDt * 0.5, fixedDt)
+  assert(alphaHalf > 0.49 and alphaHalf < 0.51, "calculateAlpha 0.5")
+
+  let state = createAppLoopState(cfg)
+  let hooks = AppLifecycleHooks(onInit = 1, onUpdate = 1, onFixedUpdate = 1, onDraw = 1, onShutdown = 1)
+  let stepped = stepAppLoop(state, cfg, 0.025, hooks)
+  let exited = requestAppExit(stepped)
+  assert(not exited.isRunning, "requestAppExit stops loop")
+  ret int(stepped.alpha * 1000.0 + 0.5)
+
+pub fn computeRenderInterpolationPermille(accumUs: int, stepUs: int): int:
+  let s = maxInt(1, stepUs)
+  let a = clampInt(accumUs, 0, s)
+  ret (a * 1000) / s
+
+pub fn clampSubstepsPerFrame(rawSubsteps: int, maxSubsteps: int): int:
+  let m = maxInt(1, maxSubsteps)
+  ret clampInt(rawSubsteps, 0, m)
+
+pub fn buildSteppedAppLoopState(frameIndex: int, dt: float): AppLoopState:
+  let cfg = createAppConfig("AIPL Fixed-Timestep Engine", 60, 10)
+  mut state = createAppLoopState(cfg)
+  let hooks = AppLifecycleHooks(onInit = 1, onUpdate = 1, onFixedUpdate = 1, onDraw = 1, onShutdown = 1)
+  let safeDt = clampDeltaTime(dt, 0.25)
+  mut step = 0
+  while step <= frameIndex:
+    state = stepAppLoop(state, cfg, safeDt, hooks)
+    step = step + 1
+  ret state
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let stepped = buildSteppedAppLoopState(frameIndex, dt)
+  ret stepped.frameCount * 1000 + int(stepped.alpha * 1000.0)
+
+pub fn renderFixedTimestepScene(stepped: AppLoopState, cfg: AppConfig): void:
+  let alpha = stepped.alpha
+  let alphaPermille = int(alpha * 1000.0)
+
+  clearScreen(rgb(10, 15, 28))
+  drawRect(32.0, 24.0, 1216.0, 58.0, rgb(18, 28, 52))
+  drawRectOutline(32.0, 24.0, 1216.0, 58.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_131 // FIXED-TIMESTEP ACCUMULATOR & ALPHA INTERPOLATION", 52.0, 44.0, 20.0, rgb(240, 249, 255))
+  drawText(cfg.title + " | alpha=" + str(alphaPermille) + " pm", 820.0, 46.0, 16.0, rgb(56, 189, 248))
+
+  // Accumulator phase bar reading stepped.alpha directly
+  drawRect(60.0, 110.0, 1160.0, 70.0, rgb(15, 23, 42))
+  drawRectOutline(60.0, 110.0, 1160.0, 70.0, 1.5, rgb(71, 85, 105))
+  drawText("ACCUMULATOR REMAINDER RATIO (accumulatorSeconds / fixedDt):", 80.0, 124.0, 14.0, rgb(148, 163, 184))
+  drawRect(80.0, 146.0, 1120.0 * alpha, 20.0, rgb(34, 197, 94))
+  drawRectOutline(80.0, 146.0, 1120.0, 20.0, 1.0, rgb(100, 116, 139))
+
+  // Track A: Discrete Fixed Physics Stepper read from stepped.totalTimeSeconds - stepped.accumulatorSeconds
+  drawRect(60.0, 210.0, 1160.0, 180.0, rgb(15, 23, 42))
+  drawRectOutline(60.0, 210.0, 1160.0, 180.0, 1.5, rgb(249, 115, 22))
+  drawText("TRACK A: UNINTERPOLATED DISCRETE PHYSICS TICKS (" + str(cfg.fixedUpdatesPerSec) + " HZ FIXED QUANTUM)", 80.0, 230.0, 16.0, rgb(251, 146, 60))
+  drawLine(100.0, 310.0, 1180.0, 310.0, rgb(51, 65, 85), 2.0)
+  mut tick = 0
+  while tick <= 12:
+    let tx = 100.0 + float(tick * 90)
+    drawLine(tx, 296.0, tx, 324.0, rgb(100, 116, 139), 2.0)
+    tick = tick + 1
+  let fixedTicksElapsed = int((stepped.totalTimeSeconds - stepped.accumulatorSeconds) * float(cfg.fixedUpdatesPerSec) + 0.5)
+  let discreteSlot = fixedTicksElapsed % 12
+  let discreteX = 100.0 + float(discreteSlot * 90)
+  drawCircle(discreteX, 310.0, 22.0, rgb(249, 115, 22))
+  drawCircleOutline(discreteX, 310.0, 28.0, 2.0, rgb(254, 215, 170))
+
+  // Track B: Alpha-Interpolated Smooth Render Trajectory read directly from stepped.alpha
+  drawRect(60.0, 420.0, 1160.0, 180.0, rgb(15, 23, 42))
+  drawRectOutline(60.0, 420.0, 1160.0, 180.0, 1.5, rgb(56, 189, 248))
+  drawText("TRACK B: ALPHA-INTERPOLATED RENDER TRAJECTORY (p_render = discreteX + stepped.alpha * 90)", 80.0, 440.0, 16.0, rgb(56, 189, 248))
+  drawLine(100.0, 520.0, 1180.0, 520.0, rgb(51, 65, 85), 2.0)
+  let smoothX = discreteX + alpha * 90.0
+  drawCircle(discreteX, 520.0, 10.0, rgb(71, 85, 105))
+  drawLine(discreteX, 520.0, smoothX, 520.0, rgb(14, 165, 233), 3.0)
+  drawCircle(smoothX, 520.0, 22.0, rgb(56, 189, 248))
+  drawCircleOutline(smoothX, 520.0, 28.0, 2.0, rgb(224, 242, 254))
+
+  // Bottom telemetry footer
+  drawRect(60.0, 624.0, 1160.0, 64.0, rgb(18, 26, 46))
+  drawRectOutline(60.0, 624.0, 1160.0, 64.0, 1.5, rgb(51, 65, 85))
+  let substeps = clampSubstepsPerFrame(fixedTicksElapsed, cfg.maxFrameSkip)
+  drawText("fixedUpdatesPerSec=" + str(cfg.fixedUpdatesPerSec) + "Hz | targetFps=" + str(cfg.targetFps) + " | substeps=" + str(substeps) + " | frameCount=" + str(stepped.frameCount), 84.0, 648.0, 16.0, rgb(203, 213, 225))
+
+pub fn main(): int:
+  let alphaPm = verifyAppLoopFixedTimestepAccumulator()
+  assert(alphaPm == 500, "alpha remainder 500 permille")
+  let cfg = createAppConfig("AIPL Fixed-Timestep Engine", 60, 10)
+  mut loopState = createAppLoopState(cfg)
+  let hooks = AppLifecycleHooks(onInit = 1, onUpdate = 1, onFixedUpdate = 1, onDraw = 1, onShutdown = 1)
+  initWindow(1280, 720, "AIPL ex_131 - Fixed-Timestep App Loop & Alpha Interpolation")
+  mut frame = 0
+  while not windowShouldClose():
+    loopState = stepAppLoop(loopState, cfg, 0.016667, hooks)
+    beginDrawing()
+    renderFixedTimestepScene(loopState, cfg)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

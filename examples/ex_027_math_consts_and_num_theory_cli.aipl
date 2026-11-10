@@ -1,0 +1,70 @@
+// ============================================================================
+// Example 027: Math Constants, Interpolation & Galois Field GF(256) (CLI)
+// Demonstrates: PI, TAU, E, EPSILON, pi, tau, eulerE, lerp, inverseLerp,
+//               remapFloat, smoothstep, smootherstep, pingPong, gcdInt,
+//               lcmInt, gf256Mul, gf256Inv, and gf256Div from std/math/consts.
+// ============================================================================
+module Ex027MathConstsAndNumTheoryCli
+
+import {
+  PI,
+  TAU,
+  E,
+  EPSILON,
+  pi,
+  tau,
+  eulerE,
+  absFloat,
+  lerp,
+  inverseLerp,
+  remapFloat,
+  smoothstep,
+  smootherstep,
+  pingPong,
+  gcdInt,
+  lcmInt,
+  gf256Mul,
+  gf256Inv,
+  gf256Div
+} from "../std/math/consts"
+
+pub fn verifyTranscendentalConstants(): int:
+  let piOk = absFloat(pi() - PI) < EPSILON
+  let tauOk = absFloat(tau() - TAU) < EPSILON
+  let eOk = absFloat(eulerE() - E) < EPSILON
+  if piOk and tauOk and eOk:
+    ret 1
+  ret 0
+
+pub fn evaluateInterpolationPipeline(sampleX: float): int:
+  let t = inverseLerp(0.0, 10.0, sampleX)
+  let s1 = smoothstep(0.0, 1.0, t)
+  let s2 = smootherstep(0.0, 1.0, t)
+  let pp = pingPong(2.5, 2.0)
+  let mapped = remapFloat(0.0, 10.0, 100.0, 200.0, lerp(0.0, 10.0, (s1 + s2) * 0.5))
+  if absFloat(pp - 1.5) < EPSILON:
+    ret int(mapped)
+  ret -1
+
+pub fn verifyGaloisField256AndNumTheory(a: int, b: int): int:
+  let prod = gf256Mul(a, b)
+  let invA = gf256Inv(a)
+  let unit = gf256Mul(a, invA)
+  let quot = gf256Div(prod, b)
+  if unit == 1 and quot == a:
+    ret gcdInt(12, 18) + lcmInt(4, 6)
+  ret -1
+
+pub fn describeGaloisIdentity(unitElement: int): str:
+  if unitElement == 1:
+    ret "GF256:INVERSE_IDENTITY_OK"
+  ret "GF256:MISMATCH"
+
+pub fn main(): int:
+  let constOk = verifyTranscendentalConstants()
+  let mapped = evaluateInterpolationPipeline(5.0)
+  let gfMetric = verifyGaloisField256AndNumTheory(53, 83)
+  println("Transcendental Constants Verified: " + str(constOk))
+  println("Interpolation Remap (5.0 -> 100..200): " + str(mapped))
+  println("GF(256) & GCD/LCM Metric: " + str(gfMetric) + " (" + describeGaloisIdentity(1) + ")")
+  ret 0

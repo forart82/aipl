@@ -1,0 +1,74 @@
+module tests.complex.lang_02_higher_order_closures_currying_and_mutation_test
+
+import { assert, assertEqInt } from "std/prelude"
+import { fsmNew, fsmAddState, fsmAddTransition, fsmTriggerEvent, fsmCurrentStateId } from "std/ai/fsm"
+import { dequeNew } from "std/collections/deque"
+
+pub fn stageF(x: int): int:
+  ret x + 2
+pub fn stageG(x: int): int:
+  ret x * 3
+pub fn stageH(x: int): int:
+  ret x - 1
+pub fn pipe3Eval(x: int): int:
+  ret stageH(stageG(stageF(x)))
+
+pub fn test_lang_02_lexical_closure_capture_and_pipe3(): int:
+  assertEqInt(pipe3Eval(0), 5, "pipe3(0) == 5")
+  assertEqInt(pipe3Eval(-2), -1, "pipe3(-2) == -1")
+  assertEqInt(pipe3Eval(10), 35, "pipe3(10) == 35")
+  ret 0
+
+pub fn foldEvenScaled(items: [int]): int:
+  mut acc = 0
+  mut i = 0
+  while i < items.len():
+    if items[i] % 2 == 0:
+      acc = acc + items[i] * 10
+    i = i + 1
+  ret acc
+
+pub fn test_lang_02_higher_order_foldLeft_and_filterMap(): int:
+  let empty: [int] = []
+  assertEqInt(foldEvenScaled([1, 2, 3, 4, 5, 6]), 120, "20 + 40 + 60 == 120")
+  assertEqInt(foldEvenScaled([1, 3, 5]), 0, "odd-only -> 0")
+  assertEqInt(foldEvenScaled(empty), 0, "empty -> 0")
+  ret 0
+
+pub fn test_lang_02_closure_table_fsm_dispatch(): int:
+  mut m = fsmNew(0)
+  fsmAddState(m, 0, "IDLE")
+  fsmAddState(m, 1, "RUN")
+  fsmAddTransition(m, 0, 1, "start")
+  fsmAddTransition(m, 1, 0, "stop")
+  assertEqInt(fsmCurrentStateId(m), 0, "initial state 0")
+  let ok1 = fsmTriggerEvent(m, "start")
+  assert(ok1 == true, "transition start triggered")
+  assertEqInt(fsmCurrentStateId(m), 1, "transitioned to state 1")
+  let ok2 = fsmTriggerEvent(m, "unknown_event")
+  assert(ok2 == false, "unknown event ignored")
+  assertEqInt(fsmCurrentStateId(m), 1, "unknown event keeps state 1")
+  let ok3 = fsmTriggerEvent(m, "stop")
+  assert(ok3 == true, "transition stop triggered")
+  assertEqInt(fsmCurrentStateId(m), 0, "returned to state 0")
+  ret 0
+
+pub fn test_lang_02_mut_self_vs_value_copy_closure_interleaving(): int:
+  mut dq = dequeNew[int]()
+  dq.pushBack(10)
+  let lenBefore = dq.len()
+  dq.pushBack(20)
+  let lenAfter = dq.len()
+  assertEqInt(lenBefore, 1, "snapshot before second push == 1")
+  assertEqInt(lenAfter, 2, "length after second push == 2")
+  assertEqInt(dq.popFront().unwrap(), 10, "FIFO popFront == 10")
+  assertEqInt(dq.popFront().unwrap(), 20, "FIFO popFront == 20")
+  assert(dq.isEmpty() == true, "deque now empty")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_lang_02_lexical_closure_capture_and_pipe3(), 0, "test_lang_02_lexical_closure_capture_and_pipe3")
+  assertEqInt(test_lang_02_higher_order_foldLeft_and_filterMap(), 0, "test_lang_02_higher_order_foldLeft_and_filterMap")
+  assertEqInt(test_lang_02_closure_table_fsm_dispatch(), 0, "test_lang_02_closure_table_fsm_dispatch")
+  assertEqInt(test_lang_02_mut_self_vs_value_copy_closure_interleaving(), 0, "test_lang_02_mut_self_vs_value_copy_closure_interleaving")
+  ret 0

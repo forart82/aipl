@@ -1,0 +1,646 @@
+module tests.functions.collections.dyn_vec_and_deque_test
+
+import * from "std/collections/deque"
+import * from "std/collections/dyn_vec"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_dyn_vec_dynVecNew_1(): int:
+  let resNom = dynVecNew()
+  let resEdge = dynVecNew()
+  assertEqInt(resNom.items.len(), 0, "dynVecNew nominal resNom.items.len() == 0")
+  assertEqInt(resEdge.items.len(), 0, "dynVecNew boundary resEdge.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_dynVecWithCapacity_2(): int:
+  let arg_capacity = 4
+  let edge_capacity = 1
+  let resNom = dynVecWithCapacity(arg_capacity)
+  let resEdge = dynVecWithCapacity(edge_capacity)
+  assertEqInt(resNom.items.len(), 0, "dynVecWithCapacity nominal resNom.items.len() == 0")
+  assertEqInt(resEdge.items.len(), 0, "dynVecWithCapacity boundary resEdge.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__len_3(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.len()
+  let resEdge = edge_self.len()
+  assertEqInt(resNom, 0, "len nominal resNom == 0")
+  assertEqInt(resEdge, 0, "len boundary resEdge == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__cap_4(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.cap()
+  let resEdge = edge_self.cap()
+  assertEqInt(resNom, 4, "cap nominal resNom == 4")
+  assertEqInt(resEdge, 4, "cap boundary resEdge == 4")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__isEmpty_5(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.isEmpty()
+  let resEdge = edge_self.isEmpty()
+  assert(resNom == true, "isEmpty nominal resNom == true")
+  assert(resEdge == true, "isEmpty boundary resEdge == true")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__push_6(): int:
+  let mut recv_self = DynVec(items = [], capacity = 4)
+  let mut edge_self = DynVec(items = [], capacity = 4)
+  let arg_val = 1
+  let edge_val = 0
+  recv_self.push(arg_val)
+  edge_self.push(edge_val)
+  assertEqInt(recv_self.items.len(), 1, "push nominal recv_self.items.len() == 1")
+  assertEqInt(edge_self.items.len(), 1, "push boundary edge_self.items.len() == 1")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__pop_7(): int:
+  mut v = dynVecNew()
+  assert(v.pop().isSome() == false, "pop on empty is None")
+  v.push(10)
+  v.push(20)
+  let popped = v.pop()
+  assert(popped.isSome() == true, "pop on non-empty is Some")
+  assertEqInt(popped.unwrap(), 20, "pop returns last item == 20")
+  assertEqInt(v.len(), 1, "len after pop is 1")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__get_8(): int:
+  mut v = dynVecNew()
+  assert(v.get(0).isSome() == false, "get on empty is None")
+  v.push(42)
+  v.push(84)
+  let g0 = v.get(0)
+  let g1 = v.get(1)
+  assert(g0.isSome() == true, "get(0) is Some")
+  assertEqInt(g0.unwrap(), 42, "get(0) == 42")
+  assert(g1.isSome() == true, "get(1) is Some")
+  assertEqInt(g1.unwrap(), 84, "get(1) == 84")
+  assert(v.get(5).isSome() == false, "get(5) out of bounds is None")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__set_9(): int:
+  mut v = dynVecNew()
+  v.push(10)
+  let s0 = v.set(0, 99)
+  assert(s0 == true, "set valid index returns true")
+  assertEqInt(v.get(0).unwrap(), 99, "value updated to 99")
+  let sBad = v.set(5, 100)
+  assert(sBad == false, "set invalid index returns false")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__insert_10(): int:
+  mut v = dynVecNew()
+  v.push(10)
+  v.push(30)
+  let ins = v.insert(1, 20)
+  assert(ins == true, "insert valid index returns true")
+  assertEqInt(v.len(), 3, "len after insert == 3")
+  assertEqInt(v.get(1).unwrap(), 20, "inserted value at index 1 is 20")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__remove_11(): int:
+  mut v = dynVecNew()
+  v.push(10)
+  v.push(20)
+  v.push(30)
+  let rem = v.remove(1)
+  assert(rem.isSome() == true, "remove valid index is Some")
+  assertEqInt(rem.unwrap(), 20, "removed value == 20")
+  assertEqInt(v.len(), 2, "len after remove == 2")
+  assertEqInt(v.get(1).unwrap(), 30, "next element shifted into index 1 == 30")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__swapRemove_12(): int:
+  mut v = dynVecNew()
+  v.push(10)
+  v.push(20)
+  v.push(30)
+  let rem = v.swapRemove(0)
+  assert(rem.isSome() == true, "swapRemove valid index is Some")
+  assertEqInt(rem.unwrap(), 10, "swapRemoved value == 10")
+  assertEqInt(v.len(), 2, "len after swapRemove == 2")
+  assertEqInt(v.get(0).unwrap(), 30, "last element swapped to index 0 == 30")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__clear_13(): int:
+  let mut recv_self = DynVec(items = [], capacity = 4)
+  let mut edge_self = DynVec(items = [], capacity = 4)
+  recv_self.clear()
+  edge_self.clear()
+  assertEqInt(recv_self.items.len(), 0, "clear nominal recv_self.items.len() == 0")
+  assertEqInt(edge_self.items.len(), 0, "clear boundary edge_self.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__reserve_14(): int:
+  let mut recv_self = DynVec(items = [], capacity = 4)
+  let mut edge_self = DynVec(items = [], capacity = 4)
+  let arg_additional = 4
+  let edge_additional = 1
+  recv_self.reserve(arg_additional)
+  edge_self.reserve(edge_additional)
+  assertEqInt(recv_self.items.len(), 0, "reserve nominal recv_self.items.len() == 0")
+  assertEqInt(edge_self.items.len(), 0, "reserve boundary edge_self.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__first_15(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.first()
+  let resEdge = edge_self.first()
+  assert(resNom.isSome() == false, "first nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "first boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__last_16(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.last()
+  let resEdge = edge_self.last()
+  assert(resNom.isSome() == false, "last nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "last boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__toArray_17(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let resNom = recv_self.toArray()
+  let resEdge = edge_self.toArray()
+  assertEqInt(resNom.len(), 0, "toArray nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "toArray boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__reverse_18(): int:
+  let mut recv_self = DynVec(items = [], capacity = 4)
+  let mut edge_self = DynVec(items = [], capacity = 4)
+  recv_self.reverse()
+  edge_self.reverse()
+  assertEqInt(recv_self.items.len(), 0, "reverse nominal recv_self.items.len() == 0")
+  assertEqInt(edge_self.items.len(), 0, "reverse boundary edge_self.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_DynVec_T__asSlice_19(): int:
+  let recv_self = DynVec(items = [], capacity = 4)
+  let edge_self = DynVec(items = [], capacity = 4)
+  let arg_start = 1
+  let edge_start = 0
+  let arg_end = 4
+  let edge_end = 1
+  let resNom = recv_self.asSlice(arg_start, arg_end)
+  let resEdge = edge_self.asSlice(edge_start, edge_end)
+  assertEqInt(resNom.items.len(), 0, "asSlice nominal resNom.items.len() == 0")
+  assertEqInt(resEdge.items.len(), 0, "asSlice boundary resEdge.items.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_ArraySlice_T__len_20(): int:
+  let recv_self = ArraySlice(items = [], start = 1, end = 4)
+  let edge_self = ArraySlice(items = [], start = 0, end = 1)
+  let resNom = recv_self.len()
+  let resEdge = edge_self.len()
+  assertEqInt(resNom, 3, "len nominal resNom == 3")
+  assertEqInt(resEdge, 1, "len boundary resEdge == 1")
+  ret 0
+
+pub fn test_dyn_vec_ArraySlice_T__isEmpty_21(): int:
+  let recv_self = ArraySlice(items = [], start = 1, end = 4)
+  let edge_self = ArraySlice(items = [], start = 0, end = 1)
+  let resNom = recv_self.isEmpty()
+  let resEdge = edge_self.isEmpty()
+  assert(resNom == false, "isEmpty nominal resNom == false")
+  assert(resEdge == false, "isEmpty boundary resEdge == false")
+  ret 0
+
+pub fn test_dyn_vec_ArraySlice_T__get_22(): int:
+  let recv_self = ArraySlice(items = [], start = 1, end = 4)
+  let edge_self = ArraySlice(items = [], start = 0, end = 1)
+  let arg_index = 4
+  let edge_index = 1
+  let resNom = recv_self.get(arg_index)
+  let resEdge = edge_self.get(edge_index)
+  assert(resNom.isSome() == false, "get nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "get boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_dyn_vec_ArraySlice_T__toArray_23(): int:
+  let recv_self = ArraySlice(items = [], start = 1, end = 4)
+  let edge_self = ArraySlice(items = [], start = 0, end = 1)
+  let resNom = recv_self.toArray()
+  let resEdge = edge_self.toArray()
+  assertEqInt(resNom.len(), 3, "toArray nominal resNom.len() == 3")
+  assertEqInt(resEdge.len(), 1, "toArray boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_dyn_vec_sortInts_24(): int:
+  let arg_arr = [2]
+  let edge_arr = []
+  let resNom = sortInts(arg_arr)
+  let resEdge = sortInts(edge_arr)
+  assertEqInt(resNom.len(), 1, "sortInts nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "sortInts boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_sortStrings_25(): int:
+  let arg_arr = ["test"]
+  let edge_arr = []
+  let resNom = sortStrings(arg_arr)
+  let resEdge = sortStrings(edge_arr)
+  assertEqInt(resNom.len(), 1, "sortStrings nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "sortStrings boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dyn_vec_isDigitCodeSort_26(): int:
+  let arg_c = 2
+  let edge_c = 0
+  let resNom = isDigitCodeSort(arg_c)
+  let resEdge = isDigitCodeSort(edge_c)
+  assert(resNom == false, "isDigitCodeSort nominal resNom == false")
+  assert(resEdge == false, "isDigitCodeSort boundary resEdge == false")
+  ret 0
+
+pub fn test_dyn_vec_naturalLess_27(): int:
+  let arg_a = "test"
+  let edge_a = "a"
+  let arg_b = "test"
+  let edge_b = "a"
+  let resNom = naturalLess(arg_a, arg_b)
+  let resEdge = naturalLess(edge_a, edge_b)
+  assert(resNom == false, "naturalLess nominal resNom == false")
+  assert(resEdge == false, "naturalLess boundary resEdge == false")
+  ret 0
+
+pub fn test_dyn_vec_sortStringsNatural_28(): int:
+  let arg_arr = ["test"]
+  let edge_arr = []
+  let resNom = sortStringsNatural(arg_arr)
+  let resEdge = sortStringsNatural(edge_arr)
+  assertEqInt(resNom.len(), 1, "sortStringsNatural nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "sortStringsNatural boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_deque_dequeNew_1(): int:
+  let resNom = dequeNew()
+  let resEdge = dequeNew()
+  assertEqInt(resNom.front.len(), 0, "dequeNew nominal resNom.front.len() == 0")
+  assertEqInt(resEdge.front.len(), 0, "dequeNew boundary resEdge.front.len() == 0")
+  ret 0
+
+pub fn test_deque_Deque_T__pushFront_2(): int:
+  let mut recv_self = Deque(front = [], back = [])
+  let mut edge_self = Deque(front = [], back = [])
+  let arg_item = 1
+  let edge_item = 0
+  recv_self.pushFront(arg_item)
+  edge_self.pushFront(edge_item)
+  assertEqInt(recv_self.front.len(), 1, "pushFront nominal recv_self.front.len() == 1")
+  assertEqInt(edge_self.front.len(), 1, "pushFront boundary edge_self.front.len() == 1")
+  ret 0
+
+pub fn test_deque_Deque_T__pushBack_3(): int:
+  let mut recv_self = Deque(front = [], back = [])
+  let mut edge_self = Deque(front = [], back = [])
+  let arg_item = 1
+  let edge_item = 0
+  recv_self.pushBack(arg_item)
+  edge_self.pushBack(edge_item)
+  assertEqInt(recv_self.back.len(), 1, "pushBack nominal recv_self.back.len() == 1")
+  assertEqInt(edge_self.back.len(), 1, "pushBack boundary edge_self.back.len() == 1")
+  ret 0
+
+pub fn test_deque_Deque_T__popFront_4(): int:
+  mut d = dequeNew()
+  assert(d.popFront().isSome() == false, "popFront empty is None")
+  d.pushBack(10)
+  d.pushBack(20)
+  let p = d.popFront()
+  assert(p.isSome() == true, "popFront is Some")
+  assertEqInt(p.unwrap(), 10, "popFront returns 10")
+  assertEqInt(d.len(), 1, "len after popFront is 1")
+  ret 0
+
+pub fn test_deque_Deque_T__popBack_5(): int:
+  mut d = dequeNew()
+  assert(d.popBack().isSome() == false, "popBack empty is None")
+  d.pushBack(10)
+  d.pushBack(20)
+  let p = d.popBack()
+  assert(p.isSome() == true, "popBack is Some")
+  assertEqInt(p.unwrap(), 20, "popBack returns 20")
+  assertEqInt(d.len(), 1, "len after popBack is 1")
+  ret 0
+
+pub fn test_deque_Deque_T__peekFront_6(): int:
+  mut d = dequeNew()
+  assert(d.peekFront().isSome() == false, "peekFront empty is None")
+  d.pushBack(42)
+  let p = d.peekFront()
+  assert(p.isSome() == true, "peekFront is Some")
+  assertEqInt(p.unwrap(), 42, "peekFront returns 42")
+  assertEqInt(d.len(), 1, "peekFront does not remove item")
+  ret 0
+
+pub fn test_deque_Deque_T__peekBack_7(): int:
+  mut d = dequeNew()
+  assert(d.peekBack().isSome() == false, "peekBack empty is None")
+  d.pushBack(42)
+  d.pushBack(84)
+  let p = d.peekBack()
+  assert(p.isSome() == true, "peekBack is Some")
+  assertEqInt(p.unwrap(), 84, "peekBack returns 84")
+  assertEqInt(d.len(), 2, "peekBack does not remove item")
+  ret 0
+
+pub fn test_deque_Deque_T__len_8(): int:
+  let recv_self = Deque(front = [], back = [])
+  let edge_self = Deque(front = [], back = [])
+  let resNom = recv_self.len()
+  let resEdge = edge_self.len()
+  assertEqInt(resNom, 0, "len nominal resNom == 0")
+  assertEqInt(resEdge, 0, "len boundary resEdge == 0")
+  ret 0
+
+pub fn test_deque_Deque_T__isEmpty_9(): int:
+  let recv_self = Deque(front = [], back = [])
+  let edge_self = Deque(front = [], back = [])
+  let resNom = recv_self.isEmpty()
+  let resEdge = edge_self.isEmpty()
+  assert(resNom == true, "isEmpty nominal resNom == true")
+  assert(resEdge == true, "isEmpty boundary resEdge == true")
+  ret 0
+
+pub fn test_deque_Deque_T__clear_10(): int:
+  let mut recv_self = Deque(front = [], back = [])
+  let mut edge_self = Deque(front = [], back = [])
+  recv_self.clear()
+  edge_self.clear()
+  assertEqInt(recv_self.front.len(), 0, "clear nominal recv_self.front.len() == 0")
+  assertEqInt(edge_self.front.len(), 0, "clear boundary edge_self.front.len() == 0")
+  ret 0
+
+pub fn test_deque_Deque_T__toArray_11(): int:
+  let recv_self = Deque(front = [], back = [])
+  let edge_self = Deque(front = [], back = [])
+  let resNom = recv_self.toArray()
+  let resEdge = edge_self.toArray()
+  assertEqInt(resNom.len(), 0, "toArray nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "toArray boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_deque_dequeLen_12(): int:
+  let arg_d = Deque(front = [], back = [])
+  let edge_d = Deque(front = [], back = [])
+  let resNom = dequeLen(arg_d)
+  let resEdge = dequeLen(edge_d)
+  assertEqInt(resNom, 0, "dequeLen nominal resNom == 0")
+  assertEqInt(resEdge, 0, "dequeLen boundary resEdge == 0")
+  ret 0
+
+pub fn test_deque_dequeIsEmpty_13(): int:
+  let arg_d = Deque(front = [], back = [])
+  let edge_d = Deque(front = [], back = [])
+  let resNom = dequeIsEmpty(arg_d)
+  let resEdge = dequeIsEmpty(edge_d)
+  assert(resNom == true, "dequeIsEmpty nominal resNom == true")
+  assert(resEdge == true, "dequeIsEmpty boundary resEdge == true")
+  ret 0
+
+pub fn test_deque_dequePushBack_14(): int:
+  let arg_d = Deque(front = [], back = [])
+  let edge_d = Deque(front = [], back = [])
+  let arg_item = 1
+  let edge_item = 0
+  let resNom = dequePushBack(arg_d, arg_item)
+  let resEdge = dequePushBack(edge_d, edge_item)
+  assertEqInt(resNom.front.len(), 0, "dequePushBack nominal resNom.front.len() == 0")
+  assertEqInt(resEdge.front.len(), 0, "dequePushBack boundary resEdge.front.len() == 0")
+  ret 0
+
+pub fn test_deque_dequePushFront_15(): int:
+  let arg_d = Deque(front = [], back = [])
+  let edge_d = Deque(front = [], back = [])
+  let arg_item = 1
+  let edge_item = 0
+  let resNom = dequePushFront(arg_d, arg_item)
+  let resEdge = dequePushFront(edge_d, edge_item)
+  assertEqInt(resNom.front.len(), 1, "dequePushFront nominal resNom.front.len() == 1")
+  assertEqInt(resEdge.front.len(), 1, "dequePushFront boundary resEdge.front.len() == 1")
+  ret 0
+
+pub fn test_deque_dequePopBack_16(): int:
+  let arg_d = Deque(front = [], back = [])
+  let edge_d = Deque(front = [], back = [])
+  let resNom = dequePopBack(arg_d)
+  let resEdge = dequePopBack(edge_d)
+  assert(resNom.isSome() == false, "dequePopBack nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "dequePopBack boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_deque_dequePopFront_17(): int:
+  let arg_d = Deque(front = [], back = [])
+  let edge_d = Deque(front = [], back = [])
+  let resNom = dequePopFront(arg_d)
+  let resEdge = dequePopFront(edge_d)
+  assert(resNom.isSome() == false, "dequePopFront nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "dequePopFront boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_deque_dequePeekFront_18(): int:
+  let arg_d = Deque(front = [], back = [])
+  let edge_d = Deque(front = [], back = [])
+  let resNom = dequePeekFront(arg_d)
+  let resEdge = dequePeekFront(edge_d)
+  assert(resNom.isSome() == false, "dequePeekFront nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "dequePeekFront boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_deque_dequePeekBack_19(): int:
+  let arg_d = Deque(front = [], back = [])
+  let edge_d = Deque(front = [], back = [])
+  let resNom = dequePeekBack(arg_d)
+  let resEdge = dequePeekBack(edge_d)
+  assert(resNom.isSome() == false, "dequePeekBack nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "dequePeekBack boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_deque_dequeToArray_20(): int:
+  let arg_d = Deque(front = [], back = [])
+  let edge_d = Deque(front = [], back = [])
+  let resNom = dequeToArray(arg_d)
+  let resEdge = dequeToArray(edge_d)
+  assertEqInt(resNom.len(), 0, "dequeToArray nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "dequeToArray boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_deque_circularRingQueueNew_21(): int:
+  let arg_capacity = 4
+  let edge_capacity = 1
+  let resNom = circularRingQueueNew(arg_capacity)
+  let resEdge = circularRingQueueNew(edge_capacity)
+  assertEqInt(resNom.buffer.len(), 0, "circularRingQueueNew nominal resNom.buffer.len() == 0")
+  assertEqInt(resEdge.buffer.len(), 0, "circularRingQueueNew boundary resEdge.buffer.len() == 0")
+  ret 0
+
+pub fn test_deque_CircularRingQueue_T__enqueue_22(): int:
+  let mut recv_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let mut edge_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let arg_item = 1
+  let edge_item = 0
+  let resNom = recv_self.enqueue(arg_item)
+  let resEdge = edge_self.enqueue(edge_item)
+  assert(resNom == true, "enqueue nominal resNom == true")
+  assert(resEdge == true, "enqueue boundary resEdge == true")
+  ret 0
+
+pub fn test_deque_CircularRingQueue_T__dequeue_23(): int:
+  let mut recv_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let mut edge_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let resNom = recv_self.dequeue()
+  let resEdge = edge_self.dequeue()
+  assert(resNom.isSome() == false, "dequeue nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "dequeue boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_deque_CircularRingQueue_T__len_24(): int:
+  let recv_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let edge_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let resNom = recv_self.len()
+  let resEdge = edge_self.len()
+  assertEqInt(resNom, 0, "len nominal resNom == 0")
+  assertEqInt(resEdge, 0, "len boundary resEdge == 0")
+  ret 0
+
+pub fn test_deque_CircularRingQueue_T__isEmpty_25(): int:
+  let recv_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let edge_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let resNom = recv_self.isEmpty()
+  let resEdge = edge_self.isEmpty()
+  assert(resNom == true, "isEmpty nominal resNom == true")
+  assert(resEdge == true, "isEmpty boundary resEdge == true")
+  ret 0
+
+pub fn test_deque_CircularRingQueue_T__isFull_26(): int:
+  let recv_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let edge_self = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let resNom = recv_self.isFull()
+  let resEdge = edge_self.isFull()
+  assert(resNom == false, "isFull nominal resNom == false")
+  assert(resEdge == false, "isFull boundary resEdge == false")
+  ret 0
+
+pub fn test_deque_ringBufferNew_27(): int:
+  let arg_capacity = 4
+  let edge_capacity = 1
+  let resNom = ringBufferNew(arg_capacity)
+  let resEdge = ringBufferNew(edge_capacity)
+  assertEqInt(resNom.buffer.len(), 0, "ringBufferNew nominal resNom.buffer.len() == 0")
+  assertEqInt(resEdge.buffer.len(), 0, "ringBufferNew boundary resEdge.buffer.len() == 0")
+  ret 0
+
+pub fn test_deque_ringBufferLen_28(): int:
+  let arg_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let edge_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let resNom = ringBufferLen(arg_rb)
+  let resEdge = ringBufferLen(edge_rb)
+  assertEqInt(resNom, 0, "ringBufferLen nominal resNom == 0")
+  assertEqInt(resEdge, 0, "ringBufferLen boundary resEdge == 0")
+  ret 0
+
+pub fn test_deque_ringBufferIsEmpty_29(): int:
+  let arg_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let edge_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let resNom = ringBufferIsEmpty(arg_rb)
+  let resEdge = ringBufferIsEmpty(edge_rb)
+  assert(resNom == true, "ringBufferIsEmpty nominal resNom == true")
+  assert(resEdge == true, "ringBufferIsEmpty boundary resEdge == true")
+  ret 0
+
+pub fn test_deque_ringBufferPush_30(): int:
+  let arg_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let edge_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let arg_item = 1
+  let edge_item = 0
+  let resNom = ringBufferPush(arg_rb, arg_item)
+  let resEdge = ringBufferPush(edge_rb, edge_item)
+  assertEqInt(resNom.buffer.len(), 1, "ringBufferPush nominal resNom.buffer.len() == 1")
+  assertEqInt(resEdge.buffer.len(), 1, "ringBufferPush boundary resEdge.buffer.len() == 1")
+  ret 0
+
+pub fn test_deque_ringBufferGet_31(): int:
+  let arg_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let edge_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let arg_idx = 1
+  let edge_idx = 0
+  let resNom = ringBufferGet(arg_rb, arg_idx)
+  let resEdge = ringBufferGet(edge_rb, edge_idx)
+  assert(resNom.isSome() == false, "ringBufferGet nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "ringBufferGet boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_deque_ringBufferToArray_32(): int:
+  let arg_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let edge_rb = CircularRingQueue(buffer = [], head = 0, tail = 0, capacity = 4, count = 0)
+  let resNom = ringBufferToArray(arg_rb)
+  let resEdge = ringBufferToArray(edge_rb)
+  assertEqInt(resNom.len(), 0, "ringBufferToArray nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "ringBufferToArray boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_deque_undoStackNew_33(): int:
+  let arg_maxDepth = 4
+  let edge_maxDepth = 1
+  let resNom = undoStackNew(arg_maxDepth)
+  let resEdge = undoStackNew(edge_maxDepth)
+  assertEqInt(resNom.past.len(), 0, "undoStackNew nominal resNom.past.len() == 0")
+  assertEqInt(resEdge.past.len(), 0, "undoStackNew boundary resEdge.past.len() == 0")
+  ret 0
+
+pub fn test_deque_undoCanUndo_34(): int:
+  let arg_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let edge_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let resNom = undoCanUndo(arg_us)
+  let resEdge = undoCanUndo(edge_us)
+  assert(resNom == false, "undoCanUndo nominal resNom == false")
+  assert(resEdge == false, "undoCanUndo boundary resEdge == false")
+  ret 0
+
+pub fn test_deque_undoCanRedo_35(): int:
+  let arg_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let edge_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let resNom = undoCanRedo(arg_us)
+  let resEdge = undoCanRedo(edge_us)
+  assert(resNom == false, "undoCanRedo nominal resNom == false")
+  assert(resEdge == false, "undoCanRedo boundary resEdge == false")
+  ret 0
+
+pub fn test_deque_undoPush_36(): int:
+  let arg_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let edge_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let arg_item = 1
+  let edge_item = 0
+  let resNom = undoPush(arg_us, arg_item)
+  let resEdge = undoPush(edge_us, edge_item)
+  assertEqInt(resNom.past.len(), 1, "undoPush nominal resNom.past.len() == 1")
+  assertEqInt(resEdge.past.len(), 1, "undoPush boundary resEdge.past.len() == 1")
+  ret 0
+
+pub fn test_deque_undoStep_37(): int:
+  let arg_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let edge_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let resNom = undoStep(arg_us)
+  let resEdge = undoStep(edge_us)
+  assert(resNom.isSome() == false, "undoStep nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "undoStep boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_deque_redoStep_38(): int:
+  let arg_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let edge_us = UndoStack(past = [], future = [], maxDepth = 4)
+  let resNom = redoStep(arg_us)
+  let resEdge = redoStep(edge_us)
+  assert(resNom.isSome() == false, "redoStep nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "redoStep boundary resEdge.isSome() == false")
+  ret 0

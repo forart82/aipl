@@ -1,0 +1,36 @@
+module Ex165Gfx2dSprite2dTransformHierarchyWindowTest
+
+import {
+  buildSprite2dTransformAudit,
+  stepSpriteHierarchyFrame
+} from "../../examples/ex_165_gfx2d_sprite2d_transform_hierarchy_window"
+import {
+  UvRect, createSprite2D, setSpriteUv, computeSpriteCorners
+} from "../../std/gfx2d/sprite2d"
+
+pub fn test_gfx2d_sprite2d_transform_hierarchy(): void:
+  mut spr = createSprite2D(1, 120.0, 80.0)
+  spr = setSpriteUv(spr, UvRect(u0 = 0.25, v0 = 0.0, u1 = 0.5, v1 = 0.5))
+  assert(spr.uv.u0 == 0.25 and spr.uv.u1 == 0.5, "setSpriteUv updates UvRect")
+
+  let corners = computeSpriteCorners(spr)
+  assert(corners.len() == 4, "computeSpriteCorners returns 4 world-space vertices")
+  assert(corners[0].x == -60.0 and corners[0].y == -40.0, "Centered origin places top-left at (-60, -40)")
+  assert(corners[2].x == 60.0 and corners[2].y == 40.0, "Centered origin places bottom-right at (60, 40)")
+
+  mut rotSpr = spr
+  rotSpr.rotationRad = 0.5
+  let rotCorners = computeSpriteCorners(rotSpr)
+  assert(rotCorners[0].x != corners[0].x and rotCorners[0].y != corners[0].y, "Rotating Sprite2D transforms world-space corners")
+
+  let s0 = stepSpriteHierarchyFrame(spr, 0)
+  let s1 = stepSpriteHierarchyFrame(spr, 1)
+  let s20 = stepSpriteHierarchyFrame(spr, 20)
+  let s100 = stepSpriteHierarchyFrame(spr, 100)
+  assert(s0.rotationRad != s1.rotationRad and s1.rotationRad != s20.rotationRad and s20.rotationRad != s100.rotationRad, "stepSpriteHierarchyFrame progresses across t=0, t=1, t=20, t=100")
+  assert(buildSprite2dTransformAudit() == 204, "buildSprite2dTransformAudit returns 120 + 80 + 4 == 204")
+
+pub fn main(): int:
+  test_gfx2d_sprite2d_transform_hierarchy()
+  println("PASS: ex_165_gfx2d_sprite2d_transform_hierarchy_window_test")
+  ret 0

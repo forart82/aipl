@@ -1,0 +1,112 @@
+module Ex161GfxPostfxBloomTonemapCrtWindow
+
+import { linearRgb, linearToSrgb } from "../std/gfx/color"
+import {
+  createDefaultPostFxChain, evaluateAcesTonemap,
+  computeBloomThreshold, evaluateVignette
+} from "../std/gfx/postfx_pass"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepPostFxExposure(frame: int): float:
+  ret 0.75 + float(frame % 29) * 0.05
+
+pub fn buildPostFxChainAudit(): int:
+  let chain = createDefaultPostFxChain()
+  let hdr = linearRgb(2.5, 1.5, 0.5, 1.0)
+  let ldr = evaluateAcesTonemap(hdr, chain.tonemap.exposure)
+  let bloom = computeBloomThreshold(hdr, chain.bloom.threshold, chain.bloom.knee)
+  let vCenter = evaluateVignette(0.5, 0.5, chain.vignette.radius, chain.vignette.softness)
+  ret int(ldr.r * 100.0) + int(bloom.r * 100.0) + int(vCenter * 100.0)
+
+pub fn main(): int:
+  let chain = createDefaultPostFxChain()
+  let hdrSample = linearRgb(2.5, 1.5, 0.5, 1.0)
+  let audit = buildPostFxChainAudit()
+
+  initWindow(1280, 720, "AIPL ex_161: PostFX Bloom, ACES Filmic Tonemap & CRT Vignette")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let exposure = stepPostFxExposure(frame)
+    let ldrSample = evaluateAcesTonemap(hdrSample, exposure)
+    let srgbSample = linearToSrgb(ldrSample)
+    let bloomSample = computeBloomThreshold(hdrSample, chain.bloom.threshold, chain.bloom.knee)
+    let probeStep = (frame + (frame / 7)) % 24
+    let beamRow = (frame + (frame / 7)) % 10
+    beginDrawing()
+    clearScreen(rgb(10, 12, 20))
+
+    drawText("EX_161: POSTFX ACES FILMIC TONEMAPPING, SOFT-KNEE BLOOM & CRT VIGNETTE", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx/postfx_pass: evaluateAcesTonemap | computeBloomThreshold | evaluateVignette | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: ACES Filmic S-Curve & Soft-Knee Bloom Response Plot
+    drawRect(40.0, 96.0, 590.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 590.0, 390.0, 2.0, rgb(56, 189, 248))
+    drawText("ACES FILMIC TONEMAP CURVE VS SOFT-KNEE BLOOM (EV=" + str(int(exposure * 100.0)) + "%)", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    // Plot axes & bloom threshold line
+    drawLine(75.0, 175.0, 75.0, 430.0, rgb(71, 85, 105), 1.5)
+    drawLine(75.0, 430.0, 590.0, 430.0, rgb(71, 85, 105), 1.5)
+    let threshX = 75.0 + (chain.bloom.threshold / 0.18) * 22.0
+    drawLine(threshX, 175.0, threshX, 430.0, rgb(234, 179, 8), 1.5)
+    drawText("Knee T=" + str(chain.bloom.threshold), threshX + 6.0, 180.0, 13.0, rgb(253, 224, 71))
+
+    mut step: int = 0
+    mut prevX: float = 75.0
+    mut prevAcesY: float = 430.0
+    mut prevBloomY: float = 430.0
+    while step < 24:
+      let hdrEv = float(step) * 0.18
+      let mapped = evaluateAcesTonemap(linearRgb(hdrEv, hdrEv, hdrEv, 1.0), exposure)
+      let bloomed = computeBloomThreshold(linearRgb(hdrEv, hdrEv, hdrEv, 1.0), chain.bloom.threshold, chain.bloom.knee)
+      let px = 75.0 + float(step) * 22.0
+      let pyAces = 430.0 - mapped.r * 250.0
+      let pyBloom = 430.0 - (if bloomed.r > 1.0: 1.0 else: bloomed.r) * 250.0
+      if step > 0:
+        drawLine(prevX, prevAcesY, px, pyAces, rgb(56, 189, 248), 2.5)
+        drawLine(prevX, prevBloomY, px, pyBloom, rgb(250, 204, 21), 2.0)
+      drawCircle(px, pyAces, if step == probeStep: 8.0 else: 4.5, if step == probeStep: rgb(248, 250, 252) else: rgb(56, 189, 248))
+      drawCircle(px, pyBloom, if step == probeStep: 7.0 else: 4.0, if step == probeStep: rgb(244, 63, 94) else: rgb(250, 204, 21))
+      prevX = px
+      prevAcesY = pyAces
+      prevBloomY = pyBloom
+      step = step + 1
+
+    drawText("Cyan = ACES Filmic Output [0..1] | Gold = Soft-Knee Bloom Contribution", 65.0, 452.0, 14.0, rgb(203, 213, 225))
+
+    // Right Panel: CRT Scanline + Radial Vignette Viewport Preview
+    drawRect(650.0, 96.0, 590.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 96.0, 590.0, 390.0, 2.0, rgb(244, 63, 94))
+    drawText("RADIAL VIGNETTE & CRT SCANLINE COMPOSITOR (Beam Row #" + str(beamRow) + ")", 670.0, 118.0, 16.0, rgb(253, 164, 175))
+
+    mut vy: int = 0
+    while vy < 10:
+      mut vx: int = 0
+      while vx < 14:
+        let uvX = (float(vx) + 0.5) / 14.0
+        let uvY = (float(vy) + 0.5) / 10.0
+        let vig = evaluateVignette(uvX, uvY, chain.vignette.radius, chain.vignette.softness)
+        let scanMod = if vy == beamRow: 1.15 else: if vy % 2 == 0: 1.0 else: 0.80
+        let br = int(float(srgbSample.r) * vig * scanMod)
+        let bg = int(float(srgbSample.g) * vig * scanMod)
+        let bb = int(float(srgbSample.b) * vig * scanMod)
+        drawRect(674.0 + float(vx) * 38.0, 154.0 + float(vy) * 30.0, 35.0, 26.0, rgb(if br > 255: 255 else: br, if bg > 255: 255 else: bg, if bb > 255: 255 else: bb))
+        vx = vx + 1
+      vy = vy + 1
+
+    // Bottom Telemetry Panel
+    drawRect(40.0, 506.0, 1200.0, 170.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 506.0, 1200.0, 170.0, 2.0, rgb(51, 65, 85))
+    drawText("POSTFX PIPELINE TELEMETRY", 60.0, 528.0, 18.0, rgb(56, 189, 248))
+    drawText("HDR Input=(2.50, 1.50, 0.50) @ Exposure=" + str(exposure) + " -> ACES LDR sRGB=(" + str(srgbSample.r) + ", " + str(srgbSample.g) + ", " + str(srgbSample.b) + ")", 60.0, 564.0, 16.0, rgb(226, 232, 240))
+    drawText("Bloom Threshold=" + str(chain.bloom.threshold) + " Knee=" + str(chain.bloom.knee) + " -> Extracted Highlight R=" + str(bloomSample.r), 60.0, 596.0, 16.0, rgb(253, 224, 71))
+    drawText("Vignette Center=" + str(evaluateVignette(0.5, 0.5, 0.8, 0.45)) + " Corner=" + str(evaluateVignette(0.0, 0.0, 0.8, 0.45)) + " | Audit=" + str(audit), 60.0, 628.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

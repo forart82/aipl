@@ -1,0 +1,67 @@
+// ============================================================================
+// Example 015: Dynamic Library FFI, C ABI Trampolines & Dlopen CLI
+// Demonstrates: ffiOpen, ffiHasSymbol, ffiCallInt, ffiClose, sysDlopen,
+//               sysDlsym, sysDlclose, sysDlerror, and sysCallC4 from
+//               std/sys/sys_ffi.
+// ============================================================================
+module Ex015SysFfiCAbiBridgeCli
+
+import {
+  RTLD_LAZY,
+  ffiOpen,
+  ffiHasSymbol,
+  ffiCallInt,
+  ffiClose,
+  sysDlopen,
+  sysDlsym,
+  sysDlclose,
+  sysDlerror,
+  sysCallC4
+} from "../std/sys/sys_ffi"
+
+pub struct FfiBridgeReport:
+  absResult: int
+  cAbiSum4: int
+  hasAbsSymbol: bool
+  statusTag: str
+
+pub fn invokeLibcAbsViaFfi(inputVal: int): int:
+  let libc = ffiOpen("libc")
+  if libc > 0:
+    let out = ffiCallInt(libc, "abs", [inputVal])
+    let _ = ffiClose(libc)
+    ret out
+  ret 0
+
+pub fn invokeCAbiRegisterSum(a: int, b: int, c: int, d: int): int:
+  ret sysCallC4(1, a, b, c, d)
+
+pub fn describeFfiSymbolStatus(found: bool, errText: str): str:
+  if found and errText == "":
+    ret "FFI:SYMBOL_BOUND"
+  ret "FFI:SYMBOL_MISSING"
+
+pub fn buildFfiBridgeReport(negativeSample: int): FfiBridgeReport:
+  let dl = sysDlopen("libc", RTLD_LAZY)
+  mut symFound = false
+  if dl > 0:
+    let symAddr = sysDlsym(dl, "abs")
+    symFound = symAddr > 0
+    let _ = sysDlclose(dl)
+  let libc = ffiOpen("libc")
+  if libc > 0:
+    symFound = ffiHasSymbol(libc, "abs")
+    let _ = ffiClose(libc)
+  let errStr = sysDlerror()
+  ret FfiBridgeReport(
+    absResult = invokeLibcAbsViaFfi(negativeSample),
+    cAbiSum4 = invokeCAbiRegisterSum(1, 2, 3, 4),
+    hasAbsSymbol = symFound,
+    statusTag = describeFfiSymbolStatus(symFound, errStr)
+  )
+
+pub fn main(): int:
+  let rep = buildFfiBridgeReport(-125)
+  println("[ex_015_sys_ffi_c_abi_bridge_cli] FfiBridgeReport(abs=" + str(rep.absResult) + ", cAbiSum4=" + str(rep.cAbiSum4) + ", hasAbs=" + str(rep.hasAbsSymbol) + ")")
+  println("[ex_015_sys_ffi_c_abi_bridge_cli] status=" + rep.statusTag)
+  ret 0

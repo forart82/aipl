@@ -1,0 +1,48 @@
+module Ex208SpatialOrthoTileWorld2dWindowTest
+
+import {
+  buildSpatialOrthoTileAudit, stepOrthoTargetRow, stepOrthoSubScanT
+} from "../../examples/ex_208_spatial_ortho_tile_world2d_window"
+import { Vec2, IVec2 } from "../../std/math/vec_math"
+import {
+  OrthoTileCell2D, orthoTileWorldNew, orthoTileGet, orthoTileSet,
+  orthoWorldToCell, orthoCellToWorldCenter, orthoNeighbors4,
+  orthoLineOfSightBresenham, orthoFloodFill
+} from "../../std/spatial/ortho_tile_world2d"
+
+pub fn test_spatial_ortho_tile_world2d(): void:
+  mut world = orthoTileWorldNew(10, 10, 32.0, 1)
+  let wall = OrthoTileCell2D(tileId = 9, solid = true, elevation = 0.0, flags = 0, userData = 0)
+  assert(orthoTileSet(world, 0, 2, 0, wall), "orthoTileSet places wall cell at (2,0)")
+  let fc: OrthoTileCell2D = orthoTileGet(world, 0, 2, 0).unwrap()
+  assert(fc.tileId == 9 and fc.solid, "orthoTileGet retrieves solid wall")
+
+  let cPos: Vec2 = orthoCellToWorldCenter(world, 3, 4)
+  assert(cPos.x == 112.0 and cPos.y == 144.0, "orthoCellToWorldCenter computes cell center")
+  let cCoord: IVec2 = orthoWorldToCell(world, 112.0, 144.0)
+  assert(cCoord.x == 3 and cCoord.y == 4, "orthoWorldToCell unprojects world coords")
+
+  assert(not orthoLineOfSightBresenham(world, 0, 0, 0, 5, 0), "LOS blocked by solid wall at (2,0)")
+  assert(orthoLineOfSightBresenham(world, 0, 0, 1, 5, 1), "LOS clear along row y=1")
+
+  let n4 = orthoNeighbors4(world, 0, 0)
+  let painted = orthoFloodFill(world, 0, 0, 0, 0, 5)
+  assert(n4.len() == 2 and painted == 99, "Corner has 2 4-way neighbors and flood fill paints 99 non-wall cells")
+  assert(buildSpatialOrthoTileAudit() == 358, "buildSpatialOrthoTileAudit returns 112 + 144 + 2 + 1 + 99 == 358")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let s0 = stepOrthoSubScanT(0)
+  let s1 = stepOrthoSubScanT(1)
+  let s20 = stepOrthoSubScanT(20)
+  let s100 = stepOrthoSubScanT(100)
+  assert(s0 != s1 and s1 != s20 and s20 != s100, "ortho sub-scan pulse progresses across t=0,1,20,100")
+
+  let r0 = stepOrthoTargetRow(0)
+  let r20 = stepOrthoTargetRow(20)
+  let r100 = stepOrthoTargetRow(100)
+  assert(r0 != r20 and r20 != r100, "ortho target row cycles across frames 0, 20, and 100")
+
+pub fn main(): int:
+  test_spatial_ortho_tile_world2d()
+  println("PASS: ex_208_spatial_ortho_tile_world2d_window_test")
+  ret 0

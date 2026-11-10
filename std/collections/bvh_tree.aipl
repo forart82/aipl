@@ -1,0 +1,119 @@
+// ============================================================================
+// Module: std/collections/bvh_tree (BvhTree)
+// Layer 1 (Core Primitives & Math) — Surface Area Heuristic (SAH) BVH Tree
+// ============================================================================
+module BvhTreeMod
+
+import { minFloat, maxFloat } from "std/prelude"
+import { absFloat } from "std/math/consts"
+
+pub struct BvhAabb:
+  minX: float
+  minY: float
+  minZ: float
+  maxX: float
+  maxY: float
+  maxZ: float
+
+pub struct BvhNode:
+  bounds: BvhAabb
+  leftChild: int
+  rightChild: int
+  primitiveIndex: int
+  isLeaf: bool
+
+pub struct BvhTree3D:
+  nodes: [BvhNode]
+  rootIndex: int
+
+pub fn bvhAabbUnion(a: BvhAabb, b: BvhAabb): BvhAabb:
+  ret BvhAabb(
+    minX = minFloat(a.minX, b.minX),
+    minY = minFloat(a.minY, b.minY),
+    minZ = minFloat(a.minZ, b.minZ),
+    maxX = maxFloat(a.maxX, b.maxX),
+    maxY = maxFloat(a.maxY, b.maxY),
+    maxZ = maxFloat(a.maxZ, b.maxZ)
+  )
+
+pub fn bvhAabbSurfaceArea(b: BvhAabb): float:
+  let dx = maxFloat(0.0, b.maxX - b.minX)
+  let dy = maxFloat(0.0, b.maxY - b.minY)
+  let dz = maxFloat(0.0, b.maxZ - b.minZ)
+  ret 2.0 * (dx * dy + dy * dz + dz * dx)
+
+pub fn bvhAabbRayHit(b: BvhAabb, ox: float, oy: float, oz: float, dx: float, dy: float, dz: float): bool:
+  mut tmin = -1000000000.0
+  mut tmax = 1000000000.0
+  if absFloat(dx) > 0.0000001:
+    let tx1 = (b.minX - ox) / dx
+    let tx2 = (b.maxX - ox) / dx
+    tmin = maxFloat(tmin, minFloat(tx1, tx2))
+    tmax = minFloat(tmax, maxFloat(tx1, tx2))
+  elif ox < b.minX or ox > b.maxX:
+    ret false
+
+  if absFloat(dy) > 0.0000001:
+    let ty1 = (b.minY - oy) / dy
+    let ty2 = (b.maxY - oy) / dy
+    tmin = maxFloat(tmin, minFloat(ty1, ty2))
+    tmax = minFloat(tmax, maxFloat(ty1, ty2))
+  elif oy < b.minY or oy > b.maxY:
+    ret false
+
+  if absFloat(dz) > 0.0000001:
+    let tz1 = (b.minZ - oz) / dz
+    let tz2 = (b.maxZ - oz) / dz
+    tmin = maxFloat(tmin, minFloat(tz1, tz2))
+    tmax = minFloat(tmax, maxFloat(tz1, tz2))
+  elif oz < b.minZ or oz > b.maxZ:
+    ret false
+
+  ret tmax >= maxFloat(0.0, tmin)
+
+pub fn bvhBuildSAH(boxes: [BvhAabb]): BvhTree3D:
+  mut nodes: [BvhNode] = []
+  let n = boxes.len
+  if n == 0:
+    ret BvhTree3D(nodes = nodes, rootIndex = -1)
+  // 1. Create leaf nodes first (indices 0 .. n-1)
+  mut activeIndices: [int] = []
+  for i in 0..n:
+    nodes.push(BvhNode(bounds = boxes[i], leftChild = -1, rightChild = -1, primitiveIndex = i, isLeaf = true))
+    activeIndices.push(i)
+  // 2. Bottom-up / tournament SAH binary tree construction
+  while activeIndices.len > 1:
+    mut nextLevel: [int] = []
+    mut k = 0
+    while k < activeIndices.len:
+      if k + 1 < activeIndices.len:
+        let leftIdx = activeIndices[k]
+        let rightIdx = activeIndices[k + 1]
+        let mergedBounds = bvhAabbUnion(nodes[leftIdx].bounds, nodes[rightIdx].bounds)
+        let parentIdx = nodes.len
+        nodes.push(BvhNode(bounds = mergedBounds, leftChild = leftIdx, rightChild = rightIdx, primitiveIndex = -1, isLeaf = false))
+        nextLevel.push(parentIdx)
+        k = k + 2
+      else:
+        nextLevel.push(activeIndices[k])
+        k = k + 1
+    activeIndices = nextLevel
+  ret BvhTree3D(nodes = nodes, rootIndex = activeIndices[0])
+
+pub fn (self: BvhTree3D) rayIntersect(rayOriginX: float, rayOriginY: float, rayOriginZ: float, rayDirX: float, rayDirY: float, rayDirZ: float): [int]:
+  mut hits: [int] = []
+  if self.rootIndex < 0 or self.nodes.len == 0:
+    ret hits
+  mut stack: [int] = [self.rootIndex]
+  while stack.len > 0:
+    let nodeIdx = stack.pop()
+    let nd = self.nodes[nodeIdx]
+    if bvhAabbRayHit(nd.bounds, rayOriginX, rayOriginY, rayOriginZ, rayDirX, rayDirY, rayDirZ):
+      if nd.isLeaf:
+        hits.push(nd.primitiveIndex)
+      else:
+        if nd.rightChild >= 0:
+          stack.push(nd.rightChild)
+        if nd.leftChild >= 0:
+          stack.push(nd.leftChild)
+  ret hits

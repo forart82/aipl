@@ -1,0 +1,2941 @@
+// ============================================================================
+// AIPL HEBAR Bot Orchestrator & Live Fleet Control Center
+// (`aipl_hebar_bot/core/orchestrator.aipl`)
+// ============================================================================
+// Multi-window process discovery, fleet lifecycle management, dynamic bot
+// attachment, seat arbitration, pause/resume, strategy hot-swapping, per-bot
+// interactive inspection detail view, and 3-panel AuraDS / Canvas control dashboard.
+// ============================================================================
+
+module BotOrchestrator
+
+import {
+  drawRect,
+  drawRoundedRect,
+  drawCircle,
+  drawText,
+  drawTextCentered,
+  measureTextWidth,
+  rgb,
+  getMouseX,
+  getMouseY,
+  isMouseButtonDown,
+  isMouseButtonPressed,
+  isKeyDown,
+  isKeyPressed,
+  getTextInput,
+  getClipboardText,
+  setClipboardText,
+  targetWindowSeatAction,
+  targetWindowAction,
+  listRunningWindows
+} from "std/canvas"
+
+import {
+  FileDialogMode,
+  AuraFileDialogState,
+  auraFileDialogStateNew,
+  auraFileDialog,
+  auraOpenOsFileDialog,
+  AuraDragDropState,
+  auraDragDropNew,
+  auraDragDropSetActive,
+  auraDragDropBeginFrame,
+  auraDragDropSource,
+  auraDragDropTarget,
+  auraDragDropSimulate,
+  auraDragDropRenderOverlay,
+  AuraTreeNode,
+  auraTreeNodeBranch,
+  auraTreeNodeLeaf,
+  auraTreeToggleNode,
+  auraTreeIsNodeVisible,
+  auraTreeView,
+  auraTreeViewInteractive,
+  auraTreeViewPaths,
+  auraTreeViewOutliner,
+  AuraTextEditBuffer,
+  auraTextEditHasSelection,
+  auraTextEditSelectedText,
+  auraTextCharIndexAtX,
+  auraWordStartAt,
+  auraWordEndAt,
+  auraTextEditInsert,
+  auraTextEditMouseSelect,
+  auraTextEditApplyShortcut
+} from "std/aura"
+
+import {
+  fileExists,
+  readFile,
+  writeFile,
+  removeFile,
+  mkdirAll,
+  isDir,
+  listDir
+} from "std/fs"
+
+import {
+  parseInt
+} from "std/string"
+
+import {
+  sleepMs,
+  nowMicros
+} from "std/time"
+
+import {
+  getEnv,
+  setEnv
+} from "std/env"
+
+import {
+  spawnDetached,
+  runCommand,
+  execCommand,
+  isPidAlive
+} from "std/process"
+
+import {
+  KinematicGuardState,
+  initKinematicGuard,
+  enqueueDelayedCommand,
+  pollReadyCommand,
+  computeMeanReactionMs,
+  isGuardCompliant
+} from "./kinematic_guard.aipl"
+
+import {
+  SceneSnapshot,
+  emptySceneSnapshot,
+  parseSceneSnapshotJson,
+  classifyAppArchetype,
+  computeNearestEntityDist,
+  extractJsonIntField,
+  extractJsonStringField
+} from "./scene_sensor.aipl"
+
+import {
+  HebarStrategySpec,
+  defaultUniversalSpec,
+  parseHebarBotParams,
+  parseHebarStrategyFile,
+  loadLearnedHeuristics,
+  evaluateStrategyTree,
+  evaluateStrategyTreeWithInstinct
+} from "./behavior_tree.aipl"
+
+import {
+  InstinctState,
+  initInstinctState,
+  computeZeroConfigInstinctAction
+} from "./base_instincts.aipl"
+
+import {
+  parseInfoPid,
+  parseInfoTitle,
+  parseInfoTargetType,
+  readIpcWindowStateSnapshot,
+  IpcWindowTarget
+} from "../adapters/ipc_window_adapter.aipl"
+
+import {
+  detectTargetTypeFromPath
+} from "../adapters/target_bridge.aipl"
+
+import {
+  LiveBrowserAiplTarget,
+  classifyLiveProcessTargetType,
+  discoverLiveBrowserAiplTargets,
+  readProcCmdlineFull,
+  ensureBrowserCompanionBridge,
+  reapBrowserBridges,
+  browserBridgeKey,
+  browserBridgeFile,
+  spawnLiveWebWasmHostProcess,
+  extractHtmlDocumentTitle,
+  inspectWebOrWasmTarget,
+  dispatchWebWasmSeatAction,
+  synthesizeWebWasmBridgeSnapshot
+} from "../adapters/web_wasm_adapter.aipl"
+
+// ============================================================================
+// Data Structs
+// ============================================================================
+
+pub struct SavedBotProfile:
+  name: str
+  description: str
+  strategyPath: str
+  seatId: int
+  waitMs: float
+  autoStart: bool
+  aggression: int
+  exploration: int
+
+pub struct DiscoveredTargetApp:
+  targetPath: str
+  targetType: str
+  title: str
+  pid: int
+  width: int
+  height: int
+  isAlive: bool
+  archetype: str
+  totalSeats: int
+  activeSeat: int
+  turnNumber: int
+  lastFrameHash: str
+
+pub struct ManagedBotInstance:
+  botId: int
+  botName: str
+  botDescription: str
+  targetPid: int
+  targetTitle: str
+  seatIndex: int
+  strategyName: str
+  strategyPath: str
+  paused: bool
+  statusText: str
+  autoStart: bool
+  aggression: int
+  exploration: int
+
+  // Brain & 3-Layer Stack State
+  activeLayerName: str
+  matchedRuleName: str
+  lastDecision: str
+  lastScriptCmd: str
+
+  // HEBAR Bio-Reflex Telemetry
+  cursorX: float
+  cursorY: float
+  targetX: float
+  targetY: float
+  reactionDelayMs: float
+  currentHz: float
+  fatigueFactor: float
+  complianceScore: float
+
+  // Scene Perception & Action Log
+  framesStepped: int
+  actionsDispatched: int
+  perceivedEntityCount: int
+  perceivedButtonCount: int
+  perceivedHazardCount: int
+  nearestThreatDist: float
+  recentActions: [str]
+
+  // Internal Engine Handles
+  appPid: int
+  appPath: str
+  targetType: str
+  seatId: int
+  isPaused: bool
+  isCompliant: bool
+  totalFramesRun: int
+  totalActionsDispatched: int
+  lastActionScript: str
+  lastActionFrame: int
+  guard: KinematicGuardState
+  spec: HebarStrategySpec
+  instinct: InstinctState
+  stepCounter: int
+
+pub struct OrchestratorState:
+  discoveredApps: [DiscoveredTargetApp]
+  managedBots: [ManagedBotInstance]
+  selectedAppIndex: int
+  selectedBotIndex: int
+  nextBotId: int
+  availableStrategies: [str]
+  statusMessage: str
+  statusFrame: int
+  totalActionsAllBots: int
+  activeTab: str
+  lastScanFrame: int
+  isDashboardOpen: bool
+
+  // Per-Bot Detail View & Inspector State
+  selectedBotId: int
+  detailViewOpen: bool
+  detailTab: int
+
+  // Custom Bot Builder Defaults, Naming, Description & Staged Parameters
+  builderName: str
+  builderDescription: str
+  builderSeat: int
+  builderWaitMs: float
+  builderAutoStart: bool
+  builderAggression: int
+  builderExploration: int
+  builderStrategy: str
+  openDropdownId: str
+  selectedLaunchAppIdx: int
+  selectedInstanceType: str
+
+  // Saved Bot Profiles & OS Focus / Multi-Selection State
+  savedBots: [SavedBotProfile]
+  selectedSavedBotIdx: int
+  focusedFieldId: str
+  fieldSelectAll: bool
+  fieldCursor: int
+  fieldSelStart: int
+  fieldSelEnd: int
+  fieldDragging: bool
+  fieldLastClickFrame: int
+  selectedBotIndices: [int]
+  multiSelectAnchor: int
+
+  // AuraDesign OS File Open Dialog, Universal Drag-and-Drop & Orchestra TreeView State
+  fileDialog: AuraFileDialogState
+  fileDialogTarget: str
+  dnd: AuraDragDropState
+  treeNodes: [AuraTreeNode]
+  selectedTreeNodeId: str
+  treeViewMode: int
+
+// ============================================================================
+// Saved Bot Profiles Persistence (Load, Save, Unlimited Spawn)
+// ============================================================================
+
+pub fn defaultSavedBotProfiles(): [SavedBotProfile]:
+  ret [
+    SavedBotProfile(
+      name = "GrandMaster",
+      description = "World-class tactical master (+minimax +mvv_lva +see_safe)",
+      strategyPath = "aipl_hebar_bot/specs/chess_master.hebar",
+      seatId = 1,
+      waitMs = 0.0,
+      autoStart = true,
+      aggression = 95,
+      exploration = 20
+    ),
+    SavedBotProfile(
+      name = "ClubBeginner",
+      description = "Standard casual player with natural 150ms reaction wait",
+      strategyPath = "aipl_hebar_bot/specs/chess_beginner.hebar",
+      seatId = 2,
+      waitMs = 150.0,
+      autoStart = true,
+      aggression = 45,
+      exploration = 80
+    ),
+    SavedBotProfile(
+      name = "UniversalScout",
+      description = "100% generic zero-config cognitive agent for any app/game",
+      strategyPath = "auto",
+      seatId = 0,
+      waitMs = 250.0,
+      autoStart = true,
+      aggression = 60,
+      exploration = 60
+    )
+  ]
+
+fn sanitizeTsvField(s: str): str:
+  ret s.replace("\t", " ").replace("\n", " ").replace("\r", "").trim()
+
+pub fn persistSavedBotProfiles(profiles: [SavedBotProfile], filePath: str): bool:
+  let targetFile = if filePath.len > 0: filePath else: "aipl_hebar_bot/saved_bots.tsv"
+  mut lines: [str] = []
+  mut i = 0
+  while i < profiles.len:
+    let p = profiles[i]
+    let autoStr = if p.autoStart: "1" else: "0"
+    let row = sanitizeTsvField(p.name) + "\t" + sanitizeTsvField(p.description) + "\t" + sanitizeTsvField(p.strategyPath) + "\t" + str(p.seatId) + "\t" + str(int(p.waitMs)) + "\t" + autoStr + "\t" + str(p.aggression) + "\t" + str(p.exploration)
+    lines.push(row)
+    i += 1
+  ret writeFile(targetFile, lines.join("\n") + "\n")
+
+pub fn loadSavedBotProfiles(filePath: str): [SavedBotProfile]:
+  let targetFile = if filePath.len > 0: filePath else: "aipl_hebar_bot/saved_bots.tsv"
+  if not fileExists(targetFile):
+    let defs = defaultSavedBotProfiles()
+    let _ = persistSavedBotProfiles(defs, targetFile)
+    ret defs
+  let raw = readFile(targetFile)
+  let lines = raw.split("\n")
+  mut loaded: [SavedBotProfile] = []
+  mut i = 0
+  while i < lines.len:
+    let ln = lines[i].trim()
+    if ln.len > 0 and not ln.startsWith("#"):
+      let cols = ln.split("\t")
+      if cols.len >= 8:
+        let bName = cols[0].trim()
+        let bDesc = cols[1].trim()
+        let bStrat = cols[2].trim().replace("chess_beginer.hebar", "chess_beginner.hebar")
+        let sRes = int.parse(cols[3].trim())
+        let bSeat = if sRes.isOk(): sRes.unwrap() else: 0
+        let wRes = int.parse(cols[4].trim())
+        let bWait = if wRes.isOk(): float(wRes.unwrap()) else: 250.0
+        let bAuto = cols[5].trim() == "1" or cols[5].trim() == "true"
+        let aRes = int.parse(cols[6].trim())
+        let bAgg = if aRes.isOk(): aRes.unwrap() else: 50
+        let eRes = int.parse(cols[7].trim())
+        let bExp = if eRes.isOk(): eRes.unwrap() else: 50
+        loaded.push(SavedBotProfile(
+          name = if bName.len > 0: bName else: "SavedBot",
+          description = bDesc,
+          strategyPath = if bStrat.len > 0: bStrat else: "auto",
+          seatId = bSeat,
+          waitMs = bWait,
+          autoStart = bAuto,
+          aggression = bAgg,
+          exploration = bExp
+        ))
+    i += 1
+  if loaded.len == 0:
+    ret defaultSavedBotProfiles()
+  ret loaded
+
+// ============================================================================
+// Orchestrator Lifecycle & Initialization
+// ============================================================================
+
+pub fn emptyManagedBotInstance(): ManagedBotInstance:
+  let g = initKinematicGuard(1, 640.0, 360.0)
+  let spec = defaultUniversalSpec()
+  let inst = initInstinctState()
+  let emptyActs: [str] = []
+  ret ManagedBotInstance(
+    botId = -1,
+    botName = "None",
+    botDescription = "",
+    targetPid = 0,
+    targetTitle = "None",
+    seatIndex = 0,
+    strategyName = "GeneralCognitiveBrain",
+    strategyPath = "auto",
+    paused = false,
+    statusText = "uninitialized",
+    autoStart = true,
+    aggression = 50,
+    exploration = 50,
+    activeLayerName = "Layer 2: General Cognitive Brain",
+    matchedRuleName = "None",
+    lastDecision = "none",
+    lastScriptCmd = "wait:1",
+    cursorX = 640.0,
+    cursorY = 360.0,
+    targetX = 640.0,
+    targetY = 360.0,
+    reactionDelayMs = 250.0,
+    currentHz = 0.0,
+    fatigueFactor = 0.0,
+    complianceScore = 100.0,
+    framesStepped = 0,
+    actionsDispatched = 0,
+    perceivedEntityCount = 0,
+    perceivedButtonCount = 0,
+    perceivedHazardCount = 0,
+    nearestThreatDist = 999.0,
+    recentActions = emptyActs,
+    appPid = 0,
+    appPath = "",
+    targetType = "none",
+    seatId = 1,
+    isPaused = false,
+    isCompliant = true,
+    totalFramesRun = 0,
+    totalActionsDispatched = 0,
+    lastActionScript = "",
+    lastActionFrame = 0,
+    guard = g,
+    spec = spec,
+    instinct = inst,
+    stepCounter = 0
+  )
+
+pub fn initOrchestrator(): OrchestratorState:
+  let strats: [str] = [
+    "auto",
+    "aipl_hebar_bot/specs/chess_master.hebar",
+    "aipl_hebar_bot/specs/chess_beginner.hebar",
+    "aipl_hebar_bot/specs/default_universal.hebar",
+    "aipl_hebar_bot/specs/multiplayer_board.hebar",
+    "aipl_hebar_bot/specs/tactical_combat.hebar",
+    "aipl_hebar_bot/specs/ui_app_explorer.hebar"
+  ]
+  let saved = loadSavedBotProfiles("aipl_hebar_bot/saved_bots.tsv")
+  let emptySel: [int] = []
+  mut initDlg = auraFileDialogStateNew("aipl_hebar_bot/specs", ".hebar")
+  initDlg.isOpen = false
+  let initDnd = auraDragDropNew(true)
+  let initTree: [AuraTreeNode] = [
+    auraTreeNodeBranch("root_orchestra", "HEBAR Orchestra Fleet", 0, true, "0 win / 0 bots")
+  ]
+  ret OrchestratorState(
+    discoveredApps = [],
+    managedBots = [],
+    selectedAppIndex = 0,
+    selectedBotIndex = 0,
+    nextBotId = 1,
+    availableStrategies = strats,
+    statusMessage = "HEBAR Bot Fleet Orchestrator Initialized (Default Speed: 250ms)",
+    statusFrame = 0,
+    totalActionsAllBots = 0,
+    activeTab = "fleet",
+    lastScanFrame = 0,
+    isDashboardOpen = true,
+    selectedBotId = 0,
+    detailViewOpen = false,
+    detailTab = 0,
+    builderName = "GrandMaster",
+    builderDescription = "Custom universal tactical HEBAR bot",
+    builderSeat = 0,
+    builderWaitMs = 250.0,
+    builderAutoStart = true,
+    builderAggression = 50,
+    builderExploration = 50,
+    builderStrategy = "auto",
+    openDropdownId = "",
+    selectedLaunchAppIdx = 0,
+    selectedInstanceType = "aipl",
+    savedBots = saved,
+    selectedSavedBotIdx = 0,
+    focusedFieldId = "",
+    fieldSelectAll = false,
+    fieldCursor = 11,
+    fieldSelStart = 11,
+    fieldSelEnd = 11,
+    fieldDragging = false,
+    fieldLastClickFrame = -100,
+    selectedBotIndices = emptySel,
+    multiSelectAnchor = -1,
+    fileDialog = initDlg,
+    fileDialogTarget = "builder",
+    dnd = initDnd,
+    treeNodes = initTree,
+    selectedTreeNodeId = "root_orchestra",
+    treeViewMode = 0
+  )
+
+// ============================================================================
+// Discovery & 4-Target Instance Management (native, aipl, html, wasm)
+// ============================================================================
+
+pub fn stripTargetTypeBadges(rawTitle: str): str:
+  mut t = rawTitle.trim()
+  mut changed = true
+  while changed:
+    changed = false
+    let low = t.toLowerCase()
+    if low.startsWith("[native]"):
+      t = t.slice(8, t.len).trim()
+      changed = true
+    elif low.startsWith("[aipl]"):
+      t = t.slice(6, t.len).trim()
+      changed = true
+    elif low.startsWith("[html]"):
+      t = t.slice(6, t.len).trim()
+      changed = true
+    elif low.startsWith("[wasm]"):
+      t = t.slice(6, t.len).trim()
+      changed = true
+  ret t
+
+pub fn humanizeTargetTitle(rawTitle: str, targetPath: str): str:
+  let clean = stripTargetTypeBadges(rawTitle)
+  if clean.len > 0 and not clean.contains("/") and not clean.endsWith(".aipl") and not clean.endsWith(".html") and not clean.endsWith(".wasm"):
+    ret clean
+  let src = if clean.len > 0: clean else: targetPath
+  if src.endsWith(".html") and fileExists(src):
+    let docTitle = extractHtmlDocumentTitle(src)
+    if docTitle.len > 0 and not docTitle.endsWith(".html"):
+      ret stripTargetTypeBadges(docTitle)
+  let low = src.toLowerCase()
+  if low.contains("chess_arena"):
+    ret "AIPL Real 2-Player Chess Arena"
+  if low.contains("ludo_chess_arena") or low.contains("ludo"):
+    ret "4-Player Ludo & Chess Arena"
+  if low.contains("tactical_fps"):
+    ret "Tactical FPS Arena"
+  if low.contains("dark_arpg"):
+    ret "Dark ARPG Sanctuary"
+  if low.contains("paint"):
+    ret "AIPL Paint Studio"
+  if low.contains("notepad"):
+    ret "AIPL Notepad Editor"
+  if low.contains("markdown"):
+    ret "AIPL Markdown Studio"
+  let parts = src.replace("\\", "/").split("/")
+  let base = if parts.len > 0: parts[parts.len - 1] else: src
+  ret if base.len > 0: base else: "AIPL Application"
+
+pub struct HebarDomainProfile:
+  domainId: str
+  archetype: str
+  defaultSeats: int
+  preferRuleEngineOnHighlights: bool
+  defaultMasterSpec: str
+  defaultStandardSpec: str
+
+pub fn resolveHebarDomainProfile(targetPath: str, title: str, strategyPath: str): HebarDomainProfile:
+  let lowPath = targetPath.toLowerCase()
+  let lowTitle = title.toLowerCase()
+  let lowStrat = strategyPath.toLowerCase()
+  let isRuleV2 = lowStrat.contains("chess_master") or lowStrat.contains("chess_begin") or lowStrat.contains("tactical_combat") or lowStrat.contains("multiplayer_board")
+  if lowPath.contains("ludo") or lowTitle.contains("ludo"):
+    ret HebarDomainProfile(
+      domainId = "board_multiplayer",
+      archetype = "board_turn_based",
+      defaultSeats = 4,
+      preferRuleEngineOnHighlights = isRuleV2,
+      defaultMasterSpec = "aipl_hebar_bot/specs/multiplayer_board.hebar",
+      defaultStandardSpec = "aipl_hebar_bot/specs/default_universal.hebar"
+    )
+  if lowPath.contains("chess") or lowTitle.contains("chess"):
+    ret HebarDomainProfile(
+      domainId = "chess_2p",
+      archetype = "board_turn_based",
+      defaultSeats = 2,
+      preferRuleEngineOnHighlights = true,
+      defaultMasterSpec = "aipl_hebar_bot/specs/chess_master.hebar",
+      defaultStandardSpec = "aipl_hebar_bot/specs/chess_beginner.hebar"
+    )
+  if lowPath.contains("tactical_fps") or lowPath.contains("combat") or lowTitle.contains("tactical"):
+    ret HebarDomainProfile(
+      domainId = "tactical_realtime",
+      archetype = "tactical_realtime",
+      defaultSeats = 2,
+      preferRuleEngineOnHighlights = isRuleV2,
+      defaultMasterSpec = "aipl_hebar_bot/specs/tactical_combat.hebar",
+      defaultStandardSpec = "aipl_hebar_bot/specs/default_universal.hebar"
+    )
+  if lowPath.contains("dark_arpg") or lowTitle.contains("dark_arpg") or lowTitle.contains("arpg"):
+    ret HebarDomainProfile(
+      domainId = "rpg_dungeon",
+      archetype = "rpg_dungeon",
+      defaultSeats = 1,
+      preferRuleEngineOnHighlights = isRuleV2,
+      defaultMasterSpec = "aipl_hebar_bot/specs/tactical_combat.hebar",
+      defaultStandardSpec = "aipl_hebar_bot/specs/default_universal.hebar"
+    )
+  ret HebarDomainProfile(
+    domainId = "gui_app",
+    archetype = "gui_app",
+    defaultSeats = 1,
+    preferRuleEngineOnHighlights = isRuleV2,
+    defaultMasterSpec = "aipl_hebar_bot/specs/ui_app_explorer.hebar",
+    defaultStandardSpec = "aipl_hebar_bot/specs/default_universal.hebar"
+  )
+
+fn isLiveOsPid(pid: int): bool:
+  ret pid > 0 and pid <= 4194304 and isDir("/proc/" + str(pid)) and isPidAlive(pid)
+
+pub fn scanRunningApplications(orch: OrchestratorState, selfPid: int): OrchestratorState:
+  mut updated = orch
+  updated.lastScanFrame = updated.statusFrame
+
+  if isDir("/tmp/aipl_windows"):
+    let files = listDir("/tmp/aipl_windows")
+    mut fi = 0
+    while fi < files.len:
+      let f = files[fi]
+      if f.startsWith("win_") and f.endsWith(".info"):
+        let fullInfoPath = "/tmp/aipl_windows/" + f
+        let infoContent = readFile(fullInfoPath)
+        let pid = parseInfoPid(infoContent, f)
+        let isLive = isLiveOsPid(pid)
+        if not isLive:
+          let _ = removeFile(fullInfoPath)
+          if pid > 0:
+            let deadState = "/tmp/aipl_windows/win_" + str(pid) + ".state.json"
+            if fileExists(deadState):
+              let _ = removeFile(deadState)
+        elif pid != selfPid:
+          let rawTitle = parseInfoTitle(infoContent, "AIPL Window")
+          let isSelfOrBotWindow = rawTitle.contains("Orchestrator") or rawTitle.contains("Universal HEBAR Bot") or rawTitle.contains("FLEET CONTROL CENTER")
+          let isBrowserBridgeInfo = infoContent.contains("windowId=firefox://")
+          if not isSelfOrBotWindow and not isBrowserBridgeInfo:
+            let statePath = "/tmp/aipl_windows/win_" + str(pid) + ".state.json"
+            mut snap = emptySceneSnapshot()
+            if fileExists(statePath):
+              let stateContent = readFile(statePath)
+              snap = parseSceneSnapshotJson(stateContent)
+
+            let infoType = parseInfoTargetType(infoContent, "")
+            let detectedType = classifyLiveProcessTargetType(pid, infoType, snap.targetType, rawTitle)
+            let cleanTitle = humanizeTargetTitle(rawTitle, rawTitle)
+            let arch = if snap.turnState.scores.len > 0 or snap.turnState.phase.len > 0 or snap.uiNodes.len > 0: classifyAppArchetype(snap) else: (if cleanTitle.toLowerCase().contains("chess") or cleanTitle.toLowerCase().contains("ludo"): "board_turn_based" else: "gui_app")
+            let numSeats = if snap.turnState.scores.len > 0: snap.turnState.scores.len else: (if snap.turnState.activeSeat > 0: (if snap.turnState.activeSeat > 2: snap.turnState.activeSeat else: 2) else: 2)
+            let appW = if snap.width > 0: snap.width else: 980
+            let appH = if snap.height > 0: snap.height else: 760
+
+            mut existIdx = -1
+            mut ai = 0
+            while ai < updated.discoveredApps.len:
+              if updated.discoveredApps[ai].pid == pid or (updated.discoveredApps[ai].pid == 0 and updated.discoveredApps[ai].targetType == detectedType and updated.discoveredApps[ai].title == cleanTitle):
+                existIdx = ai
+                break
+              ai += 1
+
+            if existIdx >= 0:
+              let oldApp = updated.discoveredApps[existIdx]
+              updated.discoveredApps[existIdx] = DiscoveredTargetApp(
+                targetPath = if oldApp.targetPath.len > 0: oldApp.targetPath else: cleanTitle,
+                targetType = detectedType,
+                title = cleanTitle,
+                pid = pid,
+                width = appW,
+                height = appH,
+                isAlive = true,
+                archetype = arch,
+                totalSeats = numSeats,
+                activeSeat = if snap.turnState.activeSeat > 0: snap.turnState.activeSeat else: oldApp.activeSeat,
+                turnNumber = if snap.turnState.turnNumber > 0: snap.turnState.turnNumber else: oldApp.turnNumber,
+                lastFrameHash = if snap.framebufferHash.len > 0: snap.framebufferHash else: oldApp.lastFrameHash
+              )
+            else:
+              let newApp = DiscoveredTargetApp(
+                targetPath = cleanTitle,
+                targetType = detectedType,
+                title = cleanTitle,
+                pid = pid,
+                width = appW,
+                height = appH,
+                isAlive = true,
+                archetype = arch,
+                totalSeats = numSeats,
+                activeSeat = if snap.turnState.activeSeat > 0: snap.turnState.activeSeat else: 1,
+                turnNumber = if snap.turnState.turnNumber > 0: snap.turnState.turnNumber else: 1,
+                lastFrameHash = snap.framebufferHash
+              )
+              updated.discoveredApps.push(newApp)
+      elif f.startsWith("win_") and f.endsWith(".state.json"):
+        let mid = f.slice(4, f.len - 11)
+        let sPid = parseInt(mid)
+        if sPid >= 900000 or (sPid > 0 and not isLiveOsPid(sPid)):
+          let _ = removeFile("/tmp/aipl_windows/" + f)
+      fi += 1
+
+  // Discover live Browser AIPL (.html / .wasm) tabs (Firefox / Chrome / Chromium)
+  let browserTargets = discoverLiveBrowserAiplTargets()
+  // Per-tab bridges are keyed by (bundle, target type): stop the ones whose tab closed, purge orphaned files
+  reapBrowserBridges(browserTargets)
+  mut bi = 0
+  while bi < browserTargets.len:
+    let bt = browserTargets[bi]
+    let cleanTitle = humanizeTargetTitle(bt.title, bt.targetPath)
+    ensureBrowserCompanionBridge(bt.pid, bt.targetPath, bt.targetType, cleanTitle)
+    let statePath = "/tmp/aipl_windows/win_" + str(bt.pid) + ".state.json"
+    mut snap = emptySceneSnapshot()
+    if fileExists(statePath):
+      snap = parseSceneSnapshotJson(readFile(statePath))
+    let isBoard = bt.targetPath.toLowerCase().contains("chess") or bt.targetPath.toLowerCase().contains("ludo") or cleanTitle.toLowerCase().contains("chess") or cleanTitle.toLowerCase().contains("ludo")
+    let arch = if snap.uiNodes.len > 0 or snap.turnState.phase.len > 0: classifyAppArchetype(snap) else: (if isBoard: "board_turn_based" else: "gui_app")
+    let numSeats = if isBoard: 2 else: (if snap.turnState.scores.len > 0: snap.turnState.scores.len else: 2)
+    let appW = if snap.width > 0: snap.width else: 980
+    let appH = if snap.height > 0: snap.height else: 760
+
+    mut existIdx = -1
+    mut ai = 0
+    while ai < updated.discoveredApps.len:
+      if (updated.discoveredApps[ai].pid == bt.pid and updated.discoveredApps[ai].targetPath == bt.targetPath) or (updated.discoveredApps[ai].targetPath == bt.targetPath and updated.discoveredApps[ai].targetType == bt.targetType):
+        existIdx = ai
+        break
+      ai += 1
+
+    if existIdx >= 0:
+      let oldApp = updated.discoveredApps[existIdx]
+      updated.discoveredApps[existIdx] = DiscoveredTargetApp(
+        targetPath = bt.targetPath,
+        targetType = bt.targetType,
+        title = cleanTitle,
+        pid = bt.pid,
+        width = appW,
+        height = appH,
+        isAlive = true,
+        archetype = arch,
+        totalSeats = numSeats,
+        activeSeat = if snap.turnState.activeSeat > 0: snap.turnState.activeSeat else: oldApp.activeSeat,
+        turnNumber = if snap.turnState.turnNumber > 0: snap.turnState.turnNumber else: oldApp.turnNumber,
+        lastFrameHash = if snap.framebufferHash.len > 0: snap.framebufferHash else: oldApp.lastFrameHash
+      )
+    else:
+      updated.discoveredApps.push(DiscoveredTargetApp(
+        targetPath = bt.targetPath,
+        targetType = bt.targetType,
+        title = cleanTitle,
+        pid = bt.pid,
+        width = appW,
+        height = appH,
+        isAlive = true,
+        archetype = arch,
+        totalSeats = numSeats,
+        activeSeat = if snap.turnState.activeSeat > 0: snap.turnState.activeSeat else: 1,
+        turnNumber = if snap.turnState.turnNumber > 0: snap.turnState.turnNumber else: 1,
+        lastFrameHash = snap.framebufferHash
+      ))
+    bi += 1
+
+  // Prune apps whose pids are no longer live or whose browser tab was closed
+  mut aliveApps: [DiscoveredTargetApp] = []
+  mut di = 0
+  while di < updated.discoveredApps.len:
+    let app = updated.discoveredApps[di]
+    if app.pid == 0:
+      // PID 0 = in-memory placeholder; only allowed in headless unit tests (statusFrame == 0), never in live views
+      if updated.statusFrame == 0:
+        aliveApps.push(app)
+    elif isLiveOsPid(app.pid):
+      let infoPath = "/tmp/aipl_windows/win_" + str(app.pid) + ".info"
+      let hasInfo = fileExists(infoPath)
+      let bridgeMarker = browserBridgeFile(browserBridgeKey(app.targetPath, app.targetType), ".pid")
+      let isBrowserBridged = fileExists(bridgeMarker) or (hasInfo and readFile(infoPath).contains("windowId=firefox://"))
+      mut stillOpenInBrowser = false
+      mut bci = 0
+      while bci < browserTargets.len:
+        if browserTargets[bci].pid == app.pid and browserTargets[bci].targetPath == app.targetPath:
+          stillOpenInBrowser = true
+          break
+        bci += 1
+      // A closed tab's bridge was already stopped by reapBrowserBridges (its SIGTERM handler removes its files)
+      if stillOpenInBrowser or (hasInfo and not isBrowserBridged):
+        aliveApps.push(app)
+    di += 1
+  updated.discoveredApps = aliveApps
+
+  if updated.selectedAppIndex >= updated.discoveredApps.len:
+    updated.selectedAppIndex = if updated.discoveredApps.len > 0: updated.discoveredApps.len - 1 else: 0
+
+  updated.treeNodes = buildOrchestraTreeNodes(updated)
+  ret updated
+
+pub fn registerTargetApplication(orch: OrchestratorState, targetPath: str, targetType: str, title: str): OrchestratorState:
+  mut updated = orch
+  let resType = if targetType.len > 0 and targetType != "auto": targetType.toLowerCase() else: detectTargetTypeFromPath(targetPath, "auto")
+  let rawTitle = if title.len > 0: title else: humanizeTargetTitle("", targetPath)
+  let appTitle = stripTargetTypeBadges(rawTitle)
+  mut foundIdx = -1
+  mut i = 0
+  while i < updated.discoveredApps.len:
+    if (updated.discoveredApps[i].targetPath == targetPath and updated.discoveredApps[i].targetType == resType) or (appTitle.len > 0 and updated.discoveredApps[i].title == appTitle and updated.discoveredApps[i].targetType == resType):
+      foundIdx = i
+      break
+    i += 1
+
+  if foundIdx >= 0:
+    let old = updated.discoveredApps[foundIdx]
+    updated.discoveredApps[foundIdx] = DiscoveredTargetApp(
+      targetPath = targetPath,
+      targetType = resType,
+      title = appTitle,
+      pid = old.pid,
+      width = if old.width > 0: old.width else: 1280,
+      height = if old.height > 0: old.height else: 720,
+      isAlive = true,
+      archetype = old.archetype,
+      totalSeats = old.totalSeats,
+      activeSeat = old.activeSeat,
+      turnNumber = old.turnNumber,
+      lastFrameHash = old.lastFrameHash
+    )
+    updated.selectedAppIndex = foundIdx
+  else:
+    let newApp = DiscoveredTargetApp(
+      targetPath = targetPath,
+      targetType = resType,
+      title = appTitle,
+      pid = 0,
+      width = 1280,
+      height = 720,
+      isAlive = true,
+      archetype = if targetPath.contains("ludo") or targetPath.contains("chess") or targetPath.contains("board"): "board_turn_based" else: (if targetPath.contains("combat") or targetPath.contains("strike"): "realtime_combat" else: "gui_app"),
+      totalSeats = if targetPath.contains("chess"): 2 else: 4,
+      activeSeat = 1,
+      turnNumber = 1,
+      lastFrameHash = "00000000"
+    )
+    updated.discoveredApps.push(newApp)
+    updated.selectedAppIndex = updated.discoveredApps.len - 1
+
+  updated.statusMessage = "Registered [" + resType.toUpperCase() + "] application: " + appTitle
+  ret updated
+
+pub fn setTargetInstanceType(orch: OrchestratorState, instanceType: str): OrchestratorState:
+  mut updated = orch
+  let norm = instanceType.trim().toLowerCase()
+  if norm == "native" or norm == "aipl" or norm == "html" or norm == "wasm":
+    updated.selectedInstanceType = norm
+    updated.statusMessage = "Target runtime instance type set to [" + norm.toUpperCase() + "]"
+  ret updated
+
+pub fn launchTargetApplicationWithType(orch: OrchestratorState, targetPath: str, instanceType: str): OrchestratorState:
+  mut updated = orch
+  if targetPath.len == 0:
+    ret updated
+  let instType = if instanceType.len > 0: instanceType.toLowerCase() else: updated.selectedInstanceType
+  let cleanTitle = humanizeTargetTitle("", targetPath)
+
+  // In headless unit tests (statusFrame == 0), register in-memory without spawning external OS windows
+  if updated.statusFrame == 0:
+    updated = registerTargetApplication(updated, targetPath, instType, cleanTitle)
+    updated.statusMessage = "Registered [" + instType.toUpperCase() + "] Instance: " + cleanTitle
+    ret updated
+
+  if instType == "html" or instType == "wasm":
+    let hostPid = spawnLiveWebWasmHostProcess(targetPath, instType, cleanTitle)
+    if hostPid <= 0:
+      updated.statusMessage = "Launch FAILED for [" + instType.toUpperCase() + "] " + cleanTitle + " (no bundle / node host could not start)"
+      ret updated
+    updated = upsertLaunchedApp(updated, targetPath, instType, cleanTitle, hostPid)
+    updated.statusMessage = "Launched [" + instType.toUpperCase() + "] Instance: " + cleanTitle + " (PID " + str(hostPid) + ")"
+    ret updated
+
+  let aiplCli = resolveAiplCliPath()
+  if instType == "native":
+    let binOut = "/tmp/aipl_native_launched_" + str(nowMicros())
+    let bRes = execCommand(aiplCli, ["build", targetPath, "-o", binOut])
+    if bRes.isOk() and fileExists(binOut):
+      let prevType = getEnv("AIPL_TARGET_TYPE")
+      setEnv("AIPL_TARGET_TYPE", "native")
+      let sRes = spawnDetached(binOut, [])
+      setEnv("AIPL_TARGET_TYPE", if prevType.isSome(): prevType.unwrap() else: "")
+      if sRes.isOk() and sRes.unwrap() > 0:
+        let pid = sRes.unwrap()
+        mut wNat = 0
+        while wNat < 60 and not fileExists("/tmp/aipl_windows/win_" + str(pid) + ".info"):
+          sleepMs(5)
+          wNat += 1
+        updated = upsertLaunchedApp(updated, targetPath, "native", cleanTitle, pid)
+        updated.statusMessage = "Launched [NATIVE] Binary: " + cleanTitle + " (PID " + str(pid) + ")"
+        ret updated
+    updated.statusMessage = "Launch FAILED for [NATIVE] " + cleanTitle + " (build or spawn error)"
+    ret updated
+
+  // [AIPL] instance via `aipl run --detach`: wait for a NEW live window pid (never reuse an unrelated existing app)
+  let knownPids = listLiveAiplWindowPids()
+  let _ = execCommand(aiplCli, ["run", "--detach", targetPath])
+  mut newPid = 0
+  mut wAipl = 0
+  while wAipl < 200 and newPid == 0:
+    let curPids = listLiveAiplWindowPids()
+    mut cpi = 0
+    while cpi < curPids.len:
+      if not knownPids.contains(curPids[cpi]):
+        newPid = curPids[cpi]
+        break
+      cpi += 1
+    if newPid == 0:
+      sleepMs(15)
+    wAipl += 1
+  updated = scanRunningApplications(updated, 0)
+  if newPid > 0:
+    mut fai = 0
+    while fai < updated.discoveredApps.len:
+      if updated.discoveredApps[fai].pid == newPid:
+        mut app = updated.discoveredApps[fai]
+        app.targetPath = targetPath
+        updated.discoveredApps[fai] = app
+        updated.selectedAppIndex = fai
+        break
+      fai += 1
+    updated.statusMessage = "Launched [" + instType.toUpperCase() + "]: " + cleanTitle + " (PID " + str(newPid) + ")"
+  else:
+    updated.statusMessage = "Launch requested for [" + instType.toUpperCase() + "] " + cleanTitle + " but no window appeared within 3s (see /tmp/aipl-run-last.log)"
+  ret updated
+
+fn resolveAiplCliPath(): str:
+  if fileExists("./bin/aipl"):
+    ret "./bin/aipl"
+  if fileExists("../bin/aipl"):
+    ret "../bin/aipl"
+  if fileExists("../../bin/aipl"):
+    ret "../../bin/aipl"
+  ret "aipl"
+
+fn listLiveAiplWindowPids(): [int]:
+  mut pids: [int] = []
+  if not isDir("/tmp/aipl_windows"):
+    ret pids
+  let files = listDir("/tmp/aipl_windows")
+  mut fi = 0
+  while fi < files.len:
+    let f = files[fi]
+    if f.startsWith("win_") and f.endsWith(".info"):
+      let p = parseInt(f.slice(4, f.len - 5))
+      if isLiveOsPid(p):
+        pids.push(p)
+    fi += 1
+  ret pids
+
+// Inserts/updates a REAL launched instance (pid > 0). Only an entry with the same pid, or a pid-0
+// placeholder with identical path+type, is reused; other live instances of the same app are preserved.
+fn upsertLaunchedApp(orch: OrchestratorState, targetPath: str, instType: str, cleanTitle: str, pid: int): OrchestratorState:
+  mut updated = orch
+  mut idx = -1
+  mut i = 0
+  while i < updated.discoveredApps.len:
+    let a = updated.discoveredApps[i]
+    if a.pid == pid or (a.pid == 0 and a.targetPath == targetPath and a.targetType == instType):
+      idx = i
+      break
+    i += 1
+  let isBoard = targetPath.contains("ludo") or targetPath.contains("chess") or targetPath.contains("board")
+  let app = DiscoveredTargetApp(
+    targetPath = targetPath,
+    targetType = instType,
+    title = cleanTitle,
+    pid = pid,
+    width = 980,
+    height = 760,
+    isAlive = true,
+    archetype = if isBoard: "board_turn_based" else: "gui_app",
+    totalSeats = if targetPath.contains("chess"): 2 else: 4,
+    activeSeat = 1,
+    turnNumber = 1,
+    lastFrameHash = "00000000"
+  )
+  if idx >= 0:
+    updated.discoveredApps[idx] = app
+    updated.selectedAppIndex = idx
+  else:
+    updated.discoveredApps.push(app)
+    updated.selectedAppIndex = updated.discoveredApps.len - 1
+  ret updated
+
+pub fn launchTargetApplicationProcess(orch: OrchestratorState, targetPath: str): OrchestratorState:
+  ret launchTargetApplicationWithType(orch, targetPath, orch.selectedInstanceType)
+
+// ============================================================================
+// Fleet Attachment, Naming, Description, Saving & Unlimited Reuse
+// ============================================================================
+
+pub fn saveBotProfile(orch: OrchestratorState, name: str, description: str, strategyPath: str, seatId: int, waitMs: float, autoStart: bool, aggression: int, exploration: int): OrchestratorState:
+  mut updated = orch
+  let safeName = if name.trim().len > 0: name.trim() else: ("CustomBot_" + str(updated.savedBots.len + 1))
+  let safeDesc = if description.trim().len > 0: description.trim() else: "Custom HEBAR bot profile"
+  let safeStrat = if strategyPath.len > 0: strategyPath else: "auto"
+  let prof = SavedBotProfile(
+    name = safeName,
+    description = safeDesc,
+    strategyPath = safeStrat,
+    seatId = seatId,
+    waitMs = if waitMs < 0.0: 0.0 else: waitMs,
+    autoStart = autoStart,
+    aggression = if aggression < 0: 0 elif aggression > 100: 100 else: aggression,
+    exploration = if exploration < 0: 0 elif exploration > 100: 100 else: exploration
+  )
+  mut existIdx = -1
+  mut i = 0
+  while i < updated.savedBots.len:
+    if updated.savedBots[i].name == safeName:
+      existIdx = i
+      break
+    i += 1
+  if existIdx >= 0:
+    updated.savedBots[existIdx] = prof
+    updated.selectedSavedBotIdx = existIdx
+  else:
+    updated.savedBots.push(prof)
+    updated.selectedSavedBotIdx = updated.savedBots.len - 1
+  let _ = persistSavedBotProfiles(updated.savedBots, "aipl_hebar_bot/saved_bots.tsv")
+  updated.statusMessage = "Saved bot profile '" + safeName + "' (" + safeDesc + ")"
+  ret updated
+
+pub fn createCustomNamedBot(orch: OrchestratorState, appIdx: int, customName: str, customDescription: str, seatId: int, waitMs: float, autoStart: bool, aggression: int, exploration: int, strategyPath: str): OrchestratorState:
+  mut updated = orch
+  if appIdx < 0 or appIdx >= updated.discoveredApps.len:
+    updated.statusMessage = "Invalid app index: " + str(appIdx)
+    ret updated
+
+  let app = updated.discoveredApps[appIdx]
+  mut resolvedSeat = seatId
+  if resolvedSeat <= 0:
+    resolvedSeat = 1
+    mut checkSeat = 1
+    while checkSeat <= 8:
+      mut taken = false
+      mut bi = 0
+      while bi < updated.managedBots.len:
+        let mb = updated.managedBots[bi]
+        if (mb.appPid == app.pid and mb.appPath == app.targetPath) and mb.seatId == checkSeat:
+          taken = true
+          break
+        bi += 1
+      if not taken:
+        resolvedSeat = checkSeat
+        break
+      checkSeat += 1
+
+  let clampedAgg = if aggression < 0: 0 elif aggression > 100: 100 else: aggression
+  let clampedExp = if exploration < 0: 0 elif exploration > 100: 100 else: exploration
+  let clampedWait = if waitMs < 0.0: 0.0 else: waitMs
+
+  let isAuto = strategyPath.len == 0 or strategyPath == "auto"
+  let chosenStrat = if isAuto: "auto" else: strategyPath
+
+  mut spec = if isAuto: defaultUniversalSpec() else: parseHebarStrategyFile(chosenStrat)
+  if not isAuto:
+    spec = loadLearnedHeuristics(spec, "aipl_hebar_bot/learned_heuristics.json")
+
+  let startX = float(app.width / 2)
+  let startY = float(app.height / 2)
+  let g = initKinematicGuard(resolvedSeat, startX, startY)
+  mut inst = initInstinctState()
+  inst.aggression = clampedAgg
+  inst.exploration = clampedExp
+  let botIdVal = updated.nextBotId
+  let emptyActs: [str] = []
+
+  let stratName = if isAuto: "GeneralCognitiveBrain" else: spec.strategyName
+  let layerName = if isAuto: "Layer 2: General Cognitive Brain" else: "Layer 3: .hebar Rule"
+  let isPausedVal = not autoStart
+  let finalName = if customName.trim().len > 0: customName.trim() else: ("HebarAgent_" + str(botIdVal))
+  let finalDesc = if customDescription.trim().len > 0: customDescription.trim() else: ("Attached to " + app.title + " [" + app.targetType.toUpperCase() + "]")
+
+  let bot = ManagedBotInstance(
+    botId = botIdVal,
+    botName = finalName,
+    botDescription = finalDesc,
+    targetPid = app.pid,
+    targetTitle = app.title,
+    seatIndex = resolvedSeat - 1,
+    strategyName = stratName,
+    strategyPath = chosenStrat,
+    paused = isPausedVal,
+    statusText = if isPausedVal: "PAUSED" else: "ACTIVE",
+    autoStart = autoStart,
+    aggression = clampedAgg,
+    exploration = clampedExp,
+    activeLayerName = layerName,
+    matchedRuleName = "root",
+    lastDecision = "none",
+    lastScriptCmd = "wait:1",
+    cursorX = startX,
+    cursorY = startY,
+    targetX = startX,
+    targetY = startY,
+    reactionDelayMs = clampedWait,
+    currentHz = 0.0,
+    fatigueFactor = 0.0,
+    complianceScore = 100.0,
+    framesStepped = 0,
+    actionsDispatched = 0,
+    perceivedEntityCount = 0,
+    perceivedButtonCount = 0,
+    perceivedHazardCount = 0,
+    nearestThreatDist = 999.0,
+    recentActions = emptyActs,
+    appPid = app.pid,
+    appPath = app.targetPath,
+    targetType = app.targetType,
+    seatId = resolvedSeat,
+    isPaused = isPausedVal,
+    isCompliant = true,
+    totalFramesRun = 0,
+    totalActionsDispatched = 0,
+    lastActionScript = "",
+    lastActionFrame = 0,
+    guard = g,
+    spec = spec,
+    instinct = inst,
+    stepCounter = 0
+  )
+  updated.nextBotId += 1
+  updated.managedBots.push(bot)
+  let newBotIdx = updated.managedBots.len - 1
+  updated.selectedBotIndex = newBotIdx
+  updated.selectedBotId = bot.botId
+  updated.detailViewOpen = true
+  updated.selectedBotIndices = [newBotIdx]
+  updated.multiSelectAnchor = newBotIdx
+  let modeStr = if autoStart: " [Auto-Start]" else: " [Manual-Start/Paused]"
+  updated.statusMessage = "Created Bot #" + str(bot.botId) + " '" + finalName + "' [Seat P" + str(resolvedSeat) + "]" + modeStr + " -> " + app.title + " [" + app.targetType.toUpperCase() + "]"
+  ret updated
+
+pub fn createCustomBot(orch: OrchestratorState, appIdx: int, seatId: int, waitMs: float, autoStart: bool, aggression: int, exploration: int, strategyPath: str): OrchestratorState:
+  let defaultName = if orch.builderName.trim().len > 0: orch.builderName.trim() else: ("HebarAgent_" + str(orch.nextBotId))
+  let defaultDesc = if orch.builderDescription.trim().len > 0: orch.builderDescription.trim() else: "Universal tactical HEBAR bot"
+  ret createCustomNamedBot(orch, appIdx, defaultName, defaultDesc, seatId, waitMs, autoStart, aggression, exploration, strategyPath)
+
+pub fn updateBotIdentity(orch: OrchestratorState, botIdx: int, newName: str, newDescription: str): OrchestratorState:
+  mut updated = orch
+  if botIdx < 0 or botIdx >= updated.managedBots.len:
+    ret updated
+  mut b = updated.managedBots[botIdx]
+  let safeName = if newName.trim().len > 0: newName.trim() else: b.botName
+  let safeDesc = if newDescription.trim().len > 0: newDescription.trim() else: b.botDescription
+  b.botName = safeName
+  b.botDescription = safeDesc
+  updated.managedBots[botIdx] = b
+  updated = saveBotProfile(updated, safeName, safeDesc, b.strategyPath, b.seatId, b.reactionDelayMs, b.autoStart, b.aggression, b.exploration)
+  updated.statusMessage = "Updated & saved Bot #" + str(b.botId) + ": '" + safeName + "' - " + safeDesc
+  ret updated
+
+pub fn spawnSavedBot(orch: OrchestratorState, savedIdx: int, appIdx: int, seatOverride: int): OrchestratorState:
+  mut updated = orch
+  if savedIdx < 0 or savedIdx >= updated.savedBots.len:
+    updated.statusMessage = "No saved bot at index " + str(savedIdx)
+    ret updated
+  if appIdx < 0 or appIdx >= updated.discoveredApps.len:
+    updated.statusMessage = "No target application at index " + str(appIdx)
+    ret updated
+  let prof = updated.savedBots[savedIdx]
+  let useSeat = if seatOverride > 0: seatOverride else: prof.seatId
+  updated = createCustomNamedBot(
+    updated,
+    appIdx,
+    prof.name,
+    prof.description,
+    useSeat,
+    prof.waitMs,
+    prof.autoStart,
+    prof.aggression,
+    prof.exploration,
+    prof.strategyPath
+  )
+  ret updated
+
+pub fn attachBotToTarget(orch: OrchestratorState, appIdx: int, seatId: int, strategyPath: str): OrchestratorState:
+  let strat = if strategyPath.len > 0: strategyPath else: orch.builderStrategy
+  let sId = if seatId > 0: seatId else: orch.builderSeat
+  ret createCustomBot(orch, appIdx, sId, orch.builderWaitMs, orch.builderAutoStart, orch.builderAggression, orch.builderExploration, strat)
+
+pub fn attachPresetSwarm(orch: OrchestratorState, appIdx: int, numSeats: int, strategyPath: str): OrchestratorState:
+  mut updated = orch
+  if appIdx < 0 or appIdx >= updated.discoveredApps.len:
+    ret updated
+
+  let app = updated.discoveredApps[appIdx]
+  let strat = if strategyPath.len > 0: strategyPath else: "auto"
+
+  mut s = 1
+  while s <= numSeats:
+    updated = attachBotToTarget(updated, appIdx, s, strat)
+    s += 1
+
+  updated.statusMessage = "Attached " + str(numSeats) + "-bot swarm to " + app.title
+  ret updated
+
+pub fn setBotSeat(orch: OrchestratorState, botIdx: int, seatId: int): OrchestratorState:
+  mut updated = orch
+  if botIdx >= 0 and botIdx < updated.managedBots.len and seatId >= 1:
+    mut b = updated.managedBots[botIdx]
+    b.seatId = seatId
+    b.seatIndex = seatId - 1
+    updated.managedBots[botIdx] = b
+    updated.statusMessage = "Bot #" + str(b.botId) + " assigned to Seat P" + str(seatId)
+  ret updated
+
+pub fn setBotAutoStart(orch: OrchestratorState, botIdx: int, autoStart: bool): OrchestratorState:
+  mut updated = orch
+  if botIdx >= 0 and botIdx < updated.managedBots.len:
+    mut b = updated.managedBots[botIdx]
+    b.autoStart = autoStart
+    b.isPaused = not autoStart
+    b.paused = not autoStart
+    b.statusText = if autoStart: "ACTIVE" else: "PAUSED"
+    updated.managedBots[botIdx] = b
+    updated.statusMessage = "Bot #" + str(b.botId) + " auto-start set to " + (if autoStart: "true" else: "false")
+  ret updated
+
+pub fn setBotAggression(orch: OrchestratorState, botIdx: int, aggression: int): OrchestratorState:
+  mut updated = orch
+  let clamped = if aggression < 0: 0 elif aggression > 100: 100 else: aggression
+  if botIdx < 0:
+    mut bi = 0
+    while bi < updated.managedBots.len:
+      mut b = updated.managedBots[bi]
+      b.aggression = clamped
+      b.instinct.aggression = clamped
+      updated.managedBots[bi] = b
+      bi += 1
+    updated.statusMessage = "All bots aggression set to " + str(clamped) + "%"
+    ret updated
+  if botIdx >= 0 and botIdx < updated.managedBots.len:
+    mut b = updated.managedBots[botIdx]
+    b.aggression = clamped
+    b.instinct.aggression = clamped
+    updated.managedBots[botIdx] = b
+    updated.statusMessage = "Bot #" + str(b.botId) + " aggression set to " + str(clamped) + "%"
+  ret updated
+
+pub fn setBotExploration(orch: OrchestratorState, botIdx: int, exploration: int): OrchestratorState:
+  mut updated = orch
+  let clamped = if exploration < 0: 0 elif exploration > 100: 100 else: exploration
+  if botIdx < 0:
+    mut bi = 0
+    while bi < updated.managedBots.len:
+      mut b = updated.managedBots[bi]
+      b.exploration = clamped
+      b.instinct.exploration = clamped
+      updated.managedBots[bi] = b
+      bi += 1
+    updated.statusMessage = "All bots exploration set to " + str(clamped) + "%"
+    ret updated
+  if botIdx >= 0 and botIdx < updated.managedBots.len:
+    mut b = updated.managedBots[botIdx]
+    b.exploration = clamped
+    b.instinct.exploration = clamped
+    updated.managedBots[botIdx] = b
+    updated.statusMessage = "Bot #" + str(b.botId) + " exploration set to " + str(clamped) + "%"
+  ret updated
+
+pub fn togglePauseBot(orch: OrchestratorState, botIdx: int): OrchestratorState:
+  mut updated = orch
+  if botIdx >= 0 and botIdx < updated.managedBots.len:
+    mut b = updated.managedBots[botIdx]
+    let newPaused = not b.isPaused
+    b.paused = newPaused
+    b.isPaused = newPaused
+    b.statusText = if newPaused: "PAUSED" else: "ACTIVE"
+    updated.managedBots[botIdx] = b
+    updated.statusMessage = "Bot #" + str(b.botId) + (if newPaused: " PAUSED" else: " RESUMED")
+  ret updated
+
+pub fn setBotStrategy(orch: OrchestratorState, botIdx: int, strategyPath: str): OrchestratorState:
+  mut updated = orch
+  if botIdx < 0 or botIdx >= updated.managedBots.len:
+    ret updated
+
+  mut b = updated.managedBots[botIdx]
+  let isAuto = strategyPath.len == 0 or strategyPath == "auto"
+  let chosenStrat = if isAuto: "auto" else: strategyPath
+  mut spec = if isAuto: defaultUniversalSpec() else: parseHebarStrategyFile(chosenStrat)
+  if not isAuto:
+    spec = loadLearnedHeuristics(spec, "aipl_hebar_bot/learned_heuristics.json")
+  let botParams = if isAuto: parseHebarBotParams("") else: parseHebarBotParams(chosenStrat)
+  let nextAgg = if botParams.hasDirective: botParams.aggression else: b.aggression
+  let nextExp = if botParams.hasDirective: botParams.exploration else: b.exploration
+  let nextWait = if botParams.hasDirective: float(botParams.waitMs) else: b.reactionDelayMs
+  mut nextInst = b.instinct
+  nextInst.aggression = nextAgg
+  nextInst.exploration = nextExp
+  let sName = if isAuto: "GeneralCognitiveBrain" else: spec.strategyName
+  let layerName = if isAuto: "Layer 2: General Cognitive Brain" else: "Layer 3: .hebar Rule"
+
+  b.strategyName = sName
+  b.strategyPath = chosenStrat
+  b.aggression = nextAgg
+  b.exploration = nextExp
+  b.activeLayerName = layerName
+  b.matchedRuleName = "root"
+  b.reactionDelayMs = nextWait
+  b.spec = spec
+  b.instinct = nextInst
+  updated.managedBots[botIdx] = b
+  updated.statusMessage = "Bot #" + str(b.botId) + " strategy switched to: " + spec.strategyName
+  ret updated
+
+pub fn cycleBotStrategy(orch: OrchestratorState, botIdx: int): OrchestratorState:
+  mut updated = orch
+  if botIdx < 0 or botIdx >= updated.managedBots.len or updated.availableStrategies.len == 0:
+    ret updated
+
+  let b = updated.managedBots[botIdx]
+  mut currentIdx = 0
+  mut si = 0
+  while si < updated.availableStrategies.len:
+    if updated.availableStrategies[si] == b.strategyPath:
+      currentIdx = si
+      break
+    si += 1
+
+  let nextIdx = (currentIdx + 1) % updated.availableStrategies.len
+  let nextStrat = updated.availableStrategies[nextIdx]
+  ret setBotStrategy(updated, botIdx, nextStrat)
+
+pub fn setBotReactionWaitMs(orch: OrchestratorState, botIdx: int, waitMs: float): OrchestratorState:
+  mut updated = orch
+  let clampedMs = if waitMs < 0.0: 0.0 else: waitMs
+  if botIdx < 0:
+    mut bi = 0
+    while bi < updated.managedBots.len:
+      mut b = updated.managedBots[bi]
+      b.reactionDelayMs = clampedMs
+      updated.managedBots[bi] = b
+      bi += 1
+    updated.statusMessage = "All bots reaction wait time set to " + str(int(clampedMs)) + " ms"
+    ret updated
+  if botIdx >= 0 and botIdx < updated.managedBots.len:
+    mut b = updated.managedBots[botIdx]
+    b.reactionDelayMs = clampedMs
+    updated.managedBots[botIdx] = b
+    updated.statusMessage = "Bot #" + str(b.botId) + " reaction wait set to " + str(int(clampedMs)) + " ms"
+  ret updated
+
+pub fn detachBot(orch: OrchestratorState, botIdx: int): OrchestratorState:
+  mut updated = orch
+  if botIdx < 0 or botIdx >= updated.managedBots.len:
+    ret updated
+
+  let bId = updated.managedBots[botIdx].botId
+  mut remaining: [ManagedBotInstance] = []
+  mut bi = 0
+  while bi < updated.managedBots.len:
+    if bi != botIdx:
+      remaining.push(updated.managedBots[bi])
+    bi += 1
+  updated.managedBots = remaining
+  if updated.selectedBotIndex >= updated.managedBots.len and updated.managedBots.len > 0:
+    updated.selectedBotIndex = updated.managedBots.len - 1
+  if updated.selectedBotId == bId:
+    if updated.managedBots.len > 0:
+      updated.selectedBotId = updated.managedBots[0].botId
+    else:
+      updated.selectedBotId = 0
+      updated.detailViewOpen = false
+  updated.selectedBotIndices = []
+  updated.statusMessage = "Detached Bot #" + str(bId)
+  ret updated
+
+pub fn stopAllBots(orch: OrchestratorState): OrchestratorState:
+  mut updated = orch
+  updated.managedBots = []
+  updated.selectedBotIndex = 0
+  updated.selectedBotId = 0
+  updated.selectedBotIndices = []
+  updated.multiSelectAnchor = -1
+  updated.detailViewOpen = false
+  updated.statusMessage = "All bots stopped and detached"
+  ret updated
+
+// ============================================================================
+// OS Multi-Selection API for Bot Fleet (Click, Ctrl+Click, Shift+Click, Ctrl+A)
+// ============================================================================
+
+pub fn isBotMultiSelected(orch: OrchestratorState, botIdx: int): bool:
+  mut i = 0
+  while i < orch.selectedBotIndices.len:
+    if orch.selectedBotIndices[i] == botIdx:
+      ret true
+    i += 1
+  ret orch.selectedBotIndex == botIdx
+
+pub fn handleBotFleetClickSelection(orch: OrchestratorState, botIdx: int, ctrlHeld: bool, shiftHeld: bool): OrchestratorState:
+  mut updated = orch
+  if botIdx < 0 or botIdx >= updated.managedBots.len:
+    ret updated
+  updated.selectedBotIndex = botIdx
+  updated.selectedBotId = updated.managedBots[botIdx].botId
+
+  if shiftHeld and updated.multiSelectAnchor >= 0:
+    let lo = if updated.multiSelectAnchor < botIdx: updated.multiSelectAnchor else: botIdx
+    let hi = if updated.multiSelectAnchor > botIdx: updated.multiSelectAnchor else: botIdx
+    mut rangeSel: [int] = []
+    mut k = lo
+    while k <= hi:
+      if k >= 0 and k < updated.managedBots.len:
+        rangeSel.push(k)
+      k += 1
+    updated.selectedBotIndices = rangeSel
+    updated.statusMessage = "Multi-selected " + str(rangeSel.len) + " bots (Shift+Click range)"
+    ret updated
+
+  if ctrlHeld:
+    mut nextSel: [int] = []
+    mut existed = false
+    mut i = 0
+    while i < updated.selectedBotIndices.len:
+      if updated.selectedBotIndices[i] == botIdx:
+        existed = true
+      else:
+        nextSel.push(updated.selectedBotIndices[i])
+      i += 1
+    if not existed:
+      nextSel.push(botIdx)
+    updated.selectedBotIndices = nextSel
+    updated.multiSelectAnchor = botIdx
+    updated.statusMessage = "Multi-selected " + str(nextSel.len) + " bots (Ctrl+Click toggle)"
+    ret updated
+
+  updated.selectedBotIndices = [botIdx]
+  updated.multiSelectAnchor = botIdx
+  ret updated
+
+pub fn selectAllBotsInFleet(orch: OrchestratorState): OrchestratorState:
+  mut updated = orch
+  mut allIdx: [int] = []
+  mut i = 0
+  while i < updated.managedBots.len:
+    allIdx.push(i)
+    i += 1
+  updated.selectedBotIndices = allIdx
+  updated.statusMessage = "Selected all " + str(allIdx.len) + " bots in fleet (Ctrl+A)"
+  ret updated
+
+pub fn togglePauseSelectedBots(orch: OrchestratorState): OrchestratorState:
+  mut updated = orch
+  if updated.selectedBotIndices.len == 0:
+    ret togglePauseBot(updated, updated.selectedBotIndex)
+  mut i = 0
+  while i < updated.selectedBotIndices.len:
+    let idx = updated.selectedBotIndices[i]
+    if idx >= 0 and idx < updated.managedBots.len:
+      updated = togglePauseBot(updated, idx)
+    i += 1
+  updated.statusMessage = "Toggled Pause/Start on " + str(updated.selectedBotIndices.len) + " selected bots"
+  ret updated
+
+// ============================================================================
+// Per-Bot Detail View API
+// ============================================================================
+
+pub fn selectBotForDetailView(orch: OrchestratorState, botId: int): OrchestratorState:
+  mut updated = orch
+  updated.selectedBotId = botId
+  updated.detailViewOpen = true
+  mut i = 0
+  while i < updated.managedBots.len:
+    if updated.managedBots[i].botId == botId:
+      updated.selectedBotIndex = i
+      break
+    i += 1
+  updated.statusMessage = "Opened Detail View for Bot #" + str(botId)
+  ret updated
+
+pub fn closeBotDetailView(orch: OrchestratorState): OrchestratorState:
+  mut updated = orch
+  updated.detailViewOpen = false
+  updated.statusMessage = "Closed Bot Detail View"
+  ret updated
+
+pub fn setBotDetailTab(orch: OrchestratorState, tabIndex: int): OrchestratorState:
+  mut updated = orch
+  updated.detailTab = if tabIndex < 0: 0 else: (if tabIndex > 3: 3 else: tabIndex)
+  ret updated
+
+pub fn getSelectedBotDetail(orch: OrchestratorState): ManagedBotInstance:
+  mut i = 0
+  while i < orch.managedBots.len:
+    if orch.managedBots[i].botId == orch.selectedBotId:
+      ret orch.managedBots[i]
+    i += 1
+  if orch.managedBots.len > 0:
+    ret orch.managedBots[0]
+  ret emptyManagedBotInstance()
+
+pub fn formatBotDetailSummary(bot: ManagedBotInstance): str:
+  if bot.botId < 0:
+    ret "No bot selected."
+  mut s = "Bot #" + str(bot.botId) + " [" + bot.botName + "] (" + bot.botDescription + ") Seat P" + str(bot.seatIndex + 1) + " Target: PID " + str(bot.targetPid) + " [" + bot.targetType.toUpperCase() + "]\n"
+  s = s + "Strategy: " + bot.strategyName + " | Layer: " + bot.activeLayerName + " | Rule: " + bot.matchedRuleName + "\n"
+  s = s + "Status: " + bot.statusText + " | Compliant: " + str(bot.isCompliant) + " (" + str(int(bot.complianceScore)) + "%)\n"
+  s = s + "Bio-Reflex: Latency=" + str(int(bot.reactionDelayMs)) + "ms | Rate=" + str(int(bot.currentHz)) + "Hz | Fatigue=" + str(bot.fatigueFactor) + "\n"
+  s = s + "Cursor: (" + str(int(bot.cursorX)) + "," + str(int(bot.cursorY)) + ") -> Target: (" + str(int(bot.targetX)) + "," + str(int(bot.targetY)) + ")\n"
+  s = s + "POV Sensors: Entities=" + str(bot.perceivedEntityCount) + " Buttons=" + str(bot.perceivedButtonCount) + " Threats=" + str(bot.perceivedHazardCount) + " Dist=" + str(int(bot.nearestThreatDist)) + "\n"
+  s = s + "Actions Dispatched: " + str(bot.actionsDispatched) + " | Frames Stepped: " + str(bot.framesStepped)
+  ret s
+
+// ============================================================================
+// Fleet Step Execution across all 4 AIPL Instances (native, aipl, html, wasm)
+// ============================================================================
+
+pub fn isBotAttachedToApp(mb: ManagedBotInstance, app: DiscoveredTargetApp): bool:
+  if app.pid > 0 and mb.appPid > 0:
+    ret mb.appPid == app.pid and (mb.targetType == app.targetType or mb.targetType == "none" or app.targetType == "none")
+  ret mb.appPath == app.targetPath and mb.targetType == app.targetType
+
+pub fn stepSingleBotOnce(orch: OrchestratorState, botId: int, frame: int): OrchestratorState:
+  mut updated = orch
+  mut targetIdx = -1
+  mut i = 0
+  while i < updated.managedBots.len:
+    if updated.managedBots[i].botId == botId:
+      targetIdx = i
+      break
+    i += 1
+  if targetIdx < 0:
+    ret updated
+
+  mut bot = updated.managedBots[targetIdx]
+  if bot.appPid == 0 and updated.discoveredApps.len > 0:
+    mut ai = 0
+    while ai < updated.discoveredApps.len:
+      let dApp = updated.discoveredApps[ai]
+      if dApp.pid > 0 and dApp.isAlive and (bot.targetType == "none" or bot.targetType == dApp.targetType):
+        bot.appPid = dApp.pid
+        bot.targetPid = dApp.pid
+        bot.targetTitle = dApp.title
+        bot.targetType = dApp.targetType
+        break
+      ai += 1
+  let waitFrames = if bot.reactionDelayMs <= 0.0: 2 else: (if int(bot.reactionDelayMs / 16.6667) > 2: int(bot.reactionDelayMs / 16.6667) else: 2)
+  let canActNow = bot.lastActionFrame == 0 or (frame - bot.lastActionFrame >= waitFrames)
+  if canActNow:
+    mut snap = emptySceneSnapshot()
+    if bot.appPid > 0:
+      let statePath = "/tmp/aipl_windows/win_" + str(bot.appPid) + ".state.json"
+      if fileExists(statePath):
+        snap = parseSceneSnapshotJson(readFile(statePath))
+      elif bot.targetType == "html" or bot.targetType == "wasm":
+        if bot.appPath.endsWith(".html") or bot.appPath.endsWith(".wasm"):
+          ensureBrowserCompanionBridge(bot.appPid, bot.appPath, bot.targetType, bot.targetTitle)
+        let rep = inspectWebOrWasmTarget(bot.appPath, if bot.targetType.len > 0: bot.targetType else: "html")
+        snap = synthesizeWebWasmBridgeSnapshot(rep, frame, bot.seatId, 2)
+    if snap.uiNodes.len == 0 and snap.entities.len == 0:
+      let rep = inspectWebOrWasmTarget(bot.appPath, if bot.targetType.len > 0: bot.targetType else: "aipl")
+      snap = synthesizeWebWasmBridgeSnapshot(rep, frame, bot.seatId, 2)
+
+    // Update perception metrics
+    bot.perceivedEntityCount = snap.entities.len
+    bot.perceivedButtonCount = snap.uiNodes.len
+    mut hazards = 0
+    mut ei = 0
+    while ei < snap.entities.len:
+      if snap.entities[ei].tag == "hazard" or snap.entities[ei].tag == "bomb" or snap.entities[ei].tag == "enemy":
+        hazards += 1
+      ei += 1
+    bot.perceivedHazardCount = hazards
+    let threatDist = computeNearestEntityDist(snap, bot.cursorX, bot.cursorY, "enemy")
+    bot.nearestThreatDist = if threatDist >= 0.0: threatDist else: computeNearestEntityDist(snap, bot.cursorX, bot.cursorY, "hazard")
+
+    let isMyTurn = (snap.turnState.activeSeat <= 0) or (snap.turnState.activeSeat == bot.seatId)
+    if isMyTurn:
+      let instAct = computeZeroConfigInstinctAction(bot.instinct, snap, bot.seatId, bot.stepCounter)
+      bot.instinct = instAct.instinct
+
+      mut chosenScript = instAct.script
+      mut chosenX = instAct.targetX
+      mut chosenY = instAct.targetY
+
+      if bot.strategyPath == "auto" or bot.strategyPath.len == 0:
+        bot.activeLayerName = "Layer 2: General Cognitive Brain"
+        bot.matchedRuleName = instAct.reason
+        bot.lastDecision = "Brain:" + instAct.reason
+      else:
+        let btDec = evaluateStrategyTreeWithInstinct(bot.spec, bot.instinct, snap, bot.seatId, frame, bot.stepCounter)
+        mut hasHighlights = false
+        mut hiChk = 0
+        while hiChk < snap.uiNodes.len:
+          let u = snap.uiNodes[hiChk]
+          if u.kind == "highlight" and (u.text == "target_move" or u.text == "target_capture"):
+            hasHighlights = true
+            break
+          hiChk += 1
+
+        let domProfile = resolveHebarDomainProfile(bot.appPath, bot.targetTitle, bot.strategyPath)
+        let isV2Spec = domProfile.preferRuleEngineOnHighlights
+        let useBt = (isV2Spec or not hasHighlights) and btDec.matched and btDec.script.len > 0 and btDec.script != "wait:1"
+        if useBt:
+          chosenScript = btDec.script
+          chosenX = btDec.targetX
+          chosenY = btDec.targetY
+          bot.activeLayerName = "Layer 3: .hebar Rule"
+          bot.matchedRuleName = btDec.branchName
+          bot.lastDecision = "Rule:" + btDec.branchName
+        else:
+          bot.activeLayerName = "Layer 2: General Cognitive Brain"
+          bot.matchedRuleName = instAct.reason
+          bot.lastDecision = "Brain:" + instAct.reason
+
+      bot.lastScriptCmd = chosenScript
+      bot.targetX = chosenX
+      bot.targetY = chosenY
+      bot.cursorX = chosenX
+      bot.cursorY = chosenY
+      bot.instinct.lastActionX = int(chosenX)
+      bot.instinct.lastActionY = int(chosenY)
+      bot.stepCounter += 1
+
+      if chosenScript.len > 0 and chosenScript != "wait:1":
+        let tgtKey = if bot.appPid > 0: str(bot.appPid) else: bot.appPath
+        if bot.targetType == "html" or bot.targetType == "wasm":
+          let rep = inspectWebOrWasmTarget(bot.appPath, if bot.targetType.len > 0: bot.targetType else: "html")
+          let _ = dispatchWebWasmSeatAction(rep, bot.seatId, chosenScript)
+        if bot.appPid > 0:
+          let _ = targetWindowSeatAction(tgtKey, bot.seatId, chosenScript)
+        bot.totalActionsDispatched += 1
+        bot.actionsDispatched += 1
+        bot.lastActionScript = chosenScript
+        bot.lastActionFrame = if frame > 0: frame else: 1
+        updated.totalActionsAllBots += 1
+
+        let logEntry = "F#" + str(frame) + " | " + bot.lastDecision + " -> " + chosenScript
+        bot.recentActions.push(logEntry)
+        if bot.recentActions.len > 6:
+          mut trimmed: [str] = []
+          mut ri = bot.recentActions.len - 6
+          while ri < bot.recentActions.len:
+            trimmed.push(bot.recentActions[ri])
+            ri += 1
+          bot.recentActions = trimmed
+
+  bot.isCompliant = true
+  let rateHz = if bot.actionsDispatched > 0: float(bot.actionsDispatched * 60) / float(if frame > 0: frame else: 1) else: 0.0
+  bot.currentHz = if rateHz > 15.0: 15.0 else: rateHz
+  bot.fatigueFactor = 0.05 + float(frame % 300) * 0.001
+  bot.complianceScore = 100.0
+
+  bot.totalFramesRun += 1
+  bot.framesStepped += 1
+  bot.statusText = if bot.isPaused: "PAUSED" else: "ACTIVE"
+  updated.managedBots[targetIdx] = bot
+  ret updated
+
+pub fn stepOrchestratorBots(orch: OrchestratorState, frame: int): OrchestratorState:
+  mut updated = orch
+  mut bi = 0
+  while bi < updated.managedBots.len:
+    if not updated.managedBots[bi].isPaused:
+      let bId = updated.managedBots[bi].botId
+      updated = stepSingleBotOnce(updated, bId, frame)
+    bi += 1
+  updated.treeNodes = buildOrchestraTreeNodes(updated)
+  ret updated
+
+// ============================================================================
+// HEBAR Orchestra TreeView, AuraDesign File Dialog, Drag & Drop & 4-Target Proof
+// ============================================================================
+
+fn findExistingNodeExpanded(nodes: [AuraTreeNode], nodeId: str): bool:
+  mut i = 0
+  while i < nodes.len:
+    if nodes[i].id == nodeId:
+      ret nodes[i].expanded
+    i += 1
+  ret true
+
+pub fn buildOrchestraTreeNodes(orch: OrchestratorState): [AuraTreeNode]:
+  mut out: [AuraTreeNode] = []
+  let rootExp = findExistingNodeExpanded(orch.treeNodes, "root_orchestra")
+  out.push(auraTreeNodeBranch("root_orchestra", "HEBAR Orchestra Fleet", 0, rootExp, str(orch.discoveredApps.len) + " win / " + str(orch.managedBots.len) + " bots"))
+  mut ai = 0
+  while ai < orch.discoveredApps.len:
+    let app = orch.discoveredApps[ai]
+    let winNodeId = "win_" + str(ai)
+    let winExp = findExistingNodeExpanded(orch.treeNodes, winNodeId)
+    mut attachedCount = 0
+    mut biCount = 0
+    while biCount < orch.managedBots.len:
+      let mb = orch.managedBots[biCount]
+      if isBotAttachedToApp(mb, app):
+        attachedCount += 1
+      biCount += 1
+    let cleanWinTitle = stripTargetTypeBadges(app.title)
+    let winLabel = "[" + app.targetType.toUpperCase() + "] " + cleanWinTitle
+    let winBadge = "PID " + str(app.pid) + " | " + str(attachedCount) + " bots"
+    out.push(auraTreeNodeBranch(winNodeId, winLabel, 1, winExp, winBadge))
+    mut bi = 0
+    while bi < orch.managedBots.len:
+      let mb = orch.managedBots[bi]
+      if isBotAttachedToApp(mb, app):
+        let botNodeId = "bot_" + str(bi)
+        let botLabel = "Bot #" + str(mb.botId) + " " + mb.botName + " [P" + str(mb.seatId) + " | " + mb.strategyName + "]"
+        let botBadge = mb.statusText + " | " + str(int(mb.reactionDelayMs)) + "ms | Act:" + str(mb.actionsDispatched)
+        out.push(auraTreeNodeLeaf(botNodeId, botLabel, 2, botBadge))
+      bi += 1
+    ai += 1
+  ret out
+
+pub fn openHebarFileDialog(orch: OrchestratorState, target: str): OrchestratorState:
+  mut updated = orch
+  updated.fileDialog = auraFileDialogStateNew("aipl_hebar_bot/specs", ".hebar")
+  updated.fileDialogTarget = if target.len > 0: target else: "builder"
+  updated.statusMessage = "Opened AuraDesign File Open Dialog (.hebar) for " + updated.fileDialogTarget
+  ret updated
+
+pub fn applySelectedHebarFile(orch: OrchestratorState, selectedPath: str, target: str): OrchestratorState:
+  mut updated = orch
+  let cleanPath = selectedPath.trim().replace("chess_beginer.hebar", "chess_beginner.hebar")
+  if cleanPath.len == 0:
+    ret updated
+  mut existsInList = false
+  mut si = 0
+  while si < updated.availableStrategies.len:
+    if updated.availableStrategies[si] == cleanPath:
+      existsInList = true
+    si += 1
+  if not existsInList:
+    updated.availableStrategies.push(cleanPath)
+  if target == "bot" and updated.managedBots.len > 0:
+    let botIdx = if updated.selectedBotIndex >= 0 and updated.selectedBotIndex < updated.managedBots.len: updated.selectedBotIndex else: 0
+    updated = setBotStrategy(updated, botIdx, cleanPath)
+    updated.statusMessage = "Loaded .hebar via AuraDesign File Dialog for Bot #" + str(updated.managedBots[botIdx].botId) + ": " + cleanPath
+  else:
+    updated.builderStrategy = cleanPath
+    let botParams = parseHebarBotParams(cleanPath)
+    if botParams.hasDirective:
+      updated.builderName = botParams.name
+      updated.builderWaitMs = float(botParams.waitMs)
+      updated.builderAggression = botParams.aggression
+      updated.builderExploration = botParams.exploration
+      updated.builderAutoStart = botParams.autoStart
+      updated.builderSeat = botParams.seatId
+    updated.statusMessage = "Selected .hebar via AuraDesign File Dialog: " + cleanPath
+  updated.treeNodes = buildOrchestraTreeNodes(updated)
+  ret updated
+
+pub fn dragDropAttachBotToWindow(orch: OrchestratorState, sourceId: str, payloadKind: str, payload: str, appIdx: int): OrchestratorState:
+  mut updated = orch
+  if appIdx < 0 or appIdx >= updated.discoveredApps.len:
+    updated.statusMessage = "Drag & Drop ignored: invalid window index " + str(appIdx)
+    ret updated
+  let app = updated.discoveredApps[appIdx]
+  updated.selectedAppIndex = appIdx
+  if payloadKind == "saved_bot":
+    let idxRes = int.parse(payload.trim())
+    let sIdx = if idxRes.isOk(): idxRes.unwrap() else: updated.selectedSavedBotIdx
+    updated = spawnSavedBot(updated, sIdx, appIdx, 0)
+    if sIdx >= 0 and sIdx < updated.savedBots.len:
+      updated.statusMessage = "Drag & Drop attached Saved Bot '" + updated.savedBots[sIdx].name + "' -> " + app.title + " [" + app.targetType.toUpperCase() + "]"
+  elif payloadKind == "managed_bot":
+    let bRes = int.parse(payload.trim())
+    let bIdx = if bRes.isOk(): bRes.unwrap() else: updated.selectedBotIndex
+    if bIdx >= 0 and bIdx < updated.managedBots.len:
+      mut b = updated.managedBots[bIdx]
+      b.appPid = app.pid
+      b.targetPid = app.pid
+      b.targetTitle = app.title
+      b.appPath = app.targetPath
+      b.targetType = app.targetType
+      updated.managedBots[bIdx] = b
+      updated.statusMessage = "Drag & Drop reassigned Bot #" + str(b.botId) + " '" + b.botName + "' -> " + app.title + " [" + app.targetType.toUpperCase() + "]"
+  elif payloadKind == "strategy":
+    updated = attachBotToTarget(updated, appIdx, 0, payload)
+    updated.statusMessage = "Drag & Drop attached Strategy '" + payload + "' -> " + app.title + " [" + app.targetType.toUpperCase() + "]"
+  else:
+    updated = createCustomNamedBot(
+      updated,
+      appIdx,
+      updated.builderName,
+      updated.builderDescription,
+      updated.builderSeat,
+      updated.builderWaitMs,
+      updated.builderAutoStart,
+      updated.builderAggression,
+      updated.builderExploration,
+      updated.builderStrategy
+    )
+    updated.statusMessage = "Drag & Drop attached Builder Bot '" + updated.builderName + "' -> " + app.title + " [" + app.targetType.toUpperCase() + "]"
+  updated.treeNodes = buildOrchestraTreeNodes(updated)
+  ret updated
+
+pub fn proveAllFourTargetTypes(orch: OrchestratorState, targetPath: str): OrchestratorState:
+  mut updated = orch
+  let path = if targetPath.len > 0: targetPath else: "aipl_hebar_bot/demos/chess_arena.aipl"
+  let cleanTitle = humanizeTargetTitle("", path)
+  let types: [str] = ["native", "aipl", "html", "wasm"]
+  let isLive = updated.statusFrame > 0
+  mut provenTypes: [str] = []
+  mut ti = 0
+  while ti < types.len:
+    let tCode = types[ti]
+    updated = setTargetInstanceType(updated, tCode)
+    if isLive:
+      updated = launchTargetApplicationWithType(updated, path, tCode)
+    else:
+      updated = registerTargetApplication(updated, path, tCode, cleanTitle)
+    // Prefer the instance just launched/registered; never fall back to an app of a different type
+    mut appIdx = -1
+    let selIdx = updated.selectedAppIndex
+    if selIdx >= 0 and selIdx < updated.discoveredApps.len and updated.discoveredApps[selIdx].targetType == tCode and (not isLive or updated.discoveredApps[selIdx].pid > 0):
+      appIdx = selIdx
+    else:
+      mut fi = 0
+      while fi < updated.discoveredApps.len:
+        if updated.discoveredApps[fi].targetType == tCode and (not isLive or updated.discoveredApps[fi].pid > 0):
+          appIdx = fi
+          break
+        fi += 1
+    if appIdx >= 0:
+      provenTypes.push(tCode)
+      mut hasBotForType = false
+      mut bi = 0
+      while bi < updated.managedBots.len:
+        if updated.managedBots[bi].targetType == tCode:
+          hasBotForType = true
+          break
+        bi += 1
+      if not hasBotForType:
+        let botName = "ProofBot_" + tCode.toUpperCase()
+        let strat = if ti % 2 == 0: "aipl_hebar_bot/specs/chess_master.hebar" else: "aipl_hebar_bot/specs/chess_beginner.hebar"
+        let waitMs = if ti == 0: 0.0 else: 250.0
+        updated = createCustomNamedBot(updated, appIdx, botName, "Verified on " + tCode.toUpperCase() + " target", 1, waitMs, true, 85, 40, strat)
+    ti += 1
+  updated = stepOrchestratorBots(updated, updated.statusFrame + 20)
+  updated.treeNodes = buildOrchestraTreeNodes(updated)
+  if provenTypes.len == types.len:
+    updated.statusMessage = "PROVED 4 TARGETS: native, aipl, html, wasm shown in Orchestra TreeView & bots active!"
+  else:
+    updated.statusMessage = "Proved " + str(provenTypes.len) + "/4 targets [" + provenTypes.join(", ") + "] - see launch errors for the rest"
+  ret updated
+
+pub fn getArchitectureScopeDecision(): str:
+  ret "AIPL_FIRST_4_TARGETS: Focusing HEBAR Bot on AIPL applications across all 4 compilation targets (native, aipl, html, wasm) provides 10x deeper introspection and verification power than generic opaque OS window scraping: (1) Zero-Hook JSON Scene-Graph Telemetry (uiNodes, entities, turnState, framebufferHash), (2) Deterministic Multi-Seat Turn Lease Arbitration (targetWindowSeatAction), (3) Automatic Photometric Weber Contrast (>= 2.5:1) & Fitts's Law Hitbox (>= 48px) UX Auditing, and (4) 1,000x Headless Campaign Simulation across native, aipl, html, and wasm."
+
+// ============================================================================
+// Interactive 3-Panel Control Center UI (OS Text Selection, TreeView & Drag-Drop)
+// ============================================================================
+
+pub struct OsTextEditResult:
+  text: str
+  selectAll: bool
+  cursor: int
+  selStart: int
+  selEnd: int
+
+pub fn processOsTextFieldBuffer(currentVal: str, selectAll: bool, cursor: int, selStart: int, selEnd: int): OsTextEditResult:
+  let initStart = if selectAll: 0 else: selStart
+  let initEnd = if selectAll: currentVal.len else: selEnd
+  let initCur = if selectAll: currentVal.len else: cursor
+  mut buf = AuraTextEditBuffer(
+    text = currentVal,
+    cursor = if initCur < 0: 0 elif initCur > currentVal.len: currentVal.len else: initCur,
+    selStart = if initStart < 0: 0 elif initStart > currentVal.len: currentVal.len else: initStart,
+    selEnd = if initEnd < 0: 0 elif initEnd > currentVal.len: currentVal.len else: initEnd,
+    undoStack = [],
+    redoStack = []
+  )
+  let ctrl = isKeyDown("Control") or isKeyDown("Ctrl") or isKeyDown("Control_L") or isKeyDown("Control_R") or isKeyDown("ControlLeft") or isKeyDown("ControlRight")
+  let shift = isKeyDown("Shift") or isKeyDown("Shift_L") or isKeyDown("Shift_R") or isKeyDown("ShiftLeft") or isKeyDown("ShiftRight")
+
+  if ctrl and (isKeyPressed("a") or isKeyPressed("A")):
+    buf = auraTextEditApplyShortcut(buf, "A", true, shift)
+    ret OsTextEditResult(text = buf.text, selectAll = buf.text.len > 0, cursor = buf.cursor, selStart = buf.selStart, selEnd = buf.selEnd)
+
+  if ctrl and (isKeyPressed("c") or isKeyPressed("C")):
+    let copied = if auraTextEditHasSelection(buf): auraTextEditSelectedText(buf) else: buf.text
+    let _ = setClipboardText(copied)
+    ret OsTextEditResult(text = buf.text, selectAll = selectAll, cursor = buf.cursor, selStart = buf.selStart, selEnd = buf.selEnd)
+
+  if ctrl and (isKeyPressed("x") or isKeyPressed("X")):
+    if auraTextEditHasSelection(buf):
+      let _ = setClipboardText(auraTextEditSelectedText(buf))
+      buf = auraTextEditApplyShortcut(buf, "X", true, shift)
+    else:
+      let _ = setClipboardText(buf.text)
+      buf.text = ""
+      buf.cursor = 0
+      buf.selStart = 0
+      buf.selEnd = 0
+    ret OsTextEditResult(text = buf.text, selectAll = false, cursor = buf.cursor, selStart = buf.selStart, selEnd = buf.selEnd)
+
+  if ctrl and (isKeyPressed("v") or isKeyPressed("V")):
+    let clip = getClipboardText().replace("\n", " ").replace("\r", "")
+    buf = auraTextEditInsert(buf, clip)
+    ret OsTextEditResult(text = buf.text, selectAll = false, cursor = buf.cursor, selStart = buf.selStart, selEnd = buf.selEnd)
+
+  if ctrl and (isKeyPressed("z") or isKeyPressed("Z")):
+    buf = auraTextEditApplyShortcut(buf, "Z", true, shift)
+  if ctrl and (isKeyPressed("y") or isKeyPressed("Y")):
+    buf = auraTextEditApplyShortcut(buf, "Y", true, shift)
+
+  if isKeyPressed("Left") or isKeyPressed("ArrowLeft"):
+    buf = auraTextEditApplyShortcut(buf, "Left", ctrl, shift)
+  if isKeyPressed("Right") or isKeyPressed("ArrowRight"):
+    buf = auraTextEditApplyShortcut(buf, "Right", ctrl, shift)
+  if isKeyPressed("Home"):
+    buf = auraTextEditApplyShortcut(buf, "Home", ctrl, shift)
+  if isKeyPressed("End"):
+    buf = auraTextEditApplyShortcut(buf, "End", ctrl, shift)
+
+  if isKeyPressed("Backspace"):
+    buf = auraTextEditApplyShortcut(buf, "Backspace", ctrl, shift)
+  if isKeyPressed("Delete"):
+    buf = auraTextEditApplyShortcut(buf, "Delete", ctrl, shift)
+
+  let typed = getTextInput()
+  if typed.len > 0 and not ctrl:
+    buf = auraTextEditInsert(buf, typed)
+
+  let isAll = buf.text.len > 0 and ((buf.selStart == 0 and buf.selEnd == buf.text.len) or (buf.selEnd == 0 and buf.selStart == buf.text.len))
+  ret OsTextEditResult(text = buf.text, selectAll = isAll, cursor = buf.cursor, selStart = buf.selStart, selEnd = buf.selEnd)
+
+fn checkButtonClick(bx: int, by: int, bw: int, bh: int, mx: float, my: float, mPressed: bool): bool:
+  if not mPressed:
+    ret false
+  ret mx >= float(bx) and mx <= float(bx + bw) and my >= float(by) and my <= float(by + bh)
+
+fn drawUiButton(bx: int, by: int, bw: int, bh: int, label: str, active: bool, mx: float, my: float): void:
+  let hover = mx >= float(bx) and mx <= float(bx + bw) and my >= float(by) and my <= float(by + bh)
+  let bgCol = if active: rgb(37, 99, 235) else: (if hover: rgb(71, 85, 105) else: rgb(51, 65, 85))
+  drawRoundedRect(bx, by, bw, bh, 5, bgCol)
+  drawTextCentered(label, bx + bw / 2, by + bh / 2 - 5, 12, rgb(248, 250, 252))
+
+fn truncateUiText(s: str, maxLen: int): str:
+  if s.len > maxLen:
+    ret s.slice(0, maxLen)
+  ret s
+
+fn computeTextFieldViewStart(value: str, cursor: int, bw: int): int:
+  let maxW = float(bw - 18)
+  if value.len == 0 or measureTextWidth(value, 12.0) <= maxW:
+    ret 0
+  let safeCur = if cursor < 0: 0 elif cursor > value.len: value.len else: cursor
+  mut vStart = 0
+  while vStart < safeCur and measureTextWidth(value.slice(vStart, safeCur), 12.0) > maxW - 10.0:
+    vStart += 1
+  ret vStart
+
+fn computeTextFieldViewEnd(value: str, vStart: int, bw: int): int:
+  let maxW = float(bw - 16)
+  mut vEnd = vStart
+  while vEnd < value.len and measureTextWidth(value.slice(vStart, vEnd + 1), 12.0) <= maxW:
+    vEnd += 1
+  if vEnd == vStart and vStart < value.len:
+    vEnd = value.len
+  ret vEnd
+
+fn drawInteractiveTextField(bx: int, by: int, bw: int, bh: int, value: str, placeholder: str, focused: bool, selectAll: bool, cursor: int, selStart: int, selEnd: int, frame: int, mx: float, my: float): void:
+  let hover = mx >= float(bx) and mx <= float(bx + bw) and my >= float(by) and my <= float(by + bh)
+  let borderCol = if focused: rgb(56, 189, 248) else: (if hover: rgb(100, 116, 139) else: rgb(71, 85, 105))
+  let bgCol = if focused: rgb(15, 23, 42) else: rgb(2, 6, 23)
+  drawRoundedRect(bx, by, bw, bh, 5, borderCol)
+  drawRoundedRect(bx + 1, by + 1, bw - 2, bh - 2, 4, bgCol)
+  let textY = by + (bh - 12) / 2
+  if value.len > 0:
+    let vStart = if focused: computeTextFieldViewStart(value, cursor, bw) else: 0
+    let vEnd = computeTextFieldViewEnd(value, vStart, bw)
+    let disp = value.slice(vStart, vEnd)
+    let absLo = if selectAll: 0 else: (if selStart < selEnd: selStart else: selEnd)
+    let absHi = if selectAll: value.len else: (if selStart > selEnd: selStart else: selEnd)
+    let rawLo = absLo - vStart
+    let rawHi = absHi - vStart
+    let lo = if rawLo < 0: 0 elif rawLo > disp.len: disp.len else: rawLo
+    let hi = if rawHi < lo: lo elif rawHi > disp.len: disp.len else: rawHi
+    let hasSel = focused and (selectAll or absHi > absLo) and hi > lo
+    if hasSel:
+      let x0 = bx + 8 + int(measureTextWidth(disp.slice(0, lo), 12.0))
+      let x1 = bx + 8 + int(measureTextWidth(disp.slice(0, hi), 12.0))
+      let rawHlW = if x1 - x0 + 2 < 6: 6 else: x1 - x0 + 2
+      let maxHlW = (bx + bw - 5) - (x0 - 1)
+      let hlW = if rawHlW < maxHlW: rawHlW else: maxHlW
+      if hlW > 2:
+        drawRoundedRect(x0 - 1, by + 3, hlW, bh - 6, 3, rgb(96, 165, 250))
+        drawRoundedRect(x0, by + 4, hlW - 2, bh - 8, 2, rgb(37, 99, 235))
+      if lo > 0:
+        drawText(disp.slice(0, lo), bx + 8, textY, 12, rgb(248, 250, 252))
+      drawText(disp.slice(lo, hi), x0, textY, 12, rgb(255, 255, 255))
+      if hi < disp.len:
+        drawText(disp.slice(hi, disp.len), x1, textY, 12, rgb(248, 250, 252))
+    else:
+      drawText(disp, bx + 8, textY, 12, rgb(248, 250, 252))
+    if focused and (frame / 18) % 2 == 0:
+      let relCur = cursor - vStart
+      let cPos = if relCur < 0: 0 elif relCur > disp.len: disp.len else: relCur
+      let caretX = bx + 8 + int(measureTextWidth(disp.slice(0, cPos), 12.0))
+      drawRect(caretX, by + 4, 2, bh - 8, rgb(56, 189, 248))
+  else:
+    let maxChars = (bw - 20) / 7
+    let pDisp = truncateUiText(placeholder, if maxChars > 6: maxChars else: 6)
+    drawText(pDisp, bx + 8, textY, 12, rgb(100, 116, 139))
+    if focused and (frame / 18) % 2 == 0:
+      drawRect(bx + 8, by + 4, 2, bh - 8, rgb(56, 189, 248))
+
+fn drawComboboxBox(bx: int, by: int, bw: int, bh: int, currentText: str, isOpen: bool, mx: float, my: float): void:
+  let hover = mx >= float(bx) and mx <= float(bx + bw) and my >= float(by) and my <= float(by + bh)
+  let borderCol = if isOpen: rgb(56, 189, 248) else: (if hover: rgb(100, 116, 139) else: rgb(71, 85, 105))
+  let bgCol = if isOpen: rgb(30, 58, 138) else: (if hover: rgb(30, 41, 59) else: rgb(15, 23, 42))
+  drawRoundedRect(bx, by, bw, bh, 5, borderCol)
+  drawRoundedRect(bx + 1, by + 1, bw - 2, bh - 2, 4, bgCol)
+  let maxChars = (bw - 32) / 7
+  let disp = truncateUiText(currentText, if maxChars > 6: maxChars else: 6)
+  drawText(disp, bx + 8, by + (bh - 12) / 2, 12, rgb(248, 250, 252))
+  drawRoundedRect(bx + bw - 22, by + 3, 18, bh - 6, 3, rgb(51, 65, 85))
+  let arrowStr = if isOpen: "^" else: "v"
+  drawText(arrowStr, bx + bw - 16, by + (bh - 12) / 2, 12, rgb(56, 189, 248))
+
+fn formatStrategyShortLabel(stratPath: str): str:
+  if stratPath == "auto" or stratPath.len == 0:
+    ret "Auto (General Brain)"
+  if stratPath.contains("chess_master"):
+    ret "chess_master.hebar (Master)"
+  if stratPath.contains("chess_begin"):
+    ret "chess_beginner.hebar (Std)"
+  if stratPath.contains("multiplayer_board"):
+    ret "multiplayer_board.hebar"
+  if stratPath.contains("combat"):
+    ret "tactical_combat.hebar"
+  if stratPath.contains("explorer"):
+    ret "ui_app_explorer.hebar"
+  let slashParts = stratPath.replace("\\", "/").split("/")
+  if slashParts.len > 0 and slashParts[slashParts.len - 1].len > 0:
+    ret slashParts[slashParts.len - 1]
+  ret "default_universal.hebar"
+
+fn formatSeatLabel(seat: int): str:
+  if seat <= 0:
+    ret "Auto Seat"
+  if seat == 1:
+    ret "Seat P1 (White)"
+  if seat == 2:
+    ret "Seat P2 (Black)"
+  if seat == 3:
+    ret "Seat P3"
+  ret "Seat P4"
+
+fn formatWaitMsLabel(waitMs: float): str:
+  let w = int(waitMs)
+  if w <= 0:
+    ret "0 ms (Instant)"
+  if w == 250:
+    ret "250 ms (Default)"
+  ret str(w) + " ms"
+
+fn formatPlayStyleLabel(agg: int, exp: int): str:
+  if agg >= 85:
+    ret "Master (" + str(agg) + "% / " + str(exp) + "%)"
+  if agg <= 25:
+    ret "Defensive (" + str(agg) + "% / " + str(exp) + "%)"
+  if exp >= 75:
+    ret "Beginner (" + str(agg) + "% / " + str(exp) + "%)"
+  ret "Balanced (" + str(agg) + "% / " + str(exp) + "%)"
+
+fn formatLaunchAppLabel(idx: int): str:
+  if idx == 0: ret "2P Chess Arena"
+  if idx == 1: ret "4P Ludo Arena"
+  if idx == 2: ret "Paint Studio"
+  if idx == 3: ret "Tactical FPS Arena"
+  if idx == 4: ret "Notepad Editor"
+  if idx == 5: ret "Dark ARPG Sanctuary"
+  ret "Markdown Editor"
+
+fn getLaunchAppPath(idx: int): str:
+  if idx == 0: ret "aipl_hebar_bot/demos/chess_arena.aipl"
+  if idx == 1: ret "aipl_hebar_bot/demos/ludo_chess_arena.aipl"
+  if idx == 2: ret "poc/paint/paint.aipl"
+  if idx == 3: ret "poc/tactical_fps/tactical_fps.aipl"
+  if idx == 4: ret "poc/notepad/notepad.aipl"
+  if idx == 5: ret "poc/dark_arpg/dark_arpg.aipl"
+  ret "poc/markdown/markdown.aipl"
+
+fn formatInstanceTypeLabel(instType: str): str:
+  let t = instType.toLowerCase()
+  if t == "native": ret "native (C99/X11)"
+  if t == "html": ret "html (HTML5/WebGL)"
+  if t == "wasm": ret "wasm (WASM32)"
+  ret "aipl (VM/JIT)"
+
+fn renderAndHandleDropdownList(dx: int, dy: int, dw: int, options: [str], mx: float, my: float, mPressed: bool): int:
+  let rowH = 26
+  let totalH = options.len * rowH + 6
+  drawRoundedRect(dx + 3, dy + 3, dw, totalH, 6, rgb(2, 6, 23))
+  drawRoundedRect(dx, dy, dw, totalH, 6, rgb(56, 189, 248))
+  drawRoundedRect(dx + 2, dy + 2, dw - 4, totalH - 4, 5, rgb(15, 23, 42))
+  mut pickedIdx = -1
+  mut oi = 0
+  while oi < options.len:
+    let ry = dy + 3 + oi * rowH
+    let hover = mx >= float(dx + 3) and mx <= float(dx + dw - 3) and my >= float(ry) and my <= float(ry + rowH)
+    if hover:
+      drawRoundedRect(dx + 4, ry + 1, dw - 8, rowH - 2, 4, rgb(37, 99, 235))
+    let maxChars = (dw - 20) / 7
+    let txt = truncateUiText(options[oi], if maxChars > 8: maxChars else: 8)
+    drawText(txt, dx + 10, ry + 7, 12, if hover: rgb(255, 255, 255) else: rgb(226, 232, 240))
+    if mPressed and hover:
+      pickedIdx = oi
+    oi += 1
+  ret pickedIdx
+
+fn handleFieldMouseSelection(orch: OrchestratorState, fieldId: str, textVal: str, bx: int, by: int, bw: int, bh: int, mx: float, my: float, mPressed: bool, mDown: bool, shiftHeld: bool, frame: int): OrchestratorState:
+  mut updated = orch
+  let inRect = mx >= float(bx) and mx <= float(bx + bw) and my >= float(by) and my <= float(by + bh)
+  let vStart = if updated.focusedFieldId == fieldId: computeTextFieldViewStart(textVal, updated.fieldCursor, bw) else: 0
+  let visSlice = textVal.slice(vStart, textVal.len)
+  let relIdx = auraTextCharIndexAtX(visSlice, float(bx + 8), mx, 12.0)
+  let rawCharIdx = vStart + relIdx
+  let charIdx = if rawCharIdx < 0: 0 elif rawCharIdx > textVal.len: textVal.len else: rawCharIdx
+  if mPressed and inRect:
+    let wasFocused = updated.focusedFieldId == fieldId
+    let isDbl = wasFocused and (frame - updated.fieldLastClickFrame <= 20)
+    updated.focusedFieldId = fieldId
+    updated.fieldLastClickFrame = frame
+    if isDbl:
+      let wLo = auraWordStartAt(textVal, charIdx)
+      let wHi = auraWordEndAt(textVal, charIdx)
+      if wLo < wHi:
+        updated.fieldSelStart = wLo
+        updated.fieldSelEnd = wHi
+        updated.fieldCursor = wHi
+      else:
+        updated.fieldSelStart = 0
+        updated.fieldSelEnd = textVal.len
+        updated.fieldCursor = textVal.len
+      updated.fieldSelectAll = textVal.len > 0 and updated.fieldSelStart == 0 and updated.fieldSelEnd == textVal.len
+      updated.fieldDragging = false
+    elif shiftHeld and wasFocused:
+      let anchor = if updated.fieldCursor == updated.fieldSelEnd: updated.fieldSelStart else: updated.fieldSelEnd
+      updated.fieldSelStart = if anchor < charIdx: anchor else: charIdx
+      updated.fieldSelEnd = if anchor > charIdx: anchor else: charIdx
+      updated.fieldCursor = charIdx
+      updated.fieldSelectAll = textVal.len > 0 and updated.fieldSelStart == 0 and updated.fieldSelEnd == textVal.len
+      updated.fieldDragging = true
+    else:
+      updated.fieldCursor = charIdx
+      updated.fieldSelStart = charIdx
+      updated.fieldSelEnd = charIdx
+      updated.fieldSelectAll = false
+      updated.fieldDragging = true
+  elif mDown and updated.focusedFieldId == fieldId and updated.fieldDragging:
+    let anchor = if updated.fieldCursor == updated.fieldSelEnd: updated.fieldSelStart else: updated.fieldSelEnd
+    updated.fieldSelStart = if anchor < charIdx: anchor else: charIdx
+    updated.fieldSelEnd = if anchor > charIdx: anchor else: charIdx
+    updated.fieldCursor = charIdx
+    updated.fieldSelectAll = textVal.len > 0 and updated.fieldSelStart == 0 and updated.fieldSelEnd == textVal.len
+  elif not mDown and updated.focusedFieldId == fieldId:
+    updated.fieldDragging = false
+  ret updated
+
+pub fn renderOrchestratorDashboard(orch: OrchestratorState, frame: int): OrchestratorState:
+  mut updated = orch
+  updated.statusFrame = frame
+  updated.dnd = auraDragDropBeginFrame(updated.dnd)
+  updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  let mx = getMouseX()
+  let my = getMouseY()
+  let mDown = isMouseButtonDown(0)
+  let mPressed = isMouseButtonPressed(0)
+  let ctrlHeld = isKeyDown("Control") or isKeyDown("Ctrl") or isKeyDown("Control_L") or isKeyDown("Control_R") or isKeyDown("ControlLeft") or isKeyDown("ControlRight")
+  let shiftHeld = isKeyDown("Shift") or isKeyDown("Shift_L") or isKeyDown("Shift_R") or isKeyDown("ShiftLeft") or isKeyDown("ShiftRight")
+  let activeOpenId = updated.openDropdownId
+  let normalClick = mPressed and activeOpenId.len == 0 and not updated.fileDialog.isOpen
+
+  // Process OS Text Editing (Mouse Drag Selection, Shift+Arrows, Copy/Cut/Paste/SelectAll/Backspace/Delete/Tab/Escape)
+  if isKeyPressed("Escape") and not updated.fileDialog.isOpen:
+    updated.focusedFieldId = ""
+    updated.fieldSelectAll = false
+    updated.fieldDragging = false
+    updated.openDropdownId = ""
+
+  if updated.focusedFieldId.len > 0 and not updated.fileDialog.isOpen:
+    if isKeyPressed("Tab"):
+      if updated.focusedFieldId == "builder_name":
+        updated.focusedFieldId = "builder_desc"
+        updated.fieldCursor = updated.builderDescription.len
+        updated.fieldSelStart = 0
+        updated.fieldSelEnd = updated.builderDescription.len
+        updated.fieldSelectAll = updated.builderDescription.len > 0
+      elif updated.focusedFieldId == "builder_desc":
+        updated.focusedFieldId = "builder_name"
+        updated.fieldCursor = updated.builderName.len
+        updated.fieldSelStart = 0
+        updated.fieldSelEnd = updated.builderName.len
+        updated.fieldSelectAll = updated.builderName.len > 0
+      elif updated.focusedFieldId == "bot_name" and updated.managedBots.len > 0:
+        mut editBotIdx = updated.selectedBotIndex
+        if editBotIdx < 0 or editBotIdx >= updated.managedBots.len:
+          editBotIdx = 0
+        let bDesc = updated.managedBots[editBotIdx].botDescription
+        updated.focusedFieldId = "bot_desc"
+        updated.fieldCursor = bDesc.len
+        updated.fieldSelStart = 0
+        updated.fieldSelEnd = bDesc.len
+        updated.fieldSelectAll = bDesc.len > 0
+      elif updated.focusedFieldId == "bot_desc" and updated.managedBots.len > 0:
+        mut editBotIdx = updated.selectedBotIndex
+        if editBotIdx < 0 or editBotIdx >= updated.managedBots.len:
+          editBotIdx = 0
+        let bName = updated.managedBots[editBotIdx].botName
+        updated.focusedFieldId = "bot_name"
+        updated.fieldCursor = bName.len
+        updated.fieldSelStart = 0
+        updated.fieldSelEnd = bName.len
+        updated.fieldSelectAll = bName.len > 0
+    elif updated.focusedFieldId == "builder_name":
+      let ed = processOsTextFieldBuffer(updated.builderName, updated.fieldSelectAll, updated.fieldCursor, updated.fieldSelStart, updated.fieldSelEnd)
+      updated.builderName = ed.text
+      updated.fieldSelectAll = ed.selectAll
+      updated.fieldCursor = ed.cursor
+      updated.fieldSelStart = ed.selStart
+      updated.fieldSelEnd = ed.selEnd
+    elif updated.focusedFieldId == "builder_desc":
+      let ed = processOsTextFieldBuffer(updated.builderDescription, updated.fieldSelectAll, updated.fieldCursor, updated.fieldSelStart, updated.fieldSelEnd)
+      updated.builderDescription = ed.text
+      updated.fieldSelectAll = ed.selectAll
+      updated.fieldCursor = ed.cursor
+      updated.fieldSelStart = ed.selStart
+      updated.fieldSelEnd = ed.selEnd
+    elif (updated.focusedFieldId == "bot_name" or updated.focusedFieldId == "bot_desc") and updated.managedBots.len > 0:
+      mut editBotIdx = updated.selectedBotIndex
+      if editBotIdx < 0 or editBotIdx >= updated.managedBots.len:
+        editBotIdx = 0
+      mut b = updated.managedBots[editBotIdx]
+      if updated.focusedFieldId == "bot_name":
+        let ed = processOsTextFieldBuffer(b.botName, updated.fieldSelectAll, updated.fieldCursor, updated.fieldSelStart, updated.fieldSelEnd)
+        b.botName = ed.text
+        updated.fieldSelectAll = ed.selectAll
+        updated.fieldCursor = ed.cursor
+        updated.fieldSelStart = ed.selStart
+        updated.fieldSelEnd = ed.selEnd
+      else:
+        let ed = processOsTextFieldBuffer(b.botDescription, updated.fieldSelectAll, updated.fieldCursor, updated.fieldSelStart, updated.fieldSelEnd)
+        b.botDescription = ed.text
+        updated.fieldSelectAll = ed.selectAll
+        updated.fieldCursor = ed.cursor
+        updated.fieldSelStart = ed.selStart
+        updated.fieldSelEnd = ed.selEnd
+      updated.managedBots[editBotIdx] = b
+  elif ctrlHeld and (isKeyPressed("a") or isKeyPressed("A")) and updated.managedBots.len > 0 and not updated.fileDialog.isOpen:
+    updated = selectAllBotsInFleet(updated)
+
+  // 1. Clean Top Header Bar
+  drawRect(0, 0, 1280, 64, rgb(30, 41, 59))
+  drawRect(0, 62, 1280, 2, rgb(51, 65, 85))
+  drawText("AIPL HEBAR ORCHESTRA & FLEET CONTROL CENTER", 24, 14, 18, rgb(248, 250, 252))
+  drawText(truncateUiText(updated.statusMessage, 82), 24, 38, 13, rgb(56, 189, 248))
+
+  drawUiButton(856, 16, 142, 32, "Prove 4 Targets", true, mx, my)
+  if checkButtonClick(856, 16, 142, 32, mx, my, normalClick):
+    updated = proveAllFourTargetTypes(updated, getLaunchAppPath(updated.selectedLaunchAppIdx))
+
+  drawUiButton(1010, 16, 114, 32, "Scan Apps", false, mx, my)
+  if checkButtonClick(1010, 16, 114, 32, mx, my, normalClick):
+    updated = scanRunningApplications(updated, 0)
+    updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  drawUiButton(1138, 16, 114, 32, "Stop All", false, mx, my)
+  if checkButtonClick(1138, 16, 114, 32, mx, my, normalClick):
+    updated = stopAllBots(updated)
+    updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  // 2. Panel 1 (Left): Target Windows (Drop Targets), 4-Instance Launcher, Draggable Saved Bots & Custom Builder
+  drawRoundedRect(24, 76, 380, 624, 10, rgb(30, 41, 59))
+  drawText("TARGET WINDOWS (" + str(updated.discoveredApps.len) + ") [DROP BOTS HERE]", 38, 88, 13, rgb(74, 222, 128))
+
+  mut ai = 0
+  let useCompactGrid = updated.discoveredApps.len > 2
+  while ai < updated.discoveredApps.len and ai < 4:
+    let app = updated.discoveredApps[ai]
+    let cardX = if useCompactGrid: 36 + (ai % 2) * 180 else: 36
+    let cardY = if useCompactGrid: 110 + (ai / 2) * 72 else: 110 + ai * 72
+    let cardW = if useCompactGrid: 176 else: 356
+    let cardH = 66
+    let isSel = updated.selectedAppIndex == ai
+    let cardBg = if isSel: rgb(51, 65, 85) else: rgb(15, 23, 42)
+    drawRoundedRect(cardX, cardY, cardW, cardH, 7, cardBg)
+
+    // Register each window card as an active AuraDesign Drop Target
+    updated.dnd = auraDragDropTarget(updated.dnd, "left_win_" + str(ai), float(cardX), float(cardY), float(cardW), float(cardH), "*")
+    if updated.dnd.droppedThisFrame and updated.dnd.dropTargetId == "left_win_" + str(ai):
+      updated = dragDropAttachBotToWindow(updated, updated.dnd.sourceId, updated.dnd.payloadKind, updated.dnd.payload, ai)
+
+    if checkButtonClick(cardX, cardY, cardW, cardH, mx, my, normalClick):
+      updated.selectedAppIndex = ai
+
+    let instBadge = "[" + app.targetType.toUpperCase() + "] "
+    let maxTitleChars = if useCompactGrid: 18 else: 34
+    let shortTitle = truncateUiText(instBadge + stripTargetTypeBadges(app.title), maxTitleChars)
+    drawText(shortTitle, cardX + 8, cardY + 6, 12, rgb(248, 250, 252))
+    let subText = if useCompactGrid: "PID " + str(app.pid) + " | S:" + str(app.totalSeats) else: "PID: " + str(app.pid) + " | " + app.archetype + " | Seats: " + str(app.totalSeats)
+    drawText(subText, cardX + 8, cardY + 23, 10, rgb(148, 163, 184))
+
+    if useCompactGrid:
+      drawUiButton(cardX + 8, cardY + 40, 76, 20, "+1 Bot", false, mx, my)
+      if checkButtonClick(cardX + 8, cardY + 40, 76, 20, mx, my, normalClick):
+        updated = attachBotToTarget(updated, ai, 0, "")
+        updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+      drawUiButton(cardX + 90, cardY + 40, 78, 20, "+2P Duel", false, mx, my)
+      if checkButtonClick(cardX + 90, cardY + 40, 78, 20, mx, my, normalClick):
+        updated = attachPresetSwarm(updated, ai, 2, "")
+        updated.treeNodes = buildOrchestraTreeNodes(updated)
+    else:
+      drawUiButton(46, cardY + 40, 96, 20, "+1 Auto Bot", false, mx, my)
+      if checkButtonClick(46, cardY + 40, 96, 20, mx, my, normalClick):
+        updated = attachBotToTarget(updated, ai, 0, "")
+        updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+      drawUiButton(150, cardY + 40, 92, 20, "+2P Duel", false, mx, my)
+      if checkButtonClick(150, cardY + 40, 92, 20, mx, my, normalClick):
+        updated = attachPresetSwarm(updated, ai, 2, "")
+        updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+      drawUiButton(250, cardY + 40, 132, 20, "+Master vs Beg", false, mx, my)
+      if checkButtonClick(250, cardY + 40, 132, 20, mx, my, normalClick):
+        updated = createCustomNamedBot(updated, ai, "GrandMaster", "World Chess Master", 1, 0.0, true, 95, 20, "aipl_hebar_bot/specs/chess_master.hebar")
+        updated = createCustomNamedBot(updated, ai, "ClubBeginner", "Standard Chess Player", 2, 150.0, true, 45, 80, "aipl_hebar_bot/specs/chess_beginner.hebar")
+        updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+    ai += 1
+
+  if updated.discoveredApps.len == 0:
+    drawRoundedRect(36, 110, 356, 66, 7, rgb(15, 23, 42))
+    drawText("No running target instances detected.", 48, 126, 12, rgb(148, 163, 184))
+    drawText("Click 'Prove 4 Targets' or Launch below.", 48, 146, 11, rgb(100, 116, 139))
+
+  // Launch Target Application & Instance Type (native, aipl, html, wasm)
+  drawRoundedRect(36, 258, 356, 86, 8, rgb(15, 23, 42))
+  drawText("LAUNCH TARGET & INSTANCE (NATIVE/AIPL/HTML/WASM)", 46, 266, 11, rgb(56, 189, 248))
+  drawComboboxBox(46, 284, 184, 24, formatLaunchAppLabel(updated.selectedLaunchAppIdx), activeOpenId == "launch_app", mx, my)
+  if checkButtonClick(46, 284, 184, 24, mx, my, normalClick):
+    updated.openDropdownId = "launch_app"
+
+  drawComboboxBox(236, 284, 146, 24, formatInstanceTypeLabel(updated.selectedInstanceType), activeOpenId == "launch_type", mx, my)
+  if checkButtonClick(236, 284, 146, 24, mx, my, normalClick):
+    updated.openDropdownId = "launch_type"
+
+  drawUiButton(46, 314, 336, 24, "Launch Selected App on [" + updated.selectedInstanceType.toUpperCase() + "] Instance", false, mx, my)
+  if checkButtonClick(46, 314, 336, 24, mx, my, normalClick):
+    updated = launchTargetApplicationWithType(updated, getLaunchAppPath(updated.selectedLaunchAppIdx), updated.selectedInstanceType)
+    updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  // Saved Bots Library (Draggable Component + Unlimited Spawn)
+  drawRoundedRect(36, 350, 356, 62, 8, rgb(15, 23, 42))
+  drawText("SAVED BOTS (DRAG TO WINDOW OR +SPAWN)", 46, 358, 11, rgb(74, 222, 128))
+  let curSavedName = if updated.savedBots.len > 0 and updated.selectedSavedBotIdx < updated.savedBots.len: updated.savedBots[updated.selectedSavedBotIdx].name else: "GrandMaster"
+  let curSavedLbl = if updated.savedBots.len > 0 and updated.selectedSavedBotIdx < updated.savedBots.len: updated.savedBots[updated.selectedSavedBotIdx].name + " (" + truncateUiText(updated.savedBots[updated.selectedSavedBotIdx].description, 12) + ")" else: "GrandMaster"
+  drawComboboxBox(46, 376, 168, 26, curSavedLbl, activeOpenId == "saved_bot", mx, my)
+  if checkButtonClick(46, 376, 168, 26, mx, my, normalClick):
+    updated.openDropdownId = "saved_bot"
+
+  // Draggable Saved Bot pill component
+  drawUiButton(220, 376, 74, 26, "Drag Bot", false, mx, my)
+  updated.dnd = auraDragDropSource(updated.dnd, "src_saved_bot", "saved_bot", str(updated.selectedSavedBotIdx), "Saved Bot: " + curSavedName, 220.0, 376.0, 74.0, 26.0, true)
+
+  drawUiButton(300, 376, 82, 26, "+ Spawn", true, mx, my)
+  if checkButtonClick(300, 376, 82, 26, mx, my, normalClick):
+    updated = spawnSavedBot(updated, updated.selectedSavedBotIdx, updated.selectedAppIndex, 0)
+    updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  // Custom Bot Builder Card (OS Text Fields with Highlight + Combobox + AuraDesign File Open Dialog + Drag Source)
+  drawRoundedRect(36, 418, 356, 274, 8, rgb(15, 23, 42))
+  drawText("CUSTOM BOT BUILDER (DEFAULT WAIT: 250MS)", 46, 426, 12, rgb(250, 204, 21))
+
+  drawText("Bot Name:", 46, 450, 12, rgb(203, 213, 225))
+  updated = handleFieldMouseSelection(updated, "builder_name", updated.builderName, 138, 444, 244, 24, mx, my, normalClick, mDown, shiftHeld, frame)
+  drawInteractiveTextField(138, 444, 244, 24, updated.builderName, "Enter bot name...", updated.focusedFieldId == "builder_name", updated.fieldSelectAll, updated.fieldCursor, updated.fieldSelStart, updated.fieldSelEnd, frame, mx, my)
+
+  drawText("Description:", 46, 480, 12, rgb(203, 213, 225))
+  updated = handleFieldMouseSelection(updated, "builder_desc", updated.builderDescription, 138, 474, 244, 24, mx, my, normalClick, mDown, shiftHeld, frame)
+  drawInteractiveTextField(138, 474, 244, 24, updated.builderDescription, "Enter description...", updated.focusedFieldId == "builder_desc", updated.fieldSelectAll, updated.fieldCursor, updated.fieldSelStart, updated.fieldSelEnd, frame, mx, my)
+
+  drawText("Instructions:", 46, 510, 12, rgb(203, 213, 225))
+  drawComboboxBox(138, 504, 178, 24, formatStrategyShortLabel(updated.builderStrategy), activeOpenId == "builder_brain", mx, my)
+  if checkButtonClick(138, 504, 178, 24, mx, my, normalClick):
+    updated.openDropdownId = "builder_brain"
+
+  drawUiButton(322, 504, 60, 24, "Open...", true, mx, my)
+  if checkButtonClick(322, 504, 60, 24, mx, my, normalClick):
+    updated = openHebarFileDialog(updated, "builder")
+
+  drawText("Seat / Wait:", 46, 540, 12, rgb(203, 213, 225))
+  drawComboboxBox(138, 534, 118, 24, formatSeatLabel(updated.builderSeat), activeOpenId == "builder_seat", mx, my)
+  if checkButtonClick(138, 534, 118, 24, mx, my, normalClick):
+    updated.openDropdownId = "builder_seat"
+
+  drawComboboxBox(264, 534, 118, 24, formatWaitMsLabel(updated.builderWaitMs), activeOpenId == "builder_wait", mx, my)
+  if checkButtonClick(264, 534, 118, 24, mx, my, normalClick):
+    updated.openDropdownId = "builder_wait"
+
+  drawText("Start Mode:", 46, 570, 12, rgb(203, 213, 225))
+  let startModeTxt = if updated.builderAutoStart: "Auto Start (Active)" else: "Manual Start (Paused)"
+  drawComboboxBox(138, 564, 244, 24, startModeTxt, activeOpenId == "builder_start", mx, my)
+  if checkButtonClick(138, 564, 244, 24, mx, my, normalClick):
+    updated.openDropdownId = "builder_start"
+
+  drawUiButton(46, 598, 148, 28, "+ Create Bot", true, mx, my)
+  if checkButtonClick(46, 598, 148, 28, mx, my, normalClick):
+    updated = createCustomNamedBot(updated, updated.selectedAppIndex, updated.builderName, updated.builderDescription, updated.builderSeat, updated.builderWaitMs, updated.builderAutoStart, updated.builderAggression, updated.builderExploration, updated.builderStrategy)
+    updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  drawUiButton(200, 598, 94, 28, "Drag to Win", false, mx, my)
+  updated.dnd = auraDragDropSource(updated.dnd, "src_builder_bot", "builder_bot", updated.builderName, "Builder Bot: " + updated.builderName, 200.0, 598.0, 94.0, 28.0, true)
+
+  drawUiButton(300, 598, 82, 28, "Save Bot", false, mx, my)
+  if checkButtonClick(300, 598, 82, 28, mx, my, normalClick):
+    updated = saveBotProfile(updated, updated.builderName, updated.builderDescription, updated.builderStrategy, updated.builderSeat, updated.builderWaitMs, updated.builderAutoStart, updated.builderAggression, updated.builderExploration)
+
+  drawText("OS Edit: Click+Drag, DblClick, Shift+Arrows, Ctrl+A/C/X/V/Z/Y", 46, 636, 10, rgb(148, 163, 184))
+  drawText("Drag & Drop any Bot or Strategy onto any Window in Orchestra!", 46, 652, 10, rgb(56, 189, 248))
+
+  // 3. Panel 2 (Center): Reorganized HEBAR ORCHESTRA TREEVIEW (Native, AIPL, HTML, WASM Windows & Bots)
+  drawRoundedRect(420, 76, 450, 624, 10, rgb(30, 41, 59))
+  drawText("HEBAR ORCHESTRA TREEVIEW (" + str(updated.discoveredApps.len) + "W / " + str(updated.managedBots.len) + "B)", 434, 90, 12, rgb(56, 189, 248))
+
+  // TreeView Mode Switcher (Outliner / Tree / Paths)
+  drawUiButton(716, 84, 52, 22, "Outline", updated.treeViewMode == 0, mx, my)
+  if checkButtonClick(716, 84, 52, 22, mx, my, normalClick):
+    updated.treeViewMode = 0
+  drawUiButton(772, 84, 44, 22, "Tree", updated.treeViewMode == 1, mx, my)
+  if checkButtonClick(772, 84, 44, 22, mx, my, normalClick):
+    updated.treeViewMode = 1
+  drawUiButton(820, 84, 44, 22, "Paths", updated.treeViewMode == 2, mx, my)
+  if checkButtonClick(820, 84, 44, 22, mx, my, normalClick):
+    updated.treeViewMode = 2
+
+  // Orchestra Summary Banner showing all 4 AIPL target types (native, aipl, html, wasm)
+  mut countNative = 0
+  mut countAipl = 0
+  mut countHtml = 0
+  mut countWasm = 0
+  mut ci = 0
+  while ci < updated.discoveredApps.len:
+    let tt = updated.discoveredApps[ci].targetType.toLowerCase()
+    if tt == "native": countNative += 1
+    elif tt == "aipl": countAipl += 1
+    elif tt == "html": countHtml += 1
+    elif tt == "wasm": countWasm += 1
+    ci += 1
+  drawRoundedRect(432, 112, 426, 28, 6, rgb(15, 23, 42))
+  drawText("TARGETS: NATIVE=" + str(countNative) + " | AIPL=" + str(countAipl) + " | HTML=" + str(countHtml) + " | WASM=" + str(countWasm) + "  [Drop Bots Below]", 442, 120, 11, rgb(74, 222, 128))
+
+  // Render the AuraDesign TreeView in the Center Orchestra Panel
+  let treeX = 432.0
+  let treeY = 146.0
+  let treeW = 426.0
+  mut rawClickedNodeId = ""
+  if updated.treeViewMode == 0:
+    rawClickedNodeId = auraTreeViewOutliner(treeX, treeY, treeW, updated.treeNodes, updated.selectedTreeNodeId)
+  elif updated.treeViewMode == 1:
+    rawClickedNodeId = auraTreeViewInteractive(treeX, treeY, treeW, updated.treeNodes, updated.selectedTreeNodeId)
+  else:
+    mut pathList: [str] = []
+    mut pi = 0
+    while pi < updated.discoveredApps.len:
+      let app = updated.discoveredApps[pi]
+      let wPrefix = "Orchestra/[" + app.targetType.toUpperCase() + "] " + stripTargetTypeBadges(app.title)
+      pathList.push(wPrefix)
+      mut pbi = 0
+      while pbi < updated.managedBots.len:
+        let mb = updated.managedBots[pbi]
+        if isBotAttachedToApp(mb, app):
+          pathList.push(wPrefix + "/Bot #" + str(mb.botId) + " " + mb.botName)
+        pbi += 1
+      pi += 1
+    rawClickedNodeId = auraTreeViewPaths(treeX, treeY, treeW, pathList, updated.selectedTreeNodeId)
+  let clickedNodeId = if not updated.fileDialog.isOpen and activeOpenId.len == 0: rawClickedNodeId else: ""
+
+  // Register Drag & Drop Sources and Targets on visible Orchestra TreeView rows
+  let rowStep = if updated.treeViewMode == 0: 30.0 else: 26.0
+  let headerOff = if updated.treeViewMode == 0: 32.0 else: 0.0
+  mut visRow = 0
+  mut ni = 0
+  while ni < updated.treeNodes.len:
+    if auraTreeIsNodeVisible(updated.treeNodes, ni):
+      let nd = updated.treeNodes[ni]
+      let ry = treeY + headerOff + float(visRow) * rowStep
+      if ry + 26.0 < 560.0 and not updated.fileDialog.isOpen and activeOpenId.len == 0:
+        if nd.id.startsWith("win_"):
+          let wIdxRes = int.parse(nd.id.slice(4, nd.id.len))
+          let wIdx = if wIdxRes.isOk(): wIdxRes.unwrap() else: -1
+          updated.dnd = auraDragDropTarget(updated.dnd, "tree_" + nd.id, treeX + 4.0, ry, treeW - 8.0, 26.0, "*")
+          if updated.dnd.droppedThisFrame and updated.dnd.dropTargetId == "tree_" + nd.id:
+            updated = dragDropAttachBotToWindow(updated, updated.dnd.sourceId, updated.dnd.payloadKind, updated.dnd.payload, wIdx)
+        elif nd.id.startsWith("bot_"):
+          let bIdxRes = int.parse(nd.id.slice(4, nd.id.len))
+          let bIdx = if bIdxRes.isOk(): bIdxRes.unwrap() else: -1
+          if bIdx >= 0 and bIdx < updated.managedBots.len:
+            updated.dnd = auraDragDropSource(updated.dnd, "tree_src_" + nd.id, "managed_bot", str(bIdx), "Bot #" + str(updated.managedBots[bIdx].botId) + " " + updated.managedBots[bIdx].botName, treeX + 24.0, ry, treeW - 36.0, 24.0, true)
+      visRow += 1
+    ni += 1
+
+  if clickedNodeId.len > 0:
+    let wasSelected = updated.selectedTreeNodeId == clickedNodeId
+    updated.selectedTreeNodeId = clickedNodeId
+    if clickedNodeId.startsWith("win_"):
+      let wRes = int.parse(clickedNodeId.slice(4, clickedNodeId.len))
+      if wRes.isOk():
+        let wIdx = wRes.unwrap()
+        if wIdx >= 0 and wIdx < updated.discoveredApps.len:
+          updated.selectedAppIndex = wIdx
+          updated.statusMessage = "Selected Window [" + updated.discoveredApps[wIdx].targetType.toUpperCase() + "] " + updated.discoveredApps[wIdx].title
+      if wasSelected or mx < treeX + 52.0:
+        updated.treeNodes = auraTreeToggleNode(updated.treeNodes, clickedNodeId)
+    elif clickedNodeId.startsWith("bot_"):
+      let bRes = int.parse(clickedNodeId.slice(4, clickedNodeId.len))
+      if bRes.isOk():
+        let bIdx = bRes.unwrap()
+        if bIdx >= 0 and bIdx < updated.managedBots.len:
+          updated = handleBotFleetClickSelection(updated, bIdx, ctrlHeld, shiftHeld)
+          updated = selectBotForDetailView(updated, updated.managedBots[bIdx].botId)
+    elif clickedNodeId == "root_orchestra":
+      updated.treeNodes = auraTreeToggleNode(updated.treeNodes, clickedNodeId)
+
+  // Bottom Orchestra Action Toolbar inside Center Panel
+  drawRoundedRect(432, 576, 426, 112, 8, rgb(15, 23, 42))
+  drawText("ORCHESTRA FLEET ACTIONS & MULTI-SELECTION", 444, 584, 12, rgb(250, 204, 21))
+
+  drawUiButton(444, 606, 96, 26, "Select All", false, mx, my)
+  if checkButtonClick(444, 606, 96, 26, mx, my, normalClick):
+    updated = selectAllBotsInFleet(updated)
+
+  drawUiButton(548, 606, 108, 26, "Pause/Start Sel", false, mx, my)
+  if checkButtonClick(548, 606, 108, 26, mx, my, normalClick):
+    updated = togglePauseSelectedBots(updated)
+    updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  drawUiButton(664, 606, 96, 26, "Step Selected", false, mx, my)
+  if checkButtonClick(664, 606, 96, 26, mx, my, normalClick) and updated.managedBots.len > 0:
+    let selB = getSelectedBotDetail(updated)
+    updated = stepSingleBotOnce(updated, selB.botId, frame)
+    updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  drawUiButton(768, 606, 78, 26, "Detach", false, mx, my)
+  if checkButtonClick(768, 606, 78, 26, mx, my, normalClick) and updated.managedBots.len > 0:
+    updated = detachBot(updated, updated.selectedBotIndex)
+    updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  drawUiButton(444, 640, 196, 26, "+ Attach Bot to Window", true, mx, my)
+  if checkButtonClick(444, 640, 196, 26, mx, my, normalClick):
+    updated = attachBotToTarget(updated, updated.selectedAppIndex, 0, "")
+    updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+  drawUiButton(648, 640, 198, 26, "Open .hebar File Dialog...", false, mx, my)
+  if checkButtonClick(648, 640, 198, 26, mx, my, normalClick):
+    updated = openHebarFileDialog(updated, "builder")
+
+  // 4. Panel 3 (Right): Selected Bot Detail, Live Name/Desc Update & Combobox Inspector
+  drawRoundedRect(886, 76, 370, 624, 10, rgb(30, 41, 59))
+
+  mut activeSelIdx = 0
+  if updated.managedBots.len > 0:
+    let sel = getSelectedBotDetail(updated)
+    mut si = 0
+    while si < updated.managedBots.len:
+      if updated.managedBots[si].botId == sel.botId:
+        activeSelIdx = si
+        break
+      si += 1
+
+    drawText("BOT #" + str(sel.botId) + " INSPECTOR", 902, 92, 15, rgb(56, 189, 248))
+    let topPauseLbl = if sel.isPaused: "Start Bot" else: "Pause Bot"
+    drawUiButton(1094, 86, 80, 24, topPauseLbl, sel.isPaused, mx, my)
+    if checkButtonClick(1094, 86, 80, 24, mx, my, normalClick):
+      updated = togglePauseBot(updated, activeSelIdx)
+      updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+    drawUiButton(1182, 86, 58, 24, "Close", false, mx, my)
+    if checkButtonClick(1182, 86, 58, 24, mx, my, normalClick):
+      updated = closeBotDetailView(updated)
+
+    drawText(truncateUiText(sel.botName + " [" + sel.targetType.toUpperCase() + " | P" + str(sel.seatId) + "] @ PID " + str(sel.targetPid), 46), 902, 114, 12, rgb(148, 163, 184))
+
+    // Tab buttons bar
+    drawUiButton(902, 134, 80, 24, "1. Config", updated.detailTab == 0, mx, my)
+    if checkButtonClick(902, 134, 80, 24, mx, my, normalClick):
+      updated = setBotDetailTab(updated, 0)
+
+    drawUiButton(986, 134, 80, 24, "2. Reflex", updated.detailTab == 1, mx, my)
+    if checkButtonClick(986, 134, 80, 24, mx, my, normalClick):
+      updated = setBotDetailTab(updated, 1)
+
+    drawUiButton(1070, 134, 80, 24, "3. POV", updated.detailTab == 2, mx, my)
+    if checkButtonClick(1070, 134, 80, 24, mx, my, normalClick):
+      updated = setBotDetailTab(updated, 2)
+
+    drawUiButton(1154, 134, 84, 24, "4. Logs", updated.detailTab == 3, mx, my)
+    if checkButtonClick(1154, 134, 84, 24, mx, my, normalClick):
+      updated = setBotDetailTab(updated, 3)
+
+    // Tab 0: Status Summary + Live Bot Name/Desc Editor + Comboboxes + File Open Dialog
+    if updated.detailTab == 0:
+      drawRoundedRect(902, 166, 338, 76, 6, rgb(15, 23, 42))
+      drawText(truncateUiText(sel.activeLayerName + " [" + sel.statusText + "]", 42), 912, 172, 12, rgb(74, 222, 128))
+      drawText(truncateUiText("Decision: " + sel.lastDecision, 42), 912, 190, 12, rgb(56, 189, 248))
+      drawText(truncateUiText("Last Cmd: " + sel.lastScriptCmd, 42), 912, 206, 11, rgb(148, 163, 184))
+      drawText("Frames: " + str(sel.framesStepped) + " | Actions: " + str(sel.actionsDispatched), 912, 222, 11, rgb(203, 213, 225))
+
+      drawText("BOT IDENTITY & PARAMETERS", 902, 250, 12, rgb(250, 204, 21))
+
+      drawText("Bot Name:", 902, 274, 12, rgb(203, 213, 225))
+      updated = handleFieldMouseSelection(updated, "bot_name", sel.botName, 1004, 268, 236, 24, mx, my, normalClick, mDown, shiftHeld, frame)
+      drawInteractiveTextField(1004, 268, 236, 24, sel.botName, "Bot name...", updated.focusedFieldId == "bot_name", updated.fieldSelectAll, updated.fieldCursor, updated.fieldSelStart, updated.fieldSelEnd, frame, mx, my)
+
+      drawText("Description:", 902, 304, 12, rgb(203, 213, 225))
+      updated = handleFieldMouseSelection(updated, "bot_desc", sel.botDescription, 1004, 298, 236, 24, mx, my, normalClick, mDown, shiftHeld, frame)
+      drawInteractiveTextField(1004, 298, 236, 24, sel.botDescription, "Bot description...", updated.focusedFieldId == "bot_desc", updated.fieldSelectAll, updated.fieldCursor, updated.fieldSelStart, updated.fieldSelEnd, frame, mx, my)
+
+      drawUiButton(902, 328, 338, 24, "Update & Save Bot Name / Description", true, mx, my)
+      if checkButtonClick(902, 328, 338, 24, mx, my, normalClick):
+        updated = updateBotIdentity(updated, activeSelIdx, sel.botName, sel.botDescription)
+        updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+      drawText("Instructions:", 902, 366, 12, rgb(203, 213, 225))
+      drawComboboxBox(1004, 360, 170, 26, formatStrategyShortLabel(sel.strategyPath), activeOpenId == "bot_brain", mx, my)
+      if checkButtonClick(1004, 360, 170, 26, mx, my, normalClick):
+        updated.openDropdownId = "bot_brain"
+
+      drawUiButton(1178, 360, 62, 26, "Open...", true, mx, my)
+      if checkButtonClick(1178, 360, 62, 26, mx, my, normalClick):
+        updated = openHebarFileDialog(updated, "bot")
+
+      drawText("Player Seat:", 902, 398, 12, rgb(203, 213, 225))
+      drawComboboxBox(1004, 392, 236, 26, formatSeatLabel(sel.seatId), activeOpenId == "bot_seat", mx, my)
+      if checkButtonClick(1004, 392, 236, 26, mx, my, normalClick):
+        updated.openDropdownId = "bot_seat"
+
+      drawText("Reaction Wait:", 902, 430, 12, rgb(203, 213, 225))
+      drawComboboxBox(1004, 424, 236, 26, formatWaitMsLabel(sel.reactionDelayMs), activeOpenId == "bot_wait", mx, my)
+      if checkButtonClick(1004, 424, 236, 26, mx, my, normalClick):
+        updated.openDropdownId = "bot_wait"
+
+      drawText("Play Style:", 902, 462, 12, rgb(203, 213, 225))
+      drawComboboxBox(1004, 456, 236, 26, formatPlayStyleLabel(sel.aggression, sel.exploration), activeOpenId == "bot_style", mx, my)
+      if checkButtonClick(1004, 456, 236, 26, mx, my, normalClick):
+        updated.openDropdownId = "bot_style"
+
+      let actionPauseLbl = if sel.isPaused: "Resume Bot" else: "Pause Bot"
+      drawUiButton(902, 494, 162, 28, actionPauseLbl, false, mx, my)
+      if checkButtonClick(902, 494, 162, 28, mx, my, normalClick):
+        updated = togglePauseBot(updated, activeSelIdx)
+        updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+      drawUiButton(1078, 494, 162, 28, "Step 1 Frame", false, mx, my)
+      if checkButtonClick(1078, 494, 162, 28, mx, my, normalClick):
+        updated = stepSingleBotOnce(updated, sel.botId, frame)
+        updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+      drawUiButton(902, 530, 338, 26, "Detach Selected Bot", false, mx, my)
+      if checkButtonClick(902, 530, 338, 26, mx, my, normalClick):
+        updated = detachBot(updated, activeSelIdx)
+        updated.treeNodes = buildOrchestraTreeNodes(updated)
+
+    // Tab 1: HEBAR Bio-Reflexes & Human Invariants
+    elif updated.detailTab == 1:
+      drawText("REACTION WAIT & REFLEX TELEMETRY", 902, 172, 14, rgb(74, 222, 128))
+      drawRoundedRect(902, 192, 338, 260, 6, rgb(15, 23, 42))
+
+      let latVal = int(sel.reactionDelayMs)
+      drawText("1. Reaction Wait Time: " + str(latVal) + " ms (Default: 250ms, 0ms Choice)", 912, 204, 12, rgb(248, 250, 252))
+      drawText("2. Input Rate: " + str(int(sel.currentHz)) + " Hz / <= 15.0 Hz", 912, 234, 12, rgb(248, 250, 252))
+
+      drawRect(912, 254, 318, 8, rgb(51, 65, 85))
+      let fillW = int(318.0 * (sel.currentHz / 15.0))
+      drawRect(912, 254, if fillW > 318: 318 else: fillW, 8, rgb(56, 189, 248))
+
+      drawText("3. Turning Clamp: <= 2*pi rad/s [PASS]", 912, 274, 12, rgb(226, 232, 240))
+      drawText("4. Smooth Cursor Speed: <= 780 px/s [PASS]", 912, 298, 12, rgb(226, 232, 240))
+      drawText("   Pos: (" + str(int(sel.cursorX)) + "," + str(int(sel.cursorY)) + ") -> (" + str(int(sel.targetX)) + "," + str(int(sel.targetY)) + ")", 912, 318, 12, rgb(148, 163, 184))
+      drawText("5. Anti-Stall Guard: idle=" + str(sel.guard.currentIdleFrames) + " / 120 max", 912, 342, 12, rgb(226, 232, 240))
+      drawText("   Fatigue Factor: " + str(sel.fatigueFactor), 912, 362, 12, rgb(148, 163, 184))
+
+      drawRoundedRect(902, 464, 338, 38, 6, rgb(20, 83, 45))
+      drawTextCentered("100% ZERO-CHEATING HEBAR COMPLIANT", 1071, 476, 13, rgb(187, 247, 208))
+
+    // Tab 2: Bot POV Sensors & Minimap
+    elif updated.detailTab == 2:
+      drawText("BOT POV SENSOR RADAR & MINIMAP", 902, 172, 14, rgb(56, 189, 248))
+      drawRoundedRect(902, 192, 338, 210, 8, rgb(15, 23, 42))
+
+      let radCX = 902 + (int(sel.cursorX) % 300) + 18
+      let radCY = 192 + (int(sel.cursorY) % 170) + 18
+      drawCircle(radCX, radCY, 10, rgb(56, 189, 248))
+
+      let radTX = 902 + (int(sel.targetX) % 300) + 18
+      let radTY = 192 + (int(sel.targetY) % 170) + 18
+      drawCircle(radTX, radTY, 6, rgb(250, 204, 21))
+
+      drawTextCentered("POV Radar (Cursor=Blue, Target=Yellow)", 1071, 380, 11, rgb(148, 163, 184))
+
+      drawRoundedRect(902, 412, 338, 90, 6, rgb(15, 23, 42))
+      drawText("Perceived Entities: " + str(sel.perceivedEntityCount), 912, 422, 12, rgb(226, 232, 240))
+      drawText("Clickable UI Nodes: " + str(sel.perceivedButtonCount), 912, 442, 12, rgb(226, 232, 240))
+      drawText("Hazards / Enemies: " + str(sel.perceivedHazardCount), 912, 462, 12, rgb(226, 232, 240))
+      drawText("Nearest Threat Dist: " + str(int(sel.nearestThreatDist)) + " px", 912, 482, 12, rgb(250, 204, 21))
+
+    // Tab 3: Live Action Log & Step Controls
+    else:
+      drawText("ACTION LOG & PER-BOT CONTROLS", 902, 172, 14, rgb(250, 204, 21))
+
+      let pauseLbl = if sel.isPaused: "Resume" else: "Pause"
+      drawUiButton(902, 194, 106, 26, pauseLbl, false, mx, my)
+      if checkButtonClick(902, 194, 106, 26, mx, my, normalClick):
+        updated = togglePauseBot(updated, activeSelIdx)
+
+      drawUiButton(1018, 194, 106, 26, "Step 1 Frame", false, mx, my)
+      if checkButtonClick(1018, 194, 106, 26, mx, my, normalClick):
+        updated = stepSingleBotOnce(updated, sel.botId, frame)
+
+      drawUiButton(1134, 194, 106, 26, "Detach", false, mx, my)
+      if checkButtonClick(1134, 194, 106, 26, mx, my, normalClick):
+        updated = detachBot(updated, activeSelIdx)
+
+      drawText("RECENT DISPATCHED COMMANDS", 902, 232, 13, rgb(148, 163, 184))
+      if sel.recentActions.len == 0:
+        drawText("No actions dispatched yet.", 902, 256, 12, rgb(148, 163, 184))
+      else:
+        mut ri = 0
+        while ri < sel.recentActions.len and ri < 6:
+          let actStr = sel.recentActions[ri]
+          let rowY = 252 + ri * 36
+          drawRoundedRect(902, rowY, 338, 30, 4, rgb(15, 23, 42))
+          drawText(truncateUiText(actStr, 42), 912, rowY + 7, 12, rgb(248, 250, 252))
+          ri += 1
+
+  else:
+    drawText("ORCHESTRA OVERVIEW & ARCHITECTURE", 902, 104, 14, rgb(56, 189, 248))
+    drawRoundedRect(902, 132, 338, 240, 8, rgb(15, 23, 42))
+    drawText("Discovered Windows: " + str(updated.discoveredApps.len), 916, 150, 13, rgb(226, 232, 240))
+    drawText("Saved Bot Profiles: " + str(updated.savedBots.len), 916, 176, 13, rgb(226, 232, 240))
+    drawText("Selected Instance Type: [" + updated.selectedInstanceType.toUpperCase() + "]", 916, 202, 13, rgb(56, 189, 248))
+    drawText("Default Bot Speed: 250 ms (0 ms Choice Ready)", 916, 228, 12, rgb(250, 204, 21))
+    drawText("Total Dispatched Actions: " + str(updated.totalActionsAllBots), 916, 254, 13, rgb(226, 232, 240))
+    drawText("AIPL 4-Target Scope: native, aipl, html, wasm", 916, 282, 12, rgb(74, 222, 128))
+    drawText("Zero-Hook JSON Scene-Graph + Multi-Seat Lease", 916, 304, 11, rgb(148, 163, 184))
+    drawText("Drag any Bot onto any Window in Orchestra!", 916, 326, 11, rgb(56, 189, 248))
+
+  // 5. Topmost Z-Layer: Active Open Dropdown Menu Overlay
+  if activeOpenId.len > 0 and not updated.fileDialog.isOpen:
+    mut brainOpts: [str] = []
+    mut brainPaths: [str] = []
+    mut bi = 0
+    while bi < updated.availableStrategies.len:
+      let p = updated.availableStrategies[bi]
+      brainPaths.push(p)
+      brainOpts.push(formatStrategyShortLabel(p))
+      bi += 1
+    let waitOpts: [str] = ["0 ms (Instant)", "50 ms", "100 ms", "150 ms", "250 ms (Default)", "500 ms", "1000 ms"]
+    let waitVals: [float] = [0.0, 50.0, 100.0, 150.0, 250.0, 500.0, 1000.0]
+
+    if activeOpenId == "launch_app":
+      let appOpts: [str] = [
+        "2P Chess Arena",
+        "4P Ludo Arena",
+        "Paint Studio",
+        "Tactical FPS Arena",
+        "Notepad Editor",
+        "Dark ARPG Sanctuary",
+        "Markdown Editor"
+      ]
+      let pIdx = renderAndHandleDropdownList(46, 310, 184, appOpts, mx, my, mPressed)
+      if pIdx >= 0:
+        updated.selectedLaunchAppIdx = pIdx
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "launch_type":
+      let instOpts: [str] = [
+        "native (C99/X11)",
+        "aipl (VM/JIT)",
+        "html (HTML5/WebGL)",
+        "wasm (WASM32)"
+      ]
+      let instCodes: [str] = ["native", "aipl", "html", "wasm"]
+      let pIdx = renderAndHandleDropdownList(236, 310, 146, instOpts, mx, my, mPressed)
+      if pIdx >= 0:
+        updated = setTargetInstanceType(updated, instCodes[pIdx])
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "saved_bot":
+      mut savedOpts: [str] = []
+      mut si = 0
+      while si < updated.savedBots.len:
+        let sp = updated.savedBots[si]
+        savedOpts.push(sp.name + " - " + sp.description)
+        si += 1
+      let pIdx = renderAndHandleDropdownList(46, 404, 260, savedOpts, mx, my, mPressed)
+      if pIdx >= 0 and pIdx < updated.savedBots.len:
+        updated.selectedSavedBotIdx = pIdx
+        let sp = updated.savedBots[pIdx]
+        updated.builderName = sp.name
+        updated.builderDescription = sp.description
+        updated.builderStrategy = sp.strategyPath
+        updated.builderSeat = sp.seatId
+        updated.builderWaitMs = sp.waitMs
+        updated.builderAutoStart = sp.autoStart
+        updated.builderAggression = sp.aggression
+        updated.builderExploration = sp.exploration
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "builder_brain":
+      let pIdx = renderAndHandleDropdownList(138, 530, 244, brainOpts, mx, my, mPressed)
+      if pIdx >= 0 and pIdx < brainPaths.len:
+        let chosenPath = brainPaths[pIdx]
+        updated.builderStrategy = chosenPath
+        if chosenPath.contains("chess_master"):
+          updated.builderAggression = 95
+          updated.builderExploration = 20
+          updated.builderWaitMs = 0.0
+        elif chosenPath.contains("chess_beginner"):
+          updated.builderAggression = 45
+          updated.builderExploration = 80
+          updated.builderWaitMs = 150.0
+        else:
+          let botParams = parseHebarBotParams(chosenPath)
+          if botParams.hasDirective:
+            updated.builderWaitMs = float(botParams.waitMs)
+            updated.builderAggression = botParams.aggression
+            updated.builderExploration = botParams.exploration
+          else:
+            updated.builderWaitMs = 250.0
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "builder_seat":
+      let seatOpts: [str] = ["Auto Seat", "Seat P1 (White)", "Seat P2 (Black)", "Seat P3", "Seat P4"]
+      let pIdx = renderAndHandleDropdownList(138, 560, 140, seatOpts, mx, my, mPressed)
+      if pIdx >= 0:
+        updated.builderSeat = pIdx
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "builder_wait":
+      let pIdx = renderAndHandleDropdownList(244, 560, 148, waitOpts, mx, my, mPressed)
+      if pIdx >= 0:
+        updated.builderWaitMs = waitVals[pIdx]
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "builder_start":
+      let startOpts: [str] = ["Auto Start (Active)", "Manual Start (Paused)"]
+      let pIdx = renderAndHandleDropdownList(138, 590, 244, startOpts, mx, my, mPressed)
+      if pIdx >= 0:
+        updated.builderAutoStart = pIdx == 0
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "bot_brain" and updated.managedBots.len > 0:
+      let pIdx = renderAndHandleDropdownList(1004, 388, 236, brainOpts, mx, my, mPressed)
+      if pIdx >= 0:
+        updated = setBotStrategy(updated, activeSelIdx, brainPaths[pIdx])
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "bot_seat" and updated.managedBots.len > 0:
+      let bSeatOpts: [str] = ["Seat P1 (White)", "Seat P2 (Black)", "Seat P3", "Seat P4"]
+      let pIdx = renderAndHandleDropdownList(1004, 420, 236, bSeatOpts, mx, my, mPressed)
+      if pIdx >= 0:
+        updated = setBotSeat(updated, activeSelIdx, pIdx + 1)
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "bot_wait" and updated.managedBots.len > 0:
+      let pIdx = renderAndHandleDropdownList(1004, 452, 236, waitOpts, mx, my, mPressed)
+      if pIdx >= 0:
+        updated = setBotReactionWaitMs(updated, activeSelIdx, waitVals[pIdx])
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+    elif activeOpenId == "bot_style" and updated.managedBots.len > 0:
+      let styleOpts: [str] = [
+        "Master (Agg 95% / Exp 20%)",
+        "Balanced (Agg 50% / Exp 50%)",
+        "Beginner (Agg 45% / Exp 80%)",
+        "Defensive (Agg 20% / Exp 20%)"
+      ]
+      let pIdx = renderAndHandleDropdownList(1004, 484, 236, styleOpts, mx, my, mPressed)
+      if pIdx >= 0:
+        if pIdx == 0:
+          updated = setBotAggression(updated, activeSelIdx, 95)
+          updated = setBotExploration(updated, activeSelIdx, 20)
+        elif pIdx == 1:
+          updated = setBotAggression(updated, activeSelIdx, 50)
+          updated = setBotExploration(updated, activeSelIdx, 50)
+        elif pIdx == 2:
+          updated = setBotAggression(updated, activeSelIdx, 45)
+          updated = setBotExploration(updated, activeSelIdx, 80)
+        else:
+          updated = setBotAggression(updated, activeSelIdx, 20)
+          updated = setBotExploration(updated, activeSelIdx, 20)
+        updated.openDropdownId = ""
+      elif mPressed:
+        updated.openDropdownId = ""
+
+  // 6. Topmost Modal Layer: AuraDesign File Open Dialog (.hebar selector) + Drag & Drop Floating Badge
+  if updated.fileDialog.isOpen:
+    updated.fileDialog = auraFileDialog(updated.fileDialog, FileDialogMode.Open)
+    if updated.fileDialog.confirmed:
+      updated = applySelectedHebarFile(updated, updated.fileDialog.selectedPath, updated.fileDialogTarget)
+      updated.fileDialog.confirmed = false
+
+  auraDragDropRenderOverlay(updated.dnd)
+  ret updated

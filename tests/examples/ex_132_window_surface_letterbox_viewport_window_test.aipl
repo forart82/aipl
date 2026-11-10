@@ -1,0 +1,30 @@
+// ============================================================================
+// Twin Test Suite 132: Window Surface Resizing & Aspect Letterbox Viewport (WINDOW)
+// Verifies examples/ex_132_window_surface_letterbox_viewport_window.aipl
+// ============================================================================
+module Ex132WindowSurfaceLetterboxViewportWindowTest
+
+import {
+  verifySurfaceResizeAndLetterboxViewport,
+  computeLetterboxBarThicknessPx,
+  describeSurfacePresentMode,
+  renderFrameStep
+} from "../../examples/ex_132_window_surface_letterbox_viewport_window.aipl"
+
+pub fn test_window_surface_letterbox_viewport_window(): int:
+  assert(verifySurfaceResizeAndLetterboxViewport() == 1080, "1920x1200 container at 16:9 letterboxes to height 1080 (y=60)")
+  assert(computeLetterboxBarThicknessPx(1200, 1080) == 60, "(1200 - 1080) / 2 == 60px matte bar")
+  assert(describeSurfacePresentMode(1) == "SURFACE:PRESENT_FIFO_VSYNC", "FIFO present mode label")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  let f100 = renderFrameStep(100, 0.016)
+  assert(f0 == 1140, "frame 0 returns active letterbox height(1080) + y(60) == 1140")
+  assert(f1 > f0, "dynamic surface resize changes letterbox y offset from frame 0 to 1")
+  assert(f20 != f100, "dynamic surface resize varies between frame 20 and 100")
+  ret 0
+
+pub fn main(): int:
+  test_window_surface_letterbox_viewport_window()
+  println("PASS: ex_132_window_surface_letterbox_viewport_window_test")
+  ret 0

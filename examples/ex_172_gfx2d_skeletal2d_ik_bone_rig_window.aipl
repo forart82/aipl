@@ -1,0 +1,124 @@
+module Ex172Gfx2dSkeletal2dIkBoneRigWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import {
+  Bone2D, Skeleton2D, updateSkeletonTransforms2D, solveTwoBoneIk2D
+} from "../std/gfx2d/skeletal2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn buildSkeletal2dIkAudit(): int:
+  let b0 = Bone2D(name = "shoulder", length = 100.0, localAngleRad = 0.0, worldPosition = Vec2(x = 0.0, y = 0.0), worldAngleRad = 0.0, parentIdx = -1)
+  let b1 = Bone2D(name = "forearm", length = 80.0, localAngleRad = 0.0, worldPosition = Vec2(x = 0.0, y = 0.0), worldAngleRad = 0.0, parentIdx = 0)
+  let skel = updateSkeletonTransforms2D(Skeleton2D(bones = [b0, b1]))
+  let ikReach = solveTwoBoneIk2D(Vec2(x = 0.0, y = 0.0), Vec2(x = 140.0, y = 0.0), 100.0, 80.0, false)
+  let ikFar = solveTwoBoneIk2D(Vec2(x = 0.0, y = 0.0), Vec2(x = 240.0, y = 0.0), 100.0, 80.0, false)
+  let rFlag = if ikReach.isReachable: 1 else: 0
+  let fFlag = if ikFar.isReachable: 1 else: 0
+  ret int(skel.bones[1].worldPosition.x + 0.5) + rFlag + fFlag
+
+pub fn stepSkeletalTarget2D(frame: int, rootPos: Vec2): Vec2:
+  let targetAngle = float(frame) * 0.047
+  let radialMod = 105.0 + 42.0 * sin(float(frame) * 0.031)
+  ret Vec2(
+    x = rootPos.x + cos(targetAngle) * radialMod,
+    y = rootPos.y + sin(targetAngle) * (radialMod * 0.85)
+  )
+
+pub fn main(): int:
+  let rootPos = Vec2(x = 340.0, y = 322.0)
+  let len1 = 92.0
+  let len2 = 76.0
+  let audit = buildSkeletal2dIkAudit()
+
+  initWindow(1280, 720, "AIPL ex_172: 2D Analytic Two-Bone IK Rig & Forward Kinematics")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let targetPos = stepSkeletalTarget2D(frame, rootPos)
+
+    let ikUp = solveTwoBoneIk2D(rootPos, targetPos, len1, len2, false)
+    let ikDown = solveTwoBoneIk2D(rootPos, targetPos, len1, len2, true)
+
+    let b0Up = Bone2D(name = "upper_arm_up", length = len1, localAngleRad = ikUp.joint1Angle, worldPosition = rootPos, worldAngleRad = 0.0, parentIdx = -1)
+    let b1Up = Bone2D(name = "forearm_up", length = len2, localAngleRad = ikUp.joint2Angle, worldPosition = Vec2(x = 0.0, y = 0.0), worldAngleRad = 0.0, parentIdx = 0)
+    let skelUp = updateSkeletonTransforms2D(Skeleton2D(bones = [b0Up, b1Up]))
+    let elbowPos = skelUp.bones[1].worldPosition
+    let wristX = elbowPos.x + cos(skelUp.bones[1].worldAngleRad) * len2
+    let wristY = elbowPos.y + sin(skelUp.bones[1].worldAngleRad) * len2
+
+    let b0Down = Bone2D(name = "upper_arm_down", length = len1, localAngleRad = ikDown.joint1Angle, worldPosition = rootPos, worldAngleRad = 0.0, parentIdx = -1)
+    let b1Down = Bone2D(name = "forearm_down", length = len2, localAngleRad = ikDown.joint2Angle, worldPosition = Vec2(x = 0.0, y = 0.0), worldAngleRad = 0.0, parentIdx = 0)
+    let skelDown = updateSkeletonTransforms2D(Skeleton2D(bones = [b0Down, b1Down]))
+    let elbowDownPos = skelDown.bones[1].worldPosition
+    let wristDownX = elbowDownPos.x + cos(skelDown.bones[1].worldAngleRad) * len2
+    let wristDownY = elbowDownPos.y + sin(skelDown.bones[1].worldAngleRad) * len2
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_172: 2D ANALYTIC TWO-BONE INVERSE KINEMATICS (LAW OF COSINES) RIG", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/skeletal2d: solveTwoBoneIk2D | updateSkeletonTransforms2D | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: Live 2-Bone IK Arm Tracking Orbiting End-Effector Target
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("TWO-BONE IKSOLVER VIEWPORT (Max Reach=" + str(int(len1 + len2)) + " px, Min=" + str(int(len1 - len2)) + " px)", 60.0, 118.0, 15.0, rgb(125, 211, 252))
+
+    // Outer & inner reach envelope rings
+    drawCircleOutline(rootPos.x, rootPos.y, len1 + len2, 1.5, rgb(51, 65, 85))
+    drawCircleOutline(rootPos.x, rootPos.y, len1 - len2, 1.0, rgb(30, 41, 59))
+
+    // Law-of-cosines baseline chord from Shoulder Root to End-Effector Target
+    drawLine(rootPos.x, rootPos.y, targetPos.x, targetPos.y, rgb(71, 85, 105), 1.5)
+
+    // Solution B (flipElbow = true) symmetric branch ghost links
+    drawLine(rootPos.x, rootPos.y, elbowDownPos.x, elbowDownPos.y, rgb(250, 204, 21), 3.0)
+    drawLine(elbowDownPos.x, elbowDownPos.y, wristDownX, wristDownY, rgb(217, 119, 6), 2.5)
+    drawCircle(elbowDownPos.x, elbowDownPos.y, 6.0, rgb(250, 204, 21))
+
+    // Solution A (flipElbow = false) primary Upper arm + Forearm links
+    drawLine(rootPos.x, rootPos.y, elbowPos.x, elbowPos.y, rgb(56, 189, 248), 6.0)
+    drawLine(elbowPos.x, elbowPos.y, wristX, wristY, rgb(34, 197, 94), 5.0)
+
+    // Joints & Target
+    drawCircle(rootPos.x, rootPos.y, 10.0, rgb(250, 204, 21))
+    drawCircle(elbowPos.x, elbowPos.y, 8.0, rgb(168, 85, 247))
+    drawCircle(wristX, wristY, 7.0, rgb(34, 197, 94))
+    drawCircleOutline(targetPos.x, targetPos.y, 12.0, 2.5, rgb(244, 63, 94))
+    drawText("Root", rootPos.x - 16.0, rootPos.y + 14.0, 12.0, rgb(253, 224, 71))
+    drawText("Target", targetPos.x + 14.0, targetPos.y - 6.0, 12.0, rgb(251, 113, 133))
+
+    // Right Panel: Law of Cosines Joint Angle & Elbow Flip Comparison
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(168, 85, 247))
+    drawText("ANALYTIC IK JOINT SOLUTIONS (ELBOW-UP VS ELBOW-DOWN)", 680.0, 118.0, 16.0, rgb(216, 180, 254))
+
+    drawRect(685.0, 160.0, 530.0, 145.0, rgb(30, 41, 59))
+    drawRectOutline(685.0, 160.0, 530.0, 145.0, 1.5, rgb(56, 189, 248))
+    drawText("Solution A (flipElbow = false - Cyan/Green Primary Rig):", 705.0, 182.0, 15.0, rgb(125, 211, 252))
+    drawText("Shoulder joint1Angle = " + str(ikUp.joint1Angle) + " rad", 705.0, 212.0, 14.0, rgb(226, 232, 240))
+    drawText("Elbow    joint2Angle = " + str(ikUp.joint2Angle) + " rad | Reachable=" + str(ikUp.isReachable), 705.0, 240.0, 14.0, rgb(134, 239, 172))
+    drawText("FK Elbow World Pos = (" + str(int(elbowPos.x)) + ", " + str(int(elbowPos.y)) + ")", 705.0, 268.0, 14.0, rgb(148, 163, 184))
+
+    drawRect(685.0, 325.0, 530.0, 145.0, rgb(30, 41, 59))
+    drawRectOutline(685.0, 325.0, 530.0, 145.0, 1.5, rgb(250, 204, 21))
+    drawText("Solution B (flipElbow = true - Amber Symmetric Branch):", 705.0, 347.0, 15.0, rgb(253, 224, 71))
+    drawText("Shoulder joint1Angle = " + str(ikDown.joint1Angle) + " rad", 705.0, 377.0, 14.0, rgb(226, 232, 240))
+    drawText("Elbow    joint2Angle = " + str(ikDown.joint2Angle) + " rad | Symmetric Cosine Branch", 705.0, 405.0, 14.0, rgb(203, 213, 225))
+    drawText("FK Alt-Elbow Pos   = (" + str(int(elbowDownPos.x)) + ", " + str(int(elbowDownPos.y)) + ")", 705.0, 433.0, 14.0, rgb(148, 163, 184))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("SKELETAL FORWARD & INVERSE KINEMATICS TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Root=(340, 322) -> ElbowA=(" + str(int(elbowPos.x)) + ", " + str(int(elbowPos.y)) + ") / ElbowB=(" + str(int(elbowDownPos.x)) + ", " + str(int(elbowDownPos.y)) + ") -> End-Effector=(" + str(int(wristX)) + ", " + str(int(wristY)) + ")", 60.0, 584.0, 15.0, rgb(226, 232, 240))
+    drawText("Bone Lengths: L1=" + str(len1) + " L2=" + str(len2) + " | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

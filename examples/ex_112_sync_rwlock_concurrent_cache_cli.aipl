@@ -1,0 +1,68 @@
+// ============================================================================
+// Example 112: RwLock Shared-Reader Cache & Optimistic SeqLock (CLI)
+// Demonstrates: rwLockNew, rwLockRead, rwLockTryRead, rwLockReadUnlock,
+//               rwLockWrite, rwLockTryWrite, rwLockWriteUnlock, seqLockNew,
+//               seqLockReadBegin, seqLockReadRetry, seqLockWriteBegin, and
+//               seqLockWriteEnd from std/sync.
+// ============================================================================
+module Ex112SyncRwlockConcurrentCacheCli
+
+import {
+  rwLockNew,
+  rwLockRead,
+  rwLockTryRead,
+  rwLockReadUnlock,
+  rwLockWrite,
+  rwLockTryWrite,
+  rwLockWriteUnlock,
+  seqLockNew,
+  seqLockReadBegin,
+  seqLockReadRetry,
+  seqLockWriteBegin,
+  seqLockWriteEnd
+} from "../std/sync"
+
+// Acquires two shared read locks on an RwLock and returns the peak active reader count.
+pub fn evaluateConcurrentReaderPeakCount(): int:
+  mut rw = rwLockNew()
+  let _ = rwLockRead(rw)
+  assert(rwLockTryRead(rw).isSome(), "second shared reader acquires lock")
+  let peakReaders = rw.readers
+  assert(rwLockTryWrite(rw).isNone(), "exclusive writer blocked while readers hold lock")
+  let _ = rwLockReadUnlock(rw)
+  let _ = rwLockReadUnlock(rw)
+  assert(rw.readers == 0, "readers drained to 0")
+  ret peakReaders
+
+// Verifies exclusive writer lock transitions on RwLock and optimistic read retry detection on SeqLock.
+pub fn verifyRwLockWriterExclusionAndSeqLockRetry(): int:
+  mut rw = rwLockNew()
+  let _ = rwLockWrite(rw)
+  let writerHeld = rw.writer
+  let _ = rwLockWriteUnlock(rw)
+  let tryWriteOk = rwLockTryWrite(rw).isSome()
+  let _ = rwLockWriteUnlock(rw)
+
+  mut seq = seqLockNew()
+  let s0 = seqLockReadBegin(seq)
+  let cleanRead = not seqLockReadRetry(seq, s0)
+  seqLockWriteBegin(seq)
+  let dirtyDuringWrite = seqLockReadRetry(seq, s0)
+  seqLockWriteEnd(seq)
+  let dirtyAfterWrite = seqLockReadRetry(seq, s0)
+  if writerHeld and tryWriteOk and cleanRead and dirtyDuringWrite and dirtyAfterWrite:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a read-heavy cache synchronization strategy.
+pub fn describeCacheConcurrencyMode(optimistic: bool): str:
+  if optimistic:
+    ret "CACHE:OPTIMISTIC_SEQLOCK_READ"
+  ret "CACHE:SHARED_RWLOCK_READERS"
+
+pub fn main(): int:
+  let peak = evaluateConcurrentReaderPeakCount()
+  let cacheOk = verifyRwLockWriterExclusionAndSeqLockRetry()
+  let mode = describeCacheConcurrencyMode(true)
+  println("ex_112_sync_rwlock_concurrent_cache_cli: peak=" + str(peak) + " cacheOk=" + str(cacheOk) + " mode=" + mode)
+  ret 0

@@ -1,0 +1,128 @@
+module Ex160GfxGpuPipelineAndCommandGraphWindow
+
+import { createGpuDevice } from "../std/gfx/gpu_device"
+import { compileShaderModule } from "../std/gfx/gpu_shader"
+import {
+  DepthStencilState, VertexAttribute, VertexLayout, RenderPipelineState,
+  blendModeAlpha, blendModeAdditive, blendModeOpaque, createRenderPipeline
+} from "../std/gfx/gpu_pipeline"
+import {
+  CommandBuffer, createCommandEncoder, recordDraw, finishCommandBuffer, submitCommandBuffer
+} from "../std/gfx/gpu_command"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn recordFrameCommandBuffer(pOpaque: RenderPipelineState, pAlpha: RenderPipelineState, pAdd: RenderPipelineState, frame: int): CommandBuffer:
+  mut enc = createCommandEncoder()
+  enc = recordDraw(enc, pOpaque, 360, 4 + (frame % 7))
+  enc = recordDraw(enc, pAlpha, 120, 2 + (frame % 11))
+  enc = recordDraw(enc, pAdd, 64, 8 + (frame % 13))
+  ret finishCommandBuffer(enc)
+
+pub fn buildPipelineCommandGraphAudit(): int:
+  let dev = createGpuDevice(1)
+  let sh = compileShaderModule(dev, 0, "@group(0) @binding(0) fn main() {}", "main")
+  let attr0 = VertexAttribute(location = 0, offsetBytes = 0, formatSize = 12)
+  let attr1 = VertexAttribute(location = 1, offsetBytes = 12, formatSize = 8)
+  let layout = VertexLayout(strideBytes = 20, attributes = [attr0, attr1])
+  let depth = DepthStencilState(depthTest = true, depthWrite = true, depthCompareOp = 1)
+  let pOpaque = createRenderPipeline(dev, sh, layout, blendModeOpaque(), depth)
+  let pAlpha = createRenderPipeline(dev, sh, layout, blendModeAlpha(), depth)
+  let pAdd = createRenderPipeline(dev, sh, layout, blendModeAdditive(), depth)
+
+  let cmd = recordFrameCommandBuffer(pOpaque, pAlpha, pAdd, 0)
+  let sub = submitCommandBuffer(dev, cmd)
+  ret cmd.commands[0].vertexCount + cmd.commands[1].vertexCount + cmd.commands[2].vertexCount + layout.strideBytes + sub
+
+pub fn main(): int:
+  let dev = createGpuDevice(1)
+  let sh = compileShaderModule(dev, 0, "@group(0) @binding(0) fn main() {}", "main")
+  let layout = VertexLayout(strideBytes = 20, attributes = [
+    VertexAttribute(location = 0, offsetBytes = 0, formatSize = 12),
+    VertexAttribute(location = 1, offsetBytes = 12, formatSize = 8)
+  ])
+  let depth = DepthStencilState(depthTest = true, depthWrite = true, depthCompareOp = 1)
+  let pOpaque = createRenderPipeline(dev, sh, layout, blendModeOpaque(), depth)
+  let pAlpha = createRenderPipeline(dev, sh, layout, blendModeAlpha(), depth)
+  let pAdd = createRenderPipeline(dev, sh, layout, blendModeAdditive(), depth)
+  let audit = buildPipelineCommandGraphAudit()
+
+  initWindow(1280, 720, "AIPL ex_160: Render Pipeline PSO & Command Graph DAG")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let cmd = recordFrameCommandBuffer(pOpaque, pAlpha, pAdd, frame)
+    let subCount = submitCommandBuffer(dev, cmd)
+    let activePass = ((frame / 7) + (frame % 3)) % 3
+    let barrierOffset = float((frame * 9) % 80)
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_160: GPU RENDER PIPELINE STATE (PSO) & COMMAND GRAPH SUBMISSION", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx/gpu_pipeline + gpu_command: createRenderPipeline | recordDraw | submitCommandBuffer | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Top Panel: 3 Render Pass Nodes in the FrameGraph DAG
+    drawRect(40.0, 96.0, 1200.0, 310.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 1200.0, 310.0, 2.0, rgb(56, 189, 248))
+    drawText("FRAMEGRAPH RENDER PASS DAG & PSO BLEND CONFIGURATIONS (Executing Pass #" + str(activePass) + ")", 60.0, 118.0, 17.0, rgb(125, 211, 252))
+
+    // Pass 0: Opaque Geometry Pass
+    drawRect(65.0, 162.0, 330.0, 210.0, if activePass == 0: rgb(22, 46, 43) else: rgb(30, 41, 59))
+    drawRectOutline(65.0, 162.0, 330.0, 210.0, if activePass == 0: 3.5 else: 2.0, if activePass == 0: rgb(250, 204, 21) else: rgb(34, 197, 94))
+    drawText("PASS 0: OPAQUE G-BUFFER", 85.0, 184.0, 17.0, rgb(134, 239, 172))
+    drawText("Blend Enabled: " + str(pOpaque.blend.enabled), 85.0, 216.0, 15.0, rgb(226, 232, 240))
+    drawText("Depth Test/Write: true / true", 85.0, 244.0, 15.0, rgb(226, 232, 240))
+    drawText("Vertices: " + str(cmd.commands[0].vertexCount) + " x " + str(cmd.commands[0].instanceCount) + " inst", 85.0, 272.0, 15.0, rgb(253, 224, 71))
+    drawText("Stride: " + str(layout.strideBytes) + " B (Pos3 + UV2)", 85.0, 300.0, 14.0, rgb(148, 163, 184))
+    drawRect(85.0, 332.0, float(cmd.commands[0].instanceCount * 22), 14.0, rgb(34, 197, 94))
+
+    drawLine(395.0, 267.0, 475.0, 267.0, rgb(56, 189, 248), 4.0)
+    drawCircle(395.0 + barrierOffset, 267.0, 7.0, rgb(250, 204, 21))
+
+    // Pass 1: Alpha Sorted Pass
+    drawRect(475.0, 162.0, 330.0, 210.0, if activePass == 1: rgb(20, 42, 68) else: rgb(30, 41, 59))
+    drawRectOutline(475.0, 162.0, 330.0, 210.0, if activePass == 1: 3.5 else: 2.0, if activePass == 1: rgb(250, 204, 21) else: rgb(56, 189, 248))
+    drawText("PASS 1: ALPHA TRANSPARENCY", 495.0, 184.0, 17.0, rgb(125, 211, 252))
+    drawText("Blend Src=" + str(pAlpha.blend.srcColor) + " Dst=" + str(pAlpha.blend.dstColor), 495.0, 216.0, 15.0, rgb(226, 232, 240))
+    drawText("Formula: SrcAlpha * S + (1-A) * D", 495.0, 244.0, 14.0, rgb(203, 213, 225))
+    drawText("Vertices: " + str(cmd.commands[1].vertexCount) + " x " + str(cmd.commands[1].instanceCount) + " inst", 495.0, 272.0, 15.0, rgb(253, 224, 71))
+    drawRect(495.0, 332.0, float(cmd.commands[1].instanceCount * 18), 14.0, rgb(56, 189, 248))
+
+    drawLine(805.0, 267.0, 885.0, 267.0, rgb(168, 85, 247), 4.0)
+    drawCircle(805.0 + barrierOffset, 267.0, 7.0, rgb(244, 63, 94))
+
+    // Pass 2: Additive Emissive FX Pass
+    drawRect(885.0, 162.0, 330.0, 210.0, if activePass == 2: rgb(48, 22, 44) else: rgb(30, 41, 59))
+    drawRectOutline(885.0, 162.0, 330.0, 210.0, if activePass == 2: 3.5 else: 2.0, if activePass == 2: rgb(250, 204, 21) else: rgb(244, 63, 94))
+    drawText("PASS 2: ADDITIVE PARTICLES", 905.0, 184.0, 17.0, rgb(253, 164, 175))
+    drawText("Blend Src=" + str(pAdd.blend.srcColor) + " Dst=" + str(pAdd.blend.dstColor), 905.0, 216.0, 15.0, rgb(226, 232, 240))
+    drawText("Formula: SrcAlpha * S + 1 * D", 905.0, 244.0, 14.0, rgb(203, 213, 225))
+    drawText("Vertices: " + str(cmd.commands[2].vertexCount) + " x " + str(cmd.commands[2].instanceCount) + " inst", 905.0, 272.0, 15.0, rgb(253, 224, 71))
+    drawRect(905.0, 332.0, float(cmd.commands[2].instanceCount * 12), 14.0, rgb(244, 63, 94))
+
+    // Bottom Panel: Recorded Command Buffer Queue & GPU Hardware Submission
+    drawRect(40.0, 430.0, 1200.0, 245.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 430.0, 1200.0, 245.0, 2.0, rgb(250, 204, 21))
+    drawText("COMMAND BUFFER RECORDING QUEUE (BufferID=" + str(cmd.bufferId) + ", Submitted Packets=" + str(subCount) + ")", 60.0, 452.0, 18.0, rgb(253, 224, 71))
+
+    mut idx: int = 0
+    while idx < cmd.commands.len():
+      let dc = cmd.commands[idx]
+      let ry = 492.0 + float(idx) * 52.0
+      let totalVerts = dc.vertexCount * dc.instanceCount
+      let barW = float(totalVerts) * 0.08
+      drawRect(60.0, ry, 1160.0, 42.0, if idx == activePass: rgb(23, 37, 84) else: rgb(30, 41, 59))
+      if idx == activePass:
+        drawRectOutline(60.0, ry, 1160.0, 42.0, 1.5, rgb(250, 204, 21))
+      drawCircle(86.0, ry + 21.0, 10.0, if idx == activePass: rgb(250, 204, 21) else: rgb(56, 189, 248))
+      drawText("DrawCmd[" + str(idx) + "] -> PSO #" + str(dc.pipelineId) + " | vertexCount=" + str(dc.vertexCount) + " | instanceCount=" + str(dc.instanceCount) + " | totalVerts=" + str(totalVerts), 112.0, ry + 12.0, 15.0, rgb(248, 250, 252))
+      drawRect(880.0, ry + 12.0, barW, 18.0, if idx == 0: rgb(34, 197, 94) else: if idx == 1: rgb(56, 189, 248) else: rgb(244, 63, 94))
+      idx = idx + 1
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

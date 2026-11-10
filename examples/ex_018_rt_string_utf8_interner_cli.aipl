@@ -1,0 +1,80 @@
+// ============================================================================
+// Example 018: Runtime String Interning, FNV Hashing & Raw UTF-8 CLI
+// Demonstrates: rtStringHash, rtStringCompare, rtStringTableNew,
+//               rtStringTableIntern, rtStrFromRaw, rtStrLen, rtStrEq,
+//               rtIntToStr, and rtStrFree from std/rt/rt_string.
+// ============================================================================
+module Ex018RtStringUtf8InternerCli
+
+import { maxInt } from "../std/prelude"
+import { ptrAlloc, ptrFree, ptrWriteI64 } from "../std/rt/rt_ptr"
+import {
+  rtStringHash,
+  rtStringCompare,
+  rtStringTableNew,
+  rtStringTableIntern,
+  rtStrFromRaw,
+  rtStrLen,
+  rtStrEq,
+  rtIntToStr,
+  rtStrFree
+} from "../std/rt/rt_string"
+
+pub struct InternerStats:
+  tableBuckets: int
+  deduplicated: bool
+  equalCompare: int
+  formattedDigits: int
+
+pub fn verifyStringDeduplication(word64: int): bool:
+  let bufA = ptrAlloc(8)
+  let bufB = ptrAlloc(8)
+  ptrWriteI64(bufA, 0, word64)
+  ptrWriteI64(bufB, 0, word64)
+  let hA = rtStringHash(bufA, 8)
+  let hB = rtStringHash(bufB, 8)
+  mut tbl = rtStringTableNew(16)
+  let idA = rtStringTableIntern(tbl, bufA, 8)
+  let idB = rtStringTableIntern(tbl, bufB, 8)
+  mut sA = rtStrFromRaw(bufA, 4)
+  mut sB = rtStrFromRaw(bufB, 4)
+  let sameStr = rtStrEq(sA, sB)
+  rtStrFree(sA)
+  rtStrFree(sB)
+  ptrFree(bufA)
+  ptrFree(bufB)
+  ret (hA == hB) and (idA == idB) and sameStr
+
+pub fn convertIntViaRtStr(numVal: int): int:
+  mut sNum = rtIntToStr(numVal)
+  let len = rtStrLen(sNum)
+  rtStrFree(sNum)
+  ret len
+
+pub fn classifyInternTableLoad(entries: int, capacity: int): str:
+  let cap = maxInt(capacity, 1)
+  if entries * 100 >= cap * 75:
+    ret "INTERN:NEAR_CAPACITY"
+  ret "INTERN:LOW_LOAD"
+
+pub fn buildInternerStats(buckets: int, sampleNum: int): InternerStats:
+  let bufA = ptrAlloc(8)
+  let bufB = ptrAlloc(8)
+  ptrWriteI64(bufA, 0, 0x4142434445464748)
+  ptrWriteI64(bufB, 0, 0x4142434445464748)
+  let cmp = rtStringCompare(bufA, 8, bufB, 8)
+  ptrFree(bufA)
+  ptrFree(bufB)
+  ret InternerStats(
+    tableBuckets = buckets,
+    deduplicated = verifyStringDeduplication(0x4142434445464748),
+    equalCompare = cmp,
+    formattedDigits = convertIntViaRtStr(sampleNum)
+  )
+
+pub fn main(): int:
+  let st = buildInternerStats(16, 123456)
+  let loadTag = classifyInternTableLoad(4, st.tableBuckets)
+  println("[ex_018_rt_string_utf8_interner_cli] InternerStats(buckets=" + str(st.tableBuckets) + ", dedup=" + str(st.deduplicated) + ", cmp=" + str(st.equalCompare) + ", digits=" + str(st.formattedDigits) + ")")
+  println("[ex_018_rt_string_utf8_interner_cli] load=" + loadTag)
+  ret 0

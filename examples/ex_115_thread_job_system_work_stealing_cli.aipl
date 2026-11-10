@@ -1,0 +1,69 @@
+// ============================================================================
+// Canonical Example 115: Work-Stealing Job System & DAG Scheduler (CLI)
+// Target Profile: CLI | Standard Library Module: std/thread
+// ============================================================================
+module Ex115ThreadJobSystemWorkStealingCli
+
+import {
+  jobSystemNew,
+  jobSystemWorkerCount,
+  jobSubmit,
+  jobSubmitWithPriority,
+  jobDependsOn,
+  jobWait,
+  jobSystemExecuteStealing,
+  jobSystemShutdown,
+  parallelFor,
+  parallelReduce
+} from "../std/thread/thread_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn executeWorkStealingDagAndReduce(): int:
+  mut js = jobSystemNew(4)
+  assert(jobSystemWorkerCount(js) == 4, "4 workers initialized")
+  let parentJob = jobSubmit(js, 100)
+  let childJob = jobSubmitWithPriority(js, 50, 2)
+  let _ = jobDependsOn(js, childJob, parentJob)
+  let _ = jobSystemExecuteStealing(js)
+  let _ = jobWait(js, parentJob)
+  let dagRes = jobWait(js, childJob)
+
+  let pFor = parallelFor(js, 0, 16, 4)
+  assert(pFor.len() == 16, "parallelFor covers 16 items")
+
+  mut nums: [int] = []
+  mut n = 1
+  while n <= 10:
+    nums.push(n)
+    n = n + 1
+  let reducedSum = parallelReduce(js, nums, 0)
+  jobSystemShutdown(js)
+  ret dagRes + reducedSum
+
+pub fn computeParallelForBatchCount(totalItems: int, grainSize: int): int:
+  let g = maxInt(1, grainSize)
+  let n = maxInt(0, totalItems)
+  ret (n + g - 1) / g
+
+pub fn computeWorkStealBalancePct(stolenTasks: int, totalTasks: int): int:
+  let t = maxInt(1, totalTasks)
+  let s = clampInt(stolenTasks, 0, t)
+  ret (s * 100) / t
+
+pub fn describeWorkStealEfficiency(stealPct: int): str:
+  let p = clampInt(stealPct, 0, 100)
+  if p == 0:
+    ret "JOBS:STATIC_LOCAL_ONLY"
+  if p <= 35:
+    ret "JOBS:BALANCED_STEAL_" + str(p) + "PCT"
+  ret "JOBS:CONTENDED_STEAL_" + str(p) + "PCT"
+
+pub fn main(): int:
+  let combined = executeWorkStealingDagAndReduce()
+  let batches = computeParallelForBatchCount(4096, 256)
+  let stealPct = computeWorkStealBalancePct(24, 120)
+  let tag = describeWorkStealEfficiency(stealPct)
+  assert(combined == 205, "DAG + parallelReduce == 205")
+  assert(batches == 16, "4096 / 256 == 16")
+  println(tag + " | batches=" + str(batches) + " | dag+reduce=" + str(combined))
+  ret 0

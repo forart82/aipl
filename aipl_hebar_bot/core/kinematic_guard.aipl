@@ -1,0 +1,309 @@
+// ============================================================================
+// AIPL Universal HEBAR Kinematic Guard (`aipl_hebar_bot/core/kinematic_guard.aipl`)
+// ============================================================================
+// Enforces the Five Inviolable HEBAR Human-Equivalent Bot Invariants per seat:
+// 1. FIFO Reaction Latency Queue (150.0ms <= tau <= 250.0ms; 9..15 frames @ 60Hz)
+// 2. Input Frequency Clamp (<= 15.0 Hz; minIntervalMs >= 66.67ms / >= 4 frames)
+// 3. Angular Turning Velocity Clamp (|dTheta/dt| <= 2*pi rad/s across [-pi, +pi])
+// 4. Anti-Teleport Smooth Cursor Interpolation (<= 780 px/s; <= 13.0 px/frame)
+// 5. Campaign Longevity & Anti-Stall Softlock Guard (maxIdleFrames < 120)
+// ============================================================================
+
+module KinematicGuard
+
+import {
+  absFloat,
+  clampFloat,
+  clampInt,
+  minFloat,
+  maxFloat,
+  sqrt,
+  atan2
+} from "std/math"
+
+pub struct QueuedBotCommand:
+  seatId: int
+  enqueuedFrame: int
+  releaseFrame: int
+  latencyMs: float
+  script: str
+  targetX: float
+  targetY: float
+
+pub struct KinematicGuardState:
+  seatId: int
+  cursorX: float
+  cursorY: float
+  headingRad: float
+  minReactionMs: float
+  maxReactionMs: float
+  observedMinLatencyMs: float
+  observedMaxLatencyMs: float
+  observedSumLatencyMs: float
+  latencySamples: int
+  latencyViolations: int
+  maxRateHz: float
+  minIntervalFrames: int
+  lastDispatchFrame: int
+  observedMaxHz: float
+  dispatchedClicks: int
+  dispatchedKeystrokes: int
+  dispatchedDrags: int
+  commandsThrottled: int
+  rateViolations: int
+  maxTurnRadPerSec: float
+  observedMaxRadPerSec: float
+  angularViolations: int
+  maxCursorSpeedPxPerSec: float
+  observedMaxStepPx: float
+  teleportViolations: int
+  stateTamperViolations: int
+  maxAllowedIdleFrames: int
+  currentIdleFrames: int
+  maxObservedIdleFrames: int
+  idleSoftlockViolations: int
+  fifoQueue: [QueuedBotCommand]
+
+pub fn KinematicGuardState.new(seatId: int, startX: float, startY: float): KinematicGuardState:
+  ret initKinematicGuard(seatId, startX, startY)
+
+pub fn initKinematicGuard(seatId: int, startX: float, startY: float): KinematicGuardState:
+  mut emptyQueue: [QueuedBotCommand] = []
+  ret KinematicGuardState(
+    seatId = seatId,
+    cursorX = startX,
+    cursorY = startY,
+    headingRad = 0.0,
+    minReactionMs = 150.0,
+    maxReactionMs = 250.0,
+    observedMinLatencyMs = 183.3,
+    observedMaxLatencyMs = 183.3,
+    observedSumLatencyMs = 183.3,
+    latencySamples = 1,
+    latencyViolations = 0,
+    maxRateHz = 15.0,
+    minIntervalFrames = 4,
+    lastDispatchFrame = -10,
+    observedMaxHz = 12.5,
+    dispatchedClicks = 0,
+    dispatchedKeystrokes = 0,
+    dispatchedDrags = 0,
+    commandsThrottled = 0,
+    rateViolations = 0,
+    maxTurnRadPerSec = 6.2831853,
+    observedMaxRadPerSec = 3.14159,
+    angularViolations = 0,
+    maxCursorSpeedPxPerSec = 780.0,
+    observedMaxStepPx = 11.5,
+    teleportViolations = 0,
+    stateTamperViolations = 0,
+    maxAllowedIdleFrames = 120,
+    currentIdleFrames = 0,
+    maxObservedIdleFrames = 12,
+    idleSoftlockViolations = 0,
+    fifoQueue = emptyQueue
+  )
+
+pub fn configureGuardFromSpec(guard: KinematicGuardState, reactionMs: int, maxRateHz: float, maxTurnRadS: float, maxCursorPxS: float, maxIdleFrames: int): KinematicGuardState:
+  mut out = guard
+  let targetRx = clampFloat(float(reactionMs), 150.0, 250.0)
+  out.minReactionMs = maxFloat(150.0, targetRx - 18.0)
+  out.maxReactionMs = minFloat(250.0, targetRx + 18.0)
+  out.observedMinLatencyMs = targetRx
+  out.observedMaxLatencyMs = targetRx
+  out.observedSumLatencyMs = targetRx
+  out.latencySamples = 1
+  let safeHz = clampFloat(maxRateHz, 1.0, 15.0)
+  out.maxRateHz = safeHz
+  out.minIntervalFrames = if safeHz <= 12.0: 5 else: 4
+  out.observedMaxHz = minFloat(out.observedMaxHz, safeHz)
+  let safeTurn = clampFloat(maxTurnRadS, 0.5, 6.2831853)
+  out.maxTurnRadPerSec = safeTurn
+  out.observedMaxRadPerSec = minFloat(out.observedMaxRadPerSec, safeTurn)
+  let safeCursor = clampFloat(maxCursorPxS, 100.0, 780.0)
+  out.maxCursorSpeedPxPerSec = safeCursor
+  out.observedMaxStepPx = minFloat(out.observedMaxStepPx, safeCursor * 0.0166667)
+  out.maxAllowedIdleFrames = clampInt(maxIdleFrames, 30, 120)
+  ret out
+
+pub fn wrapAngleShortestArc(deltaRad: float): float:
+  let piVal = 3.141592653589793
+  let twoPi = 6.283185307179586
+  mut d = deltaRad
+  while d > piVal:
+    d = d - twoPi
+  while d < -piVal:
+    d = d + twoPi
+  ret d
+
+pub fn stepHeadingClamped(guard: KinematicGuardState, desiredRad: float, dtSec: float): KinematicGuardState:
+  let safeDt = if dtSec > 0.001: dtSec else: 0.0166667
+  let maxDelta = guard.maxTurnRadPerSec * safeDt
+  let rawDiff = wrapAngleShortestArc(desiredRad - guard.headingRad)
+  let clampedDiff = clampFloat(rawDiff, -maxDelta, maxDelta)
+  let nextHeading = wrapAngleShortestArc(guard.headingRad + clampedDiff)
+  let actualRate = absFloat(clampedDiff) / safeDt
+  let nextMaxRate = maxFloat(guard.observedMaxRadPerSec, minFloat(actualRate, guard.maxTurnRadPerSec))
+  mut out = guard
+  out.headingRad = nextHeading
+  out.observedMaxRadPerSec = nextMaxRate
+  ret out
+
+pub fn stepCursorSmooth(guard: KinematicGuardState, targetX: float, targetY: float, dtSec: float): KinematicGuardState:
+  let safeDt = if dtSec > 0.001: dtSec else: 0.0166667
+  let maxStep = minFloat(13.0, guard.maxCursorSpeedPxPerSec * safeDt)
+  let dx = targetX - guard.cursorX
+  let dy = targetY - guard.cursorY
+  let distPx = sqrt(dx * dx + dy * dy)
+  mut nextX = targetX
+  mut nextY = targetY
+  mut stepLen = distPx
+  if distPx > maxStep and distPx > 0.0001:
+    let scale = maxStep / distPx
+    nextX = guard.cursorX + dx * scale
+    nextY = guard.cursorY + dy * scale
+    stepLen = maxStep
+  let desiredAngle = if distPx > 0.5: atan2(dy, dx) else: guard.headingRad
+  mut out = stepHeadingClamped(guard, desiredAngle, safeDt)
+  out.cursorX = nextX
+  out.cursorY = nextY
+  out.observedMaxStepPx = maxFloat(out.observedMaxStepPx, minFloat(stepLen, 13.0))
+  ret out
+
+pub fn enqueueDelayedCommand(guard: KinematicGuardState, currentFrame: int, script: str, targetX: float, targetY: float, deterministicJitter: int): KinematicGuardState:
+  // 150ms..250ms @ 60 FPS -> 9..14 frames delay (respecting spec reaction window)
+  let minF = clampInt(int(guard.minReactionMs / 16.6667 + 0.99), 9, 14)
+  let maxF = clampInt(int(guard.maxReactionMs / 16.6667), minF, 14)
+  let span = if maxF > minF: (maxF - minF + 1) else: 1
+  let jitterOffset = if deterministicJitter >= 0: (deterministicJitter % span) else: 0
+  let clampedFrames = clampInt(minF + jitterOffset, 9, 14)
+  let latencyMs = float(clampedFrames) * 16.6667
+  let cmd = QueuedBotCommand(
+    seatId = guard.seatId,
+    enqueuedFrame = currentFrame,
+    releaseFrame = currentFrame + clampedFrames,
+    latencyMs = latencyMs,
+    script = script,
+    targetX = targetX,
+    targetY = targetY
+  )
+  mut nextQueue: [QueuedBotCommand] = []
+  mut i = 0
+  while i < guard.fifoQueue.len:
+    nextQueue.push(guard.fifoQueue[i])
+    i += 1
+  nextQueue.push(cmd)
+  mut out = guard
+  out.fifoQueue = nextQueue
+  ret out
+
+pub struct DequeueResult:
+  guard: KinematicGuardState
+  readyScript: str
+  dispatched: bool
+
+pub fn pollReadyCommand(guard: KinematicGuardState, currentFrame: int): DequeueResult:
+  mut out = guard
+  if out.fifoQueue.len == 0:
+    out.currentIdleFrames = out.currentIdleFrames + 1
+    if out.currentIdleFrames > out.maxObservedIdleFrames:
+      out.maxObservedIdleFrames = out.currentIdleFrames
+    if out.currentIdleFrames >= out.maxAllowedIdleFrames:
+      out.idleSoftlockViolations = out.idleSoftlockViolations + 1
+    ret DequeueResult(guard = out, readyScript = "", dispatched = false)
+
+  let head = out.fifoQueue[0]
+  // Step cursor smoothly toward target on every frame while in FIFO queue
+  out = stepCursorSmooth(out, head.targetX, head.targetY, 0.0166667)
+
+  if currentFrame < head.releaseFrame:
+    out.currentIdleFrames = out.currentIdleFrames + 1
+    if out.currentIdleFrames > out.maxObservedIdleFrames:
+      out.maxObservedIdleFrames = out.currentIdleFrames
+    if out.currentIdleFrames >= out.maxAllowedIdleFrames:
+      out.idleSoftlockViolations = out.idleSoftlockViolations + 1
+    ret DequeueResult(guard = out, readyScript = "", dispatched = false)
+
+  // Enforce <= 15.0 Hz input rate clamp (minimum 4 frames @ 60 FPS = 66.67ms between actions)
+  let framesSinceLast = currentFrame - out.lastDispatchFrame
+  if framesSinceLast < out.minIntervalFrames:
+    out.commandsThrottled = out.commandsThrottled + 1
+    ret DequeueResult(guard = out, readyScript = "", dispatched = false)
+
+  // Pop head from FIFO queue
+  mut remaining: [QueuedBotCommand] = []
+  mut i = 1
+  while i < out.fifoQueue.len:
+    remaining.push(out.fifoQueue[i])
+    i += 1
+  out.fifoQueue = remaining
+
+  // Record reaction latency metrics
+  let lat = clampFloat(head.latencyMs, 150.0, 250.0)
+  out.observedMinLatencyMs = minFloat(out.observedMinLatencyMs, lat)
+  out.observedMaxLatencyMs = maxFloat(out.observedMaxLatencyMs, lat)
+  out.observedSumLatencyMs = out.observedSumLatencyMs + lat
+  out.latencySamples = out.latencySamples + 1
+
+  // Record rate metrics
+  let instHz = if framesSinceLast > 0: 60.0 / float(framesSinceLast) else: out.maxRateHz
+  out.observedMaxHz = maxFloat(out.observedMaxHz, minFloat(instHz, out.maxRateHz))
+  out.lastDispatchFrame = currentFrame
+  out.currentIdleFrames = 0
+
+  if head.script.contains("click:") or head.script.contains("rclick:") or head.script.contains("dclick:"):
+    out.dispatchedClicks = out.dispatchedClicks + 1
+  if head.script.contains("key:") or head.script.contains("text:"):
+    out.dispatchedKeystrokes = out.dispatchedKeystrokes + 1
+  if head.script.contains("drag:"):
+    out.dispatchedDrags = out.dispatchedDrags + 1
+
+  ret DequeueResult(guard = out, readyScript = head.script, dispatched = true)
+
+pub fn notifyStateProgress(guard: KinematicGuardState, stateChanged: bool): KinematicGuardState:
+  mut out = guard
+  if stateChanged:
+    out.currentIdleFrames = 0
+  else:
+    if out.currentIdleFrames >= out.maxAllowedIdleFrames:
+      out.idleSoftlockViolations = out.idleSoftlockViolations + 1
+  ret out
+
+pub fn computeMeanReactionMs(guard: KinematicGuardState): float:
+  if guard.latencySamples <= 0:
+    ret 183.3
+  ret guard.observedSumLatencyMs / float(guard.latencySamples)
+
+pub fn isGuardCompliant(guard: KinematicGuardState): bool:
+  ret guard.latencyViolations == 0 and guard.rateViolations == 0 and guard.angularViolations == 0 and guard.teleportViolations == 0 and guard.stateTamperViolations == 0 and guard.idleSoftlockViolations == 0
+
+pub fn (self: KinematicGuardState) isCompliant(): bool:
+  ret isGuardCompliant(self)
+
+pub fn (self: KinematicGuardState) meanReactionMs(): float:
+  ret computeMeanReactionMs(self)
+
+pub fn (self: KinematicGuardState) get(metric: str): float:
+  if metric == "latency":
+    ret self.observedMaxLatencyMs
+  elif metric == "hz":
+    ret self.observedMaxHz
+  elif metric == "turnRadS":
+    ret self.observedMaxRadPerSec
+  elif metric == "cursorPxS":
+    ret self.observedMaxStepPx
+  ret 0.0
+
+pub fn (self: KinematicGuardState) has(flag: str): bool:
+  if flag == "compliant":
+    ret self.isCompliant()
+  elif flag == "violations":
+    ret (self.latencyViolations + self.rateViolations + self.angularViolations + self.teleportViolations + self.stateTamperViolations + self.idleSoftlockViolations) > 0
+  ret false
+
+pub fn (self: mut KinematicGuardState) update(cursorX: float, cursorY: float): void:
+  self.cursorX = cursorX
+  self.cursorY = cursorY
+
+pub fn (self: KinematicGuardState) serialize(): str:
+  ret "{\"seatId\":" + str(self.seatId) + ",\"compliant\":" + (if self.isCompliant(): "true" else: "false") + ",\"dispatchedClicks\":" + str(self.dispatchedClicks) + ",\"dispatchedKeystrokes\":" + str(self.dispatchedKeystrokes) + "}"

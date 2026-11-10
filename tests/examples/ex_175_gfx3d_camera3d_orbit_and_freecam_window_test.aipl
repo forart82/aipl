@@ -1,0 +1,50 @@
+module Ex175Gfx3dCamera3dOrbitAndFreecamWindowTest
+
+import {
+  buildCamera3dOrbitAudit, stepOrbitControllerFrame
+} from "../../examples/ex_175_gfx3d_camera3d_orbit_and_freecam_window"
+import { Vec3 } from "../../std/math/vec_math"
+import {
+  OrbitController3D, createPerspectiveCamera3D, createOrthographicCamera3D,
+  computeViewMatrix, computeProjectionMatrix, updateOrbitController
+} from "../../std/gfx3d/camera3d"
+
+pub fn test_gfx3d_camera3d_orbit_and_freecam(): void:
+  let pos = Vec3(x = 0.0, y = 5.0, z = 12.0)
+  let target = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  let perspCam = createPerspectiveCamera3D(pos, target, 60.0, 16.0 / 9.0, 0.1, 1000.0)
+  let viewM = computeViewMatrix(perspCam)
+  let projM = computeProjectionMatrix(perspCam)
+  assert(viewM.m00 != 0.0 and projM.m11 > 1.0, "Perspective View and Projection matrices initialized")
+
+  let orthoCam = createOrthographicCamera3D(pos, target, 20.0, 10.0, 0.1, 500.0)
+  let orthoProj = computeProjectionMatrix(orthoCam)
+  assert(orthoProj.m00 > 0.0 and orthoProj.m11 > 0.0, "Orthographic Projection matrix initialized")
+
+  let ctrl = OrbitController3D(
+    target = target,
+    yawRad = 0.0,
+    pitchRad = 0.2,
+    distance = 12.0,
+    minDistance = 3.0,
+    maxDistance = 40.0,
+    minPitchRad = -1.2,
+    maxPitchRad = 1.2
+  )
+  let ctrlNext = updateOrbitController(ctrl, 0.5, 2.0, -25.0)
+  assert(ctrlNext.yawRad == 0.5, "Yaw updated by +0.5 rad")
+  assert(ctrlNext.pitchRad == 1.2, "Pitch clamped at maxPitchRad=1.2")
+  assert(ctrlNext.distance == 3.0, "Distance clamped at minDistance=3.0")
+  assert(buildCamera3dOrbitAudit() == 200, "buildCamera3dOrbitAudit returns 50 + 120 + 30 == 200")
+
+  let c0 = stepOrbitControllerFrame(ctrl, 0)
+  let c1 = stepOrbitControllerFrame(c0, 1)
+  let c20 = stepOrbitControllerFrame(c1, 20)
+  let c100 = stepOrbitControllerFrame(c20, 100)
+  assert(c0.yawRad < c1.yawRad and c1.yawRad < c20.yawRad and c20.yawRad < c100.yawRad, "Orbit yaw advances across frames 0, 1, 20, 100")
+  assert(c0.pitchRad != c1.pitchRad and c20.distance >= 3.0 and c100.distance <= 40.0, "Orbit pitch and distance stay within clamped bounds")
+
+pub fn main(): int:
+  test_gfx3d_camera3d_orbit_and_freecam()
+  println("PASS: ex_175_gfx3d_camera3d_orbit_and_freecam_window_test")
+  ret 0

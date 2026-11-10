@@ -1,0 +1,153 @@
+// ============================================================================
+// Canonical Example 138: Gamepad Dual-Stick Deadzone Radar & Rumble (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/input/gamepad
+// ============================================================================
+module Ex138InputGamepadDualStickRadarWindow
+
+import {
+  GamepadState,
+  StickDeadzoneConfig,
+  createGamepadState,
+  updateGamepadStick,
+  updateGamepadTrigger,
+  setGamepadRumble,
+  applyRadialDeadzone,
+  applyAxialDeadzone,
+  isGamepadButtonDown,
+  DEADZONE_RADIAL,
+  GAMEPAD_A
+} from "../std/input/gamepad.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub fn verifyGamepadRadialVsAxialDeadzone(): int:
+  let stickZero = applyRadialDeadzone(0.12, 0.12, 0.2, 1.0)
+  if stickZero.clampedMagnitude != 0.0:
+    ret 0
+  let axialStick = applyAxialDeadzone(0.18, 0.18, 0.2)
+  let radialStick = applyRadialDeadzone(0.18, 0.18, 0.2, 1.0)
+  if axialStick.clampedMagnitude != 0.0 or radialStick.clampedMagnitude <= 0.05:
+    ret 0
+
+  mut pad = createGamepadState(0)
+  let cfg = StickDeadzoneConfig(mode = DEADZONE_RADIAL, innerDeadzone = 0.2, outerThreshold = 1.0)
+  pad = updateGamepadStick(pad, true, 0.5, 0.0, cfg)
+  pad = updateGamepadTrigger(pad, true, 0.8)
+  pad = setGamepadRumble(pad, 0.5, 0.75)
+  pad.buttonMask = 1 << GAMEPAD_A
+  if not isGamepadButtonDown(pad, GAMEPAD_A):
+    ret 0
+  ret 1
+
+pub fn computeRumbleMotorDutyPermille(leftPermille: int, rightPermille: int): int:
+  let l = clampInt(leftPermille, 0, 1000)
+  let r = clampInt(rightPermille, 0, 1000)
+  ret (l + r) / 2
+
+pub fn describeStickDeadzoneMode(modeId: int): str:
+  if modeId == 1:
+    ret "GAMEPAD:RADIAL_DEADZONE_SMOOTH"
+  ret "GAMEPAD:AXIAL_DEADZONE_SNAP"
+
+pub fn stepGamepadFrame(frameIndex: int): GamepadState:
+  mut pad = createGamepadState(0)
+  let cfg = StickDeadzoneConfig(mode = DEADZONE_RADIAL, innerDeadzone = 0.2, outerThreshold = 1.0)
+  let rawLx = float(((frameIndex * 7) % 180) - 90) / 100.0
+  let rawLy = float(((frameIndex * 11) % 180) - 90) / 100.0
+  let rawRx = float(((frameIndex * 5 + 45) % 180) - 90) / 100.0
+  let rawRy = float(((frameIndex * 9 + 30) % 180) - 90) / 100.0
+  let rawTrig = float(20 + ((frameIndex * 4) % 75)) / 100.0
+  let lowRumble = float(30 + ((frameIndex * 3) % 67)) / 100.0
+  let highRumble = float(40 + ((frameIndex * 5) % 55)) / 100.0
+  pad = updateGamepadStick(pad, true, rawLx, rawLy, cfg)
+  pad = updateGamepadStick(pad, false, rawRx, rawRy, cfg)
+  pad = updateGamepadTrigger(pad, true, rawTrig)
+  pad = setGamepadRumble(pad, lowRumble, highRumble)
+  ret pad
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let pad = stepGamepadFrame(frameIndex)
+  let lPermille = int(pad.rumbleLeftMotor * 1000.0)
+  let rPermille = int(pad.rumbleRightMotor * 1000.0)
+  let magBonus = int(pad.leftStick.clampedMagnitude * 100.0) + int(dt * 0.0)
+  ret computeRumbleMotorDutyPermille(lPermille, rPermille) + magBonus
+
+pub fn renderGamepadRadarScene(frameIndex: int): void:
+  let cfg = StickDeadzoneConfig(mode = DEADZONE_RADIAL, innerDeadzone = 0.2, outerThreshold = 1.0)
+  let pad = stepGamepadFrame(frameIndex)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_138 // GAMEPAD DUAL-STICK RADIAL DEADZONE RADAR & HAPTIC RUMBLE", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Left Analog Stick Radar Gate
+  let lcx = 280.0
+  let lcy = 340.0
+  let gateR = 160.0 * cfg.outerThreshold
+  drawCircle(lcx, lcy, gateR, rgb(15, 23, 42))
+  drawCircleOutline(lcx, lcy, gateR, 2.5, rgb(56, 189, 248))
+  drawCircleOutline(lcx, lcy, gateR * cfg.innerDeadzone, 2.0, rgb(244, 63, 94))
+  drawLine(lcx - gateR, lcy, lcx + gateR, lcy, rgb(30, 41, 59), 1.5)
+  drawLine(lcx, lcy - gateR, lcx, lcy + gateR, rgb(30, 41, 59), 1.5)
+  let lx = lcx + pad.leftStick.x * gateR
+  let ly = lcy + pad.leftStick.y * gateR
+  drawLine(lcx, lcy, lx, ly, rgb(34, 197, 94), 3.5)
+  drawCircle(lx, ly, 8.0 + pad.leftStick.clampedMagnitude * 6.0, rgb(74, 222, 128))
+  drawText("LEFT STICK (RADIAL 20% DZ)", lcx - 115.0, lcy + gateR + 24.0, 16.0, rgb(56, 189, 248))
+
+  // Right Analog Stick Radar Gate
+  let rcx = 680.0
+  let rcy = 340.0
+  drawCircle(rcx, rcy, gateR, rgb(15, 23, 42))
+  drawCircleOutline(rcx, rcy, gateR, 2.5, rgb(168, 85, 247))
+  drawCircleOutline(rcx, rcy, gateR * cfg.innerDeadzone, 2.0, rgb(244, 63, 94))
+  drawLine(rcx - gateR, rcy, rcx + gateR, rcy, rgb(30, 41, 59), 1.5)
+  drawLine(rcx, rcy - gateR, rcx, rcy + gateR, rgb(30, 41, 59), 1.5)
+  let rxStick = rcx + pad.rightStick.x * gateR
+  let ryStick = rcy + pad.rightStick.y * gateR
+  drawLine(rcx, rcy, rxStick, ryStick, rgb(192, 132, 252), 3.5)
+  drawCircle(rxStick, ryStick, 8.0 + pad.rightStick.clampedMagnitude * 6.0, rgb(216, 180, 254))
+  drawText("RIGHT STICK (AIM VECTOR)", rcx - 110.0, rcy + gateR + 24.0, 16.0, rgb(216, 180, 254))
+
+  // Right Telemetry & Haptic Rumble Panel
+  let px = 910.0
+  drawRect(px, 110.0, 326.0, 540.0, rgb(16, 24, 42))
+  drawRectOutline(px, 110.0, 326.0, 540.0, 2.0, rgb(71, 85, 105))
+  drawText("HAPTIC & TRIGGER HUD", px + 24.0, 142.0, 18.0, rgb(74, 222, 128))
+  drawText(describeStickDeadzoneMode(cfg.mode), px + 24.0, 182.0, 14.0, rgb(56, 189, 248))
+  drawText("Left Trigger (L2): " + toString(int(pad.leftTrigger * 100.0)) + "%", px + 24.0, 226.0, 15.0, rgb(250, 204, 21))
+  drawRect(px + 24.0, 252.0, 278.0 * pad.leftTrigger, 20.0, rgb(250, 204, 21))
+  drawRectOutline(px + 24.0, 252.0, 278.0, 20.0, 1.5, rgb(100, 116, 139))
+
+  drawText("Low-Freq Rumble: " + toString(int(pad.rumbleLeftMotor * 1000.0)) + " pm", px + 24.0, 304.0, 15.0, rgb(244, 63, 94))
+  drawRect(px + 24.0, 330.0, 278.0 * pad.rumbleLeftMotor, 20.0, rgb(244, 63, 94))
+  drawText("High-Freq Rumble: " + toString(int(pad.rumbleRightMotor * 1000.0)) + " pm", px + 24.0, 378.0, 15.0, rgb(168, 85, 247))
+  drawRect(px + 24.0, 404.0, 278.0 * pad.rumbleRightMotor, 20.0, rgb(168, 85, 247))
+
+pub fn main(): int:
+  let ok = verifyGamepadRadialVsAxialDeadzone()
+  assert(ok == 1, "gamepad radial deadzone verified")
+  initWindow(1280, 720, "AIPL ex_138 - Gamepad Dual-Stick Deadzone Radar & Rumble")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderGamepadRadarScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

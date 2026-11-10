@@ -1,0 +1,107 @@
+/// # Module: `std/fs/file` (`FsFile`)
+///
+/// ## Purpose & Domain Scope
+/// File open options (`OpenOptions`), in-memory/virtual file handles (`VfsFile`),
+/// exclusive advisory locking, truncation, and atomic write-rename-fsync simulation.
+module FsFile
+
+import "path.aipl"
+import "metadata.aipl"
+
+pub struct OpenOptions:
+  read: bool = true
+  write: bool = false
+  append: bool = false
+  truncate: bool = false
+  create: bool = false
+  createNew: bool = false
+
+pub struct VfsFile:
+  path: str
+  mut content: str
+  mut bytesContent: [int]
+  mut cursor: int = 0
+  mut isLocked: bool = false
+  mut metadata: FsMetadata
+
+fn textToIntBytes(text: str): [int]:
+  let raw = text.toBytes()
+  mut out: [int] = []
+  mut i = 0
+  while i < raw.len():
+    out.push(raw[i] & 255)
+    i = i + 1
+  ret out
+
+pub fn fsOpenOptionsDefault(): OpenOptions:
+  ret OpenOptions(read: true, write: false, append: false, truncate: false, create: false, createNew: false)
+
+pub fn fsOpenReadOnly(): OpenOptions:
+  ret OpenOptions(read: true, write: false, append: false, truncate: false, create: false, createNew: false)
+
+pub fn fsOpenWriteCreate(): OpenOptions:
+  ret OpenOptions(read: false, write: true, append: false, truncate: true, create: true, createNew: false)
+
+pub fn fsOpenAppend(): OpenOptions:
+  ret OpenOptions(read: false, write: true, append: true, truncate: false, create: true, createNew: false)
+
+pub fn fsFileCreateInMem(path: str, initialText: str): VfsFile:
+  let normPath = pathNormalize(path)
+  let bArr = textToIntBytes(initialText)
+  let meta = fsMetaNewFile(normPath, bArr.len(), 1700000000000)
+  ret VfsFile(
+    path: normPath,
+    content: initialText,
+    bytesContent: bArr,
+    cursor: 0,
+    isLocked: false,
+    metadata: meta
+  )
+
+pub fn fsFileReadAllText(f: VfsFile): str:
+  ret f.content
+
+pub fn fsFileReadAllBytes(f: VfsFile): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < f.bytesContent.len():
+    out.push(f.bytesContent[i])
+    i = i + 1
+  ret out
+
+pub fn fsFileWriteText(mut f: VfsFile, text: str): VfsFile:
+  f.content = text
+  f.bytesContent = textToIntBytes(text)
+  f.cursor = f.bytesContent.len()
+  f.metadata = fsMetaNewFile(f.path, f.bytesContent.len(), f.metadata.modifiedUnixMs + 1)
+  ret f
+
+pub fn fsFileAppendText(mut f: VfsFile, text: str): VfsFile:
+  let combined = f.content + text
+  ret fsFileWriteText(f, combined)
+
+pub fn fsFileTruncate(mut f: VfsFile, newLen: int): VfsFile:
+  if newLen <= 0:
+    ret fsFileWriteText(f, "")
+  if newLen >= f.content.len():
+    ret f
+  let sliced = f.content.slice(0, newLen)
+  ret fsFileWriteText(f, sliced)
+
+pub fn fsFileLockExclusive(mut f: VfsFile): Result[VfsFile, str]:
+  if f.isLocked:
+    ret Err("fsFileLockExclusive: file already locked: " + f.path)
+  f.isLocked = true
+  ret Ok(f)
+
+pub fn fsFileUnlock(mut f: VfsFile): VfsFile:
+  f.isLocked = false
+  ret f
+
+pub fn fsAtomicWriteSim(targetPath: str, payload: str): Result[VfsFile, str]:
+  let norm = pathNormalize(targetPath)
+  if norm.len() == 0 or norm == "." or norm == "/":
+    ret Err("fsAtomicWriteSim: invalid target path")
+  let tmpFile = fsFileCreateInMem(norm + ".tmp", payload)
+  let finalFile = fsFileCreateInMem(norm, tmpFile.content)
+  ret Ok(finalFile)

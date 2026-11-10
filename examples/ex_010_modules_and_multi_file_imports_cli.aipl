@@ -1,0 +1,55 @@
+// ============================================================================
+// Example 010: Modules, DAG Layer Imports & std_root Reflection CLI
+// Demonstrates: Selective module imports, std/std_root DAG layer introspection
+//               (stdlibVersionString, stdlibDomainCount, stdlibLayerCount,
+//               stdlibDomainLayer, stdlibDomainBarrelPath, stdlibCanDomainImport).
+// ============================================================================
+module Ex010ModulesAndMultiFileImportsCli
+
+import {
+  stdlibVersionString,
+  stdlibDomainCount,
+  stdlibLayerCount,
+  stdlibIsCanonicalDomain,
+  stdlibDomainLayer,
+  stdlibDomainBarrelPath,
+  stdlibCanDomainImport
+} from "../std/std_root"
+
+pub struct ModuleDagSummary:
+  version: str
+  totalDomains: int
+  totalLayers: int
+  layerDelta: int
+  verdict: str
+
+pub fn resolveDomainLayerDelta(fromDomain: str, toDomain: str): int:
+  let srcLayer = stdlibDomainLayer(fromDomain)
+  let dstLayer = stdlibDomainLayer(toDomain)
+  ret srcLayer - dstLayer
+
+pub fn resolveBarrelImportPath(domainName: str): str:
+  ret stdlibDomainBarrelPath(domainName)
+
+pub fn verifyImportDirection(fromDomain: str, toDomain: str): str:
+  if not stdlibIsCanonicalDomain(fromDomain) or not stdlibIsCanonicalDomain(toDomain):
+    ret "DAG:UNKNOWN_DOMAIN"
+  if stdlibCanDomainImport(fromDomain, toDomain):
+    ret "DAG:ALLOWED_DOWNWARD"
+  ret "DAG:FORBIDDEN_UPWARD"
+
+pub fn buildModuleDagSummary(fromDomain: str, toDomain: str): ModuleDagSummary:
+  ret ModuleDagSummary(
+    version = stdlibVersionString(),
+    totalDomains = stdlibDomainCount(),
+    totalLayers = stdlibLayerCount(),
+    layerDelta = resolveDomainLayerDelta(fromDomain, toDomain),
+    verdict = verifyImportDirection(fromDomain, toDomain)
+  )
+
+pub fn main(): int:
+  let summary = buildModuleDagSummary("gfx3d", "math")
+  let barrel = resolveBarrelImportPath("math")
+  println("[ex_010_modules_and_multi_file_imports_cli] stdlib v" + summary.version + " (" + str(summary.totalDomains) + " domains across " + str(summary.totalLayers) + " layers)")
+  println("[ex_010_modules_and_multi_file_imports_cli] gfx3d -> math (" + barrel + ") delta=" + str(summary.layerDelta) + " | " + summary.verdict)
+  ret 0

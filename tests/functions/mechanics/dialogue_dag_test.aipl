@@ -1,0 +1,290 @@
+module tests.functions.mechanics.dialogue_dag_test
+
+import * from "std/mechanics/dialogue_dag"
+import { minInt, maxInt, clampInt, maxFloat, clampFloat } from "std/math/consts"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_dialogue_dag_dialogueGraphNew_1(): int:
+  let arg_startNodeId = 4
+  let edge_startNodeId = 1
+  let resNom = dialogueGraphNew(arg_startNodeId)
+  let resEdge = dialogueGraphNew(edge_startNodeId)
+  assertEqInt(resNom.startNodeId, 4, "dialogueGraphNew nominal resNom.startNodeId == 4")
+  assertEqInt(resEdge.startNodeId, 1, "dialogueGraphNew boundary resEdge.startNodeId == 1")
+  ret 0
+
+pub fn test_dialogue_dag_dialogueAddNode_2(): int:
+  let arg_graph = DialogueGraph(startNodeId = 4, nodes = [])
+  let edge_graph = DialogueGraph(startNodeId = 1, nodes = [])
+  let arg_node = DialogueNode(nodeId = 4, speaker = "test", content = "test", choices = [])
+  let edge_node = DialogueNode(nodeId = 1, speaker = "a", content = "a", choices = [])
+  dialogueAddNode(arg_graph, arg_node)
+  dialogueAddNode(edge_graph, edge_node)
+  assertEqInt(arg_graph.nodes.len(), 1, "dialogueAddNode nominal arg_graph.nodes.len() == 1")
+  assertEqInt(edge_graph.nodes.len(), 1, "dialogueAddNode boundary edge_graph.nodes.len() == 1")
+  ret 0
+
+pub fn test_dialogue_dag_dialogueNodeCount_3(): int:
+  let arg_graph = DialogueGraph(startNodeId = 4, nodes = [])
+  let edge_graph = DialogueGraph(startNodeId = 1, nodes = [])
+  let resNom = dialogueNodeCount(arg_graph)
+  let resEdge = dialogueNodeCount(edge_graph)
+  assertEqInt(resNom, 0, "dialogueNodeCount nominal resNom == 0")
+  assertEqInt(resEdge, 0, "dialogueNodeCount boundary resEdge == 0")
+  ret 0
+
+pub fn test_dialogue_dag_dialogueFindNode_4(): int:
+  let arg_graph = DialogueGraph(startNodeId = 4, nodes = [])
+  let edge_graph = DialogueGraph(startNodeId = 1, nodes = [])
+  let arg_nodeId = 4
+  let edge_nodeId = 1
+  let resNom = dialogueFindNode(arg_graph, arg_nodeId)
+  let resEdge = dialogueFindNode(edge_graph, edge_nodeId)
+  assert(resNom.isSome() == false, "dialogueFindNode nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "dialogueFindNode boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_dialogue_dag_hasFlagInSlice_5(): int:
+  let arg_flags = ["test"]
+  let edge_flags = []
+  let arg_target = "test"
+  let edge_target = "a"
+  let resNom = hasFlagInSlice(arg_flags, arg_target)
+  let resEdge = hasFlagInSlice(edge_flags, edge_target)
+  assert(resNom == true, "hasFlagInSlice nominal resNom == true")
+  assert(resEdge == false, "hasFlagInSlice boundary resEdge == false")
+  ret 0
+
+pub fn test_dialogue_dag_dialogueGetAvailableChoices_6(): int:
+  let arg_graph = DialogueGraph(startNodeId = 4, nodes = [])
+  let edge_graph = DialogueGraph(startNodeId = 1, nodes = [])
+  let arg_nodeId = 4
+  let edge_nodeId = 1
+  let arg_activeFlags = ["test"]
+  let edge_activeFlags = []
+  let resNom = dialogueGetAvailableChoices(arg_graph, arg_nodeId, arg_activeFlags)
+  let resEdge = dialogueGetAvailableChoices(edge_graph, edge_nodeId, edge_activeFlags)
+  assertEqInt(resNom.len(), 0, "dialogueGetAvailableChoices nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "dialogueGetAvailableChoices boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dialogue_dag_dialogueAdvanceChoice_7(): int:
+  let arg_graph = DialogueGraph(startNodeId = 4, nodes = [])
+  let edge_graph = DialogueGraph(startNodeId = 1, nodes = [])
+  let arg_currentNodeId = 4
+  let edge_currentNodeId = 1
+  let arg_choiceId = 1
+  let edge_choiceId = 0
+  let arg_activeFlags = ["test"]
+  let edge_activeFlags = []
+  let resNom = dialogueAdvanceChoice(arg_graph, arg_currentNodeId, arg_choiceId, arg_activeFlags)
+  let resEdge = dialogueAdvanceChoice(edge_graph, edge_currentNodeId, edge_choiceId, edge_activeFlags)
+  assert(resNom.isSome() == false, "dialogueAdvanceChoice nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "dialogueAdvanceChoice boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_dialogue_dag_objectiveDagNew_8(): int:
+  let resNom = objectiveDagNew()
+  let resEdge = objectiveDagNew()
+  assertEqInt(resNom.links.len(), 0, "objectiveDagNew nominal resNom.links.len() == 0")
+  assertEqInt(resEdge.links.len(), 0, "objectiveDagNew boundary resEdge.links.len() == 0")
+  ret 0
+
+pub fn test_dialogue_dag_objectiveAddPrerequisite_9(): int:
+  let arg_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let edge_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let arg_task = "test"
+  let edge_task = "a"
+  let arg_requiredPrereq = "test"
+  let edge_requiredPrereq = "a"
+  objectiveAddPrerequisite(arg_dag, arg_task, arg_requiredPrereq)
+  objectiveAddPrerequisite(edge_dag, edge_task, edge_requiredPrereq)
+  assertEqInt(arg_dag.links.len(), 1, "objectiveAddPrerequisite nominal arg_dag.links.len() == 1")
+  assertEqInt(edge_dag.links.len(), 1, "objectiveAddPrerequisite boundary edge_dag.links.len() == 1")
+  ret 0
+
+pub fn test_dialogue_dag_objectiveIsUnlocked_10(): int:
+  let arg_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let edge_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let arg_task = "test"
+  let edge_task = "a"
+  let resNom = objectiveIsUnlocked(arg_dag, arg_task)
+  let resEdge = objectiveIsUnlocked(edge_dag, edge_task)
+  assert(resNom == true, "objectiveIsUnlocked nominal resNom == true")
+  assert(resEdge == true, "objectiveIsUnlocked boundary resEdge == true")
+  ret 0
+
+pub fn test_dialogue_dag_objectiveComplete_11(): int:
+  let arg_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let edge_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let arg_task = "test"
+  let edge_task = "a"
+  objectiveComplete(arg_dag, arg_task)
+  objectiveComplete(edge_dag, edge_task)
+  assertEqInt(arg_dag.completedTasks.len(), 1, "objectiveComplete nominal arg_dag.completedTasks.len() == 1")
+  assertEqInt(edge_dag.completedTasks.len(), 1, "objectiveComplete boundary edge_dag.completedTasks.len() == 1")
+  ret 0
+
+pub fn test_dialogue_dag_objectiveIsCompleted_12(): int:
+  let arg_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let edge_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let arg_task = "test"
+  let edge_task = "a"
+  let resNom = objectiveIsCompleted(arg_dag, arg_task)
+  let resEdge = objectiveIsCompleted(edge_dag, edge_task)
+  assert(resNom == false, "objectiveIsCompleted nominal resNom == false")
+  assert(resEdge == false, "objectiveIsCompleted boundary resEdge == false")
+  ret 0
+
+pub fn test_dialogue_dag_objectiveGetPrerequisites_13(): int:
+  let arg_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let edge_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let arg_task = "test"
+  let edge_task = "a"
+  let resNom = objectiveGetPrerequisites(arg_dag, arg_task)
+  let resEdge = objectiveGetPrerequisites(edge_dag, edge_task)
+  assertEqInt(resNom.len(), 0, "objectiveGetPrerequisites nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "objectiveGetPrerequisites boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dialogue_dag_objectiveGetAvailableTasks_14(): int:
+  let arg_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let edge_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let arg_allTasks = ["test"]
+  let edge_allTasks = []
+  let resNom = objectiveGetAvailableTasks(arg_dag, arg_allTasks)
+  let resEdge = objectiveGetAvailableTasks(edge_dag, edge_allTasks)
+  assertEqInt(resNom.len(), 1, "objectiveGetAvailableTasks nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "objectiveGetAvailableTasks boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_dialogue_dag_objectiveCompletionRatio_15(): int:
+  let arg_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let edge_dag = ObjectiveDependencyDAG(links = [], completedTasks = [])
+  let arg_totalTaskCount = 4
+  let edge_totalTaskCount = 1
+  let resNom = objectiveCompletionRatio(arg_dag, arg_totalTaskCount)
+  let resEdge = objectiveCompletionRatio(edge_dag, edge_totalTaskCount)
+  assertApproxEq(resNom, 0.0, 0.001, "objectiveCompletionRatio nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "objectiveCompletionRatio boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_dialogue_dag_dagCanUnlockNode_16(): int:
+  let arg_node = DagNode(id = 1, rank = 4, maxRank = 4, prereqId = 1, prereqMinRank = 4, unlocked = true)
+  let edge_node = DagNode(id = 0, rank = 1, maxRank = 1, prereqId = 0, prereqMinRank = 1, unlocked = false)
+  let arg_prereqRank = 4
+  let edge_prereqRank = 1
+  let resNom = dagCanUnlockNode(arg_node, arg_prereqRank)
+  let resEdge = dagCanUnlockNode(edge_node, edge_prereqRank)
+  assert(resNom == true, "dagCanUnlockNode nominal resNom == true")
+  assert(resEdge == true, "dagCanUnlockNode boundary resEdge == true")
+  ret 0
+
+pub fn test_dialogue_dag_dagAdvanceNodeRank_17(): int:
+  let arg_node = DagNode(id = 1, rank = 4, maxRank = 4, prereqId = 1, prereqMinRank = 4, unlocked = true)
+  let edge_node = DagNode(id = 0, rank = 1, maxRank = 1, prereqId = 0, prereqMinRank = 1, unlocked = false)
+  let arg_pointsAvailable = 4
+  let edge_pointsAvailable = 1
+  let arg_prereqRank = 4
+  let edge_prereqRank = 1
+  let resNom = dagAdvanceNodeRank(arg_node, arg_pointsAvailable, arg_prereqRank)
+  let resEdge = dagAdvanceNodeRank(edge_node, edge_pointsAvailable, edge_prereqRank)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.id, 1, "dagAdvanceNodeRank nominal n_t0.id == 1")
+  assertEqInt(e_t0.id, 0, "dagAdvanceNodeRank boundary e_t0.id == 0")
+  ret 0
+
+pub fn test_dialogue_dag_dagCalculateTotalInvested_18(): int:
+  let arg_ranks = [4]
+  let edge_ranks = []
+  let resNom = dagCalculateTotalInvested(arg_ranks)
+  let resEdge = dagCalculateTotalInvested(edge_ranks)
+  assertEqInt(resNom, 4, "dagCalculateTotalInvested nominal resNom == 4")
+  assertEqInt(resEdge, 0, "dagCalculateTotalInvested boundary resEdge == 0")
+  ret 0
+
+pub fn test_dialogue_dag_computeSm2NextEasiness_19(): int:
+  let arg_ef = 1.0
+  let edge_ef = 0.5
+  let arg_quality = 1
+  let edge_quality = 0
+  let resNom = computeSm2NextEasiness(arg_ef, arg_quality)
+  let resEdge = computeSm2NextEasiness(edge_ef, edge_quality)
+  assertApproxEq(resNom, 1.3, 0.001, "computeSm2NextEasiness nominal resNom ~= 1.3")
+  assertApproxEq(resEdge, 1.3, 0.001, "computeSm2NextEasiness boundary resEdge ~= 1.3")
+  ret 0
+
+pub fn test_dialogue_dag_computeSm2NextIntervalDays_20(): int:
+  let arg_repetition = 4
+  let edge_repetition = 1
+  let arg_prevIntervalDays = 4
+  let edge_prevIntervalDays = 1
+  let arg_ef = 1.0
+  let edge_ef = 0.5
+  let arg_quality = 1
+  let edge_quality = 0
+  let resNom = computeSm2NextIntervalDays(arg_repetition, arg_prevIntervalDays, arg_ef, arg_quality)
+  let resEdge = computeSm2NextIntervalDays(edge_repetition, edge_prevIntervalDays, edge_ef, edge_quality)
+  assertEqInt(resNom, 1, "computeSm2NextIntervalDays nominal resNom == 1")
+  assertEqInt(resEdge, 1, "computeSm2NextIntervalDays boundary resEdge == 1")
+  ret 0
+
+pub fn test_dialogue_dag_computeApmCounter_21(): int:
+  let arg_validActions = 4
+  let edge_validActions = 1
+  let arg_elapsedMs = 4
+  let edge_elapsedMs = 1
+  let resNom = computeApmCounter(arg_validActions, arg_elapsedMs)
+  let resEdge = computeApmCounter(edge_validActions, edge_elapsedMs)
+  assertEqInt(resNom, 60000, "computeApmCounter nominal resNom == 60000")
+  assertEqInt(resEdge, 60000, "computeApmCounter boundary resEdge == 60000")
+  ret 0
+
+pub fn test_dialogue_dag_selectZoneWithHysteresis_22(): int:
+  let arg_currentZone = 4
+  let edge_currentZone = 1
+  let arg_entityX = 1.0
+  let edge_entityX = 0.5
+  let arg_entityY = 1.0
+  let edge_entityY = 0.5
+  let arg_zonesMinX = [0.0]
+  let edge_zonesMinX = []
+  let arg_zonesMinY = [0.0]
+  let edge_zonesMinY = []
+  let arg_zonesMaxX = [2.0]
+  let edge_zonesMaxX = []
+  let arg_zonesMaxY = [2.0]
+  let edge_zonesMaxY = []
+  let arg_margin = 1.0
+  let edge_margin = 0.5
+  let resNom = selectZoneWithHysteresis(arg_currentZone, arg_entityX, arg_entityY, arg_zonesMinX, arg_zonesMinY, arg_zonesMaxX, arg_zonesMaxY, arg_margin)
+  let resEdge = selectZoneWithHysteresis(edge_currentZone, edge_entityX, edge_entityY, edge_zonesMinX, edge_zonesMinY, edge_zonesMaxX, edge_zonesMaxY, edge_margin)
+  assertEqInt(resNom, 0, "selectZoneWithHysteresis nominal resNom == 0")
+  assertEqInt(resEdge, -1, "selectZoneWithHysteresis boundary resEdge == -1")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_dialogue_dag_dialogueGraphNew_1(), 0, "test_dialogue_dag_dialogueGraphNew_1")
+  assertEqInt(test_dialogue_dag_dialogueAddNode_2(), 0, "test_dialogue_dag_dialogueAddNode_2")
+  assertEqInt(test_dialogue_dag_dialogueNodeCount_3(), 0, "test_dialogue_dag_dialogueNodeCount_3")
+  assertEqInt(test_dialogue_dag_dialogueFindNode_4(), 0, "test_dialogue_dag_dialogueFindNode_4")
+  assertEqInt(test_dialogue_dag_hasFlagInSlice_5(), 0, "test_dialogue_dag_hasFlagInSlice_5")
+  assertEqInt(test_dialogue_dag_dialogueGetAvailableChoices_6(), 0, "test_dialogue_dag_dialogueGetAvailableChoices_6")
+  assertEqInt(test_dialogue_dag_dialogueAdvanceChoice_7(), 0, "test_dialogue_dag_dialogueAdvanceChoice_7")
+  assertEqInt(test_dialogue_dag_objectiveDagNew_8(), 0, "test_dialogue_dag_objectiveDagNew_8")
+  assertEqInt(test_dialogue_dag_objectiveAddPrerequisite_9(), 0, "test_dialogue_dag_objectiveAddPrerequisite_9")
+  assertEqInt(test_dialogue_dag_objectiveIsUnlocked_10(), 0, "test_dialogue_dag_objectiveIsUnlocked_10")
+  assertEqInt(test_dialogue_dag_objectiveComplete_11(), 0, "test_dialogue_dag_objectiveComplete_11")
+  assertEqInt(test_dialogue_dag_objectiveIsCompleted_12(), 0, "test_dialogue_dag_objectiveIsCompleted_12")
+  assertEqInt(test_dialogue_dag_objectiveGetPrerequisites_13(), 0, "test_dialogue_dag_objectiveGetPrerequisites_13")
+  assertEqInt(test_dialogue_dag_objectiveGetAvailableTasks_14(), 0, "test_dialogue_dag_objectiveGetAvailableTasks_14")
+  assertEqInt(test_dialogue_dag_objectiveCompletionRatio_15(), 0, "test_dialogue_dag_objectiveCompletionRatio_15")
+  assertEqInt(test_dialogue_dag_dagCanUnlockNode_16(), 0, "test_dialogue_dag_dagCanUnlockNode_16")
+  assertEqInt(test_dialogue_dag_dagAdvanceNodeRank_17(), 0, "test_dialogue_dag_dagAdvanceNodeRank_17")
+  assertEqInt(test_dialogue_dag_dagCalculateTotalInvested_18(), 0, "test_dialogue_dag_dagCalculateTotalInvested_18")
+  assertEqInt(test_dialogue_dag_computeSm2NextEasiness_19(), 0, "test_dialogue_dag_computeSm2NextEasiness_19")
+  assertEqInt(test_dialogue_dag_computeSm2NextIntervalDays_20(), 0, "test_dialogue_dag_computeSm2NextIntervalDays_20")
+  assertEqInt(test_dialogue_dag_computeApmCounter_21(), 0, "test_dialogue_dag_computeApmCounter_21")
+  assertEqInt(test_dialogue_dag_selectZoneWithHysteresis_22(), 0, "test_dialogue_dag_selectZoneWithHysteresis_22")
+  ret 0

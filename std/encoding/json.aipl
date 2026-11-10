@@ -1,0 +1,771 @@
+// ============================================================================
+// Module: std/encoding/json
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// RFC 8259 JSON DOM, recursive-descent parser, streaming serializer, and JSONPath.
+// ============================================================================
+module EncodingJson
+
+pub struct JsonValue:
+  kind: str
+  numVal: float
+  strVal: str
+  boolVal: bool
+  arrayVal: [JsonValue]
+  objectVal: [(str, JsonValue)]
+
+pub struct JsonWriter:
+  indent: int
+  compact: bool
+  buffer: str
+
+struct JsonParseCursor:
+  pos: int
+  val: JsonValue
+  err: str
+
+pub fn jsonNull(): JsonValue:
+  mut emptyArr: [JsonValue] = []
+  mut emptyObj: [(str, JsonValue)] = []
+  ret JsonValue(kind = "null", numVal = 0.0, strVal = "", boolVal = false, arrayVal = emptyArr, objectVal = emptyObj)
+
+pub fn jsonBool(b: bool): JsonValue:
+  mut emptyArr: [JsonValue] = []
+  mut emptyObj: [(str, JsonValue)] = []
+  ret JsonValue(kind = "bool", numVal = if b: 1.0 else: 0.0, strVal = "", boolVal = b, arrayVal = emptyArr, objectVal = emptyObj)
+
+pub fn jsonNumber(n: float): JsonValue:
+  mut emptyArr: [JsonValue] = []
+  mut emptyObj: [(str, JsonValue)] = []
+  ret JsonValue(kind = "number", numVal = n, strVal = "", boolVal = false, arrayVal = emptyArr, objectVal = emptyObj)
+
+pub fn jsonString(s: str): JsonValue:
+  mut emptyArr: [JsonValue] = []
+  mut emptyObj: [(str, JsonValue)] = []
+  ret JsonValue(kind = "string", numVal = 0.0, strVal = s, boolVal = false, arrayVal = emptyArr, objectVal = emptyObj)
+
+pub fn jsonArray(items: [JsonValue]): JsonValue:
+  mut emptyObj: [(str, JsonValue)] = []
+  ret JsonValue(kind = "array", numVal = 0.0, strVal = "", boolVal = false, arrayVal = items, objectVal = emptyObj)
+
+pub fn jsonObject(entries: [(str, JsonValue)]): JsonValue:
+  mut emptyArr: [JsonValue] = []
+  ret JsonValue(kind = "object", numVal = 0.0, strVal = "", boolVal = false, arrayVal = emptyArr, objectVal = entries)
+
+fn skipJsonWs(text: str, start: int): int:
+  mut p = start
+  let n = text.len
+  while p < n:
+    let c = text.charCodeAt(p)
+    if c == 32 or c == 9 or c == 10 or c == 13:
+      p = p + 1
+    else:
+      ret p
+  ret p
+
+fn parseJsonStringAt(text: str, start: int): (int, str, str):
+  let n = text.len
+  if start >= n or text.charCodeAt(start) != 34:
+    ret (start, "", "expected '\"'")
+  mut p = start + 1
+  mut parts: [str] = []
+  while p < n:
+    let c = text.charCodeAt(p)
+    if c == 34:
+      ret (p + 1, parts.join(""), "")
+    if c == 92:
+      p = p + 1
+      if p >= n:
+        ret (p, "", "unterminated escape in string")
+      let esc = text.charCodeAt(p)
+      if esc == 34:
+        parts.push("\"")
+      elif esc == 92:
+        parts.push("\\")
+      elif esc == 47:
+        parts.push("/")
+      elif esc == 98:
+        parts.push(chr(8))
+      elif esc == 102:
+        parts.push(chr(12))
+      elif esc == 110:
+        parts.push("\n")
+      elif esc == 114:
+        parts.push("\r")
+      elif esc == 116:
+        parts.push("\t")
+      elif esc == 117:
+        if p + 4 >= n:
+          ret (p, "", "truncated \\uXXXX escape")
+        mut code = 0
+        mut k = 1
+        while k <= 4:
+          let hc = text.charCodeAt(p + k)
+          let hv = if hc >= 48 and hc <= 57: hc - 48 elif hc >= 65 and hc <= 70: hc - 55 elif hc >= 97 and hc <= 102: hc - 87 else: 0
+          code = (code << 4) | hv
+          k = k + 1
+        parts.push(chr(code))
+        p = p + 4
+      else:
+        parts.push(chr(esc))
+      p = p + 1
+    else:
+      parts.push(text.slice(p, p + 1))
+      p = p + 1
+  ret (p, "", "unterminated JSON string")
+
+fn parseJsonNumberAt(text: str, start: int): JsonParseCursor:
+  let n = text.len
+  mut p = start
+  if p < n and text.charCodeAt(p) == 45:
+    p = p + 1
+  while p < n:
+    let c = text.charCodeAt(p)
+    if (c >= 48 and c <= 57) or c == 46 or c == 101 or c == 69 or c == 43 or c == 45:
+      p = p + 1
+    else:
+      break
+  let numSlice = text.slice(start, p)
+  if numSlice.len == 0 or numSlice == "-":
+    ret JsonParseCursor(pos = start, val = jsonNull(), err = "invalid JSON number")
+  let fVal = float(numSlice)
+  ret JsonParseCursor(pos = p, val = jsonNumber(fVal), err = "")
+
+fn parseJsonValueAt(text: str, start: int): JsonParseCursor:
+  let p = skipJsonWs(text, start)
+  let n = text.len
+  if p >= n:
+    ret JsonParseCursor(pos = p, val = jsonNull(), err = "unexpected EOF in JSON")
+  let c = text.charCodeAt(p)
+  if c == 34:
+    let (nextPos, sVal, sErr) = parseJsonStringAt(text, p)
+    if sErr.len > 0:
+      ret JsonParseCursor(pos = nextPos, val = jsonNull(), err = sErr)
+    ret JsonParseCursor(pos = nextPos, val = jsonString(sVal), err = "")
+  if c == 116:
+    if p + 4 <= n and text.slice(p, p + 4) == "true":
+      ret JsonParseCursor(pos = p + 4, val = jsonBool(true), err = "")
+    ret JsonParseCursor(pos = p, val = jsonNull(), err = "invalid token starting with 't'")
+  if c == 102:
+    if p + 5 <= n and text.slice(p, p + 5) == "false":
+      ret JsonParseCursor(pos = p + 5, val = jsonBool(false), err = "")
+    ret JsonParseCursor(pos = p, val = jsonNull(), err = "invalid token starting with 'f'")
+  if c == 110:
+    if p + 4 <= n and text.slice(p, p + 4) == "null":
+      ret JsonParseCursor(pos = p + 4, val = jsonNull(), err = "")
+    ret JsonParseCursor(pos = p, val = jsonNull(), err = "invalid token starting with 'n'")
+  if c == 91:
+    mut items: [JsonValue] = []
+    mut cur = skipJsonWs(text, p + 1)
+    if cur < n and text.charCodeAt(cur) == 93:
+      ret JsonParseCursor(pos = cur + 1, val = jsonArray(items), err = "")
+    while cur < n:
+      let elemRes = parseJsonValueAt(text, cur)
+      if elemRes.err.len > 0:
+        ret elemRes
+      items.push(elemRes.val)
+      cur = skipJsonWs(text, elemRes.pos)
+      if cur < n and text.charCodeAt(cur) == 44:
+        cur = skipJsonWs(text, cur + 1)
+      elif cur < n and text.charCodeAt(cur) == 93:
+        ret JsonParseCursor(pos = cur + 1, val = jsonArray(items), err = "")
+      else:
+        ret JsonParseCursor(pos = cur, val = jsonNull(), err = "expected ',' or ']' in array")
+    ret JsonParseCursor(pos = cur, val = jsonNull(), err = "unterminated JSON array")
+  if c == 123:
+    mut entries: [(str, JsonValue)] = []
+    mut cur = skipJsonWs(text, p + 1)
+    if cur < n and text.charCodeAt(cur) == 125:
+      ret JsonParseCursor(pos = cur + 1, val = jsonObject(entries), err = "")
+    while cur < n:
+      let (afterKey, keyStr, keyErr) = parseJsonStringAt(text, cur)
+      if keyErr.len > 0:
+        ret JsonParseCursor(pos = afterKey, val = jsonNull(), err = keyErr)
+      cur = skipJsonWs(text, afterKey)
+      if cur >= n or text.charCodeAt(cur) != 58:
+        ret JsonParseCursor(pos = cur, val = jsonNull(), err = "expected ':' after object key")
+      let valRes = parseJsonValueAt(text, cur + 1)
+      if valRes.err.len > 0:
+        ret valRes
+      entries.push((keyStr, valRes.val))
+      cur = skipJsonWs(text, valRes.pos)
+      if cur < n and text.charCodeAt(cur) == 44:
+        cur = skipJsonWs(text, cur + 1)
+      elif cur < n and text.charCodeAt(cur) == 125:
+        ret JsonParseCursor(pos = cur + 1, val = jsonObject(entries), err = "")
+      else:
+        ret JsonParseCursor(pos = cur, val = jsonNull(), err = "expected ',' or '}' in object")
+    ret JsonParseCursor(pos = cur, val = jsonNull(), err = "unterminated JSON object")
+  if c == 45 or (c >= 48 and c <= 57):
+    ret parseJsonNumberAt(text, p)
+  ret JsonParseCursor(pos = p, val = jsonNull(), err = "unexpected character in JSON at offset " + str(p))
+
+pub fn jsonParse(text: str): Result[JsonValue, str]:
+  let res = parseJsonValueAt(text, 0)
+  if res.err.len > 0:
+    ret Err(res.err)
+  let tail = skipJsonWs(text, res.pos)
+  if tail < text.len:
+    ret Err("trailing characters after JSON root value")
+  ret Ok(res.val)
+
+pub fn escapeJsonString(s: str): str:
+  mut parts: [str] = []
+  mut i = 0
+  while i < s.len:
+    let c = s.charCodeAt(i)
+    if c == 34:
+      parts.push("\\\"")
+    elif c == 92:
+      parts.push("\\\\")
+    elif c == 8:
+      parts.push("\\b")
+    elif c == 12:
+      parts.push("\\f")
+    elif c == 10:
+      parts.push("\\n")
+    elif c == 13:
+      parts.push("\\r")
+    elif c == 9:
+      parts.push("\\t")
+    elif c < 32:
+      let hex = "0123456789abcdef"
+      let hi = (c >> 4) & 15
+      let lo = c & 15
+      parts.push("\\u00" + hex.slice(hi, hi + 1) + hex.slice(lo, lo + 1))
+    else:
+      parts.push(s.slice(i, i + 1))
+    i = i + 1
+  ret parts.join("")
+
+fn formatJsonNumber(n: float): str:
+  let asI = int(n)
+  if float(asI) == n:
+    ret str(asI)
+  ret str(n)
+
+pub fn jsonStringify(val: JsonValue): str:
+  if val.kind == "null":
+    ret "null"
+  if val.kind == "bool":
+    ret if val.boolVal: "true" else: "false"
+  if val.kind == "number":
+    ret formatJsonNumber(val.numVal)
+  if val.kind == "string":
+    ret "\"" + escapeJsonString(val.strVal) + "\""
+  if val.kind == "array":
+    mut parts: [str] = []
+    mut i = 0
+    while i < val.arrayVal.len:
+      parts.push(jsonStringify(val.arrayVal[i]))
+      i = i + 1
+    ret "[" + parts.join(",") + "]"
+  if val.kind == "object":
+    mut parts: [str] = []
+    mut i = 0
+    while i < val.objectVal.len:
+      let pair = val.objectVal[i]
+      let k = pair[0]
+      let v = pair[1]
+      parts.push("\"" + escapeJsonString(k) + "\":" + jsonStringify(v))
+      i = i + 1
+    ret "{" + parts.join(",") + "}"
+  ret "null"
+
+fn makeSpaces(count: int): str:
+  mut parts: [str] = []
+  mut i = 0
+  while i < count:
+    parts.push(" ")
+    i = i + 1
+  ret parts.join("")
+
+fn jsonStringifyIndent(val: JsonValue, indent: int, depth: int): str:
+  if val.kind == "array":
+    if val.arrayVal.len == 0:
+      ret "[]"
+    let padInner = makeSpaces((depth + 1) * indent)
+    let padOuter = makeSpaces(depth * indent)
+    mut parts: [str] = []
+    mut i = 0
+    while i < val.arrayVal.len:
+      parts.push(padInner + jsonStringifyIndent(val.arrayVal[i], indent, depth + 1))
+      i = i + 1
+    ret "[\n" + parts.join(",\n") + "\n" + padOuter + "]"
+  if val.kind == "object":
+    if val.objectVal.len == 0:
+      ret "{}"
+    let padInner = makeSpaces((depth + 1) * indent)
+    let padOuter = makeSpaces(depth * indent)
+    mut parts: [str] = []
+    mut i = 0
+    while i < val.objectVal.len:
+      let pair = val.objectVal[i]
+      let k = pair[0]
+      let v = pair[1]
+      parts.push(padInner + "\"" + escapeJsonString(k) + "\": " + jsonStringifyIndent(v, indent, depth + 1))
+      i = i + 1
+    ret "{\n" + parts.join(",\n") + "\n" + padOuter + "}"
+  ret jsonStringify(val)
+
+pub fn jsonStringifyPretty(val: JsonValue, indent: int = 2): str:
+  let step = if indent < 0: 0 else: indent
+  if step == 0:
+    ret jsonStringify(val)
+  ret jsonStringifyIndent(val, step, 0)
+
+pub fn (self: JsonValue) get(key: str): Option[JsonValue]:
+  if self.kind != "object":
+    ret None
+  mut i = 0
+  while i < self.objectVal.len:
+    let pair = self.objectVal[i]
+    if pair[0] == key:
+      ret Some(pair[1])
+    i = i + 1
+  ret None
+
+pub fn (self: JsonValue) getIndex(idx: int): Option[JsonValue]:
+  if self.kind != "array":
+    ret None
+  if idx < 0 or idx >= self.arrayVal.len:
+    ret None
+  ret Some(self.arrayVal[idx])
+
+pub fn (self: JsonValue) asStr(): Option[str]:
+  if self.kind == "string":
+    ret Some(self.strVal)
+  ret None
+
+pub fn (self: JsonValue) asInt(): Option[int]:
+  if self.kind == "number":
+    ret Some(int(self.numVal))
+  ret None
+
+pub fn (self: JsonValue) asFloat(): Option[float]:
+  if self.kind == "number":
+    ret Some(self.numVal)
+  ret None
+
+pub fn (self: JsonValue) asBool(): Option[bool]:
+  if self.kind == "bool":
+    ret Some(self.boolVal)
+  ret None
+
+pub fn jsonQueryPath(val: JsonValue, path: str): Option[JsonValue]:
+  mut clean = path.trim()
+  if clean.startsWith("$."):
+    clean = clean.slice(2, clean.len)
+  elif clean.startsWith("$"):
+    clean = clean.slice(1, clean.len)
+  if clean.len == 0:
+    ret Some(val)
+  let segments = clean.split(".")
+  mut cur = val
+  mut si = 0
+  while si < segments.len:
+    let seg = segments[si]
+    if seg.len > 0:
+      let brkIdx = seg.indexOf("[")
+      if brkIdx < 0:
+        let nextOpt = cur.get(seg)
+        if nextOpt.isNone():
+          ret None
+        cur = nextOpt.unwrap()
+      else:
+        let keyPart = seg.slice(0, brkIdx)
+        if keyPart.len > 0:
+          let nextOpt = cur.get(keyPart)
+          if nextOpt.isNone():
+            ret None
+          cur = nextOpt.unwrap()
+        mut rem = seg.slice(brkIdx, seg.len)
+        while rem.startsWith("["):
+          let closeIdx = rem.indexOf("]")
+          if closeIdx < 0:
+            ret None
+          let idxStr = rem.slice(1, closeIdx).trim()
+          let idxVal = int(idxStr)
+          let elemOpt = cur.getIndex(idxVal)
+          if elemOpt.isNone():
+            ret None
+          cur = elemOpt.unwrap()
+          rem = rem.slice(closeIdx + 1, rem.len)
+    si = si + 1
+  ret Some(cur)
+
+pub fn fastJsonGetInt(jsonStr: str, key: str, defaultVal: int): int:
+  let pRes = jsonParse(jsonStr)
+  if pRes.isErr():
+    ret defaultVal
+  let vOpt = pRes.unwrap().get(key)
+  if vOpt.isNone():
+    ret defaultVal
+  let iOpt = vOpt.unwrap().asInt()
+  if iOpt.isNone():
+    ret defaultVal
+  ret iOpt.unwrap()
+
+pub fn fastJsonGetFloat(jsonStr: str, key: str, defaultVal: float): float:
+  let pRes = jsonParse(jsonStr)
+  if pRes.isErr():
+    ret defaultVal
+  let vOpt = pRes.unwrap().get(key)
+  if vOpt.isNone():
+    ret defaultVal
+  let fOpt = vOpt.unwrap().asFloat()
+  if fOpt.isNone():
+    ret defaultVal
+  ret fOpt.unwrap()
+
+pub fn fastJsonGetStr(jsonStr: str, key: str, defaultVal: str): str:
+  let pRes = jsonParse(jsonStr)
+  if pRes.isErr():
+    ret defaultVal
+  let vOpt = pRes.unwrap().get(key)
+  if vOpt.isNone():
+    ret defaultVal
+  let sOpt = vOpt.unwrap().asStr()
+  if sOpt.isNone():
+    ret defaultVal
+  ret sOpt.unwrap()
+
+pub fn fastJsonGetIntArray(jsonStr: str, key: str): [int]:
+  mut out: [int] = []
+  let pRes = jsonParse(jsonStr)
+  if pRes.isErr():
+    ret out
+  let vOpt = pRes.unwrap().get(key)
+  if vOpt.isNone():
+    ret out
+  let arrNode = vOpt.unwrap()
+  if arrNode.kind != "array":
+    ret out
+  mut i = 0
+  while i < arrNode.arrayVal.len:
+    let elem = arrNode.arrayVal[i]
+    let iOpt = elem.asInt()
+    if iOpt.isSome():
+      out.push(iOpt.unwrap())
+    i = i + 1
+  ret out
+
+pub fn jsonGet(jsonStr: str, key: str): Option[str]:
+  let pRes = jsonParse(jsonStr)
+  if pRes.isErr():
+    ret None
+  let vOpt = pRes.unwrap().get(key)
+  if vOpt.isNone():
+    ret None
+  let v = vOpt.unwrap()
+  if v.kind == "string":
+    ret Some(v.strVal)
+  ret Some(jsonStringify(v))
+
+pub fn formatJsonPrettyString(jsonStr: str, indent: int = 2): str:
+  let pRes = jsonParse(jsonStr)
+  if pRes.isErr():
+    ret jsonStr
+  ret jsonStringifyPretty(pRes.unwrap(), indent)
+
+fn skipJsonWs(s: str, idx: int): int:
+  mut i = idx
+  let n = s.len
+  while i < n:
+    let c = s.charAt(i)
+    if c == " " or c == "\t" or c == "\n" or c == "\r":
+      i = i + 1
+    else:
+      ret i
+  ret i
+
+fn findJsonValueEnd(s: str, startIdx: int): int:
+  let i0 = skipJsonWs(s, startIdx)
+  let n = s.len
+  if i0 >= n:
+    ret n
+  let first = s.charAt(i0)
+  if first == "\"":
+    mut i = i0 + 1
+    while i < n:
+      let ch = s.charAt(i)
+      if ch == "\\":
+        i = i + 2
+      elif ch == "\"":
+        ret i + 1
+      else:
+        i = i + 1
+    ret n
+  if first == "{" or first == "[":
+    mut depth = 0
+    mut inStr = false
+    mut i = i0
+    while i < n:
+      let ch = s.charAt(i)
+      if inStr:
+        if ch == "\\":
+          i = i + 2
+        else:
+          if ch == "\"":
+            inStr = false
+          i = i + 1
+      else:
+        if ch == "\"":
+          inStr = true
+        elif ch == "{" or ch == "[":
+          depth = depth + 1
+        elif ch == "}" or ch == "]":
+          depth = depth - 1
+          if depth == 0:
+            ret i + 1
+        i = i + 1
+    ret n
+  mut i = i0
+  while i < n:
+    let ch = s.charAt(i)
+    if ch == "," or ch == "}" or ch == "]" or ch == " " or ch == "\t" or ch == "\n" or ch == "\r":
+      ret i
+    i = i + 1
+  ret n
+
+fn unquoteJsonValue(raw: str): str:
+  let t = raw.trim()
+  if t.len >= 2 and t.startsWith("\"") and t.endsWith("\""):
+    let inner = t.slice(1, t.len - 1)
+    mut out = ""
+    mut i = 0
+    while i < inner.len:
+      let ch = inner.charAt(i)
+      if ch == "\\" and i + 1 < inner.len:
+        let next = inner.charAt(i + 1)
+        if next == "n":
+          out = out + "\n"
+        elif next == "r":
+          out = out + "\r"
+        elif next == "t":
+          out = out + "\t"
+        else:
+          out = out + next
+        i = i + 2
+      else:
+        out = out + ch
+        i = i + 1
+    ret out
+  ret t
+
+fn extractObjectKeyRaw(jsonObj: str, targetKey: str): Option[str]:
+  let s = jsonObj.trim()
+  if not s.startsWith("{"):
+    ret None
+  mut i = 1
+  let n = s.len
+  while i < n:
+    i = skipJsonWs(s, i)
+    if i >= n or s.charAt(i) == "}":
+      ret None
+    if s.charAt(i) == ",":
+      i = skipJsonWs(s, i + 1)
+    if s.charAt(i) != "\"":
+      ret None
+    let keyEnd = findJsonValueEnd(s, i)
+    let keyStr = unquoteJsonValue(s.slice(i, keyEnd))
+    i = skipJsonWs(s, keyEnd)
+    if i >= n or s.charAt(i) != ":":
+      ret None
+    let valStart = skipJsonWs(s, i + 1)
+    let valEnd = findJsonValueEnd(s, valStart)
+    if keyStr == targetKey:
+      ret Some(s.slice(valStart, valEnd).trim())
+    i = valEnd
+  ret None
+
+fn extractArrayIndexRaw(jsonArr: str, targetIdx: int): Option[str]:
+  let s = jsonArr.trim()
+  if not s.startsWith("["):
+    ret None
+  mut i = 1
+  let n = s.len
+  mut curIdx = 0
+  while i < n:
+    i = skipJsonWs(s, i)
+    if i >= n or s.charAt(i) == "]":
+      ret None
+    if s.charAt(i) == ",":
+      i = skipJsonWs(s, i + 1)
+    let valStart = skipJsonWs(s, i)
+    let valEnd = findJsonValueEnd(s, valStart)
+    if curIdx == targetIdx:
+      ret Some(s.slice(valStart, valEnd).trim())
+    curIdx = curIdx + 1
+    i = valEnd
+  ret None
+
+fn parseNonNegInt(s: str): Option[int]:
+  let t = s.trim()
+  if t.len == 0:
+    ret None
+  mut acc = 0
+  mut i = 0
+  while i < t.len:
+    let c = t.charCodeAt(i)
+    if c < 48 or c > 57:
+      ret None
+    acc = acc * 10 + (c - 48)
+    i = i + 1
+  ret Some(acc)
+
+pub fn jsonQueryRaw(jsonText: str, queryPath: str): Option[str]:
+  mut cur = jsonText.trim()
+  if cur.startsWith("\"") and cur.endsWith("\""):
+    cur = unquoteJsonValue(cur)
+  mut path = queryPath.trim()
+  if path.startsWith("$"):
+    path = path.slice(1, path.len).trim()
+  if path.startsWith("."):
+    path = path.slice(1, path.len).trim()
+  if path.len == 0:
+    ret Some(cur)
+  mut i = 0
+  let n = path.len
+  while i < n:
+    if path.charAt(i) == ".":
+      i = i + 1
+    elif path.charAt(i) == "[":
+      let closeIdx = path.slice(i + 1, n).indexOf("]")
+      if closeIdx < 0:
+        ret None
+      let idxStr = path.slice(i + 1, i + 1 + closeIdx).trim()
+      let idxOpt = parseNonNegInt(idxStr)
+      if idxOpt.isNone():
+        ret None
+      let nextOpt = extractArrayIndexRaw(cur, idxOpt.unwrap())
+      if nextOpt.isNone():
+        ret None
+      cur = nextOpt.unwrap()
+      i = i + 1 + closeIdx + 1
+    else:
+      mut keyEnd = i
+      while keyEnd < n and path.charAt(keyEnd) != "." and path.charAt(keyEnd) != "[":
+        keyEnd = keyEnd + 1
+      let key = path.slice(i, keyEnd).trim()
+      if key.len > 0:
+        let nextOpt = extractObjectKeyRaw(cur, key)
+        if nextOpt.isNone():
+          ret None
+        cur = nextOpt.unwrap()
+      i = keyEnd
+  ret Some(cur)
+
+pub fn jsonQuery(jsonText: str, path: str): Option[str]:
+  let rawOpt = jsonQueryRaw(jsonText, path)
+  if rawOpt.isNone():
+    ret None
+  ret Some(unquoteJsonValue(rawOpt.unwrap()))
+
+pub fn jsonGetPathStr(jsonText: str, path: str, defaultVal: str): str:
+  let opt = jsonQuery(jsonText, path)
+  if opt.isNone():
+    ret defaultVal
+  ret opt.unwrap()
+
+pub fn jsonGetPathFloat(jsonText: str, path: str, defaultVal: float): float:
+  let pRes = jsonParse(jsonText)
+  if pRes.isErr():
+    ret defaultVal
+  let vOpt = jsonQueryPath(pRes.unwrap(), path)
+  if vOpt.isNone():
+    ret defaultVal
+  let fOpt = vOpt.unwrap().asFloat()
+  if fOpt.isNone():
+    ret defaultVal
+  ret fOpt.unwrap()
+
+pub fn jsonGetPathInt(jsonText: str, path: str, defaultVal: int): int:
+  let pRes = jsonParse(jsonText)
+  if pRes.isErr():
+    ret defaultVal
+  let vOpt = jsonQueryPath(pRes.unwrap(), path)
+  if vOpt.isNone():
+    ret defaultVal
+  let iOpt = vOpt.unwrap().asInt()
+  if iOpt.isNone():
+    ret defaultVal
+  ret iOpt.unwrap()
+
+pub fn jsonStringifyIntArray(arr: [int]): str:
+  mut parts: [str] = []
+  mut i = 0
+  while i < arr.len:
+    parts.push(str(arr[i]))
+    i = i + 1
+  ret "[" + parts.join(",") + "]"
+
+pub fn jsonGetPathIntArray(jsonText: str, path: str): [int]:
+  mut out: [int] = []
+  let pRes = jsonParse(jsonText)
+  if pRes.isErr():
+    ret out
+  let vOpt = jsonQueryPath(pRes.unwrap(), path)
+  if vOpt.isNone():
+    ret out
+  let arrNode = vOpt.unwrap()
+  if arrNode.kind != "array":
+    ret out
+  mut i = 0
+  while i < arrNode.arrayVal.len:
+    let elem = arrNode.arrayVal[i]
+    let iOpt = elem.asInt()
+    if iOpt.isSome():
+      out.push(iOpt.unwrap())
+    i = i + 1
+  ret out
+
+pub fn jsonFieldInt(key: str, val: int): str:
+  ret "\"" + escapeJsonString(key) + "\":" + str(val)
+
+pub fn jsonFieldFloat(key: str, val: float): str:
+  ret "\"" + escapeJsonString(key) + "\":" + str(val)
+
+pub fn jsonFieldStr(key: str, val: str): str:
+  ret "\"" + escapeJsonString(key) + "\":\"" + escapeJsonString(val) + "\""
+
+pub fn jsonFieldBool(key: str, val: bool): str:
+  let bStr = if val: "true" else: "false"
+  ret "\"" + escapeJsonString(key) + "\":" + bStr
+
+pub fn jsonObject2(f1: str, f2: str): str:
+  ret "{" + f1 + "," + f2 + "}"
+
+pub fn jsonObject3(f1: str, f2: str, f3: str): str:
+  ret "{" + f1 + "," + f2 + "," + f3 + "}"
+
+pub fn jsonObject4(f1: str, f2: str, f3: str, f4: str): str:
+  ret "{" + f1 + "," + f2 + "," + f3 + "," + f4 + "}"
+
+pub fn jsonObject5(f1: str, f2: str, f3: str, f4: str, f5: str): str:
+  ret "{" + f1 + "," + f2 + "," + f3 + "," + f4 + "," + f5 + "}"
+
+pub fn jsonObject6(f1: str, f2: str, f3: str, f4: str, f5: str, f6: str): str:
+  ret "{" + f1 + "," + f2 + "," + f3 + "," + f4 + "," + f5 + "," + f6 + "}"
+
+pub fn jsonObject7(f1: str, f2: str, f3: str, f4: str, f5: str, f6: str, f7: str): str:
+  ret "{" + f1 + "," + f2 + "," + f3 + "," + f4 + "," + f5 + "," + f6 + "," + f7 + "}"
+
+pub fn jsonObject8(f1: str, f2: str, f3: str, f4: str, f5: str, f6: str, f7: str, f8: str): str:
+  ret "{" + f1 + "," + f2 + "," + f3 + "," + f4 + "," + f5 + "," + f6 + "," + f7 + "," + f8 + "}"
+
+pub fn jsonObjectFields(fields: [str]): str:
+  ret "{" + fields.join(",") + "}"
+
+pub fn jsonArrayFields(items: [str]): str:
+  ret "[" + items.join(",") + "]"
+
+pub fn jsonArrayStr(items: [str]): str:
+  mut parts: [str] = []
+  mut i = 0
+  while i < items.len:
+    parts.push("\"" + escapeJsonString(items[i]) + "\"")
+    i = i + 1
+  ret "[" + parts.join(",") + "]"
+
+pub fn jsonArrayInt(items: [int]): str:
+  ret jsonStringifyIntArray(items)

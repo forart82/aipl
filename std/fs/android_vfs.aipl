@@ -1,0 +1,49 @@
+/// # Module: `std/fs/android_vfs` (`FsAndroidVfs`)
+///
+/// ## Purpose & Domain Scope
+/// Embedded Offline Standard Library Virtual File System (`AndroidStdlibVfs`, 281 Modules)
+/// for Android NDK and mobile live-reload execution.
+module FsAndroidVfs
+
+import { fnv1a64 } from "std/crypto/hash"
+import { Result, Ok, Err } from "std/prelude"
+
+pub struct AndroidStdlibVfs(magic: str, version: int, canonicalModuleCount: int, domainGroupCount: int, capacity: int, modules: Map[str, str])
+
+pub fn createAndroidStdlibVfs(expectedModuleCapacity: int): AndroidStdlibVfs requires expectedModuleCapacity >= 0 ensures result.magic == "AIPLVFS1" and result.canonicalModuleCount == 281 and result.domainGroupCount == 36:
+  mut m: Map[str, str] = Map.new()
+  let cap = if expectedModuleCapacity >= 281: expectedModuleCapacity else: 281
+  ret AndroidStdlibVfs(
+    magic = "AIPLVFS1",
+    version = 1,
+    canonicalModuleCount = 281,
+    domainGroupCount = 36,
+    capacity = cap,
+    modules = m
+  )
+
+pub fn normalizeStdImportPath(rawImport: str): str requires rawImport.len() >= 0 ensures result == "" or (result.startsWith("std/") and result.endsWith(".aipl")):
+  let trimmed = rawImport.trim()
+  if trimmed.len() <= 4 or trimmed.contains("..") or not trimmed.startsWith("std/"):
+    ret ""
+  if trimmed.endsWith(".aipl"):
+    ret trimmed
+  ret trimmed + ".aipl"
+
+pub fn vfsRegisterStdModule(mut m: Map[str, str], importPath: str, sourceCode: str): (Map[str, str], int) requires importPath.len() >= 0 and sourceCode.len() >= 0 ensures result[0].keys().len >= 0:
+  let p = importPath.trim()
+  if p.len() <= 4 or p.contains("..") or not p.startsWith("std/") or sourceCode.len() == 0:
+    ret (m, 0)
+  let key = if p.endsWith(".aipl"): p else: p + ".aipl"
+  m.set(key, sourceCode)
+  let h = fnv1a64(key)
+  ret (m, h)
+
+pub fn vfsResolveOfflineImport(m: Map[str, str], rawImport: str): Result[str, str] requires rawImport.len() >= 0 ensures rawImport.len() > 0 or result.isErr():
+  let p = rawImport.trim()
+  if p.len() <= 4 or p.contains("..") or not p.startsWith("std/"):
+    ret Err("E_VFS_INVALID_PATH")
+  let key = if p.endsWith(".aipl"): p else: p + ".aipl"
+  if m.containsKey(key):
+    ret Ok(m.get(key).unwrap())
+  ret Err("E_VFS_MODULE_NOT_FOUND")

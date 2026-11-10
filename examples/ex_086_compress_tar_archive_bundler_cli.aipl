@@ -1,0 +1,61 @@
+// ============================================================================
+// Example 086: POSIX USTAR Tar Archive Bundler & Checksum Verifier (CLI)
+// Demonstrates: TarArchive, tarPack, tarUnpack, DeflateOptions,
+//               deflateCompress, deflateDecompress, and computeCrc32
+//               from std/compress.
+// ============================================================================
+module Ex086CompressTarArchiveBundlerCli
+
+import {
+  TarArchive,
+  tarPack,
+  tarUnpack,
+  DeflateOptions,
+  deflateCompress,
+  deflateDecompress,
+  computeCrc32
+} from "../std/compress"
+
+// Packs a directory and two files into a POSIX USTAR tar archive and returns the unpacked entry count.
+pub fn evaluateTarArchiveUnpackedCount(): int:
+  mut arch = TarArchive(entries = [])
+  arch.addDirectory("docs", 493)
+  arch.addFile("docs/readme.txt", "Hello World".toBytes(), 420)
+  arch.addFile("config/settings.json", "{\"port\": 8080}".toBytes(), 420)
+  assert(arch.getEntry("docs/readme.txt").isSome(), "TarArchive.getEntry finds readme.txt")
+
+  let rawTar = arch.toBytes()
+  let directTar = tarPack(arch.entries)
+  assert(rawTar.len() == directTar.len() and rawTar.len() % 512 == 0, "512-byte USTAR alignment")
+  let unpacked = tarUnpack(rawTar).unwrap()
+  ret unpacked.len
+
+// Packs a tar archive, wraps it in RFC-1951 stored DEFLATE blocks, verifies CRC32, and unpacks all entries.
+pub fn verifyTarBundleAndStoredDeflateRoundTrip(): int:
+  mut arch = TarArchive(entries = [])
+  arch.addDirectory("docs", 493)
+  arch.addFile("docs/readme.txt", "Hello World".toBytes(), 420)
+  arch.addFile("config/settings.json", "{\"port\": 8080}".toBytes(), 420)
+
+  let tarBytes = arch.toBytes()
+  let crcBefore = computeCrc32(tarBytes)
+  let storedDeflate = deflateCompress(tarBytes, DeflateOptions(level = 0, windowBits = 15, memLevel = 8))
+  let restoredTar = deflateDecompress(storedDeflate).unwrap()
+  let crcAfter = computeCrc32(restoredTar)
+  let entries = tarUnpack(restoredTar).unwrap()
+  if crcBefore == crcAfter and entries.len == 3 and entries[0].isDir and entries[1].data.toStringLossy() == "Hello World" and entries[2].path == "config/settings.json":
+    ret 1
+  ret 0
+
+// Verifies that a tar byte stream is aligned on 512-byte POSIX USTAR sector boundaries.
+pub fn describeTarBlockAlignment(totalBytes: int): str:
+  if totalBytes % 512 == 0:
+    ret "TAR:POSIX_USTAR_512B_ALIGNED"
+  ret "TAR:UNALIGNED_STREAM"
+
+pub fn main(): int:
+  let count = evaluateTarArchiveUnpackedCount()
+  let ok = verifyTarBundleAndStoredDeflateRoundTrip()
+  let align = describeTarBlockAlignment(2560)
+  println("ex_086_compress_tar_archive_bundler_cli: count=" + str(count) + " ok=" + str(ok) + " align=" + align)
+  ret 0

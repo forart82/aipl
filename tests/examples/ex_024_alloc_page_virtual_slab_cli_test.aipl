@@ -1,0 +1,29 @@
+// ============================================================================
+// Twin Test Suite 024: Virtual Page Slab Allocator & Guard Pages (CLI)
+// Verifies examples/ex_024_alloc_page_virtual_slab_cli.aipl
+// ============================================================================
+module Ex024AllocPageVirtualSlabCliTest
+
+import {
+  computeSlabPagesAndAlignedBytes,
+  verifyProtectedPageSlabLifecycle,
+  describePageProtectionFlags
+} from "../../examples/ex_024_alloc_page_virtual_slab_cli.aipl"
+
+pub fn test_page_alignment_and_slab_counts(): int:
+  assert(computeSlabPagesAndAlignedBytes(5000) == 8194, "5000 bytes -> 8192 aligned bytes + 2 pages = 8194")
+  assert(computeSlabPagesAndAlignedBytes(4096) == 4097, "4096 bytes -> 4096 aligned bytes + 1 page = 4097")
+  ret 0
+
+pub fn test_virtual_page_slab_lifecycle(): int:
+  let slabBytes = verifyProtectedPageSlabLifecycle(3)
+  assert(slabBytes == 12288, "3 pages * 4096 bytes = 12288 bytes allocated, protected, and freed")
+  assert(describePageProtectionFlags(3) == "PAGE_PROT:READ_WRITE", "prot 3")
+  assert(describePageProtectionFlags(1) == "PAGE_PROT:READ_ONLY_GUARD", "prot 1")
+  ret 0
+
+pub fn main(): int:
+  test_page_alignment_and_slab_counts()
+  test_virtual_page_slab_lifecycle()
+  println("PASS: ex_024_alloc_page_virtual_slab_cli_test")
+  ret 0

@@ -1,0 +1,119 @@
+/// # Module: `std/alloc/gpa` (`Gpa`)
+///
+/// ## Purpose & Domain Scope
+/// General Purpose Allocator (GPA) with allocation tracking, header/footer canary
+/// overflow detection, double-free rejection, and leak reporting.
+module Gpa
+
+import { ptrAlloc, ptrFree, ptrReadI64, ptrWriteI64, ptrMemcpy, ptrMemset } from "std/rt/rt_ptr"
+
+pub const GPA_CANARY_MAGIC: int = 1234567891234567
+pub const GPA_FREED_MAGIC: int = -1234567891234567
+
+const GPA_STATE: [int] = [0, 0, 0, 0, 0]
+
+pub struct GpaHeader:
+  magic: int
+  size: int
+  callerId: int
+  canary: int
+
+pub struct GpaStats:
+  liveAllocations: int
+  totalAllocated: int
+  totalFreed: int
+  peakMemory: int
+  leakedBytes: int
+
+pub fn gpaInit(): void:
+  if GPA_STATE.len >= 5:
+    GPA_STATE[0] = 0
+    GPA_STATE[1] = 0
+    GPA_STATE[2] = 0
+    GPA_STATE[3] = 0
+    GPA_STATE[4] = 0
+  ret
+
+pub fn gpaAlloc(bytes: int, callerId: int = 0): int:
+  if bytes <= 0:
+    ret 0
+  let aligned = (bytes + 7) & -8
+  let totalRaw = 32 + aligned + 8
+  let base = ptrAlloc(totalRaw)
+  if base == 0:
+    ret 0
+  ptrWriteI64(base, 0, GPA_CANARY_MAGIC)
+  ptrWriteI64(base, 8, aligned)
+  ptrWriteI64(base, 16, callerId)
+  ptrWriteI64(base, 24, GPA_CANARY_MAGIC)
+  ptrWriteI64(base, 32 + aligned, GPA_CANARY_MAGIC)
+  if GPA_STATE.len >= 5:
+    GPA_STATE[0] = GPA_STATE[0] + 1
+    GPA_STATE[1] = GPA_STATE[1] + aligned
+    let curLive = GPA_STATE[4] + aligned
+    GPA_STATE[4] = curLive
+    if curLive > GPA_STATE[3]:
+      GPA_STATE[3] = curLive
+  ret base + 32
+
+pub fn gpaValidatePtr(ptr: int): bool:
+  if ptr <= 32:
+    ret false
+  let base = ptr - 32
+  let magic = ptrReadI64(base, 0)
+  let size = ptrReadI64(base, 8)
+  let frontCanary = ptrReadI64(base, 24)
+  if magic != GPA_CANARY_MAGIC or frontCanary != GPA_CANARY_MAGIC or size <= 0:
+    ret false
+  let backCanary = ptrReadI64(base, 32 + size)
+  ret backCanary == GPA_CANARY_MAGIC
+
+pub fn gpaFree(ptr: int): bool:
+  if not gpaValidatePtr(ptr):
+    ret false
+  let base = ptr - 32
+  let size = ptrReadI64(base, 8)
+  ptrWriteI64(base, 0, GPA_FREED_MAGIC)
+  ptrWriteI64(base, 24, GPA_FREED_MAGIC)
+  ptrMemset(ptr, 0, 0, size)
+  if GPA_STATE.len >= 5:
+    let live = GPA_STATE[0]
+    GPA_STATE[0] = if live > 0: live - 1 else: 0
+    GPA_STATE[2] = GPA_STATE[2] + size
+    let curLive = GPA_STATE[4]
+    GPA_STATE[4] = if curLive >= size: curLive - size else: 0
+  ptrFree(base)
+  ret true
+
+pub fn gpaRealloc(ptr: int, newBytes: int): int:
+  if ptr == 0:
+    ret gpaAlloc(newBytes, 0)
+  if newBytes <= 0:
+    let _ = gpaFree(ptr)
+    ret 0
+  if not gpaValidatePtr(ptr):
+    ret 0
+  let base = ptr - 32
+  let oldSize = ptrReadI64(base, 8)
+  let callerId = ptrReadI64(base, 16)
+  let newPtr = gpaAlloc(newBytes, callerId)
+  if newPtr != 0:
+    let copyLen = if oldSize < newBytes: oldSize else: newBytes
+    ptrMemcpy(newPtr, 0, ptr, 0, copyLen)
+    let _ = gpaFree(ptr)
+  ret newPtr
+
+pub fn gpaGetStats(): GpaStats:
+  if GPA_STATE.len < 5:
+    ret GpaStats(liveAllocations = 0, totalAllocated = 0, totalFreed = 0, peakMemory = 0, leakedBytes = 0)
+  ret GpaStats(
+    liveAllocations = GPA_STATE[0],
+    totalAllocated = GPA_STATE[1],
+    totalFreed = GPA_STATE[2],
+    peakMemory = GPA_STATE[3],
+    leakedBytes = GPA_STATE[4]
+  )
+
+pub fn gpaReportLeaks(): int:
+  let stats = gpaGetStats()
+  ret stats.liveAllocations

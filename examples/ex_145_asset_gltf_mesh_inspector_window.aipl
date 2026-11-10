@@ -1,0 +1,154 @@
+// ============================================================================
+// Canonical Example 145: glTF 2.0 / GLB Binary Mesh & Accessor Inspector (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/asset
+// ============================================================================
+module Ex145AssetGltfMeshInspectorWindow
+
+import {
+  GltfScene,
+  parseGltfJson,
+  parseGlbBinary,
+  extractMeshVertices,
+  extractMeshIndices
+} from "../std/asset/asset_mod.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { maxInt } from "../std/std_root.aipl"
+
+pub fn verifyGltfJsonAndGlbBinaryExtractor(): int:
+  let q = chr(34)
+  let rawJson = "{" + q + "asset" + q + ":{" + q + "version" + q + ":" + q + "2.0" + q + "}," + q + "meshes" + q + ":[]}"
+  assert(parseGltfJson(rawJson, []).isSome(), "glTF 2.0 JSON parsed")
+
+  let glbBytes = [103, 108, 84, 70, 2, 0, 0, 0, 12, 0, 0, 0]
+  let glbScene = parseGlbBinary(glbBytes).unwrap()
+  let prim = glbScene.meshes[0].primitives[0]
+  let verts = extractMeshVertices(prim)
+  let idxs = extractMeshIndices(prim)
+  ret verts.len() + idxs.len()
+
+pub fn computeVertexBufferBytes(vertexCount: int, strideBytes: int): int:
+  ret maxInt(0, vertexCount) * maxInt(1, strideBytes)
+
+pub fn describeGlbChunkType(chunkMode: int): str:
+  if chunkMode == 1:
+    ret "GLTF:CHUNK_JSON_AND_BIN_V2"
+  ret "GLTF:EXTERNAL_BUFFER_URI"
+
+pub fn stepGltfSceneFrame(frameIndex: int): GltfScene:
+  let q = chr(34)
+  let rawJson = "{" + q + "asset" + q + ":{" + q + "version" + q + ":" + q + "2.0" + q + "}," + q + "meshes" + q + ":[{" + q + "name" + q + ":" + q + "NeonPrismMesh" + q + "}]}"
+  let b0x = 96 + ((frameIndex * 3) % 64)
+  let b0y = 180 + ((frameIndex * 2) % 48)
+  let b1x = 20 + ((frameIndex * 2) % 40)
+  let b1y = 32 + ((frameIndex * 3) % 36)
+  let b2x = 190 + ((frameIndex * 2) % 45)
+  let b2y = 28 + ((frameIndex * 4) % 40)
+  let binBuffer = [b0x, b0y, 64, b1x, b1y, 128, b2x, b2y, 192]
+  ret parseGltfJson(rawJson, binBuffer).unwrap()
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let scene = stepGltfSceneFrame(frameIndex)
+  let prim = scene.meshes[0].primitives[0]
+  let verts = extractMeshVertices(prim)
+  let idxs = extractMeshIndices(prim)
+  let sumPos = int((verts[0] + verts[1] + verts[3] + verts[6]) * 255.0 + 0.5)
+  ret verts.len() + idxs.len() + sumPos + int(dt * 0.0)
+
+pub fn renderGltfMeshInspectorScene(frameIndex: int): void:
+  let glbScene = stepGltfSceneFrame(frameIndex)
+  let mesh = glbScene.meshes[0]
+  let node = glbScene.nodes[0]
+  let prim = mesh.primitives[0]
+  let verts = extractMeshVertices(prim)
+  let idxs = extractMeshIndices(prim)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_145 // GLTF 2.0 / GLB BINARY MESH PRIMITIVE & ACCESSOR INSPECTOR", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Left: Wireframe Mesh Viewport
+  let vx = 56.0
+  let vy = 96.0
+  let vw = 680.0
+  let vh = 580.0
+  drawRect(vx, vy, vw, vh, rgb(14, 21, 36))
+  drawRectOutline(vx, vy, vw, vh, 2.0, rgb(71, 85, 105))
+  drawText("GLB MESH[" + mesh.name + "] NODE[" + node.name + "] VIEWPORT", vx + 24.0, vy + 24.0, 16.0, rgb(56, 189, 248))
+
+  // Project extracted triangle vertices onto viewport using idxs[0..2] and verts[idx*3 .. idx*3+1]
+  let i0 = idxs[0]
+  let i1 = idxs[1]
+  let i2 = idxs[2]
+  let originX = vx + 110.0
+  let originY = vy + 510.0
+  let spanW = 460.0
+  let spanH = 380.0
+  let p0x = originX + verts[i0 * 3] * spanW
+  let p0y = originY - verts[i0 * 3 + 1] * spanH
+  let p1x = originX + verts[i1 * 3] * spanW
+  let p1y = originY - verts[i1 * 3 + 1] * spanH
+  let p2x = originX + verts[i2 * 3] * spanW
+  let p2y = originY - verts[i2 * 3 + 1] * spanH
+
+  drawLine(p0x, p0y, p1x, p1y, rgb(56, 189, 248), 3.0)
+  drawLine(p1x, p1y, p2x, p2y, rgb(56, 189, 248), 3.0)
+  drawLine(p2x, p2y, p0x, p0y, rgb(56, 189, 248), 3.0)
+  drawCircle(p0x, p0y, 8.0, rgb(34, 197, 94))
+  drawCircle(p1x, p1y, 8.0, rgb(250, 204, 21))
+  drawCircle(p2x, p2y, 8.0, rgb(168, 85, 247))
+  drawText("V0 (idx=" + str(i0) + ")", p0x - 36.0, p0y - 26.0, 14.0, rgb(134, 239, 172))
+  drawText("V1 (idx=" + str(i1) + ")", p1x - 45.0, p1y + 18.0, 14.0, rgb(254, 240, 138))
+  drawText("V2 (idx=" + str(i2) + ")", p2x - 25.0, p2y + 18.0, 14.0, rgb(216, 180, 254))
+
+  // Right: GLB Header & BufferView Inspector
+  let rx = 768.0
+  drawRect(rx, vy, 456.0, vh, rgb(16, 24, 42))
+  drawRectOutline(rx, vy, 456.0, vh, 2.0, rgb(56, 189, 248))
+  drawText("GLB BINARY CONTAINER STRUCTURE", rx + 24.0, vy + 32.0, 18.0, rgb(56, 189, 248))
+  drawText(describeGlbChunkType(1), rx + 24.0, vy + 72.0, 15.0, rgb(74, 222, 128))
+  drawText("Mesh Name: " + mesh.name + " | Nodes: " + str(glbScene.nodes.len), rx + 24.0, vy + 110.0, 15.0, rgb(226, 232, 240))
+  drawText("Extracted Vertex Floats: " + str(verts.len()) + " (3x VEC3)", rx + 24.0, vy + 148.0, 15.0, rgb(226, 232, 240))
+  drawText("Extracted Indices:       " + str(idxs.len()) + " | UVs: " + str(prim.uvs.len), rx + 24.0, vy + 184.0, 15.0, rgb(226, 232, 240))
+  drawText("VBO Footprint (32B/vtx): " + str(computeVertexBufferBytes(idxs.len(), 32)) + " bytes", rx + 24.0, vy + 220.0, 15.0, rgb(250, 204, 21))
+
+  // Live Accessor Position Readout
+  drawRect(rx + 24.0, vy + 264.0, 408.0, 280.0, rgb(12, 18, 32))
+  drawRectOutline(rx + 24.0, vy + 264.0, 408.0, 280.0, 1.5, rgb(71, 85, 105))
+  drawText("ACCESSOR[0] VEC3 POSITION STREAM", rx + 40.0, vy + 286.0, 15.0, rgb(56, 189, 248))
+  mut vi = 0
+  while vi < 3:
+    let vxNorm = int(verts[vi * 3] * 1000.0)
+    let vyNorm = int(verts[vi * 3 + 1] * 1000.0)
+    let vzNorm = int(verts[vi * 3 + 2] * 1000.0)
+    let rowY = vy + 324.0 + float(vi) * 68.0
+    drawRect(rx + 40.0, rowY, 376.0, 52.0, rgb(20, 30, 52))
+    drawText("V" + str(vi) + " (pm): X=" + str(vxNorm) + " Y=" + str(vyNorm) + " Z=" + str(vzNorm), rx + 52.0, rowY + 18.0, 14.0, rgb(226, 232, 240))
+    drawRect(rx + 52.0, rowY + 38.0, float((vxNorm * 340) / 1000), 6.0, rgb(34, 197, 94))
+    vi = vi + 1
+
+pub fn main(): int:
+  let total = verifyGltfJsonAndGlbBinaryExtractor()
+  assert(total == 12, "9 floats + 3 indices == 12")
+  initWindow(1280, 720, "AIPL ex_145 - glTF 2.0 / GLB Binary Mesh Inspector")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderGltfMeshInspectorScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

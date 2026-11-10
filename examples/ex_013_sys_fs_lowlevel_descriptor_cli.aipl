@@ -1,0 +1,91 @@
+// ============================================================================
+// Example 013: Low-Level POSIX File Descriptors, Seek & Fsync CLI
+// Demonstrates: sysFsOpen, sysFsWrite, sysFsFsync, sysFsSeek, sysFsRead,
+//               sysFsStatSize, sysFsClose, and sysFsUnlink from std/sys/sys_fs.
+// ============================================================================
+module Ex013SysFsLowlevelDescriptorCli
+
+import { clampInt } from "../std/prelude"
+import { sysPtrAlloc, sysPtrFree, sysPtrWriteU8, sysPtrReadU8, sysPtrSet } from "../std/sys/sys_mem"
+import {
+  sysFsOpen,
+  sysFsWrite,
+  sysFsFsync,
+  sysFsSeek,
+  sysFsRead,
+  sysFsClose,
+  sysFsStatSize,
+  sysFsUnlink,
+  SYS_O_RDWR,
+  SYS_O_CREAT,
+  SYS_O_TRUNC,
+  SYS_SEEK_SET
+} from "../std/sys/sys_fs"
+
+pub struct DescriptorIoSummary:
+  bytesWritten: int
+  bytesRead: int
+  statSize: int
+  firstByte: int
+
+pub fn computeRdwrCreateFlags(): int:
+  ret SYS_O_RDWR + SYS_O_CREAT + SYS_O_TRUNC
+
+pub fn roundtripDescriptorPayload(filePath: str, baseByte: int, count: int): int:
+  let n = clampInt(count, 1, 16)
+  let fd = sysFsOpen(filePath, computeRdwrCreateFlags(), 420)
+  let wbuf = sysPtrAlloc(16)
+  for i in 0..n:
+    sysPtrWriteU8(wbuf + i, (baseByte + i) & 255)
+  let _ = sysFsWrite(fd, wbuf, n)
+  let _ = sysFsFsync(fd)
+  let _ = sysFsSeek(fd, 0, SYS_SEEK_SET)
+  let rbuf = sysPtrAlloc(16)
+  sysPtrSet(rbuf, 0, 16)
+  let _ = sysFsRead(fd, rbuf, n)
+  let b0 = sysPtrReadU8(rbuf)
+  let _ = sysFsClose(fd)
+  let _ = sysFsUnlink(filePath)
+  sysPtrFree(wbuf)
+  sysPtrFree(rbuf)
+  ret b0
+
+pub fn classifyDescriptorState(fd: int, written: int, readCount: int): str:
+  if fd < 0:
+    ret "FD:OPEN_ERROR"
+  elif written == readCount and written > 0:
+    ret "FD:SYNCED_COMPLETE"
+  else:
+    ret "FD:SHORT_READ"
+
+pub fn buildDescriptorIoSummary(filePath: str, count: int): DescriptorIoSummary:
+  let n = clampInt(count, 1, 16)
+  let fd = sysFsOpen(filePath, computeRdwrCreateFlags(), 420)
+  let wbuf = sysPtrAlloc(16)
+  for i in 0..n:
+    sysPtrWriteU8(wbuf + i, 65 + i)
+  let written = sysFsWrite(fd, wbuf, n)
+  let _ = sysFsFsync(fd)
+  let _ = sysFsSeek(fd, 0, SYS_SEEK_SET)
+  let rbuf = sysPtrAlloc(16)
+  sysPtrSet(rbuf, 0, 16)
+  let readBytes = sysFsRead(fd, rbuf, n)
+  let b0 = sysPtrReadU8(rbuf)
+  let _ = sysFsClose(fd)
+  let fsize = sysFsStatSize(filePath)
+  let _ = sysFsUnlink(filePath)
+  sysPtrFree(wbuf)
+  sysPtrFree(rbuf)
+  ret DescriptorIoSummary(
+    bytesWritten = written,
+    bytesRead = readBytes,
+    statSize = fsize,
+    firstByte = b0
+  )
+
+pub fn main(): int:
+  let summary = buildDescriptorIoSummary("/tmp/aipl_ex_013_main.bin", 5)
+  let state = classifyDescriptorState(3, summary.bytesWritten, summary.bytesRead)
+  println("[ex_013_sys_fs_lowlevel_descriptor_cli] DescriptorIoSummary(written=" + str(summary.bytesWritten) + ", read=" + str(summary.bytesRead) + ", statSize=" + str(summary.statSize) + ", firstByte=" + str(summary.firstByte) + ")")
+  println("[ex_013_sys_fs_lowlevel_descriptor_cli] state=" + state)
+  ret 0

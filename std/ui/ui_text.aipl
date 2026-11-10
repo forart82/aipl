@@ -1,0 +1,109 @@
+/// # Module: `std/ui/ui_text` (`UiTextMod`)
+///
+/// ## Purpose & Domain Scope
+/// Multi-line word wrapping, greedy line breaking, text measurement,
+/// and ellipsis truncation.
+module UiTextMod
+
+import { maxFloat } from "std/math/consts"
+import { ColorRgba8 } from "std/gfx/color"
+
+pub struct TextStyle(fontId: int, fontSize: float, lineHeight: float, color: ColorRgba8, letterSpacing: float)
+
+pub struct TextLine(text: str, width: float, height: float, startIndex: int, endIndex: int)
+
+pub struct TextLayout(lines: [TextLine], totalWidth: float, totalHeight: float)
+
+pub fn measureTextWidth(text: str, style: TextStyle): float:
+  let n = text.len
+  if n == 0:
+    ret 0.0
+  let charAdv = style.fontSize * 0.6
+  let spacingTotal = if n > 1: float(n - 1) * style.letterSpacing else: 0.0
+  ret float(n) * charAdv + spacingTotal
+
+pub fn wrapTextToLines(text: str, maxWidth: float, style: TextStyle): TextLayout:
+  let words = text.split(" ")
+  mut lines: [TextLine] = []
+  let lineH = maxFloat(style.lineHeight, style.fontSize)
+
+  if words.len == 0 or text.len == 0:
+    ret TextLayout(lines = lines, totalWidth = 0.0, totalHeight = 0.0)
+
+  mut currentStr = ""
+  mut lineStart = 0
+  mut cursor = 0
+  mut maxW = 0.0
+
+  mut i = 0
+  while i < words.len:
+    let w = words[i]
+    let candidate = if currentStr.len == 0: w else: currentStr + " " + w
+    let candW = measureTextWidth(candidate, style)
+    if currentStr.len > 0 and candW > maxWidth:
+      let curW = measureTextWidth(currentStr, style)
+      maxW = maxFloat(maxW, curW)
+      lines.push(TextLine(
+        text = currentStr,
+        width = curW,
+        height = lineH,
+        startIndex = lineStart,
+        endIndex = cursor - 1
+      ))
+      currentStr = w
+      lineStart = cursor
+    else:
+      currentStr = candidate
+    cursor = cursor + w.len + 1
+    i = i + 1
+
+  if currentStr.len > 0:
+    let curW = measureTextWidth(currentStr, style)
+    maxW = maxFloat(maxW, curW)
+    lines.push(TextLine(
+      text = currentStr,
+      width = curW,
+      height = lineH,
+      startIndex = lineStart,
+      endIndex = text.len
+    ))
+
+  ret TextLayout(
+    lines = lines,
+    totalWidth = maxW,
+    totalHeight = float(lines.len) * lineH
+  )
+
+pub fn truncateTextWithEllipsis(text: str, maxWidth: float, style: TextStyle): str:
+  if measureTextWidth(text, style) <= maxWidth:
+    ret text
+  let ellipsis = "..."
+  mut cut = text.len
+  while cut > 0:
+    let candidate = text.slice(0, cut) + ellipsis
+    if measureTextWidth(candidate, style) <= maxWidth:
+      ret candidate
+    cut = cut - 1
+  ret ellipsis
+
+pub struct RichTextSpan(text: str, colorHex: int, bold: bool, code: bool)
+pub struct TextSpan(text: str, fontSize: float = 14.0, colorHex: int = 0)
+
+pub fn richSpanPlain(text: str, colorHex: int): RichTextSpan:
+  ret RichTextSpan(text = text, colorHex = colorHex, bold = false, code = false)
+
+pub fn richSpansTotalLength(spans: [RichTextSpan]): int:
+  mut total = 0
+  mut i = 0
+  while i < spans.len:
+    total += spans[i].text.len
+    i += 1
+  ret total
+
+pub fn measureRichLineWidth(spans: [TextSpan]): float:
+  mut total = 0.0
+  mut i = 0
+  while i < spans.len:
+    total += float(spans[i].text.len) * spans[i].fontSize * 0.6
+    i += 1
+  ret total

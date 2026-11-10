@@ -1,0 +1,134 @@
+// ============================================================================
+// Module: std/collections/graph_topology (GraphTopology)
+// Layer 1 (Core Primitives & Math) — Disjoint-Set Union & DirectedGraph
+// ============================================================================
+module GraphTopologyMod
+
+pub struct DisjointSetUnion:
+  parent: [int]
+  rank: [int]
+  numSets: int
+
+pub struct DirectedGraph:
+  numNodes: int
+  adjacency: [[int]]
+  weights: [[int]]
+
+pub fn dsuNew(size: int): DisjointSetUnion:
+  mut sz = size
+  if sz < 0:
+    sz = 0
+  mut p: [int] = []
+  mut r: [int] = []
+  for i in 0..sz:
+    p.push(i)
+    r.push(0)
+  ret DisjointSetUnion(parent = p, rank = r, numSets = sz)
+
+pub fn (mut self: DisjointSetUnion) find(x: int): int:
+  if x < 0 or x >= self.parent.len:
+    ret -1
+  mut root = x
+  while self.parent[root] != root:
+    root = self.parent[root]
+  mut curr = x
+  while curr != root:
+    let nxt = self.parent[curr]
+    self.parent[curr] = root
+    curr = nxt
+  ret root
+
+pub fn (mut self: DisjointSetUnion) union(x: int, y: int): bool:
+  let rx = self.find(x)
+  let ry = self.find(y)
+  if rx < 0 or ry < 0 or rx == ry:
+    ret false
+  if self.rank[rx] < self.rank[ry]:
+    self.parent[rx] = ry
+  elif self.rank[rx] > self.rank[ry]:
+    self.parent[ry] = rx
+  else:
+    self.parent[ry] = rx
+    self.rank[rx] = self.rank[rx] + 1
+  self.numSets = self.numSets - 1
+  ret true
+
+pub fn (mut self: DisjointSetUnion) connected(x: int, y: int): bool:
+  let rx = self.find(x)
+  let ry = self.find(y)
+  ret rx >= 0 and rx == ry
+
+pub fn (self: DisjointSetUnion) countSets(): int:
+  ret self.numSets
+
+// DirectedGraph
+pub fn directedGraphNew(numNodes: int): DirectedGraph:
+  mut n = numNodes
+  if n < 0:
+    n = 0
+  mut adj: [[int]] = []
+  mut wts: [[int]] = []
+  for i in 0..n:
+    let emptyAdj: [int] = []
+    let emptyWt: [int] = []
+    adj.push(emptyAdj)
+    wts.push(emptyWt)
+  ret DirectedGraph(numNodes = n, adjacency = adj, weights = wts)
+
+pub fn (mut self: DirectedGraph) addEdge(u: int, v: int, weight: int): void:
+  if u < 0 or u >= self.numNodes or v < 0 or v >= self.numNodes:
+    ret
+  mut uAdj = self.adjacency[u]
+  mut uWt = self.weights[u]
+  uAdj.push(v)
+  uWt.push(weight)
+  self.adjacency[u] = uAdj
+  self.weights[u] = uWt
+
+pub fn (self: DirectedGraph) dijkstraShortestPath(startNode: int, endNode: int): Option[[int]]:
+  if startNode < 0 or startNode >= self.numNodes or endNode < 0 or endNode >= self.numNodes:
+    ret None
+  let inf = 1000000000
+  mut dist: [int] = []
+  mut prev: [int] = []
+  mut visited: [bool] = []
+  for i in 0..self.numNodes:
+    dist.push(inf)
+    prev.push(-1)
+    visited.push(false)
+  dist[startNode] = 0
+
+  for step in 0..self.numNodes:
+    mut u = -1
+    mut bestDist = inf
+    for i in 0..self.numNodes:
+      if not visited[i] and dist[i] < bestDist:
+        bestDist = dist[i]
+        u = i
+    if u >= 0:
+      visited[u] = true
+      let neighbors = self.adjacency[u]
+      let edgeWeights = self.weights[u]
+      for k in 0..neighbors.len:
+        let v = neighbors[k]
+        let w = edgeWeights[k]
+        if not visited[v] and dist[u] + w < dist[v]:
+          dist[v] = dist[u] + w
+          prev[v] = u
+
+  if dist[endNode] >= inf:
+    ret None
+  mut revPath: [int] = []
+  mut curr = endNode
+  while curr >= 0:
+    revPath.push(curr)
+    if curr == startNode:
+      curr = -1
+    else:
+      curr = prev[curr]
+  mut path: [int] = []
+  mut idx = revPath.len - 1
+  while idx >= 0:
+    path.push(revPath[idx])
+    idx = idx - 1
+  ret Some(path)

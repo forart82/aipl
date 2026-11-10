@@ -1,0 +1,69 @@
+// ============================================================================
+// Twin Test Suite 260: Textured 2.5D Isometric Valley Village & River
+// Verifies examples/ex_260_textured_25d_village_and_river_window.aipl
+// ============================================================================
+module Ex260Textured25dVillageAndRiverWindowTest
+
+import {
+  Village25DState,
+  createVillage25DState,
+  stepVillage25DState,
+  renderVillage25DScene,
+  renderVillageFrameStep
+} from "../../examples/ex_260_textured_25d_village_and_river_window.aipl"
+import { initCanvas, getPixel, getWindowMode } from "../../std/gfx2d/shape2d.aipl"
+import { assert, assertEqInt, absInt } from "../../std/prelude.aipl"
+
+pub fn test_textured_25d_village_and_river(): int:
+  initCanvas(640, 360)
+  mut st: Village25DState = createVillage25DState(640.0, 360.0)
+  assert(st.textures.grassTex >= 1, "grassTex handle >= 1")
+  assert(st.textures.rockTex >= 1, "rockTex handle >= 1")
+  assert(st.textures.waterTex >= 1, "waterTex handle >= 1")
+  assert(st.textures.cobbleTex >= 1, "cobbleTex handle >= 1")
+  assert(st.textures.brickTex >= 1, "brickTex handle >= 1")
+  assert(st.textures.roofTex >= 1, "roofTex handle >= 1")
+
+  st = stepVillage25DState(st, 0.04)
+  assertEqInt(st.tick, 1, "stepVillage25DState increments tick")
+  assert(st.riverScrollU < 0.0, "riverScrollU advances with dt")
+
+  let primCount = renderVillage25DScene(st)
+  // 144 terrain + 8 river + 8 road + 5 houseA + 5 houseB + 5 bridge + 10 pineA + 10 pineB + 1 villager = 196
+  assertEqInt(primCount, 196, "renderVillage25DScene renders 196 textured/depth-buffered primitives")
+
+  let f0 = renderVillageFrameStep(0, 0.016)
+  assert(getWindowMode() == "glx", "window mode is glx")
+  assertEqInt(f0, 196, "renderVillageFrameStep primitive count")
+
+  // Verify high-frequency texel variance across rendered terrain/village region
+  mut nonBgPixels = 0
+  mut neighborDiffSum = 0
+  mut prevR = -1
+  mut prevG = -1
+  mut prevB = -1
+  mut sy = 150
+  while sy <= 230:
+    mut sx = 240
+    while sx <= 400:
+      let px = getPixel(sx, sy)
+      let r = (px >> 24) & 255
+      let g = (px >> 16) & 255
+      let b = (px >> 8) & 255
+      if r != 14 or g != 22 or b != 36:
+        nonBgPixels += 1
+      if prevR >= 0:
+        neighborDiffSum += absInt(r - prevR) + absInt(g - prevG) + absInt(b - prevB)
+      prevR = r
+      prevG = g
+      prevB = b
+      sx += 4
+    sy += 8
+  assert(nonBgPixels > 80, "textured 2.5D village covers viewport center")
+  assert(neighborDiffSum > 600, "high-frequency texel variation confirms real UV texture detail")
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_textured_25d_village_and_river(), 0, "test_textured_25d_village_and_river")
+  println("PASS: ex_260_textured_25d_village_and_river_window_test")
+  ret 0

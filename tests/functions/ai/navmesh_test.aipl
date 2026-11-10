@@ -1,0 +1,270 @@
+module tests.functions.ai.navmesh_test
+
+import * from "std/ai/navmesh"
+import { absFloat, maxFloat, minFloat, maxInt } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_navmesh_navMeshNew_1(): int:
+  let arg_polygons = [NavMeshPoly2D(id = 1, vertices = [], center = Vec2(x = 1.0, y = 1.0), portals = [])]
+  let edge_polygons = []
+  let resNom = navMeshNew(arg_polygons)
+  let resEdge = navMeshNew(edge_polygons)
+  assertEqInt(resNom.polygons.len(), 1, "navMeshNew nominal resNom.polygons.len() == 1")
+  assertEqInt(resEdge.polygons.len(), 0, "navMeshNew boundary resEdge.polygons.len() == 0")
+  ret 0
+
+pub fn test_navmesh_findClosestPolyIndex_2(): int:
+  let arg_mesh = NavMesh2D(polygons = [])
+  let edge_mesh = NavMesh2D(polygons = [])
+  let arg_pt = Vec2(x = 1.0, y = 1.0)
+  let edge_pt = Vec2(x = 0.5, y = 0.5)
+  let resNom = findClosestPolyIndex(arg_mesh, arg_pt)
+  let resEdge = findClosestPolyIndex(edge_mesh, edge_pt)
+  assertEqInt(resNom, -1, "findClosestPolyIndex nominal resNom == -1")
+  assertEqInt(resEdge, -1, "findClosestPolyIndex boundary resEdge == -1")
+  ret 0
+
+pub fn test_navmesh_navMeshFindPath_3(): int:
+  let arg_mesh = NavMesh2D(polygons = [])
+  let edge_mesh = NavMesh2D(polygons = [])
+  let arg_start = Vec2(x = 1.0, y = 1.0)
+  let edge_start = Vec2(x = 0.5, y = 0.5)
+  let arg_goal = Vec2(x = 1.0, y = 1.0)
+  let edge_goal = Vec2(x = 0.5, y = 0.5)
+  let resNom = navMeshFindPath(arg_mesh, arg_start, arg_goal)
+  let resEdge = navMeshFindPath(edge_mesh, edge_start, edge_goal)
+  assert(resNom.isSome() == false, "navMeshFindPath nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "navMeshFindPath boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_navmesh_navPortalsCross2D_4(): int:
+  let arg_ax = 1.0
+  let edge_ax = 0.5
+  let arg_ay = 1.0
+  let edge_ay = 0.5
+  let arg_bx = 1.0
+  let edge_bx = 0.5
+  let arg_by = 1.0
+  let edge_by = 0.5
+  let arg_cx = 1.0
+  let edge_cx = 0.5
+  let arg_cy = 1.0
+  let edge_cy = 0.5
+  let resNom = navPortalsCross2D(arg_ax, arg_ay, arg_bx, arg_by, arg_cx, arg_cy)
+  let resEdge = navPortalsCross2D(edge_ax, edge_ay, edge_bx, edge_by, edge_cx, edge_cy)
+  assertApproxEq(resNom, 0.0, 0.001, "navPortalsCross2D nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "navPortalsCross2D boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_navmesh_navFunnelSmoothPortals_5(): int:
+  let arg_lefts = [1.0]
+  let edge_lefts = []
+  let arg_rights = [2.0]
+  let edge_rights = []
+  let resNom = navFunnelSmoothPortals(arg_lefts, arg_rights)
+  let resEdge = navFunnelSmoothPortals(edge_lefts, edge_rights)
+  assertEqInt(resNom.len(), 0, "navFunnelSmoothPortals nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "navFunnelSmoothPortals boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_navmesh_navHeuristicOctile_6(): int:
+  let arg_x0 = 1.0
+  let edge_x0 = 0.5
+  let arg_y0 = 1.0
+  let edge_y0 = 0.5
+  let arg_x1 = 1.0
+  let edge_x1 = 0.5
+  let arg_y1 = 1.0
+  let edge_y1 = 0.5
+  let resNom = navHeuristicOctile(arg_x0, arg_y0, arg_x1, arg_y1)
+  let resEdge = navHeuristicOctile(edge_x0, edge_y0, edge_x1, edge_y1)
+  assertApproxEq(resNom, 0.0, 0.001, "navHeuristicOctile nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "navHeuristicOctile boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_navmesh_navStepTowardTarget_7(): int:
+  let arg_curX = 1.0
+  let edge_curX = 0.5
+  let arg_curY = 1.0
+  let edge_curY = 0.5
+  let arg_tgtX = 1.0
+  let edge_tgtX = 0.5
+  let arg_tgtY = 1.0
+  let edge_tgtY = 0.5
+  let arg_maxStep = 2.0
+  let edge_maxStep = 1.0
+  let resNom = navStepTowardTarget(arg_curX, arg_curY, arg_tgtX, arg_tgtY, arg_maxStep)
+  let resEdge = navStepTowardTarget(edge_curX, edge_curY, edge_tgtX, edge_tgtY, edge_maxStep)
+  assertEqInt(resNom.len(), 2, "navStepTowardTarget nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "navStepTowardTarget boundary resEdge.len() == 2")
+  ret 0
+
+pub fn test_navmesh_navBresenhamLineOfSight_8(): int:
+  let arg_x0 = 1
+  let edge_x0 = 0
+  let arg_y0 = 1
+  let edge_y0 = 0
+  let arg_x1 = 1
+  let edge_x1 = 0
+  let arg_y1 = 1
+  let edge_y1 = 0
+  let arg_blockerX = 4
+  let edge_blockerX = 1
+  let arg_blockerY = 4
+  let edge_blockerY = 1
+  let arg_blockerRadius = 4
+  let edge_blockerRadius = 1
+  let resNom = navBresenhamLineOfSight(arg_x0, arg_y0, arg_x1, arg_y1, arg_blockerX, arg_blockerY, arg_blockerRadius)
+  let resEdge = navBresenhamLineOfSight(edge_x0, edge_y0, edge_x1, edge_y1, edge_blockerX, edge_blockerY, edge_blockerRadius)
+  assert(resNom == true, "navBresenhamLineOfSight nominal resNom == true")
+  assert(resEdge == true, "navBresenhamLineOfSight boundary resEdge == true")
+  ret 0
+
+pub fn test_navmesh_navComputeBhopVelocity_9(): int:
+  let arg_curSpeed = 1.0
+  let edge_curSpeed = 0.5
+  let arg_wishSpeed = 2.0
+  let edge_wishSpeed = 1.0
+  let arg_airAccelerate = 2.0
+  let edge_airAccelerate = 1.0
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = navComputeBhopVelocity(arg_curSpeed, arg_wishSpeed, arg_airAccelerate, arg_dt)
+  let resEdge = navComputeBhopVelocity(edge_curSpeed, edge_wishSpeed, edge_airAccelerate, edge_dt)
+  assertApproxEq(resNom, 3.0, 0.001, "navComputeBhopVelocity nominal resNom ~= 3.0")
+  assertApproxEq(resEdge, 1.5, 0.001, "navComputeBhopVelocity boundary resEdge ~= 1.5")
+  ret 0
+
+pub fn test_navmesh_navIsWithinLeashRadius_10(): int:
+  let arg_unitX = 1.0
+  let edge_unitX = 0.5
+  let arg_unitY = 1.0
+  let edge_unitY = 0.5
+  let arg_campX = 1.0
+  let edge_campX = 0.5
+  let arg_campY = 1.0
+  let edge_campY = 0.5
+  let arg_leashRadius = 2.0
+  let edge_leashRadius = 1.0
+  let resNom = navIsWithinLeashRadius(arg_unitX, arg_unitY, arg_campX, arg_campY, arg_leashRadius)
+  let resEdge = navIsWithinLeashRadius(edge_unitX, edge_unitY, edge_campX, edge_campY, edge_leashRadius)
+  assert(resNom == true, "navIsWithinLeashRadius nominal resNom == true")
+  assert(resEdge == true, "navIsWithinLeashRadius boundary resEdge == true")
+  ret 0
+
+pub fn test_navmesh_gridComputeRadialVisibility_11(): int:
+  let arg_gridW = 1
+  let edge_gridW = 0
+  let arg_gridH = 1
+  let edge_gridH = 0
+  let arg_viewerX = 1
+  let edge_viewerX = 0
+  let arg_viewerY = 1
+  let edge_viewerY = 0
+  let arg_radius = 2
+  let edge_radius = 0
+  let resNom = gridComputeRadialVisibility(arg_gridW, arg_gridH, arg_viewerX, arg_viewerY, arg_radius)
+  let resEdge = gridComputeRadialVisibility(edge_gridW, edge_gridH, edge_viewerX, edge_viewerY, edge_radius)
+  assertEqInt(resNom.len(), 1, "gridComputeRadialVisibility nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "gridComputeRadialVisibility boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_navmesh_rtsUpdateFogOfWarGrid_12(): int:
+  let arg_gridW = 1
+  let edge_gridW = 0
+  let arg_gridH = 1
+  let edge_gridH = 0
+  let arg_viewerX = 1
+  let edge_viewerX = 0
+  let arg_viewerY = 1
+  let edge_viewerY = 0
+  let arg_radius = 2
+  let edge_radius = 0
+  let resNom = rtsUpdateFogOfWarGrid(arg_gridW, arg_gridH, arg_viewerX, arg_viewerY, arg_radius)
+  let resEdge = rtsUpdateFogOfWarGrid(edge_gridW, edge_gridH, edge_viewerX, edge_viewerY, edge_radius)
+  assertEqInt(resNom.len(), 1, "rtsUpdateFogOfWarGrid nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "rtsUpdateFogOfWarGrid boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_navmesh_navComputeNavMeshAreaCost_13(): int:
+  let arg_areaWidth = 2.0
+  let edge_areaWidth = 1.0
+  let arg_areaHeight = 2.0
+  let edge_areaHeight = 1.0
+  let arg_dangerPenalty = 1.0
+  let edge_dangerPenalty = 0.5
+  let arg_crouchPenalty = 2.0
+  let edge_crouchPenalty = 1.0
+  let arg_baseDist = 1.0
+  let edge_baseDist = 0.5
+  let resNom = navComputeNavMeshAreaCost(arg_areaWidth, arg_areaHeight, arg_dangerPenalty, arg_crouchPenalty, arg_baseDist)
+  let resEdge = navComputeNavMeshAreaCost(edge_areaWidth, edge_areaHeight, edge_dangerPenalty, edge_crouchPenalty, edge_baseDist)
+  assertApproxEq(resNom, 4.25, 0.001, "navComputeNavMeshAreaCost nominal resNom ~= 4.25")
+  assertApproxEq(resEdge, 2.75, 0.001, "navComputeNavMeshAreaCost boundary resEdge ~= 2.75")
+  ret 0
+
+pub fn test_navmesh_navComputePortalShortcutDist_14(): int:
+  let arg_directDist = 1.0
+  let edge_directDist = 0.5
+  let arg_distToGateA = 1.0
+  let edge_distToGateA = 0.5
+  let arg_distFromGateB = 1.0
+  let edge_distFromGateB = 0.5
+  let arg_gateCost = 1.0
+  let edge_gateCost = 0.5
+  let resNom = navComputePortalShortcutDist(arg_directDist, arg_distToGateA, arg_distFromGateB, arg_gateCost)
+  let resEdge = navComputePortalShortcutDist(edge_directDist, edge_distToGateA, edge_distFromGateB, edge_gateCost)
+  assertApproxEq(resNom, 1.0, 0.001, "navComputePortalShortcutDist nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "navComputePortalShortcutDist boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_navmesh_navBuildFlowField2D_15(): int:
+  let arg_width = 4
+  let edge_width = 1
+  let arg_height = 4
+  let edge_height = 1
+  let arg_costField = [2]
+  let edge_costField = []
+  let arg_goalX = 1
+  let edge_goalX = 0
+  let arg_goalY = 1
+  let edge_goalY = 0
+  let resNom = navBuildFlowField2D(arg_width, arg_height, arg_costField, arg_goalX, arg_goalY)
+  let resEdge = navBuildFlowField2D(edge_width, edge_height, edge_costField, edge_goalX, edge_goalY)
+  assertEqInt(resNom.width, 4, "navBuildFlowField2D nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "navBuildFlowField2D boundary resEdge.width == 1")
+  ret 0
+
+pub fn test_navmesh_navSampleFlowField2D_16(): int:
+  let arg_ff = CrowdFlowField2D(width = 4, height = 4, goalX = 1, goalY = 1, costField = [], integrationField = [], flowDirX = [], flowDirY = [])
+  let edge_ff = CrowdFlowField2D(width = 4, height = 4, goalX = 0, goalY = 0, costField = [], integrationField = [], flowDirX = [], flowDirY = [])
+  let arg_cellX = 1
+  let edge_cellX = 0
+  let arg_cellY = 1
+  let edge_cellY = 0
+  let resNom = navSampleFlowField2D(arg_ff, arg_cellX, arg_cellY)
+  let resEdge = navSampleFlowField2D(edge_ff, edge_cellX, edge_cellY)
+  assertEqInt(resNom.len(), 2, "navSampleFlowField2D nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 2, "navSampleFlowField2D boundary resEdge.len() == 2")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_navmesh_navMeshNew_1(), 0, "test_navmesh_navMeshNew_1")
+  assertEqInt(test_navmesh_findClosestPolyIndex_2(), 0, "test_navmesh_findClosestPolyIndex_2")
+  assertEqInt(test_navmesh_navMeshFindPath_3(), 0, "test_navmesh_navMeshFindPath_3")
+  assertEqInt(test_navmesh_navPortalsCross2D_4(), 0, "test_navmesh_navPortalsCross2D_4")
+  assertEqInt(test_navmesh_navFunnelSmoothPortals_5(), 0, "test_navmesh_navFunnelSmoothPortals_5")
+  assertEqInt(test_navmesh_navHeuristicOctile_6(), 0, "test_navmesh_navHeuristicOctile_6")
+  assertEqInt(test_navmesh_navStepTowardTarget_7(), 0, "test_navmesh_navStepTowardTarget_7")
+  assertEqInt(test_navmesh_navBresenhamLineOfSight_8(), 0, "test_navmesh_navBresenhamLineOfSight_8")
+  assertEqInt(test_navmesh_navComputeBhopVelocity_9(), 0, "test_navmesh_navComputeBhopVelocity_9")
+  assertEqInt(test_navmesh_navIsWithinLeashRadius_10(), 0, "test_navmesh_navIsWithinLeashRadius_10")
+  assertEqInt(test_navmesh_gridComputeRadialVisibility_11(), 0, "test_navmesh_gridComputeRadialVisibility_11")
+  assertEqInt(test_navmesh_rtsUpdateFogOfWarGrid_12(), 0, "test_navmesh_rtsUpdateFogOfWarGrid_12")
+  assertEqInt(test_navmesh_navComputeNavMeshAreaCost_13(), 0, "test_navmesh_navComputeNavMeshAreaCost_13")
+  assertEqInt(test_navmesh_navComputePortalShortcutDist_14(), 0, "test_navmesh_navComputePortalShortcutDist_14")
+  assertEqInt(test_navmesh_navBuildFlowField2D_15(), 0, "test_navmesh_navBuildFlowField2D_15")
+  assertEqInt(test_navmesh_navSampleFlowField2D_16(), 0, "test_navmesh_navSampleFlowField2D_16")
+  ret 0

@@ -1,0 +1,101 @@
+// ============================================================================
+// Module: std/collections/octree (Octree)
+// Layer 1 (Core Primitives & Math) — 3D Spatial Octant Tree
+// ============================================================================
+module OctreeMod
+
+pub struct OctreeItem[T]:
+  x: float
+  y: float
+  z: float
+  payload: T
+
+pub struct OctreeNode[T]:
+  minX: float
+  minY: float
+  minZ: float
+  maxX: float
+  maxY: float
+  maxZ: float
+  capacity: int
+  items: [OctreeItem[T]]
+  divided: bool
+  children: [Option[OctreeNode[T]]]
+
+pub fn octreeNew[T](minX: float, minY: float, minZ: float, maxX: float, maxY: float, maxZ: float, capacity: int): OctreeNode[T]:
+  mut cap = capacity
+  if cap < 1:
+    cap = 8
+  let emptyItems: [OctreeItem[T]] = []
+  let emptyChildren: [Option[OctreeNode[T]]] = []
+  ret OctreeNode(
+    minX = minX,
+    minY = minY,
+    minZ = minZ,
+    maxX = maxX,
+    maxY = maxY,
+    maxZ = maxZ,
+    capacity = cap,
+    items = emptyItems,
+    divided = false,
+    children = emptyChildren
+  )
+
+pub fn (self: OctreeNode[T]) containsPoint(px: float, py: float, pz: float): bool:
+  ret px >= self.minX and px <= self.maxX and py >= self.minY and py <= self.maxY and pz >= self.minZ and pz <= self.maxZ
+
+pub fn (self: OctreeNode[T]) intersectsBox(qMinX: float, qMinY: float, qMinZ: float, qMaxX: float, qMaxY: float, qMaxZ: float): bool:
+  ret not (qMinX > self.maxX or qMaxX < self.minX or qMinY > self.maxY or qMaxY < self.minY or qMinZ > self.maxZ or qMaxZ < self.minZ)
+
+pub fn (mut self: OctreeNode[T]) insert(item: OctreeItem[T]): bool:
+  if not self.containsPoint(item.x, item.y, item.z):
+    ret false
+  if self.items.len < self.capacity and not self.divided:
+    self.items.push(item)
+    ret true
+  if not self.divided:
+    let midX = (self.minX + self.maxX) * 0.5
+    let midY = (self.minY + self.maxY) * 0.5
+    let midZ = (self.minZ + self.maxZ) * 0.5
+    mut octs: [Option[OctreeNode[T]]] = []
+    octs.push(Some(octreeNew[T](self.minX, self.minY, self.minZ, midX, midY, midZ, self.capacity)))
+    octs.push(Some(octreeNew[T](midX, self.minY, self.minZ, self.maxX, midY, midZ, self.capacity)))
+    octs.push(Some(octreeNew[T](self.minX, midY, self.minZ, midX, self.maxY, midZ, self.capacity)))
+    octs.push(Some(octreeNew[T](midX, midY, self.minZ, self.maxX, self.maxY, midZ, self.capacity)))
+    octs.push(Some(octreeNew[T](self.minX, self.minY, midZ, midX, midY, self.maxZ, self.capacity)))
+    octs.push(Some(octreeNew[T](midX, self.minY, midZ, self.maxX, midY, self.maxZ, self.capacity)))
+    octs.push(Some(octreeNew[T](self.minX, midY, midZ, midX, self.maxY, self.maxZ, self.capacity)))
+    octs.push(Some(octreeNew[T](midX, midY, midZ, self.maxX, self.maxY, self.maxZ, self.capacity)))
+    self.children = octs
+    self.divided = true
+  for i in 0..self.children.len:
+    mut child: OctreeNode[T] = self.children[i].unwrap()
+    if child.insert(item):
+      self.children[i] = Some(child)
+      ret true
+  self.items.push(item)
+  ret true
+
+pub fn (self: OctreeNode[T]) queryBox(qMinX: float, qMinY: float, qMinZ: float, qMaxX: float, qMaxY: float, qMaxZ: float): [T]:
+  mut out: [T] = []
+  if not self.intersectsBox(qMinX, qMinY, qMinZ, qMaxX, qMaxY, qMaxZ):
+    ret out
+  for i in 0..self.items.len:
+    let it = self.items[i]
+    if it.x >= qMinX and it.x <= qMaxX and it.y >= qMinY and it.y <= qMaxY and it.z >= qMinZ and it.z <= qMaxZ:
+      out.push(it.payload)
+  if self.divided:
+    for c in 0..self.children.len:
+      let ch: OctreeNode[T] = self.children[c].unwrap()
+      let subHits = ch.queryBox(qMinX, qMinY, qMinZ, qMaxX, qMaxY, qMaxZ)
+      for k in 0..subHits.len:
+        out.push(subHits[k])
+  ret out
+
+pub fn (self: OctreeNode[T]) count(): int:
+  mut total = self.items.len
+  if self.divided:
+    for c in 0..self.children.len:
+      let ch: OctreeNode[T] = self.children[c].unwrap()
+      total = total + ch.count()
+  ret total

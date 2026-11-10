@@ -1,0 +1,137 @@
+/// # Module: `std/test/fuzz` (`TestFuzz`)
+///
+/// ## Purpose & Domain Scope
+/// Deterministic seed-based property-testing PRNG (`FuzzGenerator`) and binary-search
+/// minimal counterexample shrinking (`shrinkCounterExampleInt`, `shrinkCounterExampleString`).
+module TestFuzz
+
+pub struct FuzzConfig:
+  seed: int
+  maxIterations: int
+  maxShrinkSteps: int
+  maxCollectionLen: int
+
+pub struct FuzzGenerator:
+  seed: int
+  state: int
+
+pub struct FuzzResult:
+  iterationsRun: int
+  counterExampleFound: bool
+  originalCounterExample: str
+  shrunkCounterExample: str
+
+pub fn createFuzzGenerator(seed: int): FuzzGenerator:
+  mut s = seed
+  if s == 0:
+    s = 88172645463325252
+  ret FuzzGenerator(seed: seed, state: s)
+
+fn nextRaw64(gen: FuzzGenerator): (FuzzGenerator, int):
+  mut x = gen.state
+  x = x ^ (x << 13)
+  x = x ^ (x >> 7)
+  x = x ^ (x << 17)
+  let pos = x & 9223372036854775807
+  ret (FuzzGenerator(seed: gen.seed, state: x), pos)
+
+pub fn fuzzNextInt(gen: FuzzGenerator, minVal: int, maxVal: int): (FuzzGenerator, int):
+  if maxVal <= minVal:
+    ret (gen, minVal)
+  let pair = nextRaw64(gen)
+  let nextGen = pair[0]
+  let raw = pair[1]
+  let span = (maxVal - minVal) + 1
+  let v = minVal + (raw % span)
+  ret (nextGen, v)
+
+pub fn fuzzNextFloat(gen: FuzzGenerator, minVal: float, maxVal: float): (FuzzGenerator, float):
+  let pair = fuzzNextInt(gen, 0, 1000000)
+  let nextGen = pair[0]
+  let frac = float(pair[1]) / 1000000.0
+  ret (nextGen, minVal + frac * (maxVal - minVal))
+
+pub fn fuzzNextString(gen: FuzzGenerator, maxLen: int): (FuzzGenerator, str):
+  let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+  let lenPair = fuzzNextInt(gen, 0, maxLen)
+  mut curGen = lenPair[0]
+  let n = lenPair[1]
+  mut out = ""
+  mut i = 0
+  while i < n:
+    let cPair = fuzzNextInt(curGen, 0, chars.len() - 1)
+    curGen = cPair[0]
+    let idx = cPair[1]
+    out = out + chars.slice(idx, idx + 1)
+    i = i + 1
+  ret (curGen, out)
+
+pub fn fuzzNextBytes(gen: FuzzGenerator, maxLen: int): (FuzzGenerator, [int]):
+  let lenPair = fuzzNextInt(gen, 0, maxLen)
+  mut curGen = lenPair[0]
+  let n = lenPair[1]
+  mut out: [int] = []
+  mut i = 0
+  while i < n:
+    let bPair = fuzzNextInt(curGen, 0, 255)
+    curGen = bPair[0]
+    out.push(bPair[1])
+    i = i + 1
+  ret (curGen, out)
+
+pub fn shrinkCounterExampleInt(failingVal: int, targetVal: int, minFailThreshold: int): int:
+  mut lo = targetVal
+  mut hi = failingVal
+  while lo < hi:
+    let mid = lo + (hi - lo) / 2
+    if mid >= minFailThreshold:
+      hi = mid
+    else:
+      lo = mid + 1
+  ret hi
+
+pub fn shrinkCounterExampleString(failingStr: str, requiredToken: str): str:
+  if not failingStr.contains(requiredToken):
+    ret failingStr
+  mut cur = failingStr
+  while cur.len() > requiredToken.len():
+    let half = cur.len() / 2
+    let left = cur.slice(0, half)
+    let right = cur.slice(half, cur.len())
+    if left.contains(requiredToken):
+      cur = left
+    elif right.contains(requiredToken):
+      cur = right
+    else:
+      let trimLeft = cur.slice(1, cur.len())
+      let trimRight = cur.slice(0, cur.len() - 1)
+      if trimLeft.contains(requiredToken):
+        cur = trimLeft
+      elif trimRight.contains(requiredToken):
+        cur = trimRight
+      else:
+        break
+  ret cur
+
+pub fn verifyProperty(config: FuzzConfig, failThreshold: int): FuzzResult:
+  mut gen = createFuzzGenerator(config.seed)
+  mut i = 0
+  while i < config.maxIterations:
+    let pair = fuzzNextInt(gen, 0, 1000)
+    gen = pair[0]
+    let val = pair[1]
+    if val >= failThreshold:
+      let shrunk = shrinkCounterExampleInt(val, 0, failThreshold)
+      ret FuzzResult(
+        iterationsRun: i + 1,
+        counterExampleFound: true,
+        originalCounterExample: str(val),
+        shrunkCounterExample: str(shrunk)
+      )
+    i = i + 1
+  ret FuzzResult(
+    iterationsRun: config.maxIterations,
+    counterExampleFound: false,
+    originalCounterExample: "",
+    shrunkCounterExample: ""
+  )

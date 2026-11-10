@@ -1,0 +1,64 @@
+// Test suite for std/fs/android_vfs.aipl (step_22.1)
+module tests.functions.fs.android_vfs_test
+
+import * from "std/fs/android_vfs"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_android_vfs_createAndroidStdlibVfs(): int:
+  let vfs = createAndroidStdlibVfs(281)
+  assertEqStr(vfs.magic, "AIPLVFS1", "VFS magic == AIPLVFS1")
+  assertEqInt(vfs.version, 1, "VFS version == 1")
+  assertEqInt(vfs.canonicalModuleCount, 281, "281 canonical stdlib modules")
+  assertEqInt(vfs.domainGroupCount, 36, "36 canonical stdlib domain groups")
+  assertEqInt(vfs.capacity, 281, "capacity == 281")
+  let clamped = createAndroidStdlibVfs(0)
+  assertEqInt(clamped.capacity, 281, "0 capacity clamped to 281 minimum")
+  assertEqInt(clamped.modules.keys().len, 0, "initially 0 loaded entries")
+  let larger = createAndroidStdlibVfs(500)
+  assertEqInt(larger.capacity, 500, "capacity >= 281 preserved")
+  ret 0
+
+pub fn test_android_vfs_normalizeStdImportPath(): int:
+  assertEqStr(normalizeStdImportPath("std/math/vec_math"), "std/math/vec_math.aipl", "extensionless import normalized")
+  assertEqStr(normalizeStdImportPath("std/math/vec_math.aipl"), "std/math/vec_math.aipl", "already-normalized import idempotent")
+  assertEqStr(normalizeStdImportPath("std/prelude"), "std/prelude.aipl", "root prelude normalized")
+  assertEqStr(normalizeStdImportPath("std/../etc/passwd"), "", "path traversal rejected")
+  assertEqStr(normalizeStdImportPath(""), "", "empty string rejected")
+  assertEqStr(normalizeStdImportPath("std/"), "", "bare prefix without module rejected")
+  assertEqStr(normalizeStdImportPath("compiler/main"), "", "non-std prefix rejected")
+  assertEqStr(normalizeStdImportPath("   std/fs/watch   "), "std/fs/watch.aipl", "whitespace trimmed and normalized")
+  ret 0
+
+pub fn test_android_vfs_vfsRegisterStdModule(): int:
+  mut table: Map[str, str] = Map.new()
+  let (t1, h1) = vfsRegisterStdModule(table, "std/math/vec_math", "module VecMath")
+  assertEqInt(t1.keys().len, 1, "1 module registered")
+  assertEqInt(h1, -6336554418965725117, "fnv1a64(std/math/vec_math.aipl) matches exact 64-bit hash")
+  assertEqStr(t1.get("std/math/vec_math.aipl").unwrap(), "module VecMath", "stored module text retrievable")
+  let (t2, h2) = vfsRegisterStdModule(t1, "../bad", "module Bad")
+  assertEqInt(h2, 0, "invalid path returns hash 0")
+  assertEqInt(t2.keys().len, 1, "invalid path does not mutate VFS table")
+  let (t3, h3) = vfsRegisterStdModule(t2, "std/empty", "")
+  assertEqInt(h3, 0, "empty source returns hash 0")
+  assertEqInt(t3.keys().len, 1, "empty source does not mutate table")
+  ret 0
+
+pub fn test_android_vfs_vfsResolveOfflineImport(): int:
+  mut vfsMap: Map[str, str] = Map.new()
+  vfsMap.set("std/prelude.aipl", "module Prelude")
+  vfsMap.set("std/input/touch.aipl", "module InputTouch")
+  let ok1 = vfsResolveOfflineImport(vfsMap, "std/prelude")
+  assert(ok1.isOk() == true, "std/prelude resolved offline")
+  assertEqStr(ok1.unwrap(), "module Prelude", "exact source returned")
+  let ok2 = vfsResolveOfflineImport(vfsMap, "std/input/touch.aipl")
+  assertEqStr(ok2.unwrap(), "module InputTouch", "explicit .aipl resolved offline")
+  let missing = vfsResolveOfflineImport(vfsMap, "std/unknown/mod")
+  assert(missing.isErr() == true, "missing module returns Err")
+  assertEqStr(missing.unwrapErr(), "E_VFS_MODULE_NOT_FOUND", "exact error code E_VFS_MODULE_NOT_FOUND")
+  let bad = vfsResolveOfflineImport(vfsMap, "../secret")
+  assertEqStr(bad.unwrapErr(), "E_VFS_INVALID_PATH", "traversal returns E_VFS_INVALID_PATH")
+  let empty = vfsResolveOfflineImport(vfsMap, "")
+  assertEqStr(empty.unwrapErr(), "E_VFS_INVALID_PATH", "empty rawImport returns E_VFS_INVALID_PATH")
+  let barePrefix = vfsResolveOfflineImport(vfsMap, "std/")
+  assertEqStr(barePrefix.unwrapErr(), "E_VFS_INVALID_PATH", "bare prefix returns E_VFS_INVALID_PATH")
+  ret 0

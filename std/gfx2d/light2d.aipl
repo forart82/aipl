@@ -1,0 +1,74 @@
+module Gfx2dLightMod
+
+// ============================================================================
+// std/gfx2d/light2d.aipl — 2D Point/Spot Lights & 1D Polar Shadow Map Casting
+// ============================================================================
+
+import { Vec2 } from "../math/vec_math"
+import { ColorRgba8 } from "../gfx/color"
+
+pub struct Light2D(position: Vec2, radius: float, color: ColorRgba8, intensity: float, spotAngleRad: float, spotDir: Vec2)
+
+pub struct OccluderSegment2D(p0: Vec2, p1: Vec2)
+
+pub struct ShadowMap1D(resolution: int, distances: [float])
+
+pub fn createPointLight2D(pos: Vec2, radius: float, color: ColorRgba8, intensity: float = 1.0): Light2D:
+  ret Light2D(
+    position = pos,
+    radius = if radius > 0.0: radius else: 100.0,
+    color = color,
+    intensity = intensity,
+    spotAngleRad = 6.283185307179586,
+    spotDir = Vec2(x = 1.0, y = 0.0)
+  )
+
+fn raySegmentDist(ox: float, oy: float, dx: float, dy: float, seg: OccluderSegment2D, maxR: float): float:
+  let sx = seg.p1.x - seg.p0.x
+  let sy = seg.p1.y - seg.p0.y
+  let denom = dx * sy - dy * sx
+  if denom > -0.000001 and denom < 0.000001:
+    ret maxR
+  let qpx = seg.p0.x - ox
+  let qpy = seg.p0.y - oy
+  let t = (qpx * sy - qpy * sx) / denom
+  let u = (qpx * dy - qpy * dx) / denom
+  if t >= 0.0 and t < maxR and u >= 0.0 and u <= 1.0:
+    ret t
+  ret maxR
+
+pub fn bakeShadowMap1D(light: Light2D, occluders: [OccluderSegment2D], resolution: int = 512): ShadowMap1D:
+  let res = if resolution >= 8: resolution else: 64
+  let step = 6.283185307179586 / float(res)
+  mut dists: [float] = []
+  mut i = 0
+  while i < res:
+    let angle = float(i) * step
+    let dx = cos(angle)
+    let dy = sin(angle)
+    mut minD = light.radius
+    mut j = 0
+    while j < occluders.len:
+      let hit = raySegmentDist(light.position.x, light.position.y, dx, dy, occluders[j], minD)
+      if hit < minD:
+        minD = hit
+      j += 1
+    dists.push(minD)
+    i += 1
+  ret ShadowMap1D(resolution = res, distances = dists)
+
+pub fn sampleLight2DIntensity(light: Light2D, shadowMap: ShadowMap1D, targetPt: Vec2): float:
+  let dx = targetPt.x - light.position.x
+  let dy = targetPt.y - light.position.y
+  let dist = sqrt(dx * dx + dy * dy)
+  if dist >= light.radius or light.radius <= 0.0:
+    ret 0.0
+  mut angle = atan2(dy, dx)
+  if angle < 0.0:
+    angle = angle + 6.283185307179586
+  if shadowMap.resolution > 0 and shadowMap.distances.len > 0:
+    let idx = int((angle / 6.283185307179586) * float(shadowMap.resolution)) % shadowMap.resolution
+    if dist > shadowMap.distances[idx] + 0.5:
+      ret 0.0
+  let norm = 1.0 - (dist / light.radius)
+  ret light.intensity * norm * norm

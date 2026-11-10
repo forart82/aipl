@@ -1,0 +1,41 @@
+// ============================================================================
+// Twin Test Suite 011: Linux x86_64 Syscall ABI & Kernel Probe CLI
+// Verifies examples/ex_011_sys_syscall_and_os_probe_cli.aipl
+// ============================================================================
+module Ex011SysSyscallAndOsProbeCliTest
+
+import {
+  SyscallProbeReport,
+  probeProcessIdSyscall,
+  probeInvalidFdClose,
+  classifySyscallReturn,
+  buildSyscallProbeReport
+} from "../../examples/ex_011_sys_syscall_and_os_probe_cli.aipl"
+
+pub fn test_getpid_and_ebadf_probe(): int:
+  let pid = probeProcessIdSyscall()
+  assert(pid > 0, "syscall0(39) getpid returns positive PID")
+  let badClose = probeInvalidFdClose(-1)
+  assert(badClose < 0, "closing fd -1 returns negative errno (-EBADF)")
+  ret 0
+
+pub fn test_syscall_return_classification(): int:
+  assert(classifySyscallReturn(0) == "SYSCALL:OK_ZERO", "0 return code")
+  assert(classifySyscallReturn(1024) == "SYSCALL:OK_VALUE", "positive return value")
+  assert(classifySyscallReturn(-9) == "SYSCALL:ERRNO_NEG", "negative errno return")
+  ret 0
+
+pub fn test_build_syscall_probe_report(): int:
+  let rep = buildSyscallProbeReport()
+  assert(rep.pid > 0, "report pid > 0")
+  assert(rep.closeInvalidFd < 0, "report closeInvalidFd < 0")
+  assert(rep.readInvalidFd < 0, "report readInvalidFd < 0")
+  assert(rep.statusTag == "SYSCALL:OK_VALUE", "pid statusTag")
+  ret 0
+
+pub fn main(): int:
+  test_getpid_and_ebadf_probe()
+  test_syscall_return_classification()
+  test_build_syscall_probe_report()
+  println("PASS: ex_011_sys_syscall_and_os_probe_cli_test")
+  ret 0

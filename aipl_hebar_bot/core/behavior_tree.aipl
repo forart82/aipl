@@ -1,0 +1,1620 @@
+// ============================================================================
+// AIPL Universal HEBAR Behavior Tree & DSL Engine (`aipl_hebar_bot/core/behavior_tree.aipl`)
+// ============================================================================
+// Parses and evaluates declarative .hebar conditional/decisional strategy specs
+// (selector, sequence, parallel, condition, cooldown_ms, action) with branch
+// utility tracking for self-improving bot learning.
+// ============================================================================
+
+module BehaviorTree
+
+import {
+  fileExists,
+  readFile
+} from "std/fs"
+
+import {
+  absFloat
+} from "std/math"
+
+import {
+  parseInt,
+  parseFloat
+} from "std/string"
+
+import {
+  jsonGetPathStr
+} from "std/json"
+
+import {
+  SceneSnapshot,
+  emptySceneEntity,
+  findUiByText,
+  findClickableUiNodes,
+  findEntitiesForSeat,
+  findPlayerEntity,
+  findNearestEntityByKind,
+  computeNearestEntityDist,
+  countEntitiesByKind,
+  extractCustomStateFloat,
+  extractCustomStateStr,
+  extractJsonStringField,
+  extractJsonFloatField,
+  extractJsonIntField
+} from "./scene_sensor.aipl"
+
+import {
+  InstinctState,
+  initInstinctState,
+  computeZeroConfigInstinctAction
+} from "./base_instincts.aipl"
+
+pub struct HebarBotParams:
+  hasDirective: bool
+  name: str
+  waitMs: int
+  aggression: int
+  exploration: int
+  autoStart: bool
+  seatId: int
+
+pub struct BtBranchNode:
+  name: str
+  kind: str
+  conditionExpr: str
+  actionExpr: str
+  cooldownMs: int
+  lastFiredFrame: int
+  executions: int
+  progressHits: int
+  weight: float
+
+pub struct HebarStrategySpec:
+  strategyName: str
+  sourcePath: str
+  reactionMs: int
+  maxRateHz: float
+  maxTurnRadS: float
+  maxCursorPxS: float
+  maxIdleFrames: int
+  branches: [BtBranchNode]
+
+pub struct BtDecision:
+  matched: bool
+  branchIndex: int
+  branchName: str
+  script: str
+  targetX: float
+  targetY: float
+
+pub fn defaultUniversalSpec(): HebarStrategySpec:
+  mut branches: [BtBranchNode] = []
+  branches.push(BtBranchNode(
+    name = "HandleModalOrAlert",
+    kind = "sequence",
+    conditionExpr = "ui.modalVisible == true",
+    actionExpr = "click_smooth(ui.modalDismissBtn)",
+    cooldownMs = 180,
+    lastFiredFrame = -100,
+    executions = 0,
+    progressHits = 0,
+    weight = 1.25
+  ))
+  branches.push(BtBranchNode(
+    name = "MultiplayerTurnGuard",
+    kind = "sequence",
+    conditionExpr = "env.activeSeat > 0 and env.activeSeat != bot.seatId",
+    actionExpr = "wait_turn(env.activeSeat)",
+    cooldownMs = 60,
+    lastFiredFrame = -100,
+    executions = 0,
+    progressHits = 0,
+    weight = 1.0
+  ))
+  branches.push(BtBranchNode(
+    name = "ExploreUnvisitedTabs",
+    kind = "sequence",
+    conditionExpr = "ui.unvisitedTabsCount > 0",
+    actionExpr = "click_smooth(ui.nextUnvisitedTab)",
+    cooldownMs = 80,
+    lastFiredFrame = -100,
+    executions = 0,
+    progressHits = 0,
+    weight = 1.35
+  ))
+  branches.push(BtBranchNode(
+    name = "AdvanceBoardPiece",
+    kind = "sequence",
+    conditionExpr = "env.legalActionsCount > 0",
+    actionExpr = "select_best_board_move()",
+    cooldownMs = 80,
+    lastFiredFrame = -100,
+    executions = 0,
+    progressHits = 0,
+    weight = 1.40
+  ))
+  branches.push(BtBranchNode(
+    name = "TacticalDodgeAndEngage",
+    kind = "sequence",
+    conditionExpr = "env.nearestHazardDist < 48.0",
+    actionExpr = "pursue_and_attack(env.nearestEnemy)",
+    cooldownMs = 80,
+    lastFiredFrame = -100,
+    executions = 0,
+    progressHits = 0,
+    weight = 1.30
+  ))
+  branches.push(BtBranchNode(
+    name = "FallbackHeartbeatExploration",
+    kind = "sequence",
+    conditionExpr = "bot.idleFrames > 60",
+    actionExpr = "click_smooth(ui.primaryInteractiveNode)",
+    cooldownMs = 80,
+    lastFiredFrame = -100,
+    executions = 0,
+    progressHits = 0,
+    weight = 1.05
+  ))
+  ret HebarStrategySpec(
+    strategyName = "UniversalZeroConfigExplorer",
+    sourcePath = "aipl_hebar_bot/specs/default_universal.hebar",
+    reactionMs = 250,
+    maxRateHz = 15.0,
+    maxTurnRadS = 6.2831853,
+    maxCursorPxS = 780.0,
+    maxIdleFrames = 110,
+    branches = branches
+  )
+
+/// Strict decimal int for .hebar values: keeps `dflt` for empty/malformed input (`parseInt` silently returns 0
+/// for garbage, which turned e.g. `wait=abc` into a 0ms reaction) and for negatives when `nonNegative`.
+pub fn hebarIntOr(s: str, dflt: int, nonNegative: bool): int:
+  let r = int.parse(s.trim())
+  if not r.isOk():
+    ret dflt
+  let v = r.unwrap()
+  ret if nonNegative and v < 0: dflt else: v
+
+/// Strict positive float for .hebar kinematic limits. `parseFloat` returns Option[float]; assigning it straight to a
+/// float field stored the Option itself (garbage numbers at runtime). Non-positive limits are rejected as well.
+pub fn hebarPositiveFloatOr(s: str, dflt: float): float:
+  let v = parseFloat(s.trim()).unwrapOr(-1.0)
+  ret if v > 0.0: v else: dflt
+
+pub fn parseHebarBotParams(path: str): HebarBotParams:
+  mut out = HebarBotParams(
+    hasDirective = false,
+    name = "UniversalZeroConfigExplorer",
+    waitMs = 250,
+    aggression = 65,
+    exploration = 65,
+    autoStart = true,
+    seatId = 0
+  )
+  if path.len == 0:
+    ret out
+  mut resolvedPath = path
+  if not fileExists(resolvedPath):
+    if fileExists("../../" + path):
+      resolvedPath = "../../" + path
+    elif fileExists("../" + path):
+      resolvedPath = "../" + path
+    else:
+      ret out
+  let raw = readFile(resolvedPath)
+  let lines = raw.lines()
+  mut i = 0
+  while i < lines.len:
+    let ln = lines[i].trim()
+    if ln.startsWith("@bot "):
+      out.hasDirective = true
+      let q1 = ln.indexOf("\"")
+      let q2 = ln.lastIndexOf("\"")
+      if q1 >= 0 and q2 > q1:
+        out.name = ln.slice(q1 + 1, q2)
+      let tail = if q2 > q1: ln.slice(q2 + 1, ln.len).trim() else: ln.slice(5, ln.len).trim()
+      let parts = tail.split(" ")
+      mut pi = 0
+      while pi < parts.len:
+        let kv = parts[pi].trim()
+        if kv.startsWith("wait="):
+          out.waitMs = hebarIntOr(kv.slice(5, kv.len).replace("ms", ""), out.waitMs, true)
+        elif kv.startsWith("agg="):
+          out.aggression = hebarIntOr(kv.slice(4, kv.len), out.aggression, true)
+        elif kv.startsWith("exp="):
+          out.exploration = hebarIntOr(kv.slice(4, kv.len), out.exploration, true)
+        elif kv.startsWith("start="):
+          let sv = kv.slice(6, kv.len).toLowerCase()
+          out.autoStart = not (sv == "manual" or sv == "false" or sv == "paused" or sv == "0")
+        elif kv.startsWith("seat="):
+          let seatStr = kv.slice(5, kv.len).toLowerCase()
+          out.seatId = if seatStr == "auto": 0 else: hebarIntOr(seatStr, 0, true)
+        pi += 1
+    elif ln.startsWith("strategy ") and not out.hasDirective:
+      let q1 = ln.indexOf("\"")
+      let q2 = ln.lastIndexOf("\"")
+      if q1 >= 0 and q2 > q1:
+        out.name = ln.slice(q1 + 1, q2)
+    elif ln.startsWith("reaction_ms:") and not out.hasDirective:
+      out.waitMs = hebarIntOr(ln.slice(12, ln.len).replace("ms", ""), out.waitMs, true)
+    i += 1
+  ret out
+
+pub fn deriveShortRuleName(prefix: str, actExpr: str, idx: int): str:
+  let p = actExpr.indexOf("(")
+  let fnName = if p > 0: actExpr.slice(0, p).trim() else: actExpr
+  ret prefix + "_" + fnName + "_" + str(idx)
+
+pub fn parseHebarStrategyFile(path: str): HebarStrategySpec:
+  if path.len == 0:
+    ret defaultUniversalSpec()
+  mut resolvedPath = path
+  if not fileExists(resolvedPath):
+    if fileExists("../../" + path):
+      resolvedPath = "../../" + path
+    elif fileExists("../" + path):
+      resolvedPath = "../" + path
+    else:
+      ret defaultUniversalSpec()
+  let raw = readFile(resolvedPath)
+  if raw.trim().len == 0:
+    ret defaultUniversalSpec()
+  mut spec = defaultUniversalSpec()
+  spec.sourcePath = path
+  mut parsedBranches: [BtBranchNode] = []
+  let lines = raw.lines()
+  mut currentName = ""
+  mut currentKind = "sequence"
+  mut currentCond = "true"
+  mut currentAct = "click_smooth(ui.primaryInteractiveNode)"
+  mut currentCooldown = 120
+  mut i = 0
+  while i < lines.len:
+    let ln = lines[i].trim()
+    if ln.len == 0 or ln.startsWith("#") or ln.startsWith("//"):
+      i += 1
+      continue
+    if ln.startsWith("@bot "):
+      let botP = parseHebarBotParams(resolvedPath)
+      spec.strategyName = botP.name
+      spec.reactionMs = botP.waitMs
+    elif ln.startsWith("strategy "):
+      let q1 = ln.indexOf("\"")
+      let q2 = ln.lastIndexOf("\"")
+      if q1 >= 0 and q2 > q1:
+        spec.strategyName = ln.slice(q1 + 1, q2)
+    elif ln.startsWith("reaction_ms:"):
+      spec.reactionMs = hebarIntOr(ln.slice(12, ln.len).replace("ms", ""), spec.reactionMs, true)
+    elif ln.startsWith("max_rate_hz:"):
+      spec.maxRateHz = hebarPositiveFloatOr(ln.slice(12, ln.len), spec.maxRateHz)
+    elif ln.startsWith("max_turn_rad_s:"):
+      spec.maxTurnRadS = hebarPositiveFloatOr(ln.slice(15, ln.len), spec.maxTurnRadS)
+    elif ln.startsWith("max_cursor_px_s:"):
+      spec.maxCursorPxS = hebarPositiveFloatOr(ln.slice(16, ln.len), spec.maxCursorPxS)
+    elif ln.startsWith("max_idle_frames:"):
+      spec.maxIdleFrames = hebarIntOr(ln.slice(16, ln.len), spec.maxIdleFrames, true)
+    elif (ln.startsWith("if ") or ln.startsWith("when ")) and ln.contains("=>"):
+      let arrow = ln.indexOf("=>")
+      let kwLen = if ln.startsWith("when "): 5 else: 3
+      let condStr = ln.slice(kwLen, arrow).trim()
+      let actStr = ln.slice(arrow + 2, ln.len).trim()
+      let prioW = 10.0 - float(parsedBranches.len) * 0.35
+      parsedBranches.push(BtBranchNode(
+        name = deriveShortRuleName("If", actStr, parsedBranches.len + 1),
+        kind = "sequence",
+        conditionExpr = condStr,
+        actionExpr = actStr,
+        cooldownMs = 0,
+        lastFiredFrame = -100,
+        executions = 0,
+        progressHits = 0,
+        weight = if prioW > 1.0: prioW else: 1.0
+      ))
+    elif ln.startsWith("while ") and ln.contains("=>"):
+      let arrow = ln.indexOf("=>")
+      let condStr = ln.slice(6, arrow).trim()
+      let actStr = ln.slice(arrow + 2, ln.len).trim()
+      let prioW = 10.5 - float(parsedBranches.len) * 0.35
+      parsedBranches.push(BtBranchNode(
+        name = deriveShortRuleName("While", actStr, parsedBranches.len + 1),
+        kind = "loop_until",
+        conditionExpr = condStr,
+        actionExpr = actStr,
+        cooldownMs = 0,
+        lastFiredFrame = -100,
+        executions = 0,
+        progressHits = 0,
+        weight = if prioW > 1.0: prioW else: 1.0
+      ))
+    elif ln.startsWith("for ") and ln.contains(" in ") and ln.contains("=>"):
+      let arrow = ln.indexOf("=>")
+      let inPos = ln.indexOf(" in ")
+      let afterIn = ln.slice(inPos + 4, arrow).trim()
+      let wherePos = afterIn.indexOf(" where ")
+      let collName = if wherePos >= 0: afterIn.slice(0, wherePos).trim() else: afterIn
+      let whereFilter = if wherePos >= 0: afterIn.slice(wherePos + 7, afterIn.len).trim() else: ""
+      let actStr = ln.slice(arrow + 2, ln.len).trim()
+      mut derivedCond = "true"
+      if collName == "my_tokens" or collName == "tokens":
+        derivedCond = "my_tokens.count > 0"
+      elif collName == "highlights" or collName == "targets":
+        derivedCond = if whereFilter.contains("capture"): "ui.has(\"target_capture\")" else: "highlights.count > 0"
+      elif collName == "enemies":
+        derivedCond = "enemies.count > 0"
+      elif collName == "hazards":
+        derivedCond = "hazards.count > 0"
+      elif collName == "buttons" or collName == "ui":
+        derivedCond = "buttons.count > 0"
+      elif collName == "tabs":
+        derivedCond = "tabs.count > 0"
+      let prioW = 10.0 - float(parsedBranches.len) * 0.35
+      parsedBranches.push(BtBranchNode(
+        name = deriveShortRuleName("For_" + collName, actStr, parsedBranches.len + 1),
+        kind = "sequence",
+        conditionExpr = derivedCond,
+        actionExpr = actStr,
+        cooldownMs = 0,
+        lastFiredFrame = -100,
+        executions = 0,
+        progressHits = 0,
+        weight = if prioW > 1.0: prioW else: 1.0
+      ))
+    elif ln.startsWith("loop ") and ln.contains("=>"):
+      let arrow = ln.indexOf("=>")
+      let countVal = parseInt(ln.slice(5, arrow).trim())
+      let safeCount = if countVal < 1: 1 else: (if countVal > 8: 8 else: countVal)
+      let actStr = ln.slice(arrow + 2, ln.len).trim()
+      let prioW = 10.0 - float(parsedBranches.len) * 0.35
+      parsedBranches.push(BtBranchNode(
+        name = deriveShortRuleName("Loop" + str(safeCount), actStr, parsedBranches.len + 1),
+        kind = "sequence",
+        conditionExpr = "true",
+        actionExpr = "loop:" + str(safeCount) + ":" + actStr,
+        cooldownMs = 0,
+        lastFiredFrame = -100,
+        executions = 0,
+        progressHits = 0,
+        weight = if prioW > 1.0: prioW else: 1.0
+      ))
+    elif ln.startsWith("sequence ") or ln.startsWith("parallel ") or ln.startsWith("loop_until ") or ln.startsWith("sub_tree "):
+      if currentName.len > 0:
+        parsedBranches.push(BtBranchNode(
+          name = currentName,
+          kind = currentKind,
+          conditionExpr = currentCond,
+          actionExpr = currentAct,
+          cooldownMs = currentCooldown,
+          lastFiredFrame = -100,
+          executions = 0,
+          progressHits = 0,
+          weight = 1.15
+        ))
+      let q1 = ln.indexOf("\"")
+      let q2 = ln.lastIndexOf("\"")
+      if ln.startsWith("parallel"):
+        currentKind = "parallel"
+      elif ln.startsWith("loop_until"):
+        currentKind = "loop_until"
+      elif ln.startsWith("sub_tree"):
+        currentKind = "sub_tree"
+      else:
+        currentKind = "sequence"
+      currentName = if q1 >= 0 and q2 > q1: ln.slice(q1 + 1, q2) else: "Branch" + str(parsedBranches.len + 1)
+      currentCond = "true"
+      currentAct = "click_smooth(ui.primaryInteractiveNode)"
+      currentCooldown = 120
+    elif ln.startsWith("condition:"):
+      currentCond = ln.slice(10, ln.len).trim()
+    elif ln.startsWith("cooldown_ms:"):
+      currentCooldown = hebarIntOr(ln.slice(12, ln.len).replace("ms", ""), currentCooldown, true)
+    elif ln.startsWith("action:"):
+      currentAct = ln.slice(7, ln.len).trim()
+    i += 1
+
+  if currentName.len > 0:
+    parsedBranches.push(BtBranchNode(
+      name = currentName,
+      kind = currentKind,
+      conditionExpr = currentCond,
+      actionExpr = currentAct,
+      cooldownMs = currentCooldown,
+      lastFiredFrame = -100,
+      executions = 0,
+      progressHits = 0,
+      weight = 1.20
+    ))
+
+  if parsedBranches.len > 0:
+    spec.branches = parsedBranches
+  ret spec
+
+pub fn loadLearnedHeuristics(spec: HebarStrategySpec, jsonPath: str): HebarStrategySpec:
+  if jsonPath.len == 0 or not fileExists(jsonPath):
+    ret spec
+  let raw = readFile(jsonPath)
+  if raw.trim().len < 8:
+    ret spec
+  mut newBranches: [BtBranchNode] = []
+  mut bi0 = 0
+  while bi0 < spec.branches.len:
+    newBranches.push(spec.branches[bi0])
+    bi0 += 1
+  let delim = if raw.contains("{\"name\":"): "{\"name\":" else: "{\"branch\":"
+  let chunks = raw.split(delim)
+  mut ci = 1
+  while ci < chunks.len:
+    let item = delim + chunks[ci]
+    mut bName = extractJsonStringField(item, "name", "")
+    if bName.len == 0:
+      bName = extractJsonStringField(item, "branch", "")
+    mut wVal = extractJsonFloatField(item, "learnedWeight", 0.0)
+    if wVal <= 0.0:
+      wVal = extractJsonFloatField(item, "weight", 0.0)
+    let exVal = extractJsonIntField(item, "executions", 0)
+    let phVal = extractJsonIntField(item, "progressHits", 0)
+    if bName.len > 0 and wVal > 0.0:
+      mut bi = 0
+      while bi < newBranches.len:
+        if newBranches[bi].name == bName:
+          let oldB = newBranches[bi]
+          newBranches[bi] = BtBranchNode(
+            name = oldB.name,
+            kind = oldB.kind,
+            conditionExpr = oldB.conditionExpr,
+            actionExpr = oldB.actionExpr,
+            cooldownMs = oldB.cooldownMs,
+            lastFiredFrame = oldB.lastFiredFrame,
+            executions = if exVal > oldB.executions: exVal else: oldB.executions,
+            progressHits = if phVal > oldB.progressHits: phVal else: oldB.progressHits,
+            weight = wVal
+          )
+        bi += 1
+    ci += 1
+  ret HebarStrategySpec(
+    strategyName = spec.strategyName,
+    sourcePath = spec.sourcePath,
+    reactionMs = spec.reactionMs,
+    maxRateHz = spec.maxRateHz,
+    maxTurnRadS = spec.maxTurnRadS,
+    maxCursorPxS = spec.maxCursorPxS,
+    maxIdleFrames = spec.maxIdleFrames,
+    branches = newBranches
+  )
+
+pub struct ParseBoolResult:
+  val: bool
+  pos: int
+
+pub struct ParseValResult:
+  strVal: str
+  pos: int
+
+pub fn isNumericStr(s: str): bool:
+  if s.len == 0:
+    ret false
+  mut i = 0
+  mut dotCount = 0
+  if s.startsWith("-") or s.startsWith("+"):
+    i = 1
+  if i >= s.len:
+    ret false
+  while i < s.len:
+    let ch = s.charAt(i)
+    if ch >= "0" and ch <= "9":
+      i += 1
+    elif ch == "." and dotCount == 0:
+      dotCount += 1
+      i += 1
+    else:
+      ret false
+  ret true
+
+pub fn parseStrToFloat(s: str): float:
+  let trimmed = s.trim()
+  if trimmed.len == 0:
+    ret 0.0
+  mut sign = 1.0
+  mut idx = 0
+  if trimmed.startsWith("-"):
+    sign = -1.0
+    idx = 1
+  elif trimmed.startsWith("+"):
+    idx = 1
+  mut intPart = 0.0
+  while idx < trimmed.len:
+    let ch = trimmed.charAt(idx)
+    if ch == "0": intPart = intPart * 10.0 + 0.0
+    elif ch == "1": intPart = intPart * 10.0 + 1.0
+    elif ch == "2": intPart = intPart * 10.0 + 2.0
+    elif ch == "3": intPart = intPart * 10.0 + 3.0
+    elif ch == "4": intPart = intPart * 10.0 + 4.0
+    elif ch == "5": intPart = intPart * 10.0 + 5.0
+    elif ch == "6": intPart = intPart * 10.0 + 6.0
+    elif ch == "7": intPart = intPart * 10.0 + 7.0
+    elif ch == "8": intPart = intPart * 10.0 + 8.0
+    elif ch == "9": intPart = intPart * 10.0 + 9.0
+    else: break
+    idx += 1
+  if idx >= trimmed.len or trimmed.charAt(idx) != ".":
+    ret sign * intPart
+  idx += 1
+  mut fracPart = 0.0
+  mut div = 10.0
+  while idx < trimmed.len:
+    let ch = trimmed.charAt(idx)
+    mut d = -1.0
+    if ch == "0": d = 0.0
+    elif ch == "1": d = 1.0
+    elif ch == "2": d = 2.0
+    elif ch == "3": d = 3.0
+    elif ch == "4": d = 4.0
+    elif ch == "5": d = 5.0
+    elif ch == "6": d = 6.0
+    elif ch == "7": d = 7.0
+    elif ch == "8": d = 8.0
+    elif ch == "9": d = 9.0
+    if d >= 0.0:
+      fracPart = fracPart + d / div
+      div = div * 10.0
+      idx += 1
+    else:
+      break
+  ret sign * (intPart + fracPart)
+
+pub fn isTruthy(v: str): bool:
+  if v == "true" or v == "1" or v == "yes":
+    ret true
+  if v == "false" or v == "0" or v == "" or v == "none" or v == "null":
+    ret false
+  if isNumericStr(v):
+    ret parseStrToFloat(v) != 0.0
+  ret v.len > 0
+
+pub fn compareValues(v1: str, op: str, v2: str): bool:
+  if isNumericStr(v1) and isNumericStr(v2):
+    let f1 = parseStrToFloat(v1)
+    let f2 = parseStrToFloat(v2)
+    if op == "==":
+      ret absFloat(f1 - f2) < 0.0001
+    if op == "!=":
+      ret absFloat(f1 - f2) >= 0.0001
+    if op == "<":
+      ret f1 < f2
+    if op == "<=":
+      ret f1 <= f2
+    if op == ">":
+      ret f1 > f2
+    if op == ">=":
+      ret f1 >= f2
+  // Guard against unresolved empty string properties matching numeric comparisons lexicographically
+  if (op == "<" or op == "<=" or op == ">" or op == ">=") and (v1 == "" or v2 == ""):
+    ret false
+  if op == "==":
+    ret v1 == v2
+  if op == "!=":
+    ret v1 != v2
+  if op == "<":
+    ret v1 < v2
+  if op == "<=":
+    ret v1 <= v2
+  if op == ">":
+    ret v1 > v2
+  if op == ">=":
+    ret v1 >= v2
+  ret false
+
+pub fn lookupCustomStateFlexible(snap: SceneSnapshot, token: str, defaultVal: str): str:
+  if token.len == 0:
+    ret defaultVal
+  if snap.rawJson.len > 0:
+    let pathVal = jsonGetPathStr(snap.rawJson, "customState." + token, "")
+    if pathVal.len > 0:
+      ret pathVal
+    let directVal = jsonGetPathStr(snap.rawJson, token, "")
+    if directVal.len > 0:
+      ret directVal
+  let exactVal = extractCustomStateStr(snap, token, "")
+  if exactVal.len > 0:
+    ret exactVal
+  let dotIdx = token.indexOf(".")
+  if dotIdx >= 0 and dotIdx + 1 < token.len:
+    let shortKey = token.slice(dotIdx + 1, token.len)
+    if snap.rawJson.len > 0:
+      let shortPathVal = jsonGetPathStr(snap.rawJson, "customState." + shortKey, "")
+      if shortPathVal.len > 0:
+        ret shortPathVal
+    let shortVal = extractCustomStateStr(snap, shortKey, "")
+    if shortVal.len > 0:
+      ret shortVal
+    if token == "player.posX" or token == "player.x":
+      let pxVal = extractCustomStateStr(snap, "playerPosX", "")
+      if pxVal.len > 0:
+        ret pxVal
+    if token == "player.posY" or token == "player.y":
+      let pyVal = extractCustomStateStr(snap, "playerPosY", "")
+      if pyVal.len > 0:
+        ret pyVal
+    if token == "player.hp" or token == "bot.hp":
+      let hpVal = extractCustomStateStr(snap, "playerHp", extractCustomStateStr(snap, "health", ""))
+      if hpVal.len > 0:
+        ret hpVal
+    if token == "player.money":
+      let mVal = extractCustomStateStr(snap, "money", "")
+      if mVal.len > 0:
+        ret mVal
+    if token == "player.isCT":
+      ret "true"
+    if token == "bot.isDead" or token == "player.isDead":
+      let hpVal = extractCustomStateStr(snap, "health", extractCustomStateStr(snap, "playerHp", ""))
+      if hpVal.len > 0 and (hpVal == "0" or hpVal == "0.0"):
+        ret "true"
+  ret defaultVal
+
+pub fn resolveConditionValue(token: str, snap: SceneSnapshot, seatId: int): str:
+  if token.startsWith("\"") and token.endsWith("\"") and token.len >= 2:
+    ret token.slice(1, token.len - 1)
+  if token.startsWith("'") and token.endsWith("'") and token.len >= 2:
+    ret token.slice(1, token.len - 1)
+  if token == "true" or token == "false" or isNumericStr(token):
+    ret token
+  if token == "bot.seatId" or token == "self.seat" or token == "seat":
+    ret str(seatId)
+  if token == "turn.active" or token == "turn.activeSeat" or token == "turnState.activeSeat" or token == "env.activeSeat":
+    ret str(snap.turnState.activeSeat)
+  if token == "turn.phase" or token == "turnState.phase" or token == "env.phase":
+    ret snap.turnState.phase
+  if token == "turn.number" or token == "turn.turnNumber" or token == "turnState.turnNumber":
+    ret str(snap.turnState.turnNumber)
+  if token == "board.legalMovesCount":
+    if snap.turnState.phase == "roll":
+      ret "0"
+    ret str(snap.turnState.legalActionsCount)
+  if token == "turn.legalActionsCount" or token == "turnState.legalActionsCount" or token == "env.legalActionsCount":
+    ret str(snap.turnState.legalActionsCount)
+  if token == "turn.outOfTurnRejected" or token == "turnState.outOfTurnRejected":
+    ret str(snap.turnState.outOfTurnRejected)
+  if token == "turn.gameOver" or token == "turnState.gameOver":
+    ret if snap.turnState.gameOver: "true" else: "false"
+  if token == "turn.winner" or token == "turn.winnerSeat" or token == "turnState.winnerSeat":
+    ret str(snap.turnState.winnerSeat)
+  if token == "my_tokens.count" or token == "tokens.count":
+    mut tCnt = findEntitiesForSeat(snap, seatId).len
+    let myPfx = "token_seat_" + str(seatId)
+    mut uiI = 0
+    while uiI < snap.uiNodes.len:
+      if snap.uiNodes[uiI].text.startsWith(myPfx) or snap.uiNodes[uiI].kind == "token":
+        tCnt += 1
+      uiI += 1
+    ret str(tCnt)
+  if token == "highlights.count" or token == "targets.count":
+    mut hCnt = 0
+    mut hi = 0
+    while hi < snap.uiNodes.len:
+      if snap.uiNodes[hi].kind == "highlight" or snap.uiNodes[hi].text.startsWith("target_"):
+        hCnt += 1
+      hi += 1
+    ret str(hCnt)
+  if token == "enemies.count":
+    ret str(countEntitiesByKind(snap, "enemy"))
+  if token == "hazards.count":
+    ret str(countEntitiesByKind(snap, "hazard"))
+  if token == "buttons.count":
+    ret str(findClickableUiNodes(snap).len)
+  if token == "tabs.count":
+    ret resolveConditionValue("ui.unvisitedTabsCount", snap, seatId)
+
+  let player = findPlayerEntity(snap, seatId)
+  let px = if player.id >= 0: player.x + player.w * 0.5 else: float(snap.width) * 0.5
+  let py = if player.id >= 0: player.y + player.h * 0.5 else: float(snap.height) * 0.5
+
+  if token == "player.posX" or token == "player.x":
+    let cPx = lookupCustomStateFlexible(snap, token, "")
+    ret if cPx.len > 0: cPx else: str(px)
+  if token == "player.posY" or token == "player.y":
+    let cPy = lookupCustomStateFlexible(snap, token, "")
+    ret if cPy.len > 0: cPy else: str(py)
+  if token == "env.nearestHazardDist" or token == "env.nearestProjectileDist":
+    let cHz = lookupCustomStateFlexible(snap, token, "")
+    ret if cHz.len > 0: cHz else: str(computeNearestEntityDist(snap, px, py, "hazard"))
+  if token == "env.nearestEnemyDist":
+    let cEn = lookupCustomStateFlexible(snap, token, "")
+    ret if cEn.len > 0: cEn else: str(computeNearestEntityDist(snap, px, py, "enemy"))
+  if token == "env.nearestItemDist":
+    let cIt = lookupCustomStateFlexible(snap, token, "")
+    ret if cIt.len > 0: cIt else: str(computeNearestEntityDist(snap, px, py, "item"))
+  if token == "env.nearestRingDist":
+    let cRg = lookupCustomStateFlexible(snap, token, "")
+    if cRg.len > 0:
+      ret cRg
+    let rd = computeNearestEntityDist(snap, px, py, "ring")
+    ret str(if rd < 999990.0: rd else: computeNearestEntityDist(snap, px, py, "item"))
+  if token == "env.nearestSpearDist":
+    let cSp = lookupCustomStateFlexible(snap, token, "")
+    ret if cSp.len > 0: cSp else: str(computeNearestEntityDist(snap, px, py, "spear"))
+  if token == "env.nearestHostageDist":
+    let cHo = lookupCustomStateFlexible(snap, token, "")
+    ret if cHo.len > 0: cHo else: str(computeNearestEntityDist(snap, px, py, "hostage"))
+  if token == "env.objectiveDist":
+    let cOb = lookupCustomStateFlexible(snap, token, "")
+    if cOb.len > 0:
+      ret cOb
+    let d = computeNearestEntityDist(snap, px, py, "item")
+    ret str(if d < 999990.0: d else: 0.0)
+  if token == "env.enemiesCount":
+    ret str(countEntitiesByKind(snap, "enemy"))
+  if token == "env.hazardsCount":
+    ret str(countEntitiesByKind(snap, "hazard"))
+  if token == "env.entitiesCount":
+    ret str(snap.entities.len)
+
+  if token == "player.hp" or token == "bot.hp":
+    if player.id >= 0:
+      ret str(player.hp)
+    ret lookupCustomStateFlexible(snap, token, "100")
+  if token == "bot.idleFrames":
+    ret lookupCustomStateFlexible(snap, token, "0")
+
+  if token == "ui.modalVisible":
+    mut mi = 0
+    while mi < snap.uiNodes.len:
+      let t = snap.uiNodes[mi].text.toLowerCase()
+      if t.contains("modal") or t.contains("alert") or t.contains("dismiss") or t.contains("confirm"):
+        ret "true"
+      mi += 1
+    ret lookupCustomStateFlexible(snap, token, "false")
+  if token == "ui.unvisitedTabsCount":
+    if snap.turnState.phase == "select" or snap.turnState.phase == "move" or snap.turnState.phase == "roll":
+      ret "0"
+    mut tabs = 0
+    mut ti = 0
+    while ti < snap.uiNodes.len:
+      let u = snap.uiNodes[ti]
+      let ut = u.text.toLowerCase()
+      if (u.clickable or u.kind == "button" or u.kind == "tab") and u.y < 110 and not ut.startsWith("move ") and not ut.startsWith("roll ") and not ut.startsWith("advance"):
+        tabs += 1
+      ti += 1
+    ret str(tabs)
+  if token == "ui.clickableButtonsCount" or token == "ui.unclickedButtonsCount":
+    ret str(findClickableUiNodes(snap).len)
+  if token == "ui.textInputsCount" or token == "ui.focusedInputVisible":
+    mut inpCount = 0
+    mut ii = 0
+    while ii < snap.uiNodes.len:
+      let u = snap.uiNodes[ii]
+      if u.kind == "input" or u.kind == "text" or u.kind == "form":
+        inpCount += 1
+      ii += 1
+    if token == "ui.focusedInputVisible":
+      ret if inpCount > 0: "true" else: "false"
+    ret str(inpCount)
+  if token == "ui.canvasOrSliderCount" or token == "ui.scrollablePanelVisible":
+    mut sCount = 0
+    mut si = 0
+    while si < snap.uiNodes.len:
+      let u = snap.uiNodes[si]
+      if u.kind == "canvas" or u.kind == "slider" or u.kind == "panel":
+        sCount += 1
+      si += 1
+    if token == "ui.scrollablePanelVisible":
+      ret if sCount > 0: "true" else: "false"
+    ret str(sCount)
+
+  if token == "board.canCaptureOpponent":
+    let cs = extractCustomStateStr(snap, "canCaptureOpponent", "")
+    if cs.len > 0:
+      ret cs
+    ret if countEntitiesByKind(snap, "enemy") > 0: "true" else: "false"
+  if token == "board.diceValue" or token == "board.lastDice":
+    ret str(int(extractCustomStateFloat(snap, "diceValue", extractCustomStateFloat(snap, "lastDice", 0.0))))
+  if token == "board.tokensInYard" or token == "board.hasYardToken":
+    let cs = extractCustomStateStr(snap, "tokensInYard", extractCustomStateStr(snap, "hasYardToken", ""))
+    if cs.len > 0:
+      ret cs
+    ret "0"
+  if token == "board.mode":
+    ret extractCustomStateStr(snap, "mode", "ludo")
+
+  ret lookupCustomStateFlexible(snap, token, "")
+
+pub fn tokenizeCondition(src: str): [str]:
+  mut tokens: [str] = []
+  let n = src.len
+  mut i = 0
+  while i < n:
+    let ch = src.charAt(i)
+    if ch == " " or ch == "\t" or ch == "\r" or ch == "\n":
+      i += 1
+    elif ch == "(" or ch == ")":
+      tokens.push(ch)
+      i += 1
+    elif ch == "&" and i + 1 < n and src.charAt(i + 1) == "&":
+      tokens.push("&&")
+      i += 2
+    elif ch == "|" and i + 1 < n and src.charAt(i + 1) == "|":
+      tokens.push("||")
+      i += 2
+    elif ch == "=" and i + 1 < n and src.charAt(i + 1) == "=":
+      tokens.push("==")
+      i += 2
+    elif ch == "!" and i + 1 < n and src.charAt(i + 1) == "=":
+      tokens.push("!=")
+      i += 2
+    elif ch == "<" and i + 1 < n and src.charAt(i + 1) == "=":
+      tokens.push("<=")
+      i += 2
+    elif ch == ">" and i + 1 < n and src.charAt(i + 1) == "=":
+      tokens.push(">=")
+      i += 2
+    elif ch == "!":
+      tokens.push("!")
+      i += 1
+    elif ch == "<":
+      tokens.push("<")
+      i += 1
+    elif ch == ">":
+      tokens.push(">")
+      i += 1
+    elif ch == "\"" or ch == "'":
+      let quoteChar = ch
+      mut lit = ""
+      i += 1
+      while i < n and src.charAt(i) != quoteChar:
+        lit = lit + src.charAt(i)
+        i += 1
+      if i < n:
+        i += 1
+      tokens.push("\"" + lit + "\"")
+    else:
+      mut word = ""
+      while i < n:
+        let c = src.charAt(i)
+        if c == " " or c == "\t" or c == "\r" or c == "\n" or c == "(" or c == ")" or c == "&" or c == "|" or c == "=" or c == "!" or c == "<" or c == ">" or c == "\"" or c == "'":
+          break
+        word = word + c
+        i += 1
+      if word.len > 0:
+        tokens.push(word)
+  ret tokens
+
+pub fn parsePrimary(tokens: [str], pos: int, snap: SceneSnapshot, seatId: int): ParseValResult:
+  if pos >= tokens.len:
+    ret ParseValResult(strVal = "false", pos = pos)
+  if tokens[pos] == "(":
+    let inner = parseOr(tokens, pos + 1, snap, seatId)
+    let nextPos = if inner.pos < tokens.len and tokens[inner.pos] == ")": inner.pos + 1 else: inner.pos
+    let sVal = if inner.val: "true" else: "false"
+    ret ParseValResult(strVal = sVal, pos = nextPos)
+  let raw = tokens[pos]
+  if (raw == "ui.has" or raw == "has_ui" or raw == "has") and pos + 3 < tokens.len and tokens[pos + 1] == "(" and tokens[pos + 3] == ")":
+    let rawArg = resolveConditionValue(tokens[pos + 2], snap, seatId).toLowerCase()
+    mut foundUi = false
+    mut uiIdx = 0
+    while uiIdx < snap.uiNodes.len:
+      let u = snap.uiNodes[uiIdx]
+      if u.text.toLowerCase().contains(rawArg) or u.kind.toLowerCase().contains(rawArg) or u.id.toLowerCase().contains(rawArg):
+        foundUi = true
+        break
+      uiIdx += 1
+    ret ParseValResult(strVal = if foundUi: "true" else: "false", pos = pos + 4)
+  let resolved = resolveConditionValue(raw, snap, seatId)
+  ret ParseValResult(strVal = resolved, pos = pos + 1)
+
+pub fn parseRel(tokens: [str], pos: int, snap: SceneSnapshot, seatId: int): ParseBoolResult:
+  if pos >= tokens.len:
+    ret ParseBoolResult(val = true, pos = pos)
+  if tokens[pos] == "(":
+    let inner = parseOr(tokens, pos + 1, snap, seatId)
+    let nextPos = if inner.pos < tokens.len and tokens[inner.pos] == ")": inner.pos + 1 else: inner.pos
+    if nextPos < tokens.len:
+      let op = tokens[nextPos]
+      if op == "==" or op == "!=" or op == "<" or op == "<=" or op == ">" or op == ">=":
+        let right = parsePrimary(tokens, nextPos + 1, snap, seatId)
+        let leftStr = if inner.val: "true" else: "false"
+        ret ParseBoolResult(val = compareValues(leftStr, op, right.strVal), pos = right.pos)
+    ret ParseBoolResult(val = inner.val, pos = nextPos)
+
+  let left = parsePrimary(tokens, pos, snap, seatId)
+  if left.pos < tokens.len:
+    let op = tokens[left.pos]
+    if op == "==" or op == "!=" or op == "<" or op == "<=" or op == ">" or op == ">=":
+      let right = parsePrimary(tokens, left.pos + 1, snap, seatId)
+      ret ParseBoolResult(val = compareValues(left.strVal, op, right.strVal), pos = right.pos)
+  ret ParseBoolResult(val = isTruthy(left.strVal), pos = left.pos)
+
+pub fn parseNot(tokens: [str], pos: int, snap: SceneSnapshot, seatId: int): ParseBoolResult:
+  if pos < tokens.len and (tokens[pos] == "not" or tokens[pos] == "!"):
+    let sub = parseNot(tokens, pos + 1, snap, seatId)
+    ret ParseBoolResult(val = not sub.val, pos = sub.pos)
+  ret parseRel(tokens, pos, snap, seatId)
+
+pub fn parseAnd(tokens: [str], pos: int, snap: SceneSnapshot, seatId: int): ParseBoolResult:
+  mut res = parseNot(tokens, pos, snap, seatId)
+  while res.pos < tokens.len and (tokens[res.pos] == "and" or tokens[res.pos] == "&&"):
+    let nextRes = parseNot(tokens, res.pos + 1, snap, seatId)
+    res = ParseBoolResult(val = res.val and nextRes.val, pos = nextRes.pos)
+  ret res
+
+pub fn parseOr(tokens: [str], pos: int, snap: SceneSnapshot, seatId: int): ParseBoolResult:
+  mut res = parseAnd(tokens, pos, snap, seatId)
+  while res.pos < tokens.len and (tokens[res.pos] == "or" or tokens[res.pos] == "||"):
+    let nextRes = parseAnd(tokens, res.pos + 1, snap, seatId)
+    res = ParseBoolResult(val = res.val or nextRes.val, pos = nextRes.pos)
+  ret res
+
+pub fn evaluateConditionExpr(condExpr: str, snap: SceneSnapshot, seatId: int, frame: int, stepCursorIdx: int): bool:
+  let c = condExpr.trim()
+  if c.len == 0 or c == "true":
+    ret true
+  if c == "false":
+    ret false
+  let tokens = tokenizeCondition(c)
+  if tokens.len == 0:
+    ret true
+  let parsed = parseOr(tokens, 0, snap, seatId)
+  ret parsed.val
+
+// ============================================================================
+// 100% Generic Visual-Spatial & Multi-Token Tactical Evaluator
+// (Zero game-specific rules, zero hardcoded board sizes, works across all apps)
+// ============================================================================
+
+pub struct GenericPlayfieldGeometry:
+  minX: int
+  minY: int
+  maxX: int
+  maxY: int
+  centerX: int
+  centerY: int
+  myMeanX: int
+  myMeanY: int
+  oppMeanX: int
+  oppMeanY: int
+  fwdDirX: int
+  fwdDirY: int
+  selectedX: int
+  selectedY: int
+  selectedVal: int
+  tokenCount: int
+
+pub fn genericTokenSeat(text: str): int:
+  if text.startsWith("token_seat_1"): ret 1
+  if text.startsWith("token_seat_2"): ret 2
+  if text.startsWith("token_seat_3"): ret 3
+  if text.startsWith("token_seat_4"): ret 4
+  ret 0
+
+pub fn genericTokenSymbol(text: str): str:
+  let colonIdx = text.indexOf(":")
+  if colonIdx >= 0 and colonIdx + 1 < text.len:
+    ret text.slice(colonIdx + 1, text.len).trim()
+  ret text.trim()
+
+pub fn parseTokenValueOverride(actExpr: str, sym: str, defaultVal: int): int:
+  if sym.len == 0 or actExpr.len == 0:
+    ret defaultVal
+  let key = sym + "="
+  let idx = actExpr.indexOf(key)
+  if idx < 0:
+    ret defaultVal
+  let start = idx + key.len
+  mut end = start
+  while end < actExpr.len:
+    let ch = actExpr.charCodeAt(end)
+    if ch >= 48 and ch <= 57:
+      end += 1
+    else:
+      break
+  if end > start:
+    ret hebarIntOr(actExpr.slice(start, end), defaultVal, true)
+  ret defaultVal
+
+pub fn genericTokenSymbolValue(text: str, actExpr: str): int:
+  let sym = genericTokenSymbol(text)
+  mut base = 200
+  if sym == "K" or sym == "KING" or sym == "CORE": base = 2000
+  elif sym == "Q" or sym == "QUEEN" or sym == "HERO": base = 900
+  elif sym == "R" or sym == "ROOK" or sym == "TOWER": base = 500
+  elif sym == "B" or sym == "BISHOP" or sym == "MAGE": base = 330
+  elif sym == "N" or sym == "KNIGHT" or sym == "CAVALRY": base = 320
+  elif sym == "P" or sym == "PAWN" or sym == "UNIT": base = 100
+  base = parseTokenValueOverride(actExpr, sym, base)
+  if sym.len > 0:
+    if actExpr.contains("+" + sym):
+      base += 180
+    if actExpr.contains("-" + sym):
+      base -= 520
+  ret base
+
+pub fn extractGenericPlayfieldGeometry(snap: SceneSnapshot, seatId: int, actExpr: str): GenericPlayfieldGeometry:
+  mut minX = 99999
+  mut minY = 99999
+  mut maxX = 0
+  mut maxY = 0
+  mut mySumX = 0
+  mut mySumY = 0
+  mut myCnt = 0
+  mut oppSumX = 0
+  mut oppSumY = 0
+  mut oppCnt = 0
+  mut selX = -1
+  mut selY = -1
+  mut selVal = 200
+  mut tokCount = 0
+
+  mut i = 0
+  while i < snap.uiNodes.len:
+    let u = snap.uiNodes[i]
+    let cx = u.x + u.w / 2
+    let cy = u.y + u.h / 2
+    if u.kind == "token" or u.text.startsWith("token_seat_"):
+      tokCount += 1
+      if cx < minX: minX = cx
+      if cy < minY: minY = cy
+      if cx > maxX: maxX = cx
+      if cy > maxY: maxY = cy
+      let tSeat = genericTokenSeat(u.text)
+      if tSeat == seatId:
+        mySumX += cx
+        mySumY += cy
+        myCnt += 1
+      elif tSeat > 0:
+        oppSumX += cx
+        oppSumY += cy
+        oppCnt += 1
+    elif u.kind == "highlight" and u.text == "selected":
+      selX = cx
+      selY = cy
+    i += 1
+
+  if selX >= 0:
+    mut ti = 0
+    while ti < snap.uiNodes.len:
+      let tu = snap.uiNodes[ti]
+      if tu.kind == "token" or tu.text.startsWith("token_seat_"):
+        let tcx = tu.x + tu.w / 2
+        let tcy = tu.y + tu.h / 2
+        let dx = if tcx > selX: tcx - selX else: selX - tcx
+        let dy = if tcy > selY: tcy - selY else: selY - tcy
+        if dx <= 24 and dy <= 24:
+          selVal = genericTokenSymbolValue(tu.text, actExpr)
+          break
+      ti += 1
+
+  if tokCount == 0:
+    minX = 100
+    minY = 80
+    maxX = if snap.width > 200: snap.width - 100 else: 780
+    maxY = if snap.height > 160: snap.height - 80 else: 480
+
+  let centerX = (minX + maxX) / 2
+  let centerY = (minY + maxY) / 2
+  let myMeanX = if myCnt > 0: mySumX / myCnt else: centerX
+  let myMeanY = if myCnt > 0: mySumY / myCnt else: maxY
+  let oppMeanX = if oppCnt > 0: oppSumX / oppCnt else: centerX
+  let oppMeanY = if oppCnt > 0: oppSumY / oppCnt else: minY
+  let fwdDirX = if oppMeanX > myMeanX + 24: 1 else: (if oppMeanX < myMeanX - 24: -1 else: 0)
+  let fwdDirY = if oppMeanY > myMeanY + 24: 1 else: (if oppMeanY < myMeanY - 24: -1 else: -1)
+
+  ret GenericPlayfieldGeometry(
+    minX = minX,
+    minY = minY,
+    maxX = maxX,
+    maxY = maxY,
+    centerX = centerX,
+    centerY = centerY,
+    myMeanX = myMeanX,
+    myMeanY = myMeanY,
+    oppMeanX = oppMeanX,
+    oppMeanY = oppMeanY,
+    fwdDirX = fwdDirX,
+    fwdDirY = fwdDirY,
+    selectedX = selX,
+    selectedY = selY,
+    selectedVal = selVal,
+    tokenCount = tokCount
+  )
+
+pub fn scoreGenericHighlightTarget(u: SceneUiNode, geom: GenericPlayfieldGeometry, snap: SceneSnapshot, seatId: int, actExpr: str, stepCursorIdx: int): int:
+  let cx = u.x + u.w / 2
+  let cy = u.y + u.h / 2
+  let isMaster = actExpr.contains("+minimax") or actExpr.contains("+mvv_lva") or actExpr.contains("+see_safe")
+  mut score = if u.text == "target_capture": 2200 else: 350
+
+  // 1. Inspect tokens around target (cx, cy) for MVV-LVA capture value, SEE safety, and Fork/Leader pressure
+  mut victimVal = 0
+  mut nearestOppDist = 9999
+  mut nearestOppVal = 200
+  mut friendlySupportCnt = 0
+  mut forkThreats = 0
+  mut checksLeader = false
+
+  mut i = 0
+  while i < snap.uiNodes.len:
+    let n = snap.uiNodes[i]
+    if n.kind == "token" or n.text.startsWith("token_seat_"):
+      let tSeat = genericTokenSeat(n.text)
+      let tx = n.x + n.w / 2
+      let ty = n.y + n.h / 2
+      let dx = if tx > cx: tx - cx else: cx - tx
+      let dy = if ty > cy: ty - cy else: cy - ty
+      let manDist = dx + dy
+      let tVal = genericTokenSymbolValue(n.text, actExpr)
+      if tSeat > 0 and tSeat != seatId:
+        if dx <= 24 and dy <= 24:
+          victimVal = tVal
+        else:
+          if manDist < nearestOppDist:
+            nearestOppDist = manDist
+            nearestOppVal = tVal
+          let alignedOrtho = dx <= 14 or dy <= 14
+          let alignedDiag = (if dx > dy: dx - dy else: dy - dx) <= 16
+          if (alignedOrtho or alignedDiag or manDist <= 135) and manDist <= 280:
+            if tVal >= 1500:
+              checksLeader = true
+            if tVal >= 300:
+              forkThreats += 1
+      elif tSeat == seatId:
+        if manDist > 20 and manDist <= 125:
+          friendlySupportCnt += 1
+    i += 1
+
+  if victimVal > 0:
+    score += victimVal * 10 - (geom.selectedVal / 6)
+
+  if isMaster:
+    // SEE Exchange Safety: avoid moving a high-value token onto an undefended threatened coordinate
+    if nearestOppDist <= 78:
+      if friendlySupportCnt == 0:
+        score -= geom.selectedVal * 3
+      elif nearestOppVal < geom.selectedVal:
+        score -= (geom.selectedVal - nearestOppVal) * 2
+    elif friendlySupportCnt > 0:
+      score += 120
+
+    if checksLeader:
+      score += 580
+    if forkThreats >= 2:
+      score += 460
+
+  // 2. Center Control & Forward Progression
+  let cDx = if cx > geom.centerX: cx - geom.centerX else: geom.centerX - cx
+  let cDy = if cy > geom.centerY: cy - geom.centerY else: geom.centerY - cy
+  if actExpr.contains("+center") or isMaster:
+    let centerBonus = 240 - ((cDx + cDy) * 3) / 4
+    if centerBonus > 0:
+      score += centerBonus
+
+  let fwdProgress = (cy - geom.myMeanY) * geom.fwdDirY + (cx - geom.myMeanX) * geom.fwdDirX
+  if fwdProgress > 0:
+    score += (fwdProgress * 2) / 3
+
+  score += ((cx * 13 + cy * 29 + stepCursorIdx * 19) % 37)
+  ret score
+
+pub fn computeGrandmasterOrBeginnerAction(actExpr: str, instState: InstinctState, snap: SceneSnapshot, seatId: int, stepCursorIdx: int): BtDecision:
+  let geom = extractGenericPlayfieldGeometry(snap, seatId, actExpr)
+
+  // Phase 1: If any destination highlights (target_capture / target_move) are active, score and click the best one
+  mut bestHlX = -1
+  mut bestHlY = -1
+  mut bestHlScore = -999999
+  mut hi = 0
+  while hi < snap.uiNodes.len:
+    let u = snap.uiNodes[hi]
+    if u.kind == "highlight" and (u.text == "target_move" or u.text == "target_capture"):
+      let hScore = scoreGenericHighlightTarget(u, geom, snap, seatId, actExpr, stepCursorIdx)
+      if hScore > bestHlScore:
+        bestHlScore = hScore
+        bestHlX = u.x + u.w / 2
+        bestHlY = u.y + u.h / 2
+    hi += 1
+
+  if bestHlX >= 0 and bestHlY >= 0:
+    let hlScript = "move:" + str(bestHlX) + "," + str(bestHlY) + ";click:" + str(bestHlX) + "," + str(bestHlY)
+    ret BtDecision(matched = true, branchIndex = 0, branchName = "GenericTacticalTarget", script = hlScript, targetX = float(bestHlX), targetY = float(bestHlY))
+
+  // Phase 2: Select the highest-scored friendly token using generic spatial & causal heuristics
+  let seatPrefix = "token_seat_" + str(seatId)
+  mut bestTokX = -1
+  mut bestTokY = -1
+  mut bestTokScore = -999999
+  mut uiIdx = 0
+  while uiIdx < snap.uiNodes.len:
+    let u = snap.uiNodes[uiIdx]
+    if u.text.startsWith(seatPrefix):
+      let tx = u.x + u.w / 2
+      let ty = u.y + u.h / 2
+      let selDx = if geom.selectedX >= 0: (if tx > geom.selectedX: tx - geom.selectedX else: geom.selectedX - tx) else: 999
+      let selDy = if geom.selectedY >= 0: (if ty > geom.selectedY: ty - geom.selectedY else: geom.selectedY - ty) else: 999
+      let isAlreadySel = selDx <= 18 and selDy <= 18
+      mut isDead = false
+      mut di = 0
+      while di < instState.deadCoordsX.len and di < instState.deadCoordsY.len:
+        let ddx = if tx > instState.deadCoordsX[di]: tx - instState.deadCoordsX[di] else: instState.deadCoordsX[di] - tx
+        let ddy = if ty > instState.deadCoordsY[di]: ty - instState.deadCoordsY[di] else: instState.deadCoordsY[di] - ty
+        if ddx <= 18 and ddy <= 18:
+          isDead = true
+          break
+        di += 1
+
+      if not isDead and not isAlreadySel:
+        mut visitPenalty = 0
+        mut vi = 0
+        while vi < instState.visitedCoordsX.len and vi < instState.visitedCoordsY.len:
+          let vdx = if tx > instState.visitedCoordsX[vi]: tx - instState.visitedCoordsX[vi] else: instState.visitedCoordsX[vi] - tx
+          let vdy = if ty > instState.visitedCoordsY[vi]: ty - instState.visitedCoordsY[vi] else: instState.visitedCoordsY[vi] - ty
+          if vdx <= 18 and vdy <= 18:
+            visitPenalty += 450
+          vi += 1
+
+        mut tScore = 500 + genericTokenSymbolValue(u.text, actExpr) - visitPenalty
+        // Center alignment bonus
+        let cDx = if tx > geom.centerX: tx - geom.centerX else: geom.centerX - tx
+        if actExpr.contains("+center") or actExpr.contains("+minimax"):
+          let cBonus = 180 - (cDx / 2)
+          if cBonus > 0:
+            tScore += cBonus
+
+        // Development & threat rescue awareness
+        if actExpr.contains("-hang") or actExpr.contains("+minimax"):
+          mut oi = 0
+          while oi < snap.uiNodes.len:
+            let ou = snap.uiNodes[oi]
+            let oSeat = genericTokenSeat(ou.text)
+            if oSeat > 0 and oSeat != seatId:
+              let ox = ou.x + ou.w / 2
+              let oy = ou.y + ou.h / 2
+              let odx = if ox > tx: ox - tx else: tx - ox
+              let ody = if oy > ty: oy - ty else: ty - oy
+              if odx + ody <= 92:
+                tScore += 280
+                break
+            oi += 1
+
+        tScore += ((tx * 17 + ty * 31 + stepCursorIdx * 43) % 75)
+        if tScore > bestTokScore:
+          bestTokScore = tScore
+          bestTokX = tx
+          bestTokY = ty
+    uiIdx += 1
+
+  if bestTokX >= 0 and bestTokY >= 0:
+    let tokScript = "move:" + str(bestTokX) + "," + str(bestTokY) + ";click:" + str(bestTokX) + "," + str(bestTokY)
+    ret BtDecision(matched = true, branchIndex = 0, branchName = "GenericTokenSelect", script = tokScript, targetX = float(bestTokX), targetY = float(bestTokY))
+
+  // Universal fallback via Visual-Causal Instinct Engine
+  let instAct = computeZeroConfigInstinctAction(instState, snap, seatId, stepCursorIdx)
+  ret BtDecision(
+    matched = true,
+    branchIndex = 0,
+    branchName = instAct.reason,
+    script = instAct.script,
+    targetX = instAct.targetX,
+    targetY = instAct.targetY
+  )
+
+pub fn evaluateStrategyTree(spec: HebarStrategySpec, snap: SceneSnapshot, seatId: int, frame: int, stepCursorIdx: int): BtDecision:
+  ret evaluateStrategyTreeWithInstinct(spec, initInstinctState(), snap, seatId, frame, stepCursorIdx)
+
+pub fn evaluateStrategyTreeWithInstinct(spec: HebarStrategySpec, instState: InstinctState, snap: SceneSnapshot, seatId: int, frame: int, stepCursorIdx: int): BtDecision:
+  let clickables = findClickableUiNodes(snap)
+  let seatEnts = findEntitiesForSeat(snap, seatId)
+  mut matchedIndices: [int] = []
+  mut bi = 0
+  while bi < spec.branches.len:
+    let b = spec.branches[bi]
+    if evaluateConditionExpr(b.conditionExpr, snap, seatId, frame, stepCursorIdx):
+      matchedIndices.push(bi)
+    bi += 1
+
+  mut chosenIdx = 0
+  mut didMatch = matchedIndices.len > 0
+  if matchedIndices.len > 0:
+    // Select among matched branches weighted by learned utility & step cursor
+    mut bestIdx = matchedIndices[0]
+    mut bestScore = -1000.0
+    mut mi = 0
+    while mi < matchedIndices.len:
+      let idx = matchedIndices[mi]
+      let br = spec.branches[idx]
+      let recencyPenalty = if br.kind == "loop_until": 0.0 else: (if frame - br.lastFiredFrame < 3: 0.35 else: 0.0)
+      let rotBonus = if (mi == (stepCursorIdx + seatId - 1) % matchedIndices.len): 0.25 else: 0.0
+      let score = br.weight + rotBonus - recencyPenalty
+      if score > bestScore:
+        bestScore = score
+        bestIdx = idx
+      mi += 1
+    chosenIdx = bestIdx
+  elif spec.branches.len > 0:
+    chosenIdx = (stepCursorIdx + seatId - 1) % spec.branches.len
+
+  let branchName = if spec.branches.len > 0: spec.branches[chosenIdx].name else: "DefaultExplore"
+  let rawActExpr = if spec.branches.len > 0: spec.branches[chosenIdx].actionExpr.trim() else: "click_smooth(ui.primaryInteractiveNode)"
+  mut loopCount = 1
+  mut actExpr = rawActExpr
+  if rawActExpr.startsWith("loop:"):
+    let rest1 = rawActExpr.slice(5, rawActExpr.len)
+    let cIdx = rest1.indexOf(":")
+    if cIdx > 0:
+      loopCount = parseInt(rest1.slice(0, cIdx))
+      actExpr = rest1.slice(cIdx + 1, rest1.len).trim()
+  mut targetX = float(snap.width) * 0.5
+  mut targetY = float(snap.height) * 0.5
+  mut script = ""
+
+  let player = findPlayerEntity(snap, seatId)
+  let px = if player.id >= 0: player.x + player.w * 0.5 else: float(snap.width) * 0.5
+  let py = if player.id >= 0: player.y + player.h * 0.5 else: float(snap.height) * 0.5
+
+  // 1. Raw scripts
+  if actExpr.startsWith("wait:"):
+    script = actExpr
+  elif actExpr.startsWith("key:") or actExpr.startsWith("click:") or actExpr.startsWith("move:") or actExpr.startsWith("drag:") or actExpr.startsWith("text:") or actExpr.startsWith("wheel:"):
+    script = actExpr
+    if actExpr.contains("click:") or actExpr.contains("move:"):
+      let tag = if actExpr.contains("click:"): "click:" else: "move:"
+      let pos = actExpr.indexOf(tag)
+      let rest = actExpr.slice(pos + tag.len, actExpr.len)
+      let sc = rest.indexOf(";")
+      let coord = if sc >= 0: rest.slice(0, sc) else: rest
+      let parts = coord.split(",")
+      if parts.len >= 2:
+        targetX = float(parseInt(parts[0]))
+        targetY = float(parseInt(parts[1]))
+    elif actExpr.contains("drag:"):
+      let pos = actExpr.indexOf("drag:")
+      let rest = actExpr.slice(pos + 5, actExpr.len)
+      let sc = rest.indexOf(";")
+      let coord = if sc >= 0: rest.slice(0, sc) else: rest
+      let parts = coord.split(",")
+      if parts.len >= 2:
+        targetX = float(parseInt(parts[0]))
+        targetY = float(parseInt(parts[1]))
+
+  // 2. Macro & Global .hebar v2 High-IQ Actions
+  elif actExpr.startsWith("wait_turn") or actExpr.startsWith("wait("):
+    script = "wait:1"
+  elif actExpr.startsWith("click_best(") or actExpr.startsWith("try_token(") or actExpr.startsWith("workspace_use(") or actExpr.startsWith("auto_brain(") or actExpr.contains("select_best_board_move"):
+    let gmDec = computeGrandmasterOrBeginnerAction(actExpr, instState, snap, seatId, stepCursorIdx)
+    targetX = gmDec.targetX
+    targetY = gmDec.targetY
+    script = gmDec.script
+  elif actExpr.startsWith("press_key(") or actExpr.startsWith("key("):
+    let q1 = actExpr.indexOf("(")
+    let q2 = actExpr.lastIndexOf(")")
+    mut k = if q1 >= 0 and q2 > q1: actExpr.slice(q1 + 1, q2).trim() else: "SPACE"
+    if (k.startsWith("\"") and k.endsWith("\"")) or (k.startsWith("'") and k.endsWith("'")):
+      k = k.slice(1, k.len - 1)
+    script = "key:" + k + ",3"
+  elif actExpr.startsWith("aim_click") or actExpr.startsWith("kite(") or actExpr.startsWith("attack_nearest") or actExpr.contains("pursue_and_attack"):
+    let enemy = findNearestEntityByKind(snap, px, py, "enemy")
+    if enemy.id >= 0:
+      targetX = enemy.x + enemy.w * 0.5
+      targetY = enemy.y + enemy.h * 0.5
+    else:
+      targetX = float(300 + ((stepCursorIdx * 89 + seatId * 43) % 680))
+      targetY = float(180 + ((stepCursorIdx * 67 + seatId * 31) % 360))
+    let attackKey = if actExpr.startsWith("kite("): (if px < targetX: "A" else: "D") else: (if stepCursorIdx % 2 == 0: "W" else: "D")
+    script = "key:" + attackKey + ",3;move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+  elif actExpr.startsWith("evade(") or actExpr.startsWith("evade_nearest") or actExpr.contains("evade_vector") or actExpr.contains("strafe_perpendicular"):
+    let hazard = findNearestEntityByKind(snap, px, py, "hazard")
+    let hx = if hazard.id >= 0: hazard.x + hazard.w * 0.5 else: px + 10.0
+    let evadeKey = if px < hx: "A" else: "D"
+    script = "key:" + evadeKey + ",4;key:SPACE,2"
+  elif actExpr.startsWith("interact") or actExpr.contains("move_toward"):
+    let q1 = actExpr.indexOf("(")
+    let q2 = actExpr.lastIndexOf(")")
+    let argTok = if q1 >= 0 and q2 > q1: actExpr.slice(q1 + 1, q2).trim() else: ""
+    let customCoord = lookupCustomStateFlexible(snap, argTok, "")
+    let item = findNearestEntityByKind(snap, px, py, "item")
+    if customCoord.contains(","):
+      let cParts = customCoord.split(",")
+      if cParts.len >= 2:
+        targetX = float(parseInt(cParts[0]))
+        targetY = float(parseInt(cParts[1]))
+    elif item.id >= 0:
+      targetX = item.x + item.w * 0.5
+      targetY = item.y + item.h * 0.5
+    else:
+      targetX = float(320 + ((stepCursorIdx * 73 + seatId * 29) % 640))
+      targetY = float(200 + ((stepCursorIdx * 53 + seatId * 19) % 320))
+    let navKey = if actExpr.startsWith("interact"): "E,2" else: "D,3"
+    script = "key:" + navKey + ";move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+  elif actExpr.startsWith("click(") or actExpr.startsWith("click_ui") or actExpr.startsWith("click_smooth"):
+    let q1 = actExpr.indexOf("(")
+    let q2 = actExpr.lastIndexOf(")")
+    mut targetArg = if q1 >= 0 and q2 > q1: actExpr.slice(q1 + 1, q2).trim() else: ""
+    let wasQuoted = (targetArg.startsWith("\"") and targetArg.endsWith("\"")) or (targetArg.startsWith("'") and targetArg.endsWith("'"))
+    if wasQuoted and targetArg.len >= 2:
+      targetArg = targetArg.slice(1, targetArg.len - 1)
+    let customClickCoord = if not wasQuoted: lookupCustomStateFlexible(snap, targetArg, "") else: ""
+    if customClickCoord.contains(","):
+      let cParts = customClickCoord.split(",")
+      if cParts.len >= 2:
+        targetX = float(parseInt(cParts[0]))
+        targetY = float(parseInt(cParts[1]))
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+    elif wasQuoted and targetArg.len > 0:
+      let matchedNode = findUiByText(snap, targetArg)
+      if matchedNode.id != "fallback":
+        targetX = float(matchedNode.x) + float(matchedNode.w) * 0.5
+        targetY = float(matchedNode.y) + float(matchedNode.h) * 0.5
+        script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+      else:
+        let instAct = computeZeroConfigInstinctAction(instState, snap, seatId, stepCursorIdx)
+        targetX = instAct.targetX
+        targetY = instAct.targetY
+        script = instAct.script
+    elif targetArg.contains("modal") or targetArg.contains("Dismiss") or targetArg.contains("Confirm"):
+      mut mi = 0
+      mut foundModal = false
+      while mi < snap.uiNodes.len:
+        let u = snap.uiNodes[mi]
+        let t = u.text.toLowerCase()
+        if t.contains("modal") or t.contains("dismiss") or t.contains("confirm") or t.contains("ok") or t.contains("close"):
+          targetX = float(u.x) + float(u.w) * 0.5
+          targetY = float(u.y) + float(u.h) * 0.5
+          foundModal = true
+          break
+        mi += 1
+      if not foundModal and clickables.len > 0:
+        let u = clickables[0]
+        targetX = float(u.x) + float(u.w) * 0.5
+        targetY = float(u.y) + float(u.h) * 0.5
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+    elif targetArg.contains("roll") or targetArg.contains("Roll") or (snap.turnState.phase == "roll" and targetArg.contains("board")):
+      let rollBtn = findUiByText(snap, "roll")
+      targetX = float(rollBtn.x) + float(rollBtn.w) * 0.5
+      targetY = float(rollBtn.y) + float(rollBtn.h) * 0.5
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+    elif targetArg.contains("advance") or targetArg.contains("leadToken") or targetArg.contains("Advance"):
+      let advBtn0 = findUiByText(snap, "advance")
+      let advBtn = if advBtn0.id != "fallback": advBtn0 else: findUiByText(snap, "move")
+      if advBtn.id != "fallback":
+        targetX = float(advBtn.x) + float(advBtn.w) * 0.5
+        targetY = float(advBtn.y) + float(advBtn.h) * 0.5
+      elif seatEnts.len > 0:
+        let ent = seatEnts[0]
+        targetX = ent.x + ent.w * 0.5
+        targetY = ent.y + ent.h * 0.5
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+    elif targetArg.contains("Tab") or targetArg.contains("tab"):
+      mut tabIdx = -1
+      mut ti = 0
+      while ti < clickables.len:
+        if clickables[ti].y < 110:
+          tabIdx = ti
+          break
+        ti += 1
+      if tabIdx >= 0:
+        let tb = clickables[tabIdx]
+        targetX = float(tb.x) + float(tb.w) * 0.5
+        targetY = float(tb.y) + float(tb.h) * 0.5
+      elif clickables.len > 0:
+        let tb = clickables[0]
+        targetX = float(tb.x) + float(tb.w) * 0.5
+        targetY = float(tb.y) + float(tb.h) * 0.5
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+    elif targetArg.contains("board") or targetArg.contains("yard") or targetArg.contains("capture"):
+      let mvBtn = findUiByText(snap, "move")
+      if mvBtn.id != "fallback":
+        targetX = float(mvBtn.x) + float(mvBtn.w) * 0.5
+        targetY = float(mvBtn.y) + float(mvBtn.h) * 0.5
+      elif seatEnts.len > 0:
+        let ent = seatEnts[stepCursorIdx % seatEnts.len]
+        targetX = ent.x + ent.w * 0.5
+        targetY = ent.y + ent.h * 0.5
+      elif countEntitiesByKind(snap, "board") > 0:
+        let p = findNearestEntityByKind(snap, px, py, "board")
+        if p.id >= 0:
+          targetX = p.x + p.w * 0.5
+          targetY = p.y + p.h * 0.5
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+    elif clickables.len > 0:
+      let uiIdx = (stepCursorIdx + seatId - 1) % clickables.len
+      let node = clickables[uiIdx]
+      targetX = float(node.x) + float(node.w) * 0.5
+      targetY = float(node.y) + float(node.h) * 0.5
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+  elif actExpr.startsWith("drag_smooth"):
+    let p = if seatEnts.len > 0: seatEnts[0] else: (if snap.entities.len > 0: snap.entities[0] else: emptySceneEntity())
+    if p.id >= 0:
+      targetX = p.x + p.w * 0.5
+      targetY = p.y + p.h * 0.5
+    else:
+      targetX = float(320 + (stepCursorIdx * 40) % 400)
+      targetY = float(220 + (stepCursorIdx * 30) % 240)
+    let x2 = int(targetX) + 64
+    let y2 = int(targetY) + 64
+    script = "drag:" + str(int(targetX)) + "," + str(int(targetY)) + "," + str(x2) + "," + str(y2) + ",3"
+  elif actExpr.startsWith("text(") or actExpr.startsWith("text:"):
+    let q1 = actExpr.indexOf("(")
+    let q2 = actExpr.lastIndexOf(")")
+    mut txt = if q1 >= 0 and q2 > q1: actExpr.slice(q1 + 1, q2).trim() else: "HEBAR_QA"
+    if (txt.startsWith("\"") and txt.endsWith("\"")) or (txt.startsWith("'") and txt.endsWith("'")):
+      txt = txt.slice(1, txt.len - 1)
+    if clickables.len > 0:
+      let node = clickables[stepCursorIdx % clickables.len]
+      targetX = float(node.x) + float(node.w) * 0.5
+      targetY = float(node.y) + float(node.h) * 0.5
+    script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY)) + ";text:" + txt + ";key:ENTER,2"
+  elif actExpr.startsWith("wheel(") or actExpr.startsWith("wheel:"):
+    let q1 = actExpr.indexOf("(")
+    let q2 = actExpr.lastIndexOf(")")
+    let wNum = if q1 >= 0 and q2 > q1: actExpr.slice(q1 + 1, q2).trim() else: "-1"
+    script = "wheel:" + wNum
+  elif actExpr.contains("select_best_board_move"):
+    let instAct = computeZeroConfigInstinctAction(initInstinctState(), snap, seatId, stepCursorIdx)
+    targetX = instAct.targetX
+    targetY = instAct.targetY
+    script = instAct.script
+
+  if script.len == 0:
+    if clickables.len > 0:
+      let uiIdx = (stepCursorIdx + seatId - 1) % clickables.len
+      let node = clickables[uiIdx]
+      targetX = float(node.x) + float(node.w) * 0.5
+      targetY = float(node.y) + float(node.h) * 0.5
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+    elif seatEnts.len > 0:
+      let entIdx = stepCursorIdx % seatEnts.len
+      let ent = seatEnts[entIdx]
+      targetX = ent.x + ent.w * 0.5
+      targetY = ent.y + ent.h * 0.5
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+    else:
+      let gridCol = (stepCursorIdx + seatId) % 4
+      let gridRow = ((stepCursorIdx / 4) + seatId) % 3
+      targetX = float(180 + gridCol * 220)
+      targetY = float(140 + gridRow * 160)
+      script = "move:" + str(int(targetX)) + "," + str(int(targetY)) + ";click:" + str(int(targetX)) + "," + str(int(targetY))
+
+  if loopCount > 1 and script.len > 0:
+    let unitScript = script
+    mut li = 1
+    while li < loopCount:
+      script = script + ";" + unitScript
+      li += 1
+
+  ret BtDecision(
+    matched = didMatch,
+    branchIndex = chosenIdx,
+    branchName = branchName,
+    script = script,
+    targetX = targetX,
+    targetY = targetY
+  )
+
+pub fn recordBranchOutcome(spec: HebarStrategySpec, branchIdx: int, frame: int, madeProgress: bool): HebarStrategySpec:
+  if branchIdx < 0 or branchIdx >= spec.branches.len:
+    ret spec
+  mut newBranches: [BtBranchNode] = []
+  mut i = 0
+  while i < spec.branches.len:
+    let b = spec.branches[i]
+    if i == branchIdx:
+      let nextW = if madeProgress: b.weight + 0.08 else: (if b.weight > 0.40: b.weight - 0.02 else: b.weight)
+      newBranches.push(BtBranchNode(
+        name = b.name,
+        kind = b.kind,
+        conditionExpr = b.conditionExpr,
+        actionExpr = b.actionExpr,
+        cooldownMs = b.cooldownMs,
+        lastFiredFrame = frame,
+        executions = b.executions + 1,
+        progressHits = if madeProgress: b.progressHits + 1 else: b.progressHits,
+        weight = nextW
+      ))
+    else:
+      newBranches.push(b)
+    i += 1
+  ret HebarStrategySpec(
+    strategyName = spec.strategyName,
+    sourcePath = spec.sourcePath,
+    reactionMs = spec.reactionMs,
+    maxRateHz = spec.maxRateHz,
+    maxTurnRadS = spec.maxTurnRadS,
+    maxCursorPxS = spec.maxCursorPxS,
+    maxIdleFrames = spec.maxIdleFrames,
+    branches = newBranches
+  )

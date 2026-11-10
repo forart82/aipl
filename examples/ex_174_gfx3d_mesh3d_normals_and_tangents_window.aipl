@@ -1,0 +1,132 @@
+module Ex174Gfx3dMesh3dNormalsAndTangentsWindow
+
+import { generateBoxMesh } from "../std/gfx3d/primitives3d"
+import {
+  createEmptyMesh3D, computeMeshNormals,
+  computeMeshTangentsMikkTSpace, recomputeMeshBoundingBox
+} from "../std/gfx3d/mesh3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepMesh3dBoxWidth(frame: int): float:
+  ret 3.6 + float(frame % 23) * 0.12
+
+pub fn buildMesh3dTangentAudit(): int:
+  let _ = createEmptyMesh3D()
+  mut boxM = generateBoxMesh(4.0, 4.0, 4.0)
+  boxM = computeMeshNormals(boxM)
+  boxM = computeMeshTangentsMikkTSpace(boxM)
+  boxM = recomputeMeshBoundingBox(boxM)
+  let spanX = int(boxM.boundingBox.max.x - boxM.boundingBox.min.x)
+  ret boxM.vertices.len() + boxM.indices.len() + spanX
+
+pub fn main(): int:
+  let audit = buildMesh3dTangentAudit()
+
+  initWindow(1280, 720, "AIPL ex_174: 3D Mesh Normals & MikkTSpace Tangent Basis")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let boxW = stepMesh3dBoxWidth(frame)
+    mut boxM = generateBoxMesh(boxW, 3.6, 3.6)
+    boxM = computeMeshNormals(boxM)
+    boxM = computeMeshTangentsMikkTSpace(boxM)
+    boxM = recomputeMeshBoundingBox(boxM)
+    let activeIdx = (frame / 3) % boxM.vertices.len()
+    let v0 = boxM.vertices[activeIdx]
+    let yaw = float(frame) * 0.037
+    let cyaw = cos(yaw)
+    let syaw = sin(yaw)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_174: 3D MESH AREA-WEIGHTED NORMALS & MIKKTSPACE TANGENT BASIS", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/mesh3d: computeMeshNormals | computeMeshTangentsMikkTSpace | recomputeMeshBoundingBox | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: 3D Projected Box Mesh + TBN Orthonormal Basis Hedgehog
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("3D ROTATING MESH & TBN (TANGENT / BITANGENT / NORMAL) HEDGEHOG", 60.0, 118.0, 15.0, rgb(125, 211, 252))
+
+    let cx = 340.0
+    let cy = 298.0
+    let sc = 30.0
+    mut ti: int = 0
+    while ti + 2 < boxM.indices.len():
+      let p0 = boxM.vertices[boxM.indices[ti]].pos
+      let p1 = boxM.vertices[boxM.indices[ti + 1]].pos
+      let p2 = boxM.vertices[boxM.indices[ti + 2]].pos
+      let x0 = cx + (p0.x * cyaw - p0.z * syaw) * sc
+      let y0 = cy - p0.y * sc + (p0.x * syaw + p0.z * cyaw) * sc * 0.38
+      let x1 = cx + (p1.x * cyaw - p1.z * syaw) * sc
+      let y1 = cy - p1.y * sc + (p1.x * syaw + p1.z * cyaw) * sc * 0.38
+      let x2 = cx + (p2.x * cyaw - p2.z * syaw) * sc
+      let y2 = cy - p2.y * sc + (p2.x * syaw + p2.z * cyaw) * sc * 0.38
+      drawLine(x0, y0, x1, y1, rgb(51, 65, 85), 1.5)
+      drawLine(x1, y1, x2, y2, rgb(51, 65, 85), 1.5)
+      drawLine(x2, y2, x0, y0, rgb(51, 65, 85), 1.5)
+      ti = ti + 3
+
+    mut vi: int = 0
+    while vi < boxM.vertices.len():
+      let vert = boxM.vertices[vi]
+      let vx = cx + (vert.pos.x * cyaw - vert.pos.z * syaw) * sc
+      let vy = cy - vert.pos.y * sc + (vert.pos.x * syaw + vert.pos.z * cyaw) * sc * 0.38
+      // 3D rotated Normal, Tangent, Bitangent
+      let rnx = vert.normal.x * cyaw - vert.normal.z * syaw
+      let rnz = vert.normal.x * syaw + vert.normal.z * cyaw
+      let rtx = vert.tangent.x * cyaw - vert.tangent.z * syaw
+      let rtz = vert.tangent.x * syaw + vert.tangent.z * cyaw
+      let bx3 = (vert.normal.y * vert.tangent.z - vert.normal.z * vert.tangent.y) * vert.tangent.w
+      let by3 = (vert.normal.z * vert.tangent.x - vert.normal.x * vert.tangent.z) * vert.tangent.w
+      let bz3 = (vert.normal.x * vert.tangent.y - vert.normal.y * vert.tangent.x) * vert.tangent.w
+      let rbx = bx3 * cyaw - bz3 * syaw
+      let rbz = bx3 * syaw + bz3 * cyaw
+
+      let tx = vx + rtx * 28.0
+      let ty = vy - vert.tangent.y * 28.0 + rtz * 11.0
+      let bx = vx + rbx * 26.0
+      let by = vy - by3 * 26.0 + rbz * 11.0
+      let nx = vx + rnx * 34.0
+      let ny = vy - vert.normal.y * 34.0 + rnz * 13.0
+      drawLine(vx, vy, tx, ty, rgb(244, 63, 94), 2.0)
+      drawLine(vx, vy, bx, by, rgb(34, 197, 94), 2.0)
+      drawLine(vx, vy, nx, ny, rgb(56, 189, 248), 2.5)
+      drawCircle(vx, vy, 3.5, rgb(248, 250, 252))
+      if vi == activeIdx:
+        drawCircleOutline(vx, vy, 9.0, 2.5, rgb(250, 204, 21))
+      vi = vi + 1
+
+    drawText("RED = Tangent (T, dP/dU) | GREEN = Bitangent (B = w * N x T) | BLUE = Normal (N)", 56.0, 468.0, 13.0, rgb(203, 213, 225))
+
+    // Right Panel: Gram-Schmidt Orthonormalization & Vertex Buffer Inspector
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(34, 197, 94))
+    drawText("GRAM-SCHMIDT MIKKTSPACE ORTHONORMALIZATION", 680.0, 118.0, 17.0, rgb(134, 239, 172))
+
+    drawRect(685.0, 162.0, 530.0, 100.0, rgb(30, 41, 59))
+    drawText("Step 1: Area-Weighted Triangle Face Cross Products", 705.0, 184.0, 15.0, rgb(56, 189, 248))
+    drawText("N_face = (p1 - p0) x (p2 - p0) accumulated per shared vertex", 705.0, 216.0, 14.0, rgb(226, 232, 240))
+
+    drawRect(685.0, 280.0, 530.0, 100.0, rgb(30, 41, 59))
+    drawText("Step 2: UV Edge Gradient Projection & Handedness Sign w", 705.0, 302.0, 15.0, rgb(250, 204, 21))
+    drawText("T' = normalize(T - N * dot(N, T)), w = sign(dot(N x T, B))", 705.0, 334.0, 14.0, rgb(226, 232, 240))
+
+    drawText("Inspected Vertex[" + str(activeIdx) + "] Normal  : (" + str(v0.normal.x) + ", " + str(v0.normal.y) + ", " + str(v0.normal.z) + ")", 685.0, 410.0, 15.0, rgb(125, 211, 252))
+    drawText("Inspected Vertex[" + str(activeIdx) + "] Tangent : (" + str(v0.tangent.x) + ", " + str(v0.tangent.y) + ", " + str(v0.tangent.z) + ", w=" + str(v0.tangent.w) + ")", 685.0, 442.0, 15.0, rgb(253, 164, 175))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("MESH3D BOUNDING VOLUME & ATTRIBUTE TELEMETRY", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("AABB Min=(" + str(boxM.boundingBox.min.x) + ", " + str(boxM.boundingBox.min.y) + ", " + str(boxM.boundingBox.min.z) + ") Max=(" + str(boxM.boundingBox.max.x) + ", " + str(boxM.boundingBox.max.y) + ", " + str(boxM.boundingBox.max.z) + ")", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Vertices=" + str(boxM.vertices.len()) + " | Indices=" + str(boxM.indices.len()) + " | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

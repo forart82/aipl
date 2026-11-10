@@ -1,0 +1,58 @@
+// ============================================================================
+// Example 106: Subprocess Spawner, ProcessBuilder & Shell Pipeline (CLI)
+// Demonstrates: runCommand, runCommandWithTimeout, processBuilderNew,
+//               processArg, processArgs, processEnv, spawnProcess, childPid,
+//               isPidAlive, childWait, execPipeline, and processExitSuccess
+//               from std/os.
+// ============================================================================
+module Ex106OsProcessPipelineRunnerCli
+
+import {
+  runCommand,
+  runCommandWithTimeout,
+  processBuilderNew,
+  processArg,
+  processArgs,
+  processEnv,
+  spawnProcess,
+  childPid,
+  isPidAlive,
+  childWait,
+  execPipeline,
+  processExitSuccess
+} from "../std/os"
+
+// Runs a direct child command and a 2-stage shell pipeline, returning "<echoOut>:<pipeOut>".
+pub fn evaluateCommandAndPipelineOutput(): str:
+  let echoOut = runCommand("echo", ["Hello", "Subprocess"]).unwrap()
+  assert(processExitSuccess(echoOut) and echoOut.status == 0, "echo exited 0")
+  let pipeOut = execPipeline(["echo alpha", "tr a-z A-Z"]).unwrap()
+  ret echoOut.stdout.trim() + ":" + pipeOut.trim()
+
+// Spawns a child via ProcessBuilder, inspects its PID, and waits for clean completion.
+pub fn verifyProcessBuilderAndWaitStatus(): int:
+  let timed = runCommandWithTimeout("echo", ["Timed"], 1000)
+  mut pb = processBuilderNew("echo")
+  pb = processArg(pb, "A")
+  pb = processArgs(pb, ["B"])
+  pb = processEnv(pb, "AIPL_MODE", "BATCH")
+  mut child = spawnProcess(pb).unwrap()
+  let pid = childPid(child)
+  let alive = isPidAlive(pid)
+  let code = childWait(child).unwrap()
+  if timed.isOk() and pid > 0 and alive and code == 0:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a child process exit code.
+pub fn describeProcessExitVerdict(exitCode: int): str:
+  if exitCode == 0:
+    ret "PROC:EXIT_ZERO_SUCCESS"
+  ret "PROC:NONZERO_TERMINATION"
+
+pub fn main(): int:
+  let out = evaluateCommandAndPipelineOutput()
+  let procOk = verifyProcessBuilderAndWaitStatus()
+  let verdict = describeProcessExitVerdict(0)
+  println("ex_106_os_process_pipeline_runner_cli: out=" + out + " procOk=" + str(procOk) + " verdict=" + verdict)
+  ret 0

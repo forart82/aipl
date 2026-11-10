@@ -1,0 +1,299 @@
+// ============================================================================
+// Canonical Example 263: Isometric 8-Dir Rig, Blend Mode & Lighting Lab (WINDOW)
+// Interactive laboratory showcasing:
+// - All 8 compass directions (0=N..7=NW) of 3D-raymarched hero_knight & skeleton sprite sheets
+// - Side-by-side hardware/software blend modes (Alpha, Additive, Multiplied, Screen)
+// - Alpha-tested Z-buffer billboard cutout occlusion
+// - Live campfire ember/smoke emitter & rain splash ring inspector
+// ============================================================================
+module Ex263Isometric8dirRigAndLightingLabWindow
+
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  setWindowMode,
+  getWindowMode,
+  setDepthTest,
+  clearDepth,
+  beginWorldPass,
+  endWorldPass,
+  setBlendMode,
+  getBlendMode,
+  blendModeAlpha,
+  blendModeAdditive,
+  blendModeMultiplied,
+  blendModeScreen,
+  drawRect,
+  drawRectOutline,
+  drawLine,
+  drawText,
+  drawImageScaled,
+  createProceduralTexture,
+  createIsometricSpriteSheet,
+  rgb,
+  rgba
+} from "../std/gfx2d/shape2d.aipl"
+import { Vec3 } from "../std/math/vec_math.aipl"
+import {
+  Camera25D,
+  createCamera25D,
+  project3DToIso,
+  drawPrismTextured25D,
+  PointLight25D,
+  createPointLight25D,
+  drawLightCookie25D,
+  IsoSpriteRig25D,
+  direction8FromVelocity,
+  createIsoSpriteRig25D,
+  stepIsoSpriteRig25D,
+  drawIsoSpriteRig25D,
+  RainSystem25D,
+  createRainSystem25D,
+  stepAndDrawRain25D,
+  EmberSmokeEmitter25D,
+  createEmberSmokeEmitter25D,
+  stepAndDrawEmberSmoke25D
+} from "../std/gfx25d/gfx25d_mod.aipl"
+
+pub struct Lab8DirState(viewportW: float, viewportH: float, cam: Camera25D, cobbleTex: int, brickTex: int, cookieTex: int, heroSheet: int, skeletonSheet: int, campfireSheet: int, compassRigs: [IsoSpriteRig25D], skeletonRigs: [IsoSpriteRig25D], campfireRig: IsoSpriteRig25D, emitter: EmberSmokeEmitter25D, rain: RainSystem25D, timeSec: float, tick: int)
+
+pub fn compassVelocityX(dir8: int): float:
+  if dir8 == 1 or dir8 == 2 or dir8 == 3:
+    ret 10.0
+  if dir8 == 5 or dir8 == 6 or dir8 == 7:
+    ret -10.0
+  ret 0.0
+
+pub fn compassVelocityY(dir8: int): float:
+  if dir8 == 0 or dir8 == 1 or dir8 == 7:
+    ret -10.0
+  if dir8 == 3 or dir8 == 4 or dir8 == 5:
+    ret 10.0
+  ret 0.0
+
+pub fn compassLabel(dir8: int): str:
+  if dir8 == 0: ret "0:N"
+  if dir8 == 1: ret "1:NE"
+  if dir8 == 2: ret "2:E"
+  if dir8 == 3: ret "3:SE"
+  if dir8 == 4: ret "4:S"
+  if dir8 == 5: ret "5:SW"
+  if dir8 == 6: ret "6:W"
+  ret "7:NW"
+
+pub fn createLab8DirState(viewportW: float, viewportH: float): Lab8DirState:
+  let cobbleTex = createProceduralTexture("cobble", 64, 64, 101)
+  let brickTex = createProceduralTexture("brick", 64, 64, 202)
+  let cookieTex = createProceduralTexture("light_cookie", 64, 64, 303)
+  let heroSheet = createIsometricSpriteSheet("hero_knight", 48, 48, 8, 6, 42)
+  let skeletonSheet = createIsometricSpriteSheet("skeleton", 44, 44, 8, 6, 77)
+  let campfireSheet = createIsometricSpriteSheet("campfire", 40, 40, 1, 6, 99)
+
+  let cam = createCamera25D(viewportW, viewportH, 1.15, 45.0, 30.0) { worldX = 0.0, worldY = 0.0, worldZ = 0.0 }
+
+  mut rigs: [IsoSpriteRig25D] = []
+  mut skelRigs: [IsoSpriteRig25D] = []
+  mut d = 0
+  while d < 8:
+    let ang = float(d) * 0.7853981633974483 - 1.5707963267948966
+    let rx = cos(ang) * 64.0
+    let ry = sin(ang) * 64.0
+    let vx = compassVelocityX(d)
+    let vy = compassVelocityY(d)
+    mut r = createIsoSpriteRig25D(heroSheet, 48, 48, 8, 6, rx, ry, 0.0, 1.15, 10.0)
+    r = stepIsoSpriteRig25D(r, vx, vy, 0.0, 0.02)
+    r = r { wx = rx, wy = ry, dir8 = d }
+    rigs.push(r)
+
+    let sx = cos(ang) * 98.0
+    let sy = sin(ang) * 98.0
+    mut sr = createIsoSpriteRig25D(skeletonSheet, 44, 44, 8, 6, sx, sy, 0.0, 1.10, 10.0)
+    sr = stepIsoSpriteRig25D(sr, vx, vy, 0.0, 0.02)
+    sr = sr { wx = sx, wy = sy, dir8 = d }
+    skelRigs.push(sr)
+    d += 1
+
+  let campfireRig = createIsoSpriteRig25D(campfireSheet, 40, 40, 1, 6, 0.0, 0.0, 0.0, 1.25, 12.0)
+  let emitter = createEmberSmokeEmitter25D(0.0, 0.0, 6.0, 28)
+  let rain = createRainSystem25D(36, 130.0, -16.0, 11.0, 115.0)
+
+  ret Lab8DirState(
+    viewportW = viewportW,
+    viewportH = viewportH,
+    cam = cam,
+    cobbleTex = cobbleTex,
+    brickTex = brickTex,
+    cookieTex = cookieTex,
+    heroSheet = heroSheet,
+    skeletonSheet = skeletonSheet,
+    campfireSheet = campfireSheet,
+    compassRigs = rigs,
+    skeletonRigs = skelRigs,
+    campfireRig = campfireRig,
+    emitter = emitter,
+    rain = rain,
+    timeSec = 0.0,
+    tick = 0
+  )
+
+pub fn stepLab8DirState(state: Lab8DirState, dt: float): Lab8DirState:
+  let nextTick = state.tick + 1
+  let nextTime = state.timeSec + dt
+  mut updatedRigs: [IsoSpriteRig25D] = []
+  mut updatedSkels: [IsoSpriteRig25D] = []
+  mut d = 0
+  while d < state.compassRigs.len:
+    let orig = state.compassRigs[d]
+    let vx = compassVelocityX(d)
+    let vy = compassVelocityY(d)
+    mut stepped = stepIsoSpriteRig25D(orig, vx, vy, 0.0, dt)
+    stepped = stepped { wx = orig.wx, wy = orig.wy, dir8 = direction8FromVelocity(vx, vy, d) }
+    updatedRigs.push(stepped)
+
+    let origSkel = state.skeletonRigs[d]
+    mut steppedSkel = stepIsoSpriteRig25D(origSkel, vx, vy, 0.0, dt)
+    steppedSkel = steppedSkel { wx = origSkel.wx, wy = origSkel.wy, dir8 = direction8FromVelocity(vx, vy, d) }
+    updatedSkels.push(steppedSkel)
+    d += 1
+
+  let nextCamp = stepIsoSpriteRig25D(state.campfireRig, 0.0, 0.0, 0.0, dt)
+  ret state {
+    compassRigs = updatedRigs,
+    skeletonRigs = updatedSkels,
+    campfireRig = nextCamp,
+    timeSec = nextTime,
+    tick = nextTick
+  }
+
+fn drawBlendModeSwatchPanel(x: float, y: float, w: float, h: float, cookieTex: int): int:
+  drawRect(x, y, w, h, rgba(15, 23, 42, 0.92))
+  drawRectOutline(x, y, w, h, 1.5, rgb(56, 189, 248))
+  drawText("BLEND MODE HARDWARE/SOFTWARE SWATCHES", x + 12.0, y + 10.0, 13.0, rgb(248, 250, 252))
+
+  let modes: [int] = [blendModeAlpha(), blendModeAdditive(), blendModeMultiplied(), blendModeScreen()]
+  let names: [str] = ["0:ALPHA", "1:ADD", "2:MUL", "3:SCR"]
+  let boxW = (w - 40.0) / 4.0
+  mut i = 0
+  while i < 4:
+    let bx = x + 10.0 + float(i) * (boxW + 6.0)
+    let by = y + 32.0
+    let bh = h - 42.0
+    setBlendMode(blendModeAlpha())
+    drawRect(bx, by, boxW, bh, rgb(92, 104, 128))
+    setBlendMode(modes[i])
+    drawRect(bx + 6.0, by + 6.0, boxW - 12.0, bh - 22.0, rgba(220, 130, 55, 0.85))
+    drawImageScaled(cookieTex, bx + 8.0, by + 6.0, boxW - 16.0, bh - 22.0, rgba(255, 190, 90, 0.90))
+    setBlendMode(blendModeAlpha())
+    drawRectOutline(bx, by, boxW, bh, 1.0, rgb(148, 163, 184))
+    drawText(names[i], bx + 4.0, by + bh - 14.0, 11.0, rgb(226, 232, 240))
+    i += 1
+  setBlendMode(blendModeAlpha())
+  ret 4
+
+pub fn renderLab8DirScene(mut state: Lab8DirState): int:
+  clearScreen(rgb(14, 18, 28))
+  setDepthTest(true)
+  clearDepth()
+  beginWorldPass()
+
+  let sunDir = Vec3(x = -0.35, y = -0.45, z = 0.82)
+
+  // 1. Octagonal cobblestone arena plinth + occlusion pillar for alpha-cutout depth occlusion test
+  let plinthFaces = drawPrismTextured25D(
+    state.cam,
+    0.0,
+    0.0,
+    -8.0,
+    220.0,
+    220.0,
+    8.0,
+    state.brickTex,
+    state.cobbleTex,
+    rgb(185, 192, 205),
+    sunDir
+  )
+  let pillarFaces = drawPrismTextured25D(
+    state.cam,
+    -26.0,
+    -26.0,
+    0.0,
+    16.0,
+    16.0,
+    34.0,
+    state.brickTex,
+    state.cobbleTex,
+    rgb(210, 220, 235),
+    sunDir
+  )
+
+  // 2. Render all 8 compass direction hero & skeleton rigs around the arena + central animated campfire
+  mut rigQuads = drawIsoSpriteRig25D(state.cam, state.campfireRig, state.cookieTex, rgb(255, 255, 255))
+  mut i = 0
+  while i < state.compassRigs.len:
+    let r = state.compassRigs[i]
+    rigQuads += drawIsoSpriteRig25D(state.cam, r, state.cookieTex, rgb(255, 255, 255))
+    let sr = state.skeletonRigs[i]
+    rigQuads += drawIsoSpriteRig25D(state.cam, sr, state.cookieTex, rgb(235, 242, 255))
+    i += 1
+
+  // 3. Step and render campfire smoke/embers and rain splashes
+  state.emitter = stepAndDrawEmberSmoke25D(state.cam, state.emitter, state.cookieTex, 0.016)
+  let centerLight = createPointLight25D(0.0, 0.0, 10.0, 135.0, rgba(255, 175, 80, 0.92), 1.20, 0.10, 7.5)
+  let cookieQuads = drawLightCookie25D(state.cam, state.cookieTex, centerLight, state.timeSec)
+  state.rain = stepAndDrawRain25D(state.cam, state.rain, 0.0, 0.0, 0.0, 0.016)
+
+  endWorldPass()
+  setDepthTest(false)
+
+  // 4. Draw compass direction labels & velocity vectors in 2D overlay
+  mut d = 0
+  while d < state.compassRigs.len:
+    let r = state.compassRigs[d]
+    let p = project3DToIso(state.cam, r.wx, r.wy, r.wz)
+    let pTip = project3DToIso(state.cam, r.wx + compassVelocityX(d) * 1.6, r.wy + compassVelocityY(d) * 1.6, r.wz)
+    drawLine(p.x, p.y, pTip.x, pTip.y, rgb(56, 189, 248))
+    drawText(compassLabel(d), p.x - 16.0, p.y + 8.0, 12.0, rgb(250, 204, 21))
+    d += 1
+
+  // 5. Blend mode comparison swatch panel + Top HUD banner
+  let swatches = drawBlendModeSwatchPanel(16.0, state.viewportH - 118.0, 360.0, 102.0, state.cookieTex)
+  drawRect(16.0, 14.0, 600.0, 56.0, rgba(15, 23, 42, 0.90))
+  drawRectOutline(16.0, 14.0, 600.0, 56.0, 1.5, rgb(250, 204, 21))
+  drawText("AIPL ex_263: ISOMETRIC 8-DIR RIG, BLEND MODE & WEATHER LAB", 28.0, 22.0, 15.0, rgb(254, 249, 195))
+  drawText(
+    "CompassRigs=8 (0:N..7:NW) | AnimFrame=" + str(state.compassRigs[0].animFrame) + " | Swatches=" + str(swatches) + " | BlendMode=" + str(getBlendMode()),
+    28.0,
+    44.0,
+    12.0,
+    rgb(148, 163, 184)
+  )
+
+  ret plinthFaces + pillarFaces + rigQuads + cookieQuads + swatches
+
+pub fn renderLab8DirFrameStep(frameIndex: int, dt: float): int:
+  setWindowMode("glx")
+  mut st = createLab8DirState(640.0, 360.0)
+  mut i = 0
+  let steps = (frameIndex % 4) + 1
+  while i < steps:
+    st = stepLab8DirState(st, dt)
+    i += 1
+  ret renderLab8DirScene(st)
+
+pub fn main(): int:
+  setWindowMode("glx")
+  initWindow(1280, 720, "AIPL ex_263 - Isometric 8-Dir Rig, Blend Mode & Lighting Lab")
+  mut state = createLab8DirState(1280.0, 720.0)
+  mut frame: int = 0
+  while not windowShouldClose():
+    state = stepLab8DirState(state, 0.025)
+    beginDrawing()
+    renderLab8DirScene(state)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,249 @@
+/// # Module: `std/math/mat` (`Mat`)
+///
+/// ## Purpose & Domain Scope
+/// 2x2, 3x3, and 4x4 linear transformation matrices, camera view/projection matrices,
+/// vector transformations, and analytic cofactor matrix inversion.
+module Mat
+
+import { EPSILON, absFloat } from "std/math/consts"
+import { sin, cos, tan } from "std/math/trig"
+import { Vec2, Vec3, Vec4, Vector3 } from "std/math/vec_math"
+
+pub struct Mat2:
+  m00: float
+  m01: float
+  m10: float
+  m11: float
+
+pub struct Mat3:
+  m00: float
+  m01: float
+  m02: float
+  m10: float
+  m11: float
+  m12: float
+  m20: float
+  m21: float
+  m22: float
+
+pub struct Mat4:
+  m00: float
+  m01: float
+  m02: float
+  m03: float
+  m10: float
+  m11: float
+  m12: float
+  m13: float
+  m20: float
+  m21: float
+  m22: float
+  m23: float
+  m30: float
+  m31: float
+  m32: float
+  m33: float
+
+pub fn Mat2.identity(): Mat2:
+  ret Mat2(m00 = 1.0, m01 = 0.0, m10 = 0.0, m11 = 1.0)
+
+pub fn Mat2.rotation(rad: float): Mat2:
+  let c = cos(rad)
+  let s = sin(rad)
+  ret Mat2(m00 = c, m01 = -s, m10 = s, m11 = c)
+
+pub fn (self: Mat2) transformVec2(v: Vec2): Vec2:
+  ret Vec2(
+    x = self.m00 * v.x + self.m01 * v.y,
+    y = self.m10 * v.x + self.m11 * v.y
+  )
+
+pub fn (self: Mat2) det(): float:
+  ret self.m00 * self.m11 - self.m01 * self.m10
+
+pub fn Mat3.identity(): Mat3:
+  ret Mat3(
+    m00 = 1.0, m01 = 0.0, m02 = 0.0,
+    m10 = 0.0, m11 = 1.0, m12 = 0.0,
+    m20 = 0.0, m21 = 0.0, m22 = 1.0
+  )
+
+pub fn (self: Mat3) transformVec3(v: Vec3): Vec3:
+  ret Vec3(
+    x = self.m00 * v.x + self.m01 * v.y + self.m02 * v.z,
+    y = self.m10 * v.x + self.m11 * v.y + self.m12 * v.z,
+    z = self.m20 * v.x + self.m21 * v.y + self.m22 * v.z
+  )
+
+pub fn Mat4.identity(): Mat4:
+  ret Mat4(
+    m00 = 1.0, m01 = 0.0, m02 = 0.0, m03 = 0.0,
+    m10 = 0.0, m11 = 1.0, m12 = 0.0, m13 = 0.0,
+    m20 = 0.0, m21 = 0.0, m22 = 1.0, m23 = 0.0,
+    m30 = 0.0, m31 = 0.0, m32 = 0.0, m33 = 1.0
+  )
+
+pub fn Mat4.translation(x: float, y: float, z: float): Mat4:
+  ret Mat4(
+    m00 = 1.0, m01 = 0.0, m02 = 0.0, m03 = x,
+    m10 = 0.0, m11 = 1.0, m12 = 0.0, m13 = y,
+    m20 = 0.0, m21 = 0.0, m22 = 1.0, m23 = z,
+    m30 = 0.0, m31 = 0.0, m32 = 0.0, m33 = 1.0
+  )
+
+pub fn Mat4.scaling(sx: float, sy: float, sz: float): Mat4:
+  ret Mat4(
+    m00 = sx,  m01 = 0.0, m02 = 0.0, m03 = 0.0,
+    m10 = 0.0, m11 = sy,  m12 = 0.0, m13 = 0.0,
+    m20 = 0.0, m21 = 0.0, m22 = sz,  m23 = 0.0,
+    m30 = 0.0, m31 = 0.0, m32 = 0.0, m33 = 1.0
+  )
+
+pub fn Mat4.rotationX(rad: float): Mat4:
+  let c = cos(rad)
+  let s = sin(rad)
+  ret Mat4(
+    m00 = 1.0, m01 = 0.0, m02 = 0.0, m03 = 0.0,
+    m10 = 0.0, m11 = c,   m12 = -s,  m13 = 0.0,
+    m20 = 0.0, m21 = s,   m22 = c,   m23 = 0.0,
+    m30 = 0.0, m31 = 0.0, m32 = 0.0, m33 = 1.0
+  )
+
+pub fn Mat4.rotationY(rad: float): Mat4:
+  let c = cos(rad)
+  let s = sin(rad)
+  ret Mat4(
+    m00 = c,   m01 = 0.0, m02 = s,   m03 = 0.0,
+    m10 = 0.0, m11 = 1.0, m12 = 0.0, m13 = 0.0,
+    m20 = -s,  m21 = 0.0, m22 = c,   m23 = 0.0,
+    m30 = 0.0, m31 = 0.0, m32 = 0.0, m33 = 1.0
+  )
+
+pub fn Mat4.rotationZ(rad: float): Mat4:
+  let c = cos(rad)
+  let s = sin(rad)
+  ret Mat4(
+    m00 = c,   m01 = -s,  m02 = 0.0, m03 = 0.0,
+    m10 = s,   m11 = c,   m12 = 0.0, m13 = 0.0,
+    m20 = 0.0, m21 = 0.0, m22 = 1.0, m23 = 0.0,
+    m30 = 0.0, m31 = 0.0, m32 = 0.0, m33 = 1.0
+  )
+
+pub fn Mat4.perspective(fovyRad: float, aspect: float, near: float, far: float): Mat4:
+  let f = 1.0 / tan(fovyRad * 0.5)
+  let nf = 1.0 / (near - far)
+  ret Mat4(
+    m00 = f / aspect, m01 = 0.0, m02 = 0.0,               m03 = 0.0,
+    m10 = 0.0,        m11 = f,   m12 = 0.0,               m13 = 0.0,
+    m20 = 0.0,        m21 = 0.0, m22 = (far + near) * nf, m23 = (2.0 * far * near) * nf,
+    m30 = 0.0,        m31 = 0.0, m32 = -1.0,              m33 = 0.0
+  )
+
+pub fn Mat4.orthographic(left: float, right: float, bottom: float, top: float, near: float, far: float): Mat4:
+  let rl = 1.0 / (right - left)
+  let tb = 1.0 / (top - bottom)
+  let fnInv = 1.0 / (far - near)
+  ret Mat4(
+    m00 = 2.0 * rl, m01 = 0.0,      m02 = 0.0,         m03 = -(right + left) * rl,
+    m10 = 0.0,      m11 = 2.0 * tb, m12 = 0.0,         m13 = -(top + bottom) * tb,
+    m20 = 0.0,      m21 = 0.0,      m22 = -2.0 * fnInv, m23 = -(far + near) * fnInv,
+    m30 = 0.0,      m31 = 0.0,      m32 = 0.0,         m33 = 1.0
+  )
+
+pub fn Mat4.lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4:
+  let f = target.sub(eye).norm()
+  let s = f.cross(up).norm()
+  let u = s.cross(f)
+  ret Mat4(
+    m00 = s.x,  m01 = s.y,  m02 = s.z,  m03 = -s.dot(eye),
+    m10 = u.x,  m11 = u.y,  m12 = u.z,  m13 = -u.dot(eye),
+    m20 = -f.x, m21 = -f.y, m22 = -f.z, m23 = f.dot(eye),
+    m30 = 0.0,  m31 = 0.0,  m32 = 0.0,  m33 = 1.0
+  )
+
+pub fn (self: Mat4) mul(other: Mat4): Mat4:
+  ret Mat4(
+    m00 = self.m00 * other.m00 + self.m01 * other.m10 + self.m02 * other.m20 + self.m03 * other.m30,
+    m01 = self.m00 * other.m01 + self.m01 * other.m11 + self.m02 * other.m21 + self.m03 * other.m31,
+    m02 = self.m00 * other.m02 + self.m01 * other.m12 + self.m02 * other.m22 + self.m03 * other.m32,
+    m03 = self.m00 * other.m03 + self.m01 * other.m13 + self.m02 * other.m23 + self.m03 * other.m33,
+    m10 = self.m10 * other.m00 + self.m11 * other.m10 + self.m12 * other.m20 + self.m13 * other.m30,
+    m11 = self.m10 * other.m01 + self.m11 * other.m11 + self.m12 * other.m21 + self.m13 * other.m31,
+    m12 = self.m10 * other.m02 + self.m11 * other.m12 + self.m12 * other.m22 + self.m13 * other.m32,
+    m13 = self.m10 * other.m03 + self.m11 * other.m13 + self.m12 * other.m23 + self.m13 * other.m33,
+    m20 = self.m20 * other.m00 + self.m21 * other.m10 + self.m22 * other.m20 + self.m23 * other.m30,
+    m21 = self.m20 * other.m01 + self.m21 * other.m11 + self.m22 * other.m21 + self.m23 * other.m31,
+    m22 = self.m20 * other.m02 + self.m21 * other.m12 + self.m22 * other.m22 + self.m23 * other.m32,
+    m23 = self.m20 * other.m03 + self.m21 * other.m13 + self.m22 * other.m23 + self.m23 * other.m33,
+    m30 = self.m30 * other.m00 + self.m31 * other.m10 + self.m32 * other.m20 + self.m33 * other.m30,
+    m31 = self.m30 * other.m01 + self.m31 * other.m11 + self.m32 * other.m21 + self.m33 * other.m31,
+    m32 = self.m30 * other.m02 + self.m31 * other.m12 + self.m32 * other.m22 + self.m33 * other.m32,
+    m33 = self.m30 * other.m03 + self.m31 * other.m13 + self.m32 * other.m23 + self.m33 * other.m33
+  )
+
+pub fn (self: Mat4) transformVec4(v: Vec4): Vec4:
+  ret Vec4(
+    x = self.m00 * v.x + self.m01 * v.y + self.m02 * v.z + self.m03 * v.w,
+    y = self.m10 * v.x + self.m11 * v.y + self.m12 * v.z + self.m13 * v.w,
+    z = self.m20 * v.x + self.m21 * v.y + self.m22 * v.z + self.m23 * v.w,
+    w = self.m30 * v.x + self.m31 * v.y + self.m32 * v.z + self.m33 * v.w
+  )
+
+pub fn (self: Mat4) transpose(): Mat4:
+  ret Mat4(
+    m00 = self.m00, m01 = self.m10, m02 = self.m20, m03 = self.m30,
+    m10 = self.m01, m11 = self.m11, m12 = self.m21, m13 = self.m31,
+    m20 = self.m02, m21 = self.m12, m22 = self.m22, m23 = self.m32,
+    m30 = self.m03, m31 = self.m13, m32 = self.m23, m33 = self.m33
+  )
+
+pub fn (self: Mat4) inverse(): Option[Mat4]:
+  // Affine + diagonal fast inversion with determinant check
+  let det3 = self.m00 * (self.m11 * self.m22 - self.m12 * self.m21) - self.m01 * (self.m10 * self.m22 - self.m12 * self.m20) + self.m02 * (self.m10 * self.m21 - self.m11 * self.m20)
+  if absFloat(det3) < EPSILON:
+    ret None
+  let invDet = 1.0 / det3
+  let r00 = (self.m11 * self.m22 - self.m12 * self.m21) * invDet
+  let r01 = (self.m02 * self.m21 - self.m01 * self.m22) * invDet
+  let r02 = (self.m01 * self.m12 - self.m02 * self.m11) * invDet
+  let r10 = (self.m12 * self.m20 - self.m10 * self.m22) * invDet
+  let r11 = (self.m00 * self.m22 - self.m02 * self.m20) * invDet
+  let r12 = (self.m02 * self.m10 - self.m00 * self.m12) * invDet
+  let r20 = (self.m10 * self.m21 - self.m11 * self.m20) * invDet
+  let r21 = (self.m01 * self.m20 - self.m00 * self.m21) * invDet
+  let r22 = (self.m00 * self.m11 - self.m01 * self.m10) * invDet
+  let tx = -(r00 * self.m03 + r01 * self.m13 + r02 * self.m23)
+  let ty = -(r10 * self.m03 + r11 * self.m13 + r12 * self.m23)
+  let tz = -(r20 * self.m03 + r21 * self.m13 + r22 * self.m23)
+  ret Some(Mat4(
+    m00 = r00, m01 = r01, m02 = r02, m03 = tx,
+    m10 = r10, m11 = r11, m12 = r12, m13 = ty,
+    m20 = r20, m21 = r21, m22 = r22, m23 = tz,
+    m30 = 0.0, m31 = 0.0, m32 = 0.0, m33 = 1.0
+  ))
+
+pub fn mat3Identity(): Mat3:
+  ret Mat3.identity()
+
+pub fn mat3TransformVec3(mat: Mat3, v: Vector3): Vector3:
+  ret Vector3(
+    x = mat.m00 * v.x + mat.m01 * v.y + mat.m02 * v.z,
+    y = mat.m10 * v.x + mat.m11 * v.y + mat.m12 * v.z,
+    z = mat.m20 * v.x + mat.m21 * v.y + mat.m22 * v.z
+  )
+
+pub fn mat3Mul(a: Mat3, b: Mat3): Mat3:
+  ret Mat3(
+    m00 = a.m00 * b.m00 + a.m01 * b.m10 + a.m02 * b.m20,
+    m01 = a.m00 * b.m01 + a.m01 * b.m11 + a.m02 * b.m21,
+    m02 = a.m00 * b.m02 + a.m01 * b.m12 + a.m02 * b.m22,
+    m10 = a.m10 * b.m00 + a.m11 * b.m10 + a.m12 * b.m20,
+    m11 = a.m10 * b.m01 + a.m11 * b.m11 + a.m12 * b.m21,
+    m12 = a.m10 * b.m02 + a.m11 * b.m12 + a.m12 * b.m22,
+    m20 = a.m20 * b.m00 + a.m21 * b.m10 + a.m22 * b.m20,
+    m21 = a.m20 * b.m01 + a.m21 * b.m11 + a.m22 * b.m21,
+    m22 = a.m20 * b.m02 + a.m21 * b.m12 + a.m22 * b.m22
+  )
+
+pub fn mat3Det(m: Mat3): float:
+  ret m.m00 * (m.m11 * m.m22 - m.m12 * m.m21) - m.m01 * (m.m10 * m.m22 - m.m12 * m.m20) + m.m02 * (m.m10 * m.m21 - m.m11 * m.m20)

@@ -1,0 +1,150 @@
+/// # Module: `std/phys3d/phys_query3d` (`PhysQuery3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 3D continuous Raycasts against spheres and OBBs, plus swept SphereCasts.
+module PhysQuery3DMod
+
+import { absFloat, minFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { Quat } from "std/math/quat"
+import { Ray3D } from "std/math/geom3d"
+import { Transform3D } from "std/spatial/continuous_world3d"
+import { Collider3D, ColliderShapeType3D } from "std/phys3d/collider3d"
+
+pub struct RayHit3D(bodyId: int, point: Vec3, normal: Vec3, distance: float, hit: bool)
+
+fn extractRayDir3D(ray: Ray3D): Vec3:
+  let dPrimary: Vec3 = ray.direction
+  let dFallback: Vec3 = ray.dir
+  if dPrimary.x != 0.0 or dPrimary.y != 0.0 or dPrimary.z != 1.0:
+    ret dPrimary.norm()
+  ret dFallback.norm()
+
+pub fn raycast3dSphere(ray: Ray3D, sphereCenter: Vec3, radius: float): Option[RayHit3D]:
+  let dir: Vec3 = extractRayDir3D(ray)
+  let orig: Vec3 = ray.origin
+  let oc: Vec3 = orig.sub(sphereCenter)
+  let b = oc.dot(dir)
+  let c = oc.lenSq() - radius * radius
+  let disc = b * b - c
+  if disc < 0.0:
+    ret None
+
+  let t = -b - sqrt(disc)
+  if t < 0.0 or t > ray.maxDistance:
+    ret None
+
+  let hitPt: Vec3 = orig.add(dir.scale(t))
+  let hitN: Vec3 = hitPt.sub(sphereCenter).norm()
+  ret Some(RayHit3D(
+    bodyId = 0,
+    point = hitPt,
+    normal = hitN,
+    distance = t,
+    hit = true
+  ))
+
+pub fn raycast3dBox(ray: Ray3D, boxPos: Vec3, boxRot: Quat, boxHalfExtents: Vec3): Option[RayHit3D]:
+  let dirW: Vec3 = extractRayDir3D(ray)
+  let origW: Vec3 = ray.origin
+  let invRot: Quat = boxRot.conjugate()
+  let lo: Vec3 = invRot.rotateVec3(origW.sub(boxPos))
+  let ld: Vec3 = invRot.rotateVec3(dirW)
+
+  mut tMin = 0.0
+  mut tMax = ray.maxDistance
+  mut localNorm = Vec3(x = 0.0, y = 0.0, z = -1.0)
+
+  if absFloat(ld.x) < 0.000001:
+    if lo.x < -boxHalfExtents.x or lo.x > boxHalfExtents.x:
+      ret None
+  else:
+    let invX = 1.0 / ld.x
+    mut t1 = (-boxHalfExtents.x - lo.x) * invX
+    mut t2 = (boxHalfExtents.x - lo.x) * invX
+    mut nx = -1.0
+    if t1 > t2:
+      let tmp = t1
+      t1 = t2
+      t2 = tmp
+      nx = 1.0
+    if t1 > tMin:
+      tMin = t1
+      localNorm = Vec3(x = nx, y = 0.0, z = 0.0)
+    tMax = minFloat(tMax, t2)
+
+  if absFloat(ld.y) < 0.000001:
+    if lo.y < -boxHalfExtents.y or lo.y > boxHalfExtents.y:
+      ret None
+  else:
+    let invY = 1.0 / ld.y
+    mut t1 = (-boxHalfExtents.y - lo.y) * invY
+    mut t2 = (boxHalfExtents.y - lo.y) * invY
+    mut ny = -1.0
+    if t1 > t2:
+      let tmp = t1
+      t1 = t2
+      t2 = tmp
+      ny = 1.0
+    if t1 > tMin:
+      tMin = t1
+      localNorm = Vec3(x = 0.0, y = ny, z = 0.0)
+    tMax = minFloat(tMax, t2)
+
+  if absFloat(ld.z) < 0.000001:
+    if lo.z < -boxHalfExtents.z or lo.z > boxHalfExtents.z:
+      ret None
+  else:
+    let invZ = 1.0 / ld.z
+    mut t1 = (-boxHalfExtents.z - lo.z) * invZ
+    mut t2 = (boxHalfExtents.z - lo.z) * invZ
+    mut nz = -1.0
+    if t1 > t2:
+      let tmp = t1
+      t1 = t2
+      t2 = tmp
+      nz = 1.0
+    if t1 > tMin:
+      tMin = t1
+      localNorm = Vec3(x = 0.0, y = 0.0, z = nz)
+    tMax = minFloat(tMax, t2)
+
+  if tMin > tMax or tMax < 0.0 or tMin > ray.maxDistance:
+    ret None
+
+  let hitPt: Vec3 = origW.add(dirW.scale(tMin))
+  let worldNorm: Vec3 = boxRot.rotateVec3(localNorm)
+  ret Some(RayHit3D(
+    bodyId = 0,
+    point = hitPt,
+    normal = worldNorm,
+    distance = tMin,
+    hit = true
+  ))
+
+pub fn sphereCast3D(ray: Ray3D, sphereRadius: float, colliders: [Collider3D]): Option[RayHit3D]:
+  mut bestDist = ray.maxDistance + 1.0
+  mut bestHit: Option[RayHit3D] = None
+  mut i = 0
+  while i < colliders.len:
+    let col: Collider3D = colliders[i]
+    let lt: Transform3D = col.localTransform
+    if col.shapeType == ColliderShapeType3D.Sphere:
+      let hOpt = raycast3dSphere(ray, lt.position, col.sphereRadius + sphereRadius)
+      if hOpt.isSome():
+        let h: RayHit3D = hOpt.unwrap()
+        if h.distance < bestDist:
+          bestDist = h.distance
+          bestHit = Some(h)
+    else:
+      let he: Vec3 = col.boxHalfExtents
+      let expanded = Vec3(x = he.x + sphereRadius, y = he.y + sphereRadius, z = he.z + sphereRadius)
+      let hOpt = raycast3dBox(ray, lt.position, lt.rotation, expanded)
+      if hOpt.isSome():
+        let h: RayHit3D = hOpt.unwrap()
+        if h.distance < bestDist:
+          bestDist = h.distance
+          bestHit = Some(h)
+    i = i + 1
+  ret bestHit

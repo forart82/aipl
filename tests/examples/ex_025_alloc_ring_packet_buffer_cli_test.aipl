@@ -1,0 +1,29 @@
+// ============================================================================
+// Twin Test Suite 025: Circular Ring Packet Buffer Allocator (CLI)
+// Verifies examples/ex_025_alloc_ring_packet_buffer_cli.aipl
+// ============================================================================
+module Ex025AllocRingPacketBufferCliTest
+
+import {
+  simulateCircularPacketWrap,
+  verifyRingResetRestoresCapacity,
+  describeRingBufferState
+} from "../../examples/ex_025_alloc_ring_packet_buffer_cli.aipl"
+
+pub fn test_ring_circular_packet_wrap(): int:
+  let availAfterWrap = simulateCircularPacketWrap(1024, 600, 600, 600)
+  assert(availAfterWrap == 424, "1024 cap - 600 alloc + 600 freed - 600 wrapped alloc leaves 424 available")
+  ret 0
+
+pub fn test_ring_reset_and_status(): int:
+  assert(verifyRingResetRestoresCapacity(2048, 1200) == 2048, "ringReset restores full 2048 capacity")
+  assert(describeRingBufferState(1024, 1024) == "RING:EMPTY_IDLE", "all available -> idle")
+  assert(describeRingBufferState(0, 1024) == "RING:FULL_BACKPRESSURE", "0 available -> full")
+  assert(describeRingBufferState(424, 1024) == "RING:STREAMING_PACKETS", "partial -> streaming")
+  ret 0
+
+pub fn main(): int:
+  test_ring_circular_packet_wrap()
+  test_ring_reset_and_status()
+  println("PASS: ex_025_alloc_ring_packet_buffer_cli_test")
+  ret 0

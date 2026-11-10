@@ -1,0 +1,280 @@
+module tests.functions.math.prob_stats_test
+
+import * from "std/math/prob_stats"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { TAU, clampFloat, floor } from "std/math/consts"
+import { sqrt, cos, lnFloat, expFloat } from "std/math/trig"
+
+pub fn test_prob_stats_sampleWeightedIndex_1(): int:
+  let arg_weights = [2]
+  let edge_weights = []
+  let arg_roll = 2
+  let edge_roll = 0
+  let resNom = sampleWeightedIndex(arg_weights, arg_roll)
+  let resEdge = sampleWeightedIndex(edge_weights, edge_roll)
+  assertEqInt(resNom, 0, "sampleWeightedIndex nominal resNom == 0")
+  assertEqInt(resEdge, -1, "sampleWeightedIndex boundary resEdge == -1")
+  ret 0
+
+pub fn test_prob_stats_gaussianSample_2(): int:
+  let arg_mean = 1.0
+  let edge_mean = 0.5
+  let arg_stdDev = 1.0
+  let edge_stdDev = 0.5
+  let arg_u1 = 1.0
+  let edge_u1 = 0.5
+  let arg_u2 = 1.0
+  let edge_u2 = 0.5
+  let resNom = gaussianSample(arg_mean, arg_stdDev, arg_u1, arg_u2)
+  let resEdge = gaussianSample(edge_mean, edge_stdDev, edge_u1, edge_u2)
+  assertApproxEq(resNom, 1.00141, 0.001, "gaussianSample nominal resNom ~= 1.00141")
+  assertApproxEq(resEdge, -0.088705, 0.001, "gaussianSample boundary resEdge ~= -0.088705")
+  ret 0
+
+pub fn test_prob_stats_poissonSample_3(): int:
+  let arg_lambda = 1.0
+  let edge_lambda = 0.5
+  let arg_u = 1.0
+  let edge_u = 0.5
+  let resNom = poissonSample(arg_lambda, arg_u)
+  let resEdge = poissonSample(edge_lambda, edge_u)
+  assertEqInt(resNom, 9, "poissonSample nominal resNom == 9")
+  assertEqInt(resEdge, 0, "poissonSample boundary resEdge == 0")
+  ret 0
+
+pub fn test_prob_stats_computeMean_4(): int:
+  let arg_values = [1.0]
+  let edge_values = []
+  let resNom = computeMean(arg_values)
+  let resEdge = computeMean(edge_values)
+  assertApproxEq(resNom, 1.0, 0.001, "computeMean nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "computeMean boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_computeVariance_5(): int:
+  let arg_values = [1.0]
+  let edge_values = []
+  let resNom = computeVariance(arg_values)
+  let resEdge = computeVariance(edge_values)
+  assertApproxEq(resNom, 0.0, 0.001, "computeVariance nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "computeVariance boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_computeStdDev_6(): int:
+  let arg_values = [1.0]
+  let edge_values = []
+  let resNom = computeStdDev(arg_values)
+  let resEdge = computeStdDev(edge_values)
+  assertApproxEq(resNom, 0.0, 0.001, "computeStdDev nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "computeStdDev boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_computeSummaryStats_7(): int:
+  let arg_values = [1.0]
+  let edge_values = []
+  let resNom = computeSummaryStats(arg_values)
+  let resEdge = computeSummaryStats(edge_values)
+  assertEqInt(resNom.count, 1, "computeSummaryStats nominal resNom.count == 1")
+  assertEqInt(resEdge.count, 0, "computeSummaryStats boundary resEdge.count == 0")
+  ret 0
+
+pub fn test_prob_stats_kalman1DNew_8(): int:
+  let arg_initialEstimate = 1.0
+  let edge_initialEstimate = 0.5
+  let arg_initialError = 1.0
+  let edge_initialError = 0.5
+  let arg_processNoise = 1.0
+  let edge_processNoise = 0.5
+  let arg_measurementNoise = 1.0
+  let edge_measurementNoise = 0.5
+  let resNom = kalman1DNew(arg_initialEstimate, arg_initialError, arg_processNoise, arg_measurementNoise)
+  let resEdge = kalman1DNew(edge_initialEstimate, edge_initialError, edge_processNoise, edge_measurementNoise)
+  assertApproxEq(resNom.estimate, 1.0, 0.001, "kalman1DNew nominal resNom.estimate ~= 1.0")
+  assertApproxEq(resEdge.estimate, 0.5, 0.001, "kalman1DNew boundary resEdge.estimate ~= 0.5")
+  ret 0
+
+pub fn test_prob_stats_kalman1DUpdate_9(): int:
+  let arg_kf = KalmanFilter1D(estimate = 1.0, errorCov = 1.0, processNoise = 1.0, measurementNoise = 1.0)
+  let edge_kf = KalmanFilter1D(estimate = 0.5, errorCov = 0.5, processNoise = 0.5, measurementNoise = 0.5)
+  let arg_measurement = 1.0
+  let edge_measurement = 0.5
+  let resNom = kalman1DUpdate(arg_kf, arg_measurement)
+  let resEdge = kalman1DUpdate(edge_kf, edge_measurement)
+  assertApproxEq(resNom.estimate, 1.0, 0.001, "kalman1DUpdate nominal resNom.estimate ~= 1.0")
+  assertApproxEq(resEdge.estimate, 0.5, 0.001, "kalman1DUpdate boundary resEdge.estimate ~= 0.5")
+  ret 0
+
+pub fn test_prob_stats_statsMean_10(): int:
+  let arg_vals = [1.0]
+  let edge_vals = []
+  let resNom = statsMean(arg_vals)
+  let resEdge = statsMean(edge_vals)
+  assertApproxEq(resNom, 1.0, 0.001, "statsMean nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "statsMean boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_statsPercentile_11(): int:
+  let arg_sortedVals = [1.0]
+  let edge_sortedVals = []
+  let arg_p = 1.0
+  let edge_p = 0.5
+  let resNom = statsPercentile(arg_sortedVals, arg_p)
+  let resEdge = statsPercentile(edge_sortedVals, edge_p)
+  assertApproxEq(resNom, 1.0, 0.001, "statsPercentile nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "statsPercentile boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_percentile_12(): int:
+  let arg_sortedValues = [1.0]
+  let edge_sortedValues = []
+  let arg_p = 1.0
+  let edge_p = 0.5
+  let resNom = percentile(arg_sortedValues, arg_p)
+  let resEdge = percentile(edge_sortedValues, edge_p)
+  assertApproxEq(resNom, 1.0, 0.001, "percentile nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "percentile boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_summaryStats_13(): int:
+  let arg_vals = [1.0]
+  let edge_vals = []
+  let resNom = summaryStats(arg_vals)
+  let resEdge = summaryStats(edge_vals)
+  assertEqInt(resNom.count, 1, "summaryStats nominal resNom.count == 1")
+  assertEqInt(resEdge.count, 0, "summaryStats boundary resEdge.count == 0")
+  ret 0
+
+pub fn test_prob_stats_hdrHistogramNew_14(): int:
+  let resNom = hdrHistogramNew()
+  let resEdge = hdrHistogramNew()
+  assertEqInt(resNom.bucketCount, 0, "hdrHistogramNew nominal resNom.bucketCount == 0")
+  assertEqInt(resEdge.bucketCount, 0, "hdrHistogramNew boundary resEdge.bucketCount == 0")
+  ret 0
+
+pub fn test_prob_stats_hdrRecord_15(): int:
+  let arg_h = HdrHistogram(bucketCount = 4, counts = [], totalCount = 4, minVal = 0.0, maxVal = 2.0, count = 0, sum = 1.0, values = [])
+  let edge_h = HdrHistogram(bucketCount = 4, counts = [], totalCount = 1, minVal = 0.0, maxVal = 1.0, count = 0, sum = 0.5, values = [])
+  let arg_v = 1.0
+  let edge_v = 0.5
+  let resNom = hdrRecord(arg_h, arg_v)
+  let resEdge = hdrRecord(edge_h, edge_v)
+  assertEqInt(resNom.bucketCount, 4, "hdrRecord nominal resNom.bucketCount == 4")
+  assertEqInt(resEdge.bucketCount, 4, "hdrRecord boundary resEdge.bucketCount == 4")
+  ret 0
+
+pub fn test_prob_stats_hdrMean_16(): int:
+  let arg_h = HdrHistogram(bucketCount = 4, counts = [], totalCount = 4, minVal = 0.0, maxVal = 2.0, count = 0, sum = 1.0, values = [])
+  let edge_h = HdrHistogram(bucketCount = 4, counts = [], totalCount = 1, minVal = 0.0, maxVal = 1.0, count = 0, sum = 0.5, values = [])
+  let resNom = hdrMean(arg_h)
+  let resEdge = hdrMean(edge_h)
+  assertApproxEq(resNom, 0.0, 0.001, "hdrMean nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "hdrMean boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_evalPiecewiseLinearCurve_17(): int:
+  let arg_x = 1.0
+  let edge_x = 0.5
+  let arg_knotsX = [1.0]
+  let edge_knotsX = []
+  let arg_knotsY = [1.0]
+  let edge_knotsY = []
+  let resNom = evalPiecewiseLinearCurve(arg_x, arg_knotsX, arg_knotsY)
+  let resEdge = evalPiecewiseLinearCurve(edge_x, edge_knotsX, edge_knotsY)
+  assertApproxEq(resNom, 1.0, 0.001, "evalPiecewiseLinearCurve nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "evalPiecewiseLinearCurve boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_evalTieredMarginalRate_18(): int:
+  let arg_amount = 1.0
+  let edge_amount = 0.5
+  let arg_thresholds = [2.0]
+  let edge_thresholds = []
+  let arg_rates = [2.0]
+  let edge_rates = []
+  let resNom = evalTieredMarginalRate(arg_amount, arg_thresholds, arg_rates)
+  let resEdge = evalTieredMarginalRate(edge_amount, edge_thresholds, edge_rates)
+  assertApproxEq(resNom, 0.0, 0.001, "evalTieredMarginalRate nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "evalTieredMarginalRate boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_movingAverage_19(): int:
+  let arg_values = [1.0]
+  let edge_values = []
+  let arg_windowSize = 4
+  let edge_windowSize = 1
+  let resNom = movingAverage(arg_values, arg_windowSize)
+  let resEdge = movingAverage(edge_values, edge_windowSize)
+  assertEqInt(resNom.len(), 1, "movingAverage nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "movingAverage boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_prob_stats_exponentialMovingAverage_20(): int:
+  let arg_values = [1.0]
+  let edge_values = []
+  let arg_alpha = 2.0
+  let edge_alpha = 1.0
+  let resNom = exponentialMovingAverage(arg_values, arg_alpha)
+  let resEdge = exponentialMovingAverage(edge_values, edge_alpha)
+  assertEqInt(resNom.len(), 1, "exponentialMovingAverage nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "exponentialMovingAverage boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_prob_stats_commComputeTieredAcceleratorPayout_21(): int:
+  let arg_attainmentPct = 4
+  let edge_attainmentPct = 1
+  let arg_baseCommission = 4
+  let edge_baseCommission = 1
+  let arg_tier1MultPct = 4
+  let edge_tier1MultPct = 1
+  let arg_tier2MultPct = 4
+  let edge_tier2MultPct = 1
+  let resNom = commComputeTieredAcceleratorPayout(arg_attainmentPct, arg_baseCommission, arg_tier1MultPct, arg_tier2MultPct)
+  let resEdge = commComputeTieredAcceleratorPayout(edge_attainmentPct, edge_baseCommission, edge_tier1MultPct, edge_tier2MultPct)
+  assertEqInt(resNom, 0, "commComputeTieredAcceleratorPayout nominal resNom == 0")
+  assertEqInt(resEdge, 0, "commComputeTieredAcceleratorPayout boundary resEdge == 0")
+  ret 0
+
+pub fn test_prob_stats_computeCovariance_22(): int:
+  let arg_xs = [1.0]
+  let edge_xs = []
+  let arg_ys = [1.0]
+  let edge_ys = []
+  let resNom = computeCovariance(arg_xs, arg_ys)
+  let resEdge = computeCovariance(edge_xs, edge_ys)
+  assertApproxEq(resNom, 0.0, 0.001, "computeCovariance nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "computeCovariance boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_computeCorrelation_23(): int:
+  let arg_xs = [1.0]
+  let edge_xs = []
+  let arg_ys = [1.0]
+  let edge_ys = []
+  let resNom = computeCorrelation(arg_xs, arg_ys)
+  let resEdge = computeCorrelation(edge_xs, edge_ys)
+  assertApproxEq(resNom, 0.0, 0.001, "computeCorrelation nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "computeCorrelation boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_linearRegressionSlope_24(): int:
+  let arg_xs = [1.0]
+  let edge_xs = []
+  let arg_ys = [1.0]
+  let edge_ys = []
+  let resNom = linearRegressionSlope(arg_xs, arg_ys)
+  let resEdge = linearRegressionSlope(edge_xs, edge_ys)
+  assertApproxEq(resNom, 0.0, 0.001, "linearRegressionSlope nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "linearRegressionSlope boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_prob_stats_linearRegressionIntercept_25(): int:
+  let arg_xs = [1.0]
+  let edge_xs = []
+  let arg_ys = [1.0]
+  let edge_ys = []
+  let resNom = linearRegressionIntercept(arg_xs, arg_ys)
+  let resEdge = linearRegressionIntercept(edge_xs, edge_ys)
+  assertApproxEq(resNom, 1.0, 0.001, "linearRegressionIntercept nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "linearRegressionIntercept boundary resEdge ~= 0.0")
+  ret 0

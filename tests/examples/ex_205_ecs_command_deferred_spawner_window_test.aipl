@@ -1,0 +1,40 @@
+module Ex205EcsCommandDeferredSpawnerWindowTest
+
+import {
+  buildEcsCommandSpawnerAudit, stepStageBarrierProgress
+} from "../../examples/ex_205_ecs_command_deferred_spawner_window"
+import { createEcsWorld, spawnEntity } from "../../std/ecs/ecs_world"
+import { QueryFilter, queryEntities } from "../../std/ecs/ecs_query"
+import {
+  CMD_SPAWN, CMD_DESPAWN, createCommandBuffer,
+  recordSpawnCommand, recordDespawnCommand, flushCommandBuffer
+} from "../../std/ecs/ecs_command"
+
+pub fn test_ecs_command_deferred_spawner(): void:
+  mut world = createEcsWorld()
+  let (w1, e0) = spawnEntity(world)
+  world = w1
+
+  mut cmdBuf = createCommandBuffer()
+  cmdBuf = recordSpawnCommand(cmdBuf)
+  cmdBuf = recordSpawnCommand(cmdBuf)
+  cmdBuf = recordDespawnCommand(cmdBuf, e0)
+  assert(cmdBuf.commands.len() == 3, "3 deferred commands recorded")
+  assert(cmdBuf.commands[0].cmdType == CMD_SPAWN and cmdBuf.commands[2].cmdType == CMD_DESPAWN, "Command types recorded")
+
+  world = flushCommandBuffer(world, cmdBuf)
+  let ents = queryEntities(world, QueryFilter(withMask = 0, withoutMask = 0))
+  assert(ents.len() == 2, "After flushing +2 spawns and -1 despawn, 2 alive entities remain")
+  assert(buildEcsCommandSpawnerAudit() == 8, "buildEcsCommandSpawnerAudit returns 3 + 1 + 2 + 2 == 8")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let p0 = stepStageBarrierProgress(0)
+  let p1 = stepStageBarrierProgress(1)
+  let p20 = stepStageBarrierProgress(20)
+  let p100 = stepStageBarrierProgress(100)
+  assert(p0 != p1 and p1 != p20 and p20 != p100, "stage barrier progress advances across t=0,1,20,100")
+
+pub fn main(): int:
+  test_ecs_command_deferred_spawner()
+  println("PASS: ex_205_ecs_command_deferred_spawner_window_test")
+  ret 0

@@ -1,0 +1,29 @@
+// ============================================================================
+// Twin Test Suite 026: General Purpose Allocator (GPA) & Leak Detector (CLI)
+// Verifies examples/ex_026_alloc_gpa_leak_detector_cli.aipl
+// ============================================================================
+module Ex026AllocGpaLeakDetectorCliTest
+
+import {
+  auditCleanGpaAllocationCycle,
+  detectIntentionalLeakAndReclaim,
+  describeGpaLeakAudit
+} from "../../examples/ex_026_alloc_gpa_leak_detector_cli.aipl"
+
+pub fn test_clean_gpa_alloc_realloc_free(): int:
+  let leaks = auditCleanGpaAllocationCycle(256, 512)
+  assert(leaks == 0, "clean alloc -> realloc -> free cycle reports 0 leaks")
+  ret 0
+
+pub fn test_gpa_leak_detection_and_recovery(): int:
+  let detectedBeforeFree = detectIntentionalLeakAndReclaim(128, 707)
+  assert(detectedBeforeFree == 1, "gpaReportLeaks catches 1 un-freed pointer before reclamation")
+  assert(describeGpaLeakAudit(0) == "GPA:ZERO_LEAKS_VERIFIED", "0 leaks")
+  assert(describeGpaLeakAudit(2) == "GPA:LEAK_DETECTED", "2 leaks")
+  ret 0
+
+pub fn main(): int:
+  test_clean_gpa_alloc_realloc_free()
+  test_gpa_leak_detection_and_recovery()
+  println("PASS: ex_026_alloc_gpa_leak_detector_cli_test")
+  ret 0

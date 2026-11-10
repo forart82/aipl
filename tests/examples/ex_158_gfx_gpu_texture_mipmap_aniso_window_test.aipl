@@ -1,0 +1,39 @@
+module Ex158GfxGpuTextureMipmapAnisoWindowTest
+
+import {
+  buildGpuTextureMipAnisoAudit,
+  stepTextureMipAnisoFrame
+} from "../../examples/ex_158_gfx_gpu_texture_mipmap_aniso_window"
+import { createGpuDevice } from "../../std/gfx/gpu_device"
+import {
+  TextureFormat, createTexture2D, computeMaxMipLevels,
+  computeMipDimension, createLinearSampler, createAnisotropicSampler
+} from "../../std/gfx/gpu_texture"
+
+pub fn test_gfx_gpu_texture_mipmap_aniso(): void:
+  let dev = createGpuDevice(1)
+  let mips = computeMaxMipLevels(1024, 512)
+  assert(mips == 11, "1024x512 max mip levels == 11")
+  assert(computeMipDimension(1024, 0) == 1024, "mip 0 dim == 1024")
+  assert(computeMipDimension(1024, 3) == 128, "mip 3 dim == 128")
+  assert(computeMipDimension(1024, 10) == 1, "mip 10 dim == 1")
+
+  let fmt = TextureFormat(id = 1, bytesPerPixel = 4, hasAlpha = true, isDepth = false, isCompressed = false)
+  let tex = createTexture2D(dev, 1024, 512, fmt, mips)
+  assert(tex.width == 1024 and tex.mipLevels == 11, "Texture2D created with 11 mips")
+
+  let linSampler = createLinearSampler()
+  let aniso4 = createAnisotropicSampler(4)
+  let aniso16 = createAnisotropicSampler(16)
+  assert(linSampler.maxAnisotropy == 1 and aniso4.maxAnisotropy == 4 and aniso16.maxAnisotropy == 16, "Sampler anisotropy levels")
+  let f0 = stepTextureMipAnisoFrame(0)
+  let f1 = stepTextureMipAnisoFrame(1)
+  let f20 = stepTextureMipAnisoFrame(20)
+  let f100 = stepTextureMipAnisoFrame(100)
+  assert(f0 != f1 and f1 != f20 and f20 != f100, "Active mipmap LOD dimension and anisotropic tap count advance across frames 0, 1, 20, 100")
+  assert(buildGpuTextureMipAnisoAudit() == 156, "buildGpuTextureMipAnisoAudit returns 11 + 128 + 1 + 16 == 156")
+
+pub fn main(): int:
+  test_gfx_gpu_texture_mipmap_aniso()
+  println("PASS: ex_158_gfx_gpu_texture_mipmap_aniso_window_test")
+  ret 0

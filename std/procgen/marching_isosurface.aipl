@@ -1,0 +1,116 @@
+/// # Module: `std/procgen/marching_isosurface` (`MarchingIsosurfaceMod`)
+///
+/// ## Purpose & Domain Scope
+/// Marching Squares (2D isoline contouring) and Marching Cubes / Tetrahedra
+/// (3D isosurface mesh extraction from scalar density fields).
+module MarchingIsosurfaceMod
+
+import { absFloat, clampFloat } from "std/math/consts"
+import { Vec2, Vec3 } from "std/math/vec_math"
+import { ScalarField2D } from "std/procgen/cellular_automata"
+
+pub struct IsolineSegment2D(startPoint: Vec2, endPoint: Vec2)
+
+pub struct MeshTriangle3D(v0: Vec3, v1: Vec3, v2: Vec3, normal: Vec3)
+
+pub struct ScalarField3D(width: int, height: int, depth: int, values: [float])
+
+fn interpIso(vA: float, vB: float, iso: float): float:
+  let diff = vB - vA
+  if absFloat(diff) < 0.000001:
+    ret 0.5
+  ret clampFloat((iso - vA) / diff, 0.0, 1.0)
+
+pub fn marchingSquaresExtract(field: ScalarField2D, isoLevel: float, cellSize: float): [IsolineSegment2D]:
+  mut segs: [IsolineSegment2D] = []
+  let w = field.width
+  let h = field.height
+
+  mut y = 0
+  while y < h - 1:
+    mut x = 0
+    while x < w - 1:
+      let v00 = field.values[y * w + x]
+      let v10 = field.values[y * w + (x + 1)]
+      let v11 = field.values[(y + 1) * w + (x + 1)]
+      let v01 = field.values[(y + 1) * w + x]
+
+      let b0 = if v00 >= isoLevel: 1 else: 0
+      let b1 = if v10 >= isoLevel: 2 else: 0
+      let b2 = if v11 >= isoLevel: 4 else: 0
+      let b3 = if v01 >= isoLevel: 8 else: 0
+      let mask = b0 | b1 | b2 | b3
+
+      if mask != 0 and mask != 15:
+        let x0 = float(x) * cellSize
+        let y0 = float(y) * cellSize
+        let eTop = Vec2(x = x0 + interpIso(v00, v10, isoLevel) * cellSize, y = y0)
+        let eRight = Vec2(x = x0 + cellSize, y = y0 + interpIso(v10, v11, isoLevel) * cellSize)
+        let eBot = Vec2(x = x0 + interpIso(v01, v11, isoLevel) * cellSize, y = y0 + cellSize)
+        let eLeft = Vec2(x = x0, y = y0 + interpIso(v00, v01, isoLevel) * cellSize)
+
+        if mask == 1 or mask == 14:
+          segs.push(IsolineSegment2D(startPoint = eLeft, endPoint = eTop))
+        else:
+          if mask == 2 or mask == 13:
+            segs.push(IsolineSegment2D(startPoint = eTop, endPoint = eRight))
+          else:
+            if mask == 4 or mask == 11:
+              segs.push(IsolineSegment2D(startPoint = eRight, endPoint = eBot))
+            else:
+              if mask == 8 or mask == 7:
+                segs.push(IsolineSegment2D(startPoint = eBot, endPoint = eLeft))
+              else:
+                if mask == 3 or mask == 12:
+                  segs.push(IsolineSegment2D(startPoint = eLeft, endPoint = eRight))
+                else:
+                  if mask == 6 or mask == 9:
+                    segs.push(IsolineSegment2D(startPoint = eTop, endPoint = eBot))
+                  else:
+                    segs.push(IsolineSegment2D(startPoint = eLeft, endPoint = eTop))
+                    segs.push(IsolineSegment2D(startPoint = eBot, endPoint = eRight))
+      x = x + 1
+    y = y + 1
+  ret segs
+
+pub fn marchingCubesExtract(densityGrid: ScalarField3D, isoLevel: float, voxelSize: float): [MeshTriangle3D]:
+  mut tris: [MeshTriangle3D] = []
+  let w = densityGrid.width
+  let h = densityGrid.height
+  let d = densityGrid.depth
+
+  mut z = 0
+  while z < d - 1:
+    mut y = 0
+    while y < h - 1:
+      mut x = 0
+      while x < w - 1:
+        let c0 = densityGrid.values[(z * h + y) * w + x]
+        let c1 = densityGrid.values[(z * h + y) * w + (x + 1)]
+        let c2 = densityGrid.values[(z * h + (y + 1)) * w + x]
+        let c3 = densityGrid.values[((z + 1) * h + y) * w + x]
+
+        mut insideCount = 0
+        if c0 >= isoLevel: insideCount = insideCount + 1
+        if c1 >= isoLevel: insideCount = insideCount + 1
+        if c2 >= isoLevel: insideCount = insideCount + 1
+        if c3 >= isoLevel: insideCount = insideCount + 1
+
+        if insideCount > 0 and insideCount < 4:
+          let bx = float(x) * voxelSize
+          let by = float(y) * voxelSize
+          let bz = float(z) * voxelSize
+          let tx = interpIso(c0, c1, isoLevel)
+          let ty = interpIso(c0, c2, isoLevel)
+          let tz = interpIso(c0, c3, isoLevel)
+          let p0 = Vec3(x = bx + tx * voxelSize, y = by, z = bz)
+          let p1 = Vec3(x = bx, y = by + ty * voxelSize, z = bz)
+          let p2 = Vec3(x = bx, y = by, z = bz + tz * voxelSize)
+          let e1: Vec3 = p1.sub(p0)
+          let e2: Vec3 = p2.sub(p0)
+          let n: Vec3 = e1.cross(e2).norm()
+          tris.push(MeshTriangle3D(v0 = p0, v1 = p1, v2 = p2, normal = n))
+        x = x + 1
+      y = y + 1
+    z = z + 1
+  ret tris

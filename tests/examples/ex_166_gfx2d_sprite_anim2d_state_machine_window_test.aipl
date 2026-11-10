@@ -1,0 +1,45 @@
+module Ex166Gfx2dSpriteAnim2dStateMachineWindowTest
+
+import {
+  buildSpriteAnimStateMachineAudit,
+  stepAnimStateMachineFrame
+} from "../../examples/ex_166_gfx2d_sprite_anim2d_state_machine_window"
+import { UvRect } from "../../std/gfx2d/sprite2d"
+import {
+  SpriteAnimationFrame2D, SpriteAnimationClip2D,
+  createAnimator2D, stepAnimator2D, getCurrentFrameUv,
+  AnimClip, animMachineNew, animSetState, animStep
+} from "../../std/gfx2d/sprite_anim2d"
+
+pub fn test_gfx2d_sprite_anim2d_state_machine(): void:
+  let f0 = SpriteAnimationFrame2D(uv = UvRect(u0 = 0.0, v0 = 0.0, u1 = 0.25, v1 = 1.0), durationSec = 0.1, eventTrigger = "idle")
+  let f1 = SpriteAnimationFrame2D(uv = UvRect(u0 = 0.25, v0 = 0.0, u1 = 0.50, v1 = 1.0), durationSec = 0.1, eventTrigger = "footstep")
+  let f2 = SpriteAnimationFrame2D(uv = UvRect(u0 = 0.50, v0 = 0.0, u1 = 0.75, v1 = 1.0), durationSec = 0.1, eventTrigger = "swing")
+  let clip = SpriteAnimationClip2D(name = "run_cycle", frames = [f0, f1, f2], loopMode = 1)
+  mut anim = createAnimator2D(clip)
+  assert(anim.currentFrameIdx == 0, "Animator starts at frame 0")
+
+  anim = stepAnimator2D(anim, 0.12)
+  assert(anim.currentFrameIdx == 1, "After 0.12s, advances to frame 1")
+  assert(getCurrentFrameUv(anim).u0 == 0.25, "Frame 1 UV starts at u0=0.25")
+
+  let cIdle = AnimClip(name = "idle", startFrame = 0, frameCount = 4, fps = 10.0, looping = true, fallbackState = "idle")
+  let cRun = AnimClip(name = "run", startFrame = 4, frameCount = 6, fps = 12.0, looping = true, fallbackState = "idle")
+  let cAtk = AnimClip(name = "attack", startFrame = 10, frameCount = 3, fps = 15.0, looping = false, fallbackState = "idle")
+  mut sm = animMachineNew("idle", [cIdle, cRun, cAtk])
+  sm = animSetState(sm, "run")
+  sm = animStep(sm, 100.0)
+  assert(sm.currentState == "run" and sm.transitionCount == 1, "State machine transitioned to run")
+
+  mut smCycle = animMachineNew("idle", [cIdle, cRun, cAtk])
+  let sm0 = stepAnimStateMachineFrame(smCycle, 0)
+  let sm1 = stepAnimStateMachineFrame(sm0, 1)
+  let sm20 = stepAnimStateMachineFrame(sm1, 14)
+  let sm100 = stepAnimStateMachineFrame(sm20, 36)
+  assert(sm0.accumMs != sm1.accumMs and sm20.currentState == "run" and sm100.currentState == "attack", "stepAnimStateMachineFrame cycles states across frames")
+  assert(buildSpriteAnimStateMachineAudit() == 27, "buildSpriteAnimStateMachineAudit returns 25 + 1 + 1 == 27")
+
+pub fn main(): int:
+  test_gfx2d_sprite_anim2d_state_machine()
+  println("PASS: ex_166_gfx2d_sprite_anim2d_state_machine_window_test")
+  ret 0

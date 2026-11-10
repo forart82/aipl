@@ -1,0 +1,65 @@
+module Ex241AiPathfindAstarJpsFlowfieldWindowTest
+
+import { aStarPathfind, jpsPathfind2D, thetaStarPathfind2D, computeDijkstraMap2D, computeFlowField2D } from "../../std/ai/pathfind"
+import { CellularGrid2D } from "../../std/procgen/cellular_automata"
+import { IVec2 } from "../../std/math/vec_math"
+import { PathfindScene, initScene, stepScene, auditAiPathfindAstarJpsFlowfield } from "../../examples/ex_241_ai_pathfind_astar_jps_flowfield_window"
+
+fn test_ai_pathfind_astar_jps_flowfield(): void:
+  mut cells: [int] = []
+  mut i = 0
+  while i < 25:
+    cells.push(0)
+    i = i + 1
+  cells[0 * 5 + 2] = 1
+  cells[1 * 5 + 2] = 1
+  cells[2 * 5 + 2] = 1
+  let grid = CellularGrid2D(width = 5, height = 5, cells = cells)
+
+  let res = aStarPathfind(grid, IVec2(x = 0, y = 0), IVec2(x = 4, y = 0), false)
+  assert(res.found and res.path.len() > 4, "A* finds path around obstacle")
+  let jpsRes = jpsPathfind2D(grid, IVec2(x = 0, y = 0), IVec2(x = 4, y = 0))
+  assert(jpsRes.found and jpsRes.path.len() >= 2, "JPS finds path")
+  let thetaRes = thetaStarPathfind2D(grid, IVec2(x = 0, y = 0), IVec2(x = 4, y = 0))
+  assert(thetaRes.found, "Theta* finds path")
+  let dMap = computeDijkstraMap2D(grid, [IVec2(x = 4, y = 0)])
+  let flow = computeFlowField2D(dMap)
+  assert(flow.vectors.len() == 25, "FlowField has 25 vectors")
+
+  mut scene = initScene()
+  let ax0 = scene.agentA.x
+  let ay0 = scene.agentA.y
+  let fx0 = scene.agentFlow.x
+  let fy0 = scene.agentFlow.y
+  scene = stepScene(scene, 0, 0.08)
+  let ax1 = scene.agentA.x
+  let ay1 = scene.agentA.y
+  let fx1 = scene.agentFlow.x
+  let fy1 = scene.agentFlow.y
+  assert((ax1 != ax0) or (ay1 != ay0), "t=0 -> t=1 A* agent advances along path")
+  assert((fx1 != fx0) or (fy1 != fy0), "t=0 -> t=1 FlowField agent advances along vector field")
+
+  mut f = 1
+  while f < 20:
+    scene = stepScene(scene, f, 0.08)
+    f = f + 1
+  let ax20 = scene.agentA.x
+  let ay20 = scene.agentA.y
+  let goalY20 = scene.goal.y
+  assert((ax20 != ax1) or (ay20 != ay1), "t=1 -> t=20 A* agent progresses along path")
+  assert(scene.waypointIdx >= 2, "t=20 A* agent reaches later waypoints")
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  while f < 100:
+    scene = stepScene(scene, f, 0.08)
+    f = f + 1
+  assert((scene.agentA.x != ax20) or (scene.agentA.y != ay20) or (scene.goal.y != goalY20), "t=20 -> t=100 pathfinding agents and dynamic goal continue cycling")
+  assert(scene.stepCount == 100, "scene tracks 100 steps")
+
+  let audit = auditAiPathfindAstarJpsFlowfield()
+  assert(audit >= 28, "A*, JPS, Theta* and FlowField audit")
+
+pub fn main(): int:
+  test_ai_pathfind_astar_jps_flowfield()
+  println("PASS: ex_241_ai_pathfind_astar_jps_flowfield_window_test")
+  ret 0

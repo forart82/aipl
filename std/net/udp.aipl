@@ -1,0 +1,68 @@
+/// # Module: `std/net/udp` (`NetUdp`)
+///
+/// ## Purpose & Domain Scope
+/// Low-latency UDP datagram sockets (`UdpSocket`, `UdpDatagram`), broadcast toggles,
+/// and IGMP/MLD multicast group membership.
+module NetUdp
+
+import "net_addr.aipl"
+
+pub struct UdpDatagram:
+  sender: SocketAddr
+  data: [int]
+  length: int
+
+pub struct UdpSocket:
+  mut handle: int
+  localAddr: SocketAddr
+  mut isBroadcast: bool
+  mut queue: [UdpDatagram] = []
+
+pub fn netUdpBind(addr: SocketAddr): Result[UdpSocket, str]:
+  if addr.port < 0 or addr.port > 65535:
+    ret Err("netUdpBind: invalid port")
+  ret Ok(UdpSocket(handle: 300 + addr.port, localAddr: addr, isBroadcast: false, queue: []))
+
+pub fn netUdpSendTo(mut socket: UdpSocket, target: SocketAddr, data: [int]): Result[int, str]:
+  if socket.handle <= 0:
+    ret Err("netUdpSendTo: closed socket")
+  socket.queue.push(UdpDatagram(sender: target, data: data, length: data.len()))
+  ret Ok(data.len())
+
+pub fn netUdpRecvFrom(mut socket: UdpSocket, maxBytes: int): Result[UdpDatagram, str]:
+  if socket.handle <= 0 or socket.queue.len() == 0:
+    ret Err("netUdpRecvFrom: no datagram available")
+  let dg = socket.queue[0]
+  mut k = 0
+  while k + 1 < socket.queue.len():
+    socket.queue[k] = socket.queue[k + 1]
+    k = k + 1
+  let _ = socket.queue.pop()
+  mut outData: [int] = []
+  mut i = 0
+  while i < dg.data.len() and i < maxBytes:
+    outData.push(dg.data[i])
+    i = i + 1
+  ret Ok(UdpDatagram(sender: dg.sender, data: outData, length: outData.len()))
+
+pub fn netUdpJoinMulticast(socket: UdpSocket, multicastAddr: IpAddr, interfaceAddr: IpAddr): Result[bool, str]:
+  if socket.handle <= 0:
+    ret Err("netUdpJoinMulticast: closed socket")
+  if multicastAddr.isIpv6 != interfaceAddr.isIpv6:
+    ret Err("netUdpJoinMulticast: mismatched IPv4/IPv6 address families")
+  ret Ok(true)
+
+pub fn netUdpLeaveMulticast(socket: UdpSocket, multicastAddr: IpAddr, interfaceAddr: IpAddr): Result[bool, str]:
+  if socket.handle <= 0:
+    ret Err("netUdpLeaveMulticast: closed socket")
+  if multicastAddr.isIpv6 != interfaceAddr.isIpv6:
+    ret Err("netUdpLeaveMulticast: mismatched IPv4/IPv6 address families")
+  ret Ok(true)
+
+pub fn netUdpSetBroadcast(mut socket: UdpSocket, enable: bool): Result[bool, str]:
+  socket.isBroadcast = enable
+  ret Ok(true)
+
+pub fn netUdpClose(mut socket: UdpSocket): bool:
+  socket.handle = -1
+  ret true

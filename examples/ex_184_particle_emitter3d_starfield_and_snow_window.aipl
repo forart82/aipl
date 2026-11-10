@@ -1,0 +1,164 @@
+module Ex184ParticleEmitter3dStarfieldAndSnowWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import { ColorRgba8 } from "../std/gfx/color"
+import {
+  EmissionShape3D, Particle3D, createParticlePool3D,
+  sampleEmissionPosition3D, spawnParticle3D, stepParticlePool3D,
+  emitParticleBurst3D, particleNormalizedAge3D
+} from "../std/particle/emitter3d"
+import { createGravityAffector } from "../std/particle/affector"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepStarParticle3D(frame: int, sphShape: EmissionShape3D): Particle3D:
+  let white = ColorRgba8(r = 255, g = 255, b = 255, a = 255)
+  let u = float((frame * 17 + 5) % 43) / 43.0
+  let v = float((frame * 11 + 3) % 37) / 37.0
+  let w = 0.45 + float((frame * 7) % 19) / 38.0
+  let pos3 = sampleEmissionPosition3D(sphShape, u, v, w)
+  ret Particle3D(
+    pos = Vec3(x = pos3.x, y = pos3.y * 0.72, z = 2.6 + float(frame % 5) * 0.25),
+    vel = Vec3(x = pos3.x * 0.35, y = pos3.y * 0.28, z = -1.15),
+    color = white,
+    size = 3.2,
+    ageSec = 0.0,
+    lifetimeSec = 1.85,
+    isAlive = true
+  )
+
+pub fn buildParticleEmitter3dStarfieldAudit(): int:
+  let white = ColorRgba8(r = 255, g = 255, b = 255, a = 255)
+  mut pool3d = createParticlePool3D(64, 25.0)
+  let p0 = Particle3D(
+    pos = Vec3(x = 0.0, y = 20.0, z = 0.0),
+    vel = Vec3(x = 0.0, y = 0.0, z = 12.0),
+    color = white,
+    size = 4.0,
+    ageSec = 0.0,
+    lifetimeSec = 2.0,
+    isAlive = true
+  )
+  pool3d = spawnParticle3D(pool3d, p0)
+  let grav = createGravityAffector(Vec3(x = 0.0, y = -10.0, z = 0.0))
+  pool3d = stepParticlePool3D(pool3d, 0.5, [grav])
+  let advZ = int(pool3d.particles[0].pos.z)
+  pool3d = emitParticleBurst3D(pool3d, Vec3(x = 0.0, y = 0.0, z = 0.0), 5, 8.0, 1.5, white)
+  ret pool3d.maxParticles + advZ + pool3d.liveCount
+
+pub fn main(): int:
+  let white = ColorRgba8(r = 255, g = 255, b = 255, a = 255)
+  let sphShape = EmissionShape3D(shapeType = 1, radius = 135.0, coneAngleRad = 0.5, boxExtents = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let snowBoxShape = EmissionShape3D(shapeType = 3, radius = 0.0, coneAngleRad = 0.0, boxExtents = Vec3(x = 230.0, y = 18.0, z = 60.0))
+
+  mut starPool = createParticlePool3D(64, 25.0)
+  mut sInit: int = 0
+  while sInit < 24:
+    let stInit = stepStarParticle3D(sInit * 3, sphShape)
+    starPool = spawnParticle3D(starPool, stInit)
+    sInit = sInit + 1
+
+  mut snowPool = createParticlePool3D(64, 25.0)
+  snowPool = emitParticleBurst3D(snowPool, Vec3(x = 945.0, y = 210.0, z = 0.0), 18, 42.0, 2.2, white)
+  let snowGrav = createGravityAffector(Vec3(x = 14.0, y = 62.0, z = 0.0))
+  let starZero = createGravityAffector(Vec3(x = 0.0, y = 0.0, z = 0.0))
+  let audit = buildParticleEmitter3dStarfieldAudit()
+
+  initWindow(1280, 720, "AIPL ex_184: 3D Particle Emitters — Starfield Warp & Volumetric Snow")
+  mut frame: int = 0
+  while not windowShouldClose():
+    starPool = stepParticlePool3D(starPool, 0.022, [starZero])
+    snowPool = stepParticlePool3D(snowPool, 0.022, [snowGrav])
+
+    // Continuously spawn new 3D stars at far Z and volumetric box snowflakes at top
+    starPool = spawnParticle3D(starPool, stepStarParticle3D(frame, sphShape))
+    let su = float((frame * 19 + 7) % 41) / 41.0
+    let sv = float((frame * 13 + 2) % 31) / 31.0
+    let sw = float((frame * 23 + 5) % 29) / 29.0
+    let boxOff = sampleEmissionPosition3D(snowBoxShape, su, sv, sw)
+    let pFlake = Particle3D(
+      pos = Vec3(x = 945.0 + boxOff.x, y = 172.0 + boxOff.y, z = boxOff.z),
+      vel = Vec3(x = sin(float(frame) * 0.21) * 18.0, y = 38.0 + sw * 28.0, z = 0.0),
+      color = white,
+      size = 3.5 + (boxOff.z + 60.0) * 0.025,
+      ageSec = 0.0,
+      lifetimeSec = 2.1,
+      isAlive = true
+    )
+    snowPool = spawnParticle3D(snowPool, pFlake)
+
+    if frame % 31 == 0 and frame > 0:
+      snowPool = emitParticleBurst3D(snowPool, Vec3(x = 945.0, y = 215.0, z = 0.0), 10, 42.0, 1.9, white)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawText("EX_184: 3D VOLUMETRIC PARTICLE EMITTERS — STARFIELD WARP & SNOWDRIFT", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/particle/emitter3d: createParticlePool3D | sampleEmissionPosition3D | stepParticlePool3D | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: 3D Radial Perspective Starfield Warp Tunnel
+    drawRect(40.0, 96.0, 590.0, 410.0, rgb(9, 12, 20))
+    drawRectOutline(40.0, 96.0, 590.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("3D RADIAL PERSPECTIVE STARFIELD WARP (Z-Depth Projection)", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    // Warp tunnel depth reference rings
+    drawCircleOutline(335.0, 310.0, 42.0, 1.0, rgb(30, 41, 59))
+    drawCircleOutline(335.0, 310.0, 95.0, 1.0, rgb(30, 41, 59))
+    drawCircleOutline(335.0, 310.0, 150.0, 1.0, rgb(30, 41, 59))
+
+    mut s: int = 0
+    while s < starPool.particles.len():
+      let st = starPool.particles[s]
+      if st.isAlive:
+        let zSafe = if st.pos.z > 0.65: st.pos.z else: 0.65
+        let rawX0 = 335.0 + st.pos.x / zSafe
+        let rawY0 = 310.0 + st.pos.y / zSafe
+        let sx0 = if rawX0 < 60.0: 60.0 else: (if rawX0 > 610.0: 610.0 else: rawX0)
+        let sy0 = if rawY0 < 148.0: 148.0 else: (if rawY0 > 468.0: 468.0 else: rawY0)
+        let sx1 = if sx0 + st.vel.x * 0.28 < 60.0: 60.0 else: (if sx0 + st.vel.x * 0.28 > 610.0: 610.0 else: sx0 + st.vel.x * 0.28)
+        let sy1 = if sy0 + st.vel.y * 0.28 < 148.0: 148.0 else: (if sy0 + st.vel.y * 0.28 > 468.0: 468.0 else: sy0 + st.vel.y * 0.28)
+        drawLine(sx0, sy0, sx1, sy1, rgb(56, 189, 248), 2.0)
+        let pRad = if 5.2 / zSafe > 5.0: 5.0 else: 5.2 / zSafe
+        drawCircle(sx1, sy1, pRad, rgb(248, 250, 252))
+      s = s + 1
+
+    drawText("Sphere Volume Emitter (shapeType=1) -> Perspective Divide (x/z, y/z)", 60.0, 478.0, 13.0, rgb(148, 163, 184))
+
+    // Right Panel: 3D Volumetric Snowdrift Emitter
+    drawRect(650.0, 96.0, 590.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(650.0, 96.0, 590.0, 410.0, 2.0, rgb(168, 85, 247))
+    drawText("3D VOLUMETRIC SNOWFALL EMITTER (Box Volume + Wind Drift)", 670.0, 118.0, 16.0, rgb(216, 180, 254))
+
+    // 3D Emitter Box Volume Outline at top + snowbank at bottom
+    drawRectOutline(715.0, 154.0, 460.0, 36.0, 1.5, rgb(168, 85, 247))
+    drawRect(670.0, 456.0, 550.0, 16.0, rgb(203, 213, 225))
+
+    mut k: int = 0
+    while k < snowPool.particles.len():
+      let sp = snowPool.particles[k]
+      if sp.isAlive:
+        let nAge = particleNormalizedAge3D(sp)
+        let rad = sp.size * (1.0 - nAge * 0.35)
+        let spx = if sp.pos.x < 670.0: 670.0 else: (if sp.pos.x > 1220.0: 1220.0 else: sp.pos.x)
+        let spy = if sp.pos.y < 150.0: 150.0 else: (if sp.pos.y > 454.0: 454.0 else: sp.pos.y)
+        let shade = if sp.pos.z >= 0.0: rgb(248, 250, 252) else: rgb(148, 163, 184)
+        drawCircle(spx, spy, rad, shade)
+      k = k + 1
+
+    drawText("Box Volume Emitter (shapeType=3) + Fibonacci Sphere Bursts -> 3D Z-Depth Shading", 670.0, 478.0, 13.0, rgb(148, 163, 184))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("3D PARTICLE EMITTER TELEMETRY (Frame " + str(frame) + ")", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Starfield Live: " + str(starPool.liveCount) + "/" + str(starPool.maxParticles) + " | Snow Pool Live: " + str(snowPool.liveCount) + "/" + str(snowPool.maxParticles) + " | Rate: " + str(snowPool.emissionRate) + "/sec", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("3D Shapes Supported: Point (0), Sphere (1), Cone (2), Box (3) | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

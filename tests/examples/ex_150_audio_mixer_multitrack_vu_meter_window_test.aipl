@@ -1,0 +1,32 @@
+// ============================================================================
+// Twin Test Suite 150: Audio Mixer Multitrack Console & VU Meters (WINDOW)
+// Verifies examples/ex_150_audio_mixer_multitrack_vu_meter_window.aipl
+// ============================================================================
+module Ex150AudioMixerMultitrackVuMeterWindowTest
+
+import {
+  verifyAudioMixerBusDuckingAndVoices,
+  computeDuckedBusGainPermille,
+  describeMixerDuckingRoute,
+  renderFrameStep
+} from "../../examples/ex_150_audio_mixer_multitrack_vu_meter_window.aipl"
+
+pub fn test_audio_mixer_multitrack_vu_meter_window(): int:
+  assert(verifyAudioMixerBusDuckingAndVoices() == 1, "Music bus ducks below 0.3 gain when Voice bus plays and stops cleanly")
+  assert(computeDuckedBusGainPermille(800, 250) == 200, "800 permille fader * 250 permille ducking == 200 permille effective gain")
+  assert(describeMixerDuckingRoute(12) == "MIXER:SIDECHAIN_DUCK_MINUS_12DB", "sidechain -12dB ducking label")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  let f100 = renderFrameStep(100, 0.016)
+  assert(f0 > 700, "frame 0 returns unducked Music bus gain (>700 permille)")
+  assert(f20 < 300, "frame 20 triggers Voice bus sidechain ducking on Music bus (<300 permille)")
+  assert(f0 != f1, "Music bus fader gain advances between frame 0 and frame 1")
+  assert(f1 != f20, "Music bus effective gain ducks when Voice bus activates at frame 20")
+  assert(f20 != f100, "Music bus effective gain recovers when Voice bus releases at frame 100")
+  ret 0
+
+pub fn main(): int:
+  test_audio_mixer_multitrack_vu_meter_window()
+  println("PASS: ex_150_audio_mixer_multitrack_vu_meter_window_test")
+  ret 0

@@ -1,0 +1,600 @@
+// ============================================================================
+// AIPL Universal HEBAR Tier-1 Base Instincts (`aipl_hebar_bot/core/base_instincts.aipl`)
+// ============================================================================
+// Zero-Config Universal Brain: auto-classifies any AIPL window within 10 frames
+// into (A) GUI Productivity App, (B) Real-Time Action Game, or (C) Turn-Based
+// Multi-Player Board Game, and synthesizes human-equivalent actions without
+// requiring app-specific code.
+// ============================================================================
+
+module BaseInstincts
+
+import {
+  SceneSnapshot,
+  SceneUiNode,
+  hasUiText,
+  findUiByText,
+  findClickableUiNodes,
+  findEntitiesForSeat,
+  findPlayerEntity,
+  findNearestEntityByKind,
+  computeNearestEntityDist,
+  countEntitiesByKind,
+  extractCustomStateFloat,
+  extractCustomStateStr
+} from "./scene_sensor.aipl"
+
+pub struct InstinctState:
+  classifiedArchetype: str
+  framesObserved: int
+  tabsVisitedCount: int
+  buttonsClickedCount: int
+  formsFilledCount: int
+  evasiveManeuversCount: int
+  boardMovesCount: int
+  recoveryNudgesCount: int
+  lastFramebufferHash: str
+  lastTurnNumber: int
+  lastActionX: int
+  lastActionY: int
+  deadCoordsX: [int]
+  deadCoordsY: [int]
+  visitedCoordsX: [int]
+  visitedCoordsY: [int]
+  aggression: int
+  exploration: int
+
+pub fn appendInt(arr: [int], val: int): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < arr.len:
+    out.push(arr[i])
+    i += 1
+  out.push(val)
+  ret out
+
+pub fn initInstinctState(): InstinctState:
+  let dx0: [int] = []
+  let dy0: [int] = []
+  let vx0: [int] = []
+  let vy0: [int] = []
+  ret InstinctState(
+    classifiedArchetype = "detecting",
+    framesObserved = 0,
+    tabsVisitedCount = 0,
+    buttonsClickedCount = 0,
+    formsFilledCount = 0,
+    evasiveManeuversCount = 0,
+    boardMovesCount = 0,
+    recoveryNudgesCount = 0,
+    lastFramebufferHash = "",
+    lastTurnNumber = -1,
+    lastActionX = -1,
+    lastActionY = -1,
+    deadCoordsX = dx0,
+    deadCoordsY = dy0,
+    visitedCoordsX = vx0,
+    visitedCoordsY = vy0,
+    aggression = 50,
+    exploration = 50
+  )
+
+pub fn isCoordNearList(xs: [int], ys: [int], x: int, y: int, radius: int): bool:
+  mut i = 0
+  let n = if xs.len < ys.len: xs.len else: ys.len
+  while i < n:
+    let dx = xs[i] - x
+    let dy = ys[i] - y
+    let adx = if dx < 0: -dx else: dx
+    let ady = if dy < 0: -dy else: dy
+    if adx <= radius and ady <= radius:
+      ret true
+    i += 1
+  ret false
+
+pub fn classifyAppArchetype(snap: SceneSnapshot): str:
+  if countEntitiesByKind(snap, "enemy") > 0 or countEntitiesByKind(snap, "hazard") > 0:
+    ret "realtime_game"
+  mut tokenCount = 0
+  mut uiIdx = 0
+  while uiIdx < snap.uiNodes.len:
+    if snap.uiNodes[uiIdx].kind == "token":
+      tokenCount += 1
+    uiIdx += 1
+  if countEntitiesByKind(snap, "board") >= 2 or tokenCount >= 2 or snap.turnState.activeSeat > 1 or snap.turnState.phase == "roll" or snap.turnState.phase == "move" or snap.turnState.phase == "select" or hasUiText(snap, "roll") or hasUiText(snap, "advance"):
+    ret "multiplayer_board"
+  if snap.entities.len >= 4 and snap.entities.len > snap.uiNodes.len:
+    ret "realtime_game"
+  ret "gui_app"
+
+pub struct InstinctAction:
+  instinct: InstinctState
+  script: str
+  targetX: float
+  targetY: float
+  reason: str
+
+pub fn computeZeroConfigInstinctAction(inst: InstinctState, snap: SceneSnapshot, seatId: int, stepNum: int): InstinctAction:
+  mut nextInst = inst
+  nextInst.framesObserved = nextInst.framesObserved + 1
+  if nextInst.classifiedArchetype == "detecting" or nextInst.framesObserved <= 10:
+    nextInst.classifiedArchetype = classifyAppArchetype(snap)
+
+  let arch = nextInst.classifiedArchetype
+
+  // 1. Causal Feedback Update
+  mut highlightCount = 0
+  mut hi0 = 0
+  while hi0 < snap.uiNodes.len:
+    let u = snap.uiNodes[hi0]
+    if u.kind == "highlight" and (u.text == "target_move" or u.text == "target_capture"):
+      highlightCount += 1
+    hi0 += 1
+
+  if snap.turnState.turnNumber != nextInst.lastTurnNumber:
+    let dxReset: [int] = []
+    let dyReset: [int] = []
+    nextInst.deadCoordsX = dxReset
+    nextInst.deadCoordsY = dyReset
+    nextInst.lastActionX = -1
+    nextInst.lastActionY = -1
+    nextInst.lastTurnNumber = snap.turnState.turnNumber
+  elif nextInst.lastActionX >= 0:
+    if (snap.framebufferHash.len > 0 and snap.framebufferHash == nextInst.lastFramebufferHash) or (highlightCount == 0 and snap.turnState.phase == "select"):
+      if not isCoordNearList(nextInst.deadCoordsX, nextInst.deadCoordsY, nextInst.lastActionX, nextInst.lastActionY, 24):
+        nextInst.deadCoordsX = appendInt(nextInst.deadCoordsX, nextInst.lastActionX)
+        nextInst.deadCoordsY = appendInt(nextInst.deadCoordsY, nextInst.lastActionY)
+
+  nextInst.lastFramebufferHash = snap.framebufferHash
+
+  // 2. Perceive All Affordances on Screen
+  mut highlightNodes: [SceneUiNode] = []
+  mut myTokens: [SceneUiNode] = []
+  mut otherTokens: [SceneUiNode] = []
+  mut actionButtons: [SceneUiNode] = []
+
+  let seatPrefix = "token_seat_" + str(seatId)
+  mut uiIdx = 0
+  while uiIdx < snap.uiNodes.len:
+    let u = snap.uiNodes[uiIdx]
+    if u.kind == "highlight" and (u.text == "target_move" or u.text == "target_capture"):
+      highlightNodes.push(u)
+    elif u.kind == "token":
+      if u.text.startsWith(seatPrefix):
+        myTokens.push(u)
+      else:
+        otherTokens.push(u)
+    elif u.kind == "button" and u.clickable:
+      let tLow = u.text.toLowerCase()
+      if not tLow.contains("active turn") and not tLow.contains("waiting"):
+        if snap.turnState.winnerSeat > 0 or not tLow.contains("new match"):
+          actionButtons.push(u)
+    uiIdx += 1
+
+  let clickables = findClickableUiNodes(snap)
+  let seatEnts = findEntitiesForSeat(snap, seatId)
+  let boardCenterX = snap.width / 2
+  let boardBottomY = snap.height - 80
+
+  // 3. Step-by-Step Decision Priority
+
+  // Priority A. Match / Modal Reset
+  if snap.turnState.winnerSeat > 0:
+    mut rsi = 0
+    while rsi < snap.uiNodes.len:
+      let u = snap.uiNodes[rsi]
+      let tLow = u.text.toLowerCase()
+      if (u.kind == "button" or u.clickable) and (tLow.contains("new") or tLow.contains("next") or tLow.contains("match")):
+        let rx = float(u.x + u.w / 2)
+        let ry = float(u.y + u.h / 2)
+        nextInst.lastActionX = -1
+        nextInst.lastActionY = -1
+        ret InstinctAction(
+          instinct = nextInst,
+          script = "move:" + str(int(rx)) + "," + str(int(ry)) + ";click:" + str(int(rx)) + "," + str(int(ry)),
+          targetX = rx,
+          targetY = ry,
+          reason = "ResetOrNextMatch"
+        )
+      rsi += 1
+
+  // Priority B. Follow Through on Unlocked Visual Highlights
+  if highlightNodes.len > 0:
+    mut bestHi = 0
+    mut bestScore = -999999
+    mut hi = 0
+    while hi < highlightNodes.len:
+      let h = highlightNodes[hi]
+      let hx = h.x + h.w / 2
+      let hy = h.y + h.h / 2
+      mut score = 200
+      if h.text == "target_capture":
+        score += 400 + nextInst.aggression * 5
+
+      mut threatens = false
+      mut eti = 0
+      while eti < otherTokens.len:
+        let et = otherTokens[eti]
+        if et.text.endsWith(":P"):
+          let etCenterX = et.x + et.w / 2
+          let etCenterY = et.y + et.h / 2
+          let dxP = if etCenterX > hx: etCenterX - hx else: hx - etCenterX
+          let dyP = if seatId == 1: hy - etCenterY else: etCenterY - hy
+          if dxP >= 36 and dxP <= 96 and dyP >= 36 and dyP <= 96:
+            threatens = true
+            break
+        eti += 1
+      if threatens:
+        score -= 600 - nextInst.aggression * 3
+
+      let cDistX = if hx > boardCenterX: hx - boardCenterX else: boardCenterX - hx
+      let centerProg = 300 - cDistX / 3
+      let baseFwd = if seatId == 1: (boardBottomY - hy) / 5 else: hy / 5
+      let fwdProg = (baseFwd * (50 + nextInst.aggression)) / 50
+      let varBonus = (stepNum * 29 + hi * 13) % 17
+      score = score + centerProg + fwdProg + varBonus
+
+      if score > bestScore:
+        bestScore = score
+        bestHi = hi
+      hi += 1
+
+    let bestH = highlightNodes[bestHi]
+    let bestHx = float(bestH.x + bestH.w / 2)
+    let bestHy = float(bestH.y + bestH.h / 2)
+    nextInst.lastActionX = -1
+    nextInst.lastActionY = -1
+    nextInst.boardMovesCount += 1
+    ret InstinctAction(
+      instinct = nextInst,
+      script = "move:" + str(int(bestHx)) + "," + str(int(bestHy)) + ";click:" + str(int(bestHx)) + "," + str(int(bestHy)),
+      targetX = bestHx,
+      targetY = bestHy,
+      reason = "VisualHighlight:" + bestH.text
+    )
+
+  // Priority C. Explicit Phase Action Buttons
+  if snap.turnState.phase == "roll" or hasUiText(snap, "roll"):
+    let rollBtn = findUiByText(snap, "roll")
+    if rollBtn.id != "fallback":
+      let rx = float(rollBtn.x + rollBtn.w / 2)
+      let ry = float(rollBtn.y + rollBtn.h / 2)
+      if not isCoordNearList(nextInst.deadCoordsX, nextInst.deadCoordsY, int(rx), int(ry), 20):
+        nextInst.boardMovesCount += 1
+        nextInst.lastActionX = int(rx)
+        nextInst.lastActionY = int(ry)
+        ret InstinctAction(
+          instinct = nextInst,
+          script = "move:" + str(int(rx)) + "," + str(int(ry)) + ";click:" + str(int(rx)) + "," + str(int(ry)),
+          targetX = rx,
+          targetY = ry,
+          reason = "BoardRollDiceButton"
+        )
+
+  if hasUiText(snap, "advance") and snap.turnState.phase == "move":
+    let advBtn = findUiByText(snap, "advance")
+    if advBtn.id != "fallback":
+      let ax = float(advBtn.x + advBtn.w / 2)
+      let ay = float(advBtn.y + advBtn.h / 2)
+      if not isCoordNearList(nextInst.deadCoordsX, nextInst.deadCoordsY, int(ax), int(ay), 20):
+        nextInst.boardMovesCount += 1
+        nextInst.lastActionX = int(ax)
+        nextInst.lastActionY = int(ay)
+        ret InstinctAction(
+          instinct = nextInst,
+          script = "move:" + str(int(ax)) + "," + str(int(ay)) + ";click:" + str(int(ax)) + "," + str(int(ay)),
+          targetX = ax,
+          targetY = ay,
+          reason = "BoardAdvanceTokenButton"
+        )
+
+  // Priority D. Spatial Token Discovery & Tactical Selection
+  if myTokens.len > 0:
+    mut candidates: [SceneUiNode] = []
+    mut mti = 0
+    while mti < myTokens.len:
+      let tok = myTokens[mti]
+      let tx = tok.x + tok.w / 2
+      let ty = tok.y + tok.h / 2
+      if not isCoordNearList(nextInst.deadCoordsX, nextInst.deadCoordsY, tx, ty, 24):
+        candidates.push(tok)
+      mti += 1
+    if candidates.len == 0:
+      let dxEmpty: [int] = []
+      let dyEmpty: [int] = []
+      nextInst.deadCoordsX = dxEmpty
+      nextInst.deadCoordsY = dyEmpty
+      candidates = myTokens
+
+    mut bestTi = 0
+    mut bestScore = -999999
+    mut ti = 0
+    while ti < candidates.len:
+      let t = candidates[ti]
+      let tx = t.x + t.w / 2
+      let ty = t.y + t.h / 2
+      mut score = 100
+      let isPawn = t.text.endsWith(":P")
+      if t.text.endsWith(":N"):
+        score += 115
+      elif t.text.endsWith(":B"):
+        score += 105
+      elif isPawn:
+        score += 95
+      elif t.text.endsWith(":R"):
+        score -= 35
+      elif t.text.endsWith(":Q"):
+        score -= 25
+      elif t.text.endsWith(":K"):
+        score -= 160
+
+      if isPawn:
+        mut canCaptureDiag = false
+        mut blockedAhead = false
+        mut oi = 0
+        while oi < otherTokens.len:
+          let ot = otherTokens[oi]
+          let ox = ot.x + ot.w / 2
+          let oy = ot.y + ot.h / 2
+          let odx = if ox > tx: ox - tx else: tx - ox
+          let fwdDy = if seatId == 1: ty - oy else: oy - ty
+          if fwdDy >= 36 and fwdDy <= 96:
+            if odx >= 36 and odx <= 96:
+              canCaptureDiag = true
+            elif odx <= 24:
+              blockedAhead = true
+          oi += 1
+        mut fi = 0
+        while fi < myTokens.len:
+          let ft = myTokens[fi]
+          let fx = ft.x + ft.w / 2
+          let fy = ft.y + ft.h / 2
+          let fdx = if fx > tx: fx - tx else: tx - fx
+          let fwdDy2 = if seatId == 1: ty - fy else: fy - ty
+          if fwdDy2 >= 36 and fwdDy2 <= 96 and fdx <= 24:
+            blockedAhead = true
+          fi += 1
+        if canCaptureDiag:
+          score += 280
+        elif blockedAhead:
+          score -= 360
+      else:
+        mut nearThreat = false
+        mut oi = 0
+        while oi < otherTokens.len:
+          let ot = otherTokens[oi]
+          let ox = ot.x + ot.w / 2
+          let oy = ot.y + ot.h / 2
+          let odx = if ox > tx: ox - tx else: tx - ox
+          let ody = if oy > ty: oy - ty else: ty - oy
+          if odx <= 115 and ody <= 115:
+            nearThreat = true
+            break
+          oi += 1
+        if nearThreat:
+          score += 160 + nextInst.aggression * 2
+
+      let cDistX = if tx > boardCenterX: tx - boardCenterX else: boardCenterX - tx
+      let centerPref = 240 - cDistX / 3
+      let baseFront = if seatId == 1: (boardBottomY - ty) / 6 else: ty / 6
+      let frontRankPref = (baseFront * (50 + nextInst.aggression)) / 50
+      let noveltyBonus = if not isCoordNearList(nextInst.visitedCoordsX, nextInst.visitedCoordsY, tx, ty, 24): (nextInst.exploration * 6) / 5 else: 0
+      let varMod = 11 + nextInst.exploration / 3
+      let safeVarMod = if varMod > 0: varMod else: 1
+      let varBonus = (stepNum * 41 + ti * 19 + seatId * 13) % safeVarMod
+      score = score + centerPref + frontRankPref + noveltyBonus + varBonus
+
+      if score > bestScore:
+        bestScore = score
+        bestTi = ti
+      ti += 1
+
+    let bestTok = candidates[bestTi]
+    let bestTx = bestTok.x + bestTok.w / 2
+    let bestTy = bestTok.y + bestTok.h / 2
+    nextInst.lastActionX = bestTx
+    nextInst.lastActionY = bestTy
+    if not isCoordNearList(nextInst.visitedCoordsX, nextInst.visitedCoordsY, bestTx, bestTy, 20):
+      nextInst.visitedCoordsX = appendInt(nextInst.visitedCoordsX, bestTx)
+      nextInst.visitedCoordsY = appendInt(nextInst.visitedCoordsY, bestTy)
+    nextInst.boardMovesCount += 1
+    let ftx = float(bestTx)
+    let fty = float(bestTy)
+    ret InstinctAction(
+      instinct = nextInst,
+      script = "move:" + str(bestTx) + "," + str(bestTy) + ";click:" + str(bestTx) + "," + str(bestTy),
+      targetX = ftx,
+      targetY = fty,
+      reason = "TryToken:" + bestTok.text
+    )
+
+  if arch == "multiplayer_board":
+    if seatEnts.len > 0:
+      let tok = seatEnts[(stepNum + seatId) % seatEnts.len]
+      let tx = tok.x + tok.w * 0.5
+      let ty = tok.y + tok.h * 0.5
+      if stepNum % 2 == 1:
+        let dx2 = int(tx) + 48
+        let dy2 = int(ty) + 48
+        nextInst.boardMovesCount += 1
+        ret InstinctAction(
+          instinct = nextInst,
+          script = "drag:" + str(int(tx)) + "," + str(int(ty)) + "," + str(dx2) + "," + str(dy2) + ",3",
+          targetX = tx,
+          targetY = ty,
+          reason = "BoardPieceToCellDrag"
+        )
+      else:
+        nextInst.boardMovesCount += 1
+        ret InstinctAction(
+          instinct = nextInst,
+          script = "move:" + str(int(tx)) + "," + str(int(ty)) + ";click:" + str(int(tx)) + "," + str(int(ty)),
+          targetX = tx,
+          targetY = ty,
+          reason = "BoardAdvanceSeatToken"
+        )
+    if countEntitiesByKind(snap, "board") > 0:
+      let piece = findNearestEntityByKind(snap, float(snap.width) * 0.5, float(snap.height) * 0.5, "board")
+      if piece.id >= 0:
+        let px = piece.x + piece.w * 0.5
+        let py = piece.y + piece.h * 0.5
+        let dx2 = int(px) + 40
+        let dy2 = int(py) + 40
+        nextInst.boardMovesCount += 1
+        ret InstinctAction(
+          instinct = nextInst,
+          script = "drag:" + str(int(px)) + "," + str(int(py)) + "," + str(dx2) + "," + str(dy2) + ",3",
+          targetX = px,
+          targetY = py,
+          reason = "BoardGenericPieceDrag"
+        )
+
+  // Priority E. Dynamic Real-Time Entities
+  if countEntitiesByKind(snap, "enemy") > 0 or countEntitiesByKind(snap, "hazard") > 0 or arch == "realtime_game":
+    let player = findPlayerEntity(snap, seatId)
+    let px = if player.id >= 0: player.x + player.w * 0.5 else: float(snap.width) * 0.5
+    let py = if player.id >= 0: player.y + player.h * 0.5 else: float(snap.height) * 0.5
+
+    // Low-HP tactical kiting
+    if player.id >= 0 and player.hp < 35:
+      let nearestEnemy = findNearestEntityByKind(snap, px, py, "enemy")
+      if nearestEnemy.id >= 0:
+        nextInst.evasiveManeuversCount = nextInst.evasiveManeuversCount + 1
+        let ex = nearestEnemy.x + nearestEnemy.w * 0.5
+        let kiteKey = if px < ex: "A" else: "D"
+        ret InstinctAction(
+          instinct = nextInst,
+          script = "key:" + kiteKey + ",4;key:SPACE,2",
+          targetX = px,
+          targetY = py,
+          reason = "RealtimeLowHpKiting"
+        )
+
+    let nearestHazard = findNearestEntityByKind(snap, px, py, "hazard")
+    let hazardDist = computeNearestEntityDist(snap, px, py, "hazard")
+    if hazardDist < 140.0 and nearestHazard.id >= 0:
+      nextInst.evasiveManeuversCount = nextInst.evasiveManeuversCount + 1
+      let hx = nearestHazard.x + nearestHazard.w * 0.5
+      let hy = nearestHazard.y + nearestHazard.h * 0.5
+      let evadeKey = if px < hx: "A" else: "D"
+      ret InstinctAction(
+        instinct = nextInst,
+        script = "key:" + evadeKey + ",3;key:SPACE,2",
+        targetX = px,
+        targetY = py,
+        reason = "RealtimeEvadeHazard"
+      )
+
+    let nearestEnemy = findNearestEntityByKind(snap, px, py, "enemy")
+    let enemyDist = computeNearestEntityDist(snap, px, py, "enemy")
+    if nearestEnemy.id >= 0 and enemyDist < 600.0:
+      let ex = nearestEnemy.x + nearestEnemy.w * 0.5 + nearestEnemy.vx * 3.0
+      let ey = nearestEnemy.y + nearestEnemy.h * 0.5 + nearestEnemy.vy * 3.0
+      let attackKey = if stepNum % 2 == 0: "W" else: "D"
+      ret InstinctAction(
+        instinct = nextInst,
+        script = "key:" + attackKey + ",3;move:" + str(int(ex)) + "," + str(int(ey)) + ";click:" + str(int(ex)) + "," + str(int(ey)),
+        targetX = ex,
+        targetY = ey,
+        reason = "RealtimeAimAndAttackEnemy"
+      )
+
+    let nearestItem = findNearestEntityByKind(snap, px, py, "item")
+    let itemDist = computeNearestEntityDist(snap, px, py, "item")
+    if nearestItem.id >= 0 and itemDist < 700.0:
+      let ix = nearestItem.x + nearestItem.w * 0.5
+      let iy = nearestItem.y + nearestItem.h * 0.5
+      ret InstinctAction(
+        instinct = nextInst,
+        script = "move:" + str(int(ix)) + "," + str(int(iy)) + ";click:" + str(int(ix)) + "," + str(int(iy)),
+        targetX = ix,
+        targetY = iy,
+        reason = "RealtimeCollectItem"
+      )
+
+    // Fallback exploration in realtime game
+    nextInst.evasiveManeuversCount = nextInst.evasiveManeuversCount + 1
+    let moveKeys = ["W", "D", "S", "A", "SPACE", "R"]
+    let chosenKey = moveKeys[(stepNum + seatId) % moveKeys.len]
+    let aimX = float(280 + ((stepNum * 97 + seatId * 53) % 720))
+    let aimY = float(180 + ((stepNum * 61 + seatId * 41) % 380))
+    ret InstinctAction(
+      instinct = nextInst,
+      script = "key:" + chosenKey + ",4;move:" + str(int(aimX)) + "," + str(int(aimY)) + ";click:" + str(int(aimX)) + "," + str(int(aimY)),
+      targetX = aimX,
+      targetY = aimY,
+      reason = "RealtimeFallbackExploration"
+    )
+
+  // Priority F. Desktop Application Exploration & Workspace Usage
+  mut candidateBtns: [SceneUiNode] = []
+  if actionButtons.len > 0:
+    mut abi = 0
+    while abi < actionButtons.len:
+      let ab = actionButtons[abi]
+      let bx = ab.x + ab.w / 2
+      let by = ab.y + ab.h / 2
+      if not isCoordNearList(nextInst.visitedCoordsX, nextInst.visitedCoordsY, bx, by, 20) and not isCoordNearList(nextInst.deadCoordsX, nextInst.deadCoordsY, bx, by, 20):
+        candidateBtns.push(ab)
+      abi += 1
+    if candidateBtns.len == 0:
+      candidateBtns = actionButtons
+  else:
+    candidateBtns = clickables
+
+  if candidateBtns.len > 0:
+    let node = candidateBtns[(stepNum + seatId - 1) % candidateBtns.len]
+    let nx = node.x + node.w / 2
+    let ny = node.y + node.h / 2
+    let fnx = float(nx)
+    let fny = float(ny)
+    if not isCoordNearList(nextInst.visitedCoordsX, nextInst.visitedCoordsY, nx, ny, 20):
+      nextInst.visitedCoordsX = appendInt(nextInst.visitedCoordsX, nx)
+      nextInst.visitedCoordsY = appendInt(nextInst.visitedCoordsY, ny)
+    nextInst.lastActionX = nx
+    nextInst.lastActionY = ny
+
+    if stepNum % 3 == 2:
+      if (stepNum / 3) % 2 == 0:
+        nextInst.formsFilledCount += 1
+        ret InstinctAction(
+          instinct = nextInst,
+          script = "move:" + str(nx) + "," + str(ny) + ";click:" + str(nx) + "," + str(ny) + ";text:HEBAR_SmartAgent;key:ENTER,2",
+          targetX = fnx,
+          targetY = fny,
+          reason = "WorkspaceTextInput"
+        )
+      else:
+        nextInst.buttonsClickedCount += 1
+        let dx2 = nx + 64
+        let dy2 = ny + 32
+        ret InstinctAction(
+          instinct = nextInst,
+          script = "drag:" + str(nx) + "," + str(ny) + "," + str(dx2) + "," + str(dy2) + ",3;wheel:-1",
+          targetX = fnx,
+          targetY = fny,
+          reason = "WorkspaceCanvasDrag"
+        )
+
+    if node.y < 110:
+      nextInst.tabsVisitedCount += 1
+    else:
+      nextInst.buttonsClickedCount += 1
+    ret InstinctAction(
+      instinct = nextInst,
+      script = "move:" + str(nx) + "," + str(ny) + ";click:" + str(nx) + "," + str(ny),
+      targetX = fnx,
+      targetY = fny,
+      reason = "GuiTabAndButtonTraversal"
+    )
+
+  nextInst.recoveryNudgesCount += 1
+  let fallbackX = float(220 + ((stepNum * 140) % 840))
+  let fallbackY = float(120 + ((stepNum * 95) % 480))
+  ret InstinctAction(
+    instinct = nextInst,
+    script = "move:" + str(int(fallbackX)) + "," + str(int(fallbackY)) + ";click:" + str(int(fallbackX)) + "," + str(int(fallbackY)),
+    targetX = fallbackX,
+    targetY = fallbackY,
+    reason = "ExploratoryScanProbe"
+  )

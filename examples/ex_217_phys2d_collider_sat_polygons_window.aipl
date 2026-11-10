@@ -1,0 +1,155 @@
+module Ex217Phys2dColliderSatPolygonsWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import { Rect2D } from "../std/math/geom2d"
+import {
+  PhysicsMaterial2D, circleColliderNew, boxColliderNew,
+  polygonColliderNew, colliderComputeAABB
+} from "../std/phys2d/collider2d"
+import {
+  ContactPoint2D, ContactManifold2D, testCircleCircle,
+  testCircleBoxSAT, testBoxBoxSAT, testGjkEpa2D
+} from "../std/phys2d/narrowphase2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawTriangle, drawLine, drawText, Color, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepSatSweepOffset(frame: int): float:
+  ret sin(float(frame) * 0.085) * 44.0
+
+pub fn stepSatAngle2D(frame: int): float:
+  ret float(frame) * 0.032
+
+fn drawRotatedObbOutline(pos: Vec2, ext: Vec2, angle: float, col: Color, thick: float): void:
+  let c = cos(angle)
+  let s = sin(angle)
+  let lx = [-ext.x, ext.x, ext.x, -ext.x]
+  let ly = [-ext.y, -ext.y, ext.y, ext.y]
+  mut k = 0
+  while k < 4:
+    let k1 = (k + 1) % 4
+    let x0 = pos.x + lx[k] * c - ly[k] * s
+    let y0 = pos.y + lx[k] * s + ly[k] * c
+    let x1 = pos.x + lx[k1] * c - ly[k1] * s
+    let y1 = pos.y + lx[k1] * s + ly[k1] * c
+    drawLine(x0, y0, x1, y1, col, thick)
+    k = k + 1
+
+fn drawManifoldGizmo(mOpt: Option[ContactManifold2D], labelX: float, labelY: float): void:
+  if mOpt.isSome():
+    let m: ContactManifold2D = mOpt.unwrap()
+    let cp: ContactPoint2D = m.points[0]
+    drawCircle(cp.position.x, cp.position.y, 6.5, rgb(250, 204, 21))
+    drawLine(cp.position.x, cp.position.y, cp.position.x + m.normal.x * 38.0, cp.position.y + m.normal.y * 38.0, rgb(250, 204, 21), 2.8)
+    drawText("CONTACT pen=" + str(int(cp.penetration)) + "px n=(" + str(int(m.normal.x * 100.0)) + "," + str(int(m.normal.y * 100.0)) + ")%", labelX, labelY, 13.0, rgb(250, 204, 21))
+  else:
+    drawText("SEPARATED (Separating Axis Found)", labelX, labelY, 13.0, rgb(110, 231, 183))
+
+pub fn buildPhys2dColliderSatAudit(): int:
+  let mat = PhysicsMaterial2D(restitution = 0.5, friction = 0.2, density = 1.0)
+  let cCircle = circleColliderNew(10.0, mat)
+  let cBox = boxColliderNew(20.0, 10.0, mat)
+  let cPoly = polygonColliderNew([Vec2(x = -5.0, y = -5.0), Vec2(x = 5.0, y = -5.0), Vec2(x = 0.0, y = 5.0)], mat)
+  let aabbC: Rect2D = colliderComputeAABB(cCircle, Vec2(x = 10.0, y = 10.0), 0.0)
+  let aabbB: Rect2D = colliderComputeAABB(cBox, Vec2(x = 0.0, y = 0.0), 0.0)
+  let aabbP: Rect2D = colliderComputeAABB(cPoly, Vec2(x = 0.0, y = 0.0), 0.0)
+  let mCC: ContactManifold2D = testCircleCircle(Vec2(x = 0.0, y = 0.0), 10.0, Vec2(x = 15.0, y = 0.0), 10.0).unwrap()
+  let cp0: ContactPoint2D = mCC.points[0]
+  let hitCB = if testCircleBoxSAT(Vec2(x = 12.0, y = 0.0), 5.0, Vec2(x = 0.0, y = 0.0), Vec2(x = 10.0, y = 10.0), 0.0).isSome(): 1 else: 0
+  let hitBB = if testBoxBoxSAT(Vec2(x = 0.0, y = 0.0), Vec2(x = 10.0, y = 10.0), 0.0, Vec2(x = 15.0, y = 0.0), Vec2(x = 10.0, y = 10.0), 0.0).isSome(): 1 else: 0
+  let v1 = [Vec2(x = 0.0, y = 0.0), Vec2(x = 10.0, y = 0.0), Vec2(x = 5.0, y = 10.0)]
+  let v2 = [Vec2(x = 4.0, y = 0.0), Vec2(x = 14.0, y = 0.0), Vec2(x = 9.0, y = 10.0)]
+  let hitPoly = if testGjkEpa2D(v1, v2).isSome(): 1 else: 0
+  ret int(aabbC.w) + int(aabbB.w) + int(aabbP.w) + int(cp0.penetration) + hitCB + hitBB + hitPoly
+
+pub fn main(): int:
+  let auditScore = buildPhys2dColliderSatAudit()
+  let mat = PhysicsMaterial2D(restitution = 0.5, friction = 0.2, density = 1.0)
+  let cCircle = circleColliderNew(52.0, mat)
+  let cBox = boxColliderNew(110.0, 76.0, mat)
+  let poly1Verts = [Vec2(x = 840.0, y = 605.0), Vec2(x = 960.0, y = 605.0), Vec2(x = 900.0, y = 485.0)]
+  let _cPoly = polygonColliderNew(poly1Verts, mat)
+
+  initWindow(1280, 720, "AIPL ex_217: Phys2D Narrowphase SAT & GJK/EPA Contact Manifolds")
+  mut frame = 0
+  while not windowShouldClose():
+    let offset = stepSatSweepOffset(frame)
+    let obbAng = stepSatAngle2D(frame)
+
+    let posC1 = Vec2(x = 240.0, y = 248.0)
+    let posC2 = Vec2(x = 324.0 + offset, y = 248.0 + cos(float(frame) * 0.06) * 18.0)
+    let aabbCircle: Rect2D = colliderComputeAABB(cCircle, posC2, 0.0)
+    let mCC = testCircleCircle(posC1, cCircle.circleRadius, posC2, cCircle.circleRadius)
+
+    let posCB_Box = Vec2(x = 880.0, y = 248.0)
+    let posCB_Cir = Vec2(x = 975.0 - offset, y = 248.0 + sin(float(frame) * 0.05) * 20.0)
+    let aabbCB: Rect2D = colliderComputeAABB(cBox, posCB_Box, obbAng)
+    let mCB = testCircleBoxSAT(posCB_Cir, cCircle.circleRadius, posCB_Box, cBox.boxHalfExtents, obbAng)
+
+    let posBB1 = Vec2(x = 260.0, y = 545.0)
+    let posBB2 = Vec2(x = 352.0 - offset, y = 545.0)
+    let aabbBB2: Rect2D = colliderComputeAABB(cBox, posBB2, -obbAng)
+    let mBB = testBoxBoxSAT(posBB1, cBox.boxHalfExtents, 0.25, posBB2, cBox.boxHalfExtents, -obbAng)
+
+    let poly2Verts = [
+      Vec2(x = 925.0 - offset, y = 615.0),
+      Vec2(x = 1045.0 - offset, y = 615.0),
+      Vec2(x = 985.0 - offset, y = 495.0)
+    ]
+    let mPoly = testGjkEpa2D(poly1Verts, poly2Verts)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_217: PHYS2D COLLIDER SHAPES, SEPARATING AXIS THEOREM (SAT) & GJK/EPA", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("circleCircle=" + str(mCC.isSome()) + " | circleObbSAT=" + str(mCB.isSome()) + " | obbObbSAT=" + str(mBB.isSome()) + " | polyGjkEpa=" + str(mPoly.isSome()) + " | audit=" + str(auditScore), 52.0, 66.0, 15.0, rgb(125, 211, 252))
+
+    // Quadrant 1: Circle-Circle Manifold & AABB
+    drawRect(44.0, 110.0, 580.0, 276.0, rgb(14, 20, 36))
+    drawRectOutline(44.0, 110.0, 580.0, 276.0, 1.5, rgb(51, 65, 85))
+    drawText("1. testCircleCircle + colliderComputeAABB", 64.0, 124.0, 16.0, rgb(226, 232, 240))
+    let colCC = if mCC.isSome(): rgb(239, 68, 68) else: rgb(52, 211, 153)
+    drawRectOutline(aabbCircle.x, aabbCircle.y, aabbCircle.w, aabbCircle.h, 1.2, rgb(71, 85, 105))
+    drawCircleOutline(posC1.x, posC1.y, cCircle.circleRadius, 3.0, rgb(56, 189, 248))
+    drawCircleOutline(posC2.x, posC2.y, cCircle.circleRadius, 3.0, colCC)
+    drawManifoldGizmo(mCC, 64.0, 356.0)
+
+    // Quadrant 2: Circle-OBB SAT Manifold & Rotated AABB
+    drawRect(656.0, 110.0, 580.0, 276.0, rgb(14, 20, 36))
+    drawRectOutline(656.0, 110.0, 580.0, 276.0, 1.5, rgb(51, 65, 85))
+    drawText("2. testCircleBoxSAT (Rotated OBB + Tight AABB)", 676.0, 124.0, 16.0, rgb(226, 232, 240))
+    let colCB = if mCB.isSome(): rgb(239, 68, 68) else: rgb(52, 211, 153)
+    drawRectOutline(aabbCB.x, aabbCB.y, aabbCB.w, aabbCB.h, 1.2, rgb(71, 85, 105))
+    drawRotatedObbOutline(posCB_Box, cBox.boxHalfExtents, obbAng, rgb(56, 189, 248), 2.8)
+    drawCircleOutline(posCB_Cir.x, posCB_Cir.y, cCircle.circleRadius, 3.0, colCB)
+    drawManifoldGizmo(mCB, 676.0, 356.0)
+
+    // Quadrant 3: Rotated OBB-OBB SAT Manifold
+    drawRect(44.0, 408.0, 580.0, 280.0, rgb(14, 20, 36))
+    drawRectOutline(44.0, 408.0, 580.0, 280.0, 1.5, rgb(51, 65, 85))
+    drawText("3. testBoxBoxSAT (Rotated OBB vs OBB Separating Axes)", 64.0, 422.0, 16.0, rgb(226, 232, 240))
+    let colBB = if mBB.isSome(): rgb(239, 68, 68) else: rgb(52, 211, 153)
+    drawRectOutline(aabbBB2.x, aabbBB2.y, aabbBB2.w, aabbBB2.h, 1.2, rgb(71, 85, 105))
+    drawRotatedObbOutline(posBB1, cBox.boxHalfExtents, 0.25, rgb(56, 189, 248), 2.8)
+    drawRotatedObbOutline(posBB2, cBox.boxHalfExtents, -obbAng, colBB, 2.8)
+    drawManifoldGizmo(mBB, 64.0, 658.0)
+
+    // Quadrant 4: Convex Polygon GJK/EPA Manifold
+    drawRect(656.0, 408.0, 580.0, 280.0, rgb(14, 20, 36))
+    drawRectOutline(656.0, 408.0, 580.0, 280.0, 1.5, rgb(51, 65, 85))
+    drawText("4. testGjkEpa2D (Convex Polygon Minimum Translation Vector)", 676.0, 422.0, 16.0, rgb(226, 232, 240))
+    let colPoly = if mPoly.isSome(): rgb(239, 68, 68) else: rgb(52, 211, 153)
+    drawTriangle(poly1Verts[0].x, poly1Verts[0].y, poly1Verts[1].x, poly1Verts[1].y, poly1Verts[2].x, poly1Verts[2].y, rgb(30, 58, 138))
+    drawTriangle(poly2Verts[0].x, poly2Verts[0].y, poly2Verts[1].x, poly2Verts[1].y, poly2Verts[2].x, poly2Verts[2].y, colPoly)
+    drawManifoldGizmo(mPoly, 676.0, 658.0)
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

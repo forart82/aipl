@@ -1,0 +1,289 @@
+// Generated function test suite for std/audio/audio_dsp.aipl (19 functions)
+module tests.functions.audio.audio_dsp_test
+
+import * from "std/audio/audio_dsp"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { absFloat, clampFloat, maxFloat, maxInt, floor } from "std/math/consts"
+import { sin, tan, sqrt, pow, expFloat } from "std/math/trig"
+
+pub fn test_audio_dsp_createBiquadLowPass_1(): int:
+  let arg_sampleRate = 2.0
+  let edge_sampleRate = 1.0
+  let arg_cutoffHz = 2.0
+  let edge_cutoffHz = 1.0
+  let arg_q = 1.0
+  let edge_q = 0.5
+  let resNom = createBiquadLowPass(arg_sampleRate, arg_cutoffHz, arg_q)
+  let resEdge = createBiquadLowPass(edge_sampleRate, edge_cutoffHz, edge_q)
+  assertEqInt(resNom.filterType, 0, "createBiquadLowPass nominal resNom.filterType == 0")
+  assertEqInt(resEdge.filterType, 0, "createBiquadLowPass boundary resEdge.filterType == 0")
+  ret 0
+
+pub fn test_audio_dsp_createBiquadHighPass_2(): int:
+  let arg_sampleRate = 2.0
+  let edge_sampleRate = 1.0
+  let arg_cutoffHz = 2.0
+  let edge_cutoffHz = 1.0
+  let arg_q = 1.0
+  let edge_q = 0.5
+  let resNom = createBiquadHighPass(arg_sampleRate, arg_cutoffHz, arg_q)
+  let resEdge = createBiquadHighPass(edge_sampleRate, edge_cutoffHz, edge_q)
+  assertEqInt(resNom.filterType, 1, "createBiquadHighPass nominal resNom.filterType == 1")
+  assertEqInt(resEdge.filterType, 1, "createBiquadHighPass boundary resEdge.filterType == 1")
+  ret 0
+
+pub fn test_audio_dsp_processBiquadSample_3(): int:
+  let arg_filter = BiquadFilter(filterType = 1, b0 = 1.0, b1 = 1.0, b2 = 1.0, a1 = 1.0, a2 = 1.0, x1 = 1.0, x2 = 1.0, y1 = 1.0, y2 = 1.0)
+  let edge_filter = BiquadFilter(filterType = 0, b0 = 0.5, b1 = 0.5, b2 = 0.5, a1 = 0.5, a2 = 0.5, x1 = 0.5, x2 = 0.5, y1 = 0.5, y2 = 0.5)
+  let arg_sample = 1.0
+  let edge_sample = 0.5
+  let resNom = processBiquadSample(arg_filter, arg_sample)
+  let resEdge = processBiquadSample(edge_filter, edge_sample)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.filterType, 1, "processBiquadSample nominal n_t0.filterType == 1")
+  assertEqInt(e_t0.filterType, 0, "processBiquadSample boundary e_t0.filterType == 0")
+  ret 0
+
+pub fn test_audio_dsp_createSchroederReverb_4(): int:
+  let arg_sampleRate = 4
+  let edge_sampleRate = 1
+  let arg_roomSize = 1.0
+  let edge_roomSize = 0.5
+  let arg_damp = 1.0
+  let edge_damp = 0.5
+  let resNom = createSchroederReverb(arg_sampleRate, arg_roomSize, arg_damp)
+  let resEdge = createSchroederReverb(edge_sampleRate, edge_roomSize, edge_damp)
+  assertEqInt(resNom.combDelays.len(), 4, "createSchroederReverb nominal resNom.combDelays.len() == 4")
+  assertEqInt(resEdge.combDelays.len(), 4, "createSchroederReverb boundary resEdge.combDelays.len() == 4")
+  ret 0
+
+pub fn test_audio_dsp_processReverbBlock_5(): int:
+  let arg_reverb = SchroederReverb(combDelays = [], allpassDelays = [], combBuffers = [], allpassBuffers = [], feedback = 1.0, wetDry = 2.0)
+  let edge_reverb = SchroederReverb(combDelays = [], allpassDelays = [], combBuffers = [], allpassBuffers = [], feedback = 0.5, wetDry = 1.0)
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let resNom = processReverbBlock(arg_reverb, arg_samples)
+  let resEdge = processReverbBlock(edge_reverb, edge_samples)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.combDelays.len(), 0, "processReverbBlock nominal n_t0.combDelays.len() == 0")
+  assertEqInt(e_t0.combDelays.len(), 0, "processReverbBlock boundary e_t0.combDelays.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_absFloatDsp_6(): int:
+  let arg_v = 1.0
+  let edge_v = 0.5
+  let resNom = absFloatDsp(arg_v)
+  let resEdge = absFloatDsp(edge_v)
+  assertApproxEq(resNom, 1.0, 0.001, "absFloatDsp nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "absFloatDsp boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_audio_dsp_applyDynamicCompression_7(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let arg_config = CompressorConfig(thresholdDb = 2.0, ratio = 1.0, attackMs = 1.0, releaseMs = 1.0, makeupGainDb = 1.0)
+  let edge_config = CompressorConfig(thresholdDb = 1.0, ratio = 0.5, attackMs = 0.5, releaseMs = 0.5, makeupGainDb = 0.5)
+  let arg_sampleRate = 2.0
+  let edge_sampleRate = 1.0
+  let resNom = applyDynamicCompression(arg_samples, arg_config, arg_sampleRate)
+  let resEdge = applyDynamicCompression(edge_samples, edge_config, edge_sampleRate)
+  assertEqInt(resNom.len(), 1, "applyDynamicCompression nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "applyDynamicCompression boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_pcmApplyEcho_8(): int:
+  let arg_samples = [4]
+  let edge_samples = []
+  let arg_delaySamples = 4
+  let edge_delaySamples = 1
+  let arg_decay = 1.0
+  let edge_decay = 0.5
+  let resNom = pcmApplyEcho(arg_samples, arg_delaySamples, arg_decay)
+  let resEdge = pcmApplyEcho(edge_samples, edge_delaySamples, edge_decay)
+  assertEqInt(resNom.len(), 1, "pcmApplyEcho nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "pcmApplyEcho boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_pcmLowPassFilter_9(): int:
+  let arg_samples = [4]
+  let edge_samples = []
+  let arg_alpha = 2.0
+  let edge_alpha = 1.0
+  let resNom = pcmLowPassFilter(arg_samples, arg_alpha)
+  let resEdge = pcmLowPassFilter(edge_samples, edge_alpha)
+  assertEqInt(resNom.len(), 1, "pcmLowPassFilter nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "pcmLowPassFilter boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_pcmComputeRms_10(): int:
+  let arg_samples = [4]
+  let edge_samples = []
+  let resNom = pcmComputeRms(arg_samples)
+  let resEdge = pcmComputeRms(edge_samples)
+  assertApproxEq(resNom, 4.0, 0.001, "pcmComputeRms nominal resNom ~= 4.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "pcmComputeRms boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_audio_dsp_svfNew_11(): int:
+  let arg_cutoffHz = 2.0
+  let edge_cutoffHz = 1.0
+  let arg_q = 1.0
+  let edge_q = 0.5
+  let arg_sampleRate = 4
+  let edge_sampleRate = 1
+  let resNom = svfNew(arg_cutoffHz, arg_q, arg_sampleRate)
+  let resEdge = svfNew(edge_cutoffHz, edge_q, edge_sampleRate)
+  assertApproxEq(resNom.ic1eq, 0.0, 0.001, "svfNew nominal resNom.ic1eq ~= 0.0")
+  assertApproxEq(resEdge.ic1eq, 0.0, 0.001, "svfNew boundary resEdge.ic1eq ~= 0.0")
+  ret 0
+
+pub fn test_audio_dsp_fxApplySvf_12(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let arg_filterMode = "test"
+  let edge_filterMode = "a"
+  let arg_cutoffHz = 2.0
+  let edge_cutoffHz = 1.0
+  let arg_q = 1.0
+  let edge_q = 0.5
+  let arg_sampleRate = 4
+  let edge_sampleRate = 1
+  let resNom = fxApplySvf(arg_samples, arg_filterMode, arg_cutoffHz, arg_q, arg_sampleRate)
+  let resEdge = fxApplySvf(edge_samples, edge_filterMode, edge_cutoffHz, edge_q, edge_sampleRate)
+  assertEqInt(resNom.len(), 1, "fxApplySvf nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "fxApplySvf boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_fxApplyPhaser_13(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let arg_lfoRateHz = 2.0
+  let edge_lfoRateHz = 1.0
+  let arg_depth = 2.0
+  let edge_depth = 1.0
+  let arg_feedback = 1.0
+  let edge_feedback = 0.5
+  let arg_mix = 1.0
+  let edge_mix = 0.5
+  let arg_sampleRate = 4
+  let edge_sampleRate = 1
+  let resNom = fxApplyPhaser(arg_samples, arg_lfoRateHz, arg_depth, arg_feedback, arg_mix, arg_sampleRate)
+  let resEdge = fxApplyPhaser(edge_samples, edge_lfoRateHz, edge_depth, edge_feedback, edge_mix, edge_sampleRate)
+  assertEqInt(resNom.len(), 1, "fxApplyPhaser nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "fxApplyPhaser boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_fxApplyModulatedDelay_14(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let arg_baseDelayMs = 1.0
+  let edge_baseDelayMs = 0.5
+  let arg_modDepthMs = 2.0
+  let edge_modDepthMs = 1.0
+  let arg_modRateHz = 2.0
+  let edge_modRateHz = 1.0
+  let arg_feedback = 1.0
+  let edge_feedback = 0.5
+  let arg_mix = 1.0
+  let edge_mix = 0.5
+  let arg_sampleRate = 4
+  let edge_sampleRate = 1
+  let resNom = fxApplyModulatedDelay(arg_samples, arg_baseDelayMs, arg_modDepthMs, arg_modRateHz, arg_feedback, arg_mix, arg_sampleRate)
+  let resEdge = fxApplyModulatedDelay(edge_samples, edge_baseDelayMs, edge_modDepthMs, edge_modRateHz, edge_feedback, edge_mix, edge_sampleRate)
+  assertEqInt(resNom.len(), 1, "fxApplyModulatedDelay nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "fxApplyModulatedDelay boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_fxApplyFreeverb_15(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let arg_roomSize = 1.0
+  let edge_roomSize = 0.5
+  let arg_damping = 1.0
+  let edge_damping = 0.5
+  let arg_wetMix = 2.0
+  let edge_wetMix = 1.0
+  let resNom = fxApplyFreeverb(arg_samples, arg_roomSize, arg_damping, arg_wetMix)
+  let resEdge = fxApplyFreeverb(edge_samples, edge_roomSize, edge_damping, edge_wetMix)
+  assertEqInt(resNom.len(), 1, "fxApplyFreeverb nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "fxApplyFreeverb boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_fxApplyCompressor_16(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let arg_thresholdLin = 2.0
+  let edge_thresholdLin = 1.0
+  let arg_ratio = 1.0
+  let edge_ratio = 0.5
+  let arg_attackMs = 1.0
+  let edge_attackMs = 0.5
+  let arg_releaseMs = 1.0
+  let edge_releaseMs = 0.5
+  let arg_makeupGain = 1.0
+  let edge_makeupGain = 0.5
+  let arg_sampleRate = 4
+  let edge_sampleRate = 1
+  let resNom = fxApplyCompressor(arg_samples, arg_thresholdLin, arg_ratio, arg_attackMs, arg_releaseMs, arg_makeupGain, arg_sampleRate)
+  let resEdge = fxApplyCompressor(edge_samples, edge_thresholdLin, edge_ratio, edge_attackMs, edge_releaseMs, edge_makeupGain, edge_sampleRate)
+  assertEqInt(resNom.len(), 1, "fxApplyCompressor nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "fxApplyCompressor boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_pcmApplyEchoFloat_17(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let arg_delaySamples = 4
+  let edge_delaySamples = 1
+  let arg_decay = 1.0
+  let edge_decay = 0.5
+  let resNom = pcmApplyEchoFloat(arg_samples, arg_delaySamples, arg_decay)
+  let resEdge = pcmApplyEchoFloat(edge_samples, edge_delaySamples, edge_decay)
+  assertEqInt(resNom.len(), 1, "pcmApplyEchoFloat nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "pcmApplyEchoFloat boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_pcmLowPassFilterFloat_18(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let arg_alpha = 2.0
+  let edge_alpha = 1.0
+  let resNom = pcmLowPassFilterFloat(arg_samples, arg_alpha)
+  let resEdge = pcmLowPassFilterFloat(edge_samples, edge_alpha)
+  assertEqInt(resNom.len(), 1, "pcmLowPassFilterFloat nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "pcmLowPassFilterFloat boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_audio_dsp_pcmComputeRmsFloat_19(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let resNom = pcmComputeRmsFloat(arg_samples)
+  let resEdge = pcmComputeRmsFloat(edge_samples)
+  assertApproxEq(resNom, 1.0, 0.001, "pcmComputeRmsFloat nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "pcmComputeRmsFloat boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn main(): int:
+  test_audio_dsp_createBiquadLowPass_1()
+  test_audio_dsp_createBiquadHighPass_2()
+  test_audio_dsp_processBiquadSample_3()
+  test_audio_dsp_createSchroederReverb_4()
+  test_audio_dsp_processReverbBlock_5()
+  test_audio_dsp_absFloatDsp_6()
+  test_audio_dsp_applyDynamicCompression_7()
+  test_audio_dsp_pcmApplyEcho_8()
+  test_audio_dsp_pcmLowPassFilter_9()
+  test_audio_dsp_pcmComputeRms_10()
+  test_audio_dsp_svfNew_11()
+  test_audio_dsp_fxApplySvf_12()
+  test_audio_dsp_fxApplyPhaser_13()
+  test_audio_dsp_fxApplyModulatedDelay_14()
+  test_audio_dsp_fxApplyFreeverb_15()
+  test_audio_dsp_fxApplyCompressor_16()
+  test_audio_dsp_pcmApplyEchoFloat_17()
+  test_audio_dsp_pcmLowPassFilterFloat_18()
+  test_audio_dsp_pcmComputeRmsFloat_19()
+  println("PASS: tests/functions/audio/audio_dsp_test.aipl")
+  ret 0

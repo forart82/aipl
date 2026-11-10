@@ -1,0 +1,78 @@
+// ============================================================================
+// Example 019: Runtime Array Capacity Growth & Robin-Hood Map Rehash CLI
+// Demonstrates: rtArrayNew, rtArrayEnsureCap, rtArrayPush, rtArrayGet,
+//               rtArrayFree from std/rt/rt_array, and rtMapNew, rtMapSet,
+//               rtMapSize, rtHashMapNew, rtMapInsert, rtMapRehash, rtMapFind,
+//               rtMapFree from std/rt/rt_map.
+// ============================================================================
+module Ex019RtArrayAndMapGrowthCli
+
+import { maxInt } from "../std/prelude"
+import {
+  rtArrayNew,
+  rtArrayEnsureCap,
+  rtArrayPush,
+  rtArrayGet,
+  rtArrayFree
+} from "../std/rt/rt_array"
+import {
+  rtMapNew,
+  rtMapSet,
+  rtMapSize,
+  rtHashMapNew,
+  rtMapInsert,
+  rtMapFind,
+  rtMapRehash,
+  rtMapFree
+} from "../std/rt/rt_map"
+
+pub struct RtGrowthReport:
+  arraySum: int
+  mapSize: int
+  rehashedVal: int
+  statusTag: str
+
+pub fn populateRtArraySum(a: int, b: int, c: int): int:
+  mut arr = rtArrayNew(2, 8)
+  rtArrayEnsureCap(arr, 8)
+  let _ = rtArrayPush(arr, a)
+  let _ = rtArrayPush(arr, b)
+  let _ = rtArrayPush(arr, c)
+  let total = rtArrayGet(arr, 0) + rtArrayGet(arr, 1) + rtArrayGet(arr, 2)
+  rtArrayFree(arr)
+  ret total
+
+pub fn verifyRtMapRehashLookup(hashCode: int, keyId: int, val: int): int:
+  mut hm = rtHashMapNew(8)
+  let _ = rtMapInsert(hm, hashCode, keyId, val)
+  rtMapRehash(hm, 16)
+  let found = rtMapFind(hm, hashCode, keyId)
+  rtMapFree(hm)
+  ret found
+
+pub fn describeGrowthFactor(oldCap: int, newCap: int): str:
+  let ratio = newCap / maxInt(oldCap, 1)
+  if ratio >= 4:
+    ret "GROWTH:QUAD_4X"
+  elif ratio >= 2:
+    ret "GROWTH:DOUBLE_2X"
+  else:
+    ret "GROWTH:STEADY"
+
+pub fn buildRtGrowthReport(a: int, b: int, c: int): RtGrowthReport:
+  mut m = rtMapNew(8)
+  rtMapSet(m, "alpha", a)
+  rtMapSet(m, "beta", b)
+  let sz = rtMapSize(m)
+  ret RtGrowthReport(
+    arraySum = populateRtArraySum(a, b, c),
+    mapSize = sz,
+    rehashedVal = verifyRtMapRehashLookup(12345, 1001, 5001),
+    statusTag = describeGrowthFactor(8, 16)
+  )
+
+pub fn main(): int:
+  let rep = buildRtGrowthReport(10, 20, 30)
+  println("[ex_019_rt_array_and_map_growth_cli] RtGrowthReport(arraySum=" + str(rep.arraySum) + ", mapSize=" + str(rep.mapSize) + ", rehashedVal=" + str(rep.rehashedVal) + ")")
+  println("[ex_019_rt_array_and_map_growth_cli] status=" + rep.statusTag)
+  ret 0

@@ -1,0 +1,101 @@
+module Ex194UiImuiImmediateModeInspectorWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import { Rect } from "../std/math/geom2d"
+import { AuraRect } from "../std/ui/ui_layout"
+import {
+  ImUiContext, beginImUiFrame, imuiButton,
+  auraThemeDark, auraContextNew, auraPointInRect,
+  auraDrawCardSimple, auraDrawButtonSimple,
+  auraSegmentedButton, auraCheckbox, auraSwitch
+} from "../std/ui/ui_imui"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepImUiCursorPos(frame: int): Vec2:
+  ret Vec2(
+    x = 120.0 + float((frame * 17) % 1020),
+    y = 190.0 + float((frame * 9) % 440)
+  )
+
+pub fn buildUiImuiInspectorAudit(): int:
+  let ctx0 = ImUiContext(hotId = 0, activeId = 1, mousePos = Vec2(x = 0.0, y = 0.0), isMouseDown = false)
+  let ctx = beginImUiFrame(ctx0, Vec2(x = 25.0, y = 25.0), false)
+  let hit = imuiButton(ctx, 1, Rect(x = 10.0, y = 10.0, w = 80.0, h = 30.0), "Inspect")
+  let th = auraThemeDark()
+  let auraCtx = auraContextNew(th)
+  let inBox = auraPointInRect(50.0, 50.0, AuraRect(x = 10.0, y = 10.0, w = 100.0, h = 100.0))
+  ret int(ctx.mousePos.x) + (if hit: 1 else: 0) + (if auraCtx.theme.name == "dark": 1 else: 0) + (if inBox: 1 else: 0)
+
+pub fn main(): int:
+  let auditScore = buildUiImuiInspectorAudit()
+  let th = auraThemeDark()
+  let auraCtx = auraContextNew(th)
+
+  initWindow(1280, 720, "AIPL ex_194: Immediate-Mode UI (IMUI) Developer Inspector")
+  mut frame = 0
+  while not windowShouldClose():
+    let simMouse = stepImUiCursorPos(frame)
+    let simMouseX = simMouse.x
+    let simMouseY = simMouse.y
+    let isDown = frame % 24 < 12
+    let imCtx = beginImUiFrame(
+      ImUiContext(hotId = 0, activeId = 10 + ((frame / 18) % 7), mousePos = Vec2(x = 0.0, y = 0.0), isMouseDown = false),
+      simMouse,
+      isDown
+    )
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_194: IMMEDIATE-MODE UI (IMUI) ENTITY & SHADER INSPECTOR", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("theme=" + auraCtx.theme.name + " | mouse=(" + str(int(simMouseX)) + "," + str(int(simMouseY)) + ") | activeId=" + str(imCtx.activeId) + " | down=" + str(imCtx.isMouseDown) + " | audit=" + str(auditScore), 52.0, 66.0, 15.0, rgb(125, 211, 252))
+
+    // Left Hierarchy Outliner Card
+    auraDrawCardSimple(AuraRect(x = 60.0, y = 116.0, w = 360.0, h = 564.0), "Scene Outliner (IMUI)", th)
+    mut n = 0
+    while n < 7:
+      let ry = 172.0 + float(n) * 68.0
+      let rBtn = Rect(x = 84.0, y = ry, w = 312.0, h = 50.0)
+      let isHit = imuiButton(imCtx, 10 + n, rBtn, "Entity_" + str(n)) or (imCtx.activeId == 10 + n)
+      let _drawn = auraDrawButtonSimple(AuraRect(x = rBtn.x, y = rBtn.y, w = rBtn.w, h = rBtn.h), "Entity_0" + str(n) + " [Transform3D + Mesh]", th, isHit)
+      n = n + 1
+
+    // Right Property Inspector Card
+    auraDrawCardSimple(AuraRect(x = 450.0, y = 116.0, w = 770.0, h = 564.0), "Live Component Property Inspector", th)
+    let activeMode = (frame / 25) % 3
+    let _seg = auraSegmentedButton(auraCtx, "shd_mode", AuraRect(x = 480.0, y = 166.0, w = 420.0, h = 34.0), ["Wireframe", "PBR Shaded", "Normals"], activeMode)
+    let _cb = auraCheckbox(auraCtx, "cast_shd", 924.0, 173.0, "Cast Shadows", (frame / 20) % 2 == 0)
+    let _sw = auraSwitch(auraCtx, "bloom_hdr", 1076.0, 171.0, "HDR", (frame / 15) % 2 == 0)
+
+    mut p = 0
+    while p < 6:
+      let py = 220.0 + float(p) * 72.0
+      let propRect = AuraRect(x = 480.0, y = py, w = 710.0, h = 56.0)
+      let hoveredProp = auraPointInRect(simMouseX, simMouseY, propRect)
+      drawRect(propRect.x, propRect.y, propRect.w, propRect.h, if hoveredProp: rgb(30, 41, 59) else: rgb(17, 24, 39))
+      drawRectOutline(propRect.x, propRect.y, propRect.w, propRect.h, 1.5, if hoveredProp: rgb(250, 204, 21) else: rgb(51, 65, 85))
+      let propName = if p == 0: "roughnessFactor" elif p == 1: "metallicFactor" elif p == 2: "emissiveIntensity" elif p == 3: "clearcoatRoughness" elif p == 4: "normalScale" else: "ambientOcclusion"
+      drawText("Uniform[" + str(p) + "] " + propName, propRect.x + 18.0, propRect.y + 19.0, 16.0, rgb(226, 232, 240))
+      let phaseVal = 0.2 + 0.75 * (0.5 + 0.5 * sin(float(frame) * 0.06 + float(p) * 0.9))
+      let barW = phaseVal * 260.0
+      drawRect(propRect.x + 360.0, propRect.y + 15.0, 260.0, 26.0, rgb(11, 17, 30))
+      drawRect(propRect.x + 360.0, propRect.y + 15.0, barW, 26.0, if hoveredProp: rgb(250, 204, 21) else: rgb(56, 189, 248))
+      drawRectOutline(propRect.x + 360.0, propRect.y + 15.0, 260.0, 26.0, 1.0, rgb(100, 116, 139))
+      drawText(str(int(phaseVal * 100.0)) + "%", propRect.x + 634.0, propRect.y + 19.0, 15.0, rgb(125, 211, 252))
+      p = p + 1
+
+    // Simulated cursor indicator
+    drawCircle(simMouseX, simMouseY, 7.0, rgb(250, 204, 21))
+    drawCircleOutline(simMouseX, simMouseY, 12.0, 2.0, if isDown: rgb(244, 63, 94) else: rgb(56, 189, 248))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

@@ -1,0 +1,62 @@
+// ============================================================================
+// Example 073: RFC-4180 CSV & TSV Columnar Analytics (CLI)
+// Demonstrates: parseCsv, serializeCsv, parseCsvRecords, stringifyCsvRecords,
+//               csvColumnValues, parseTsv, stringifyTsv, CsvReader, and
+//               CsvOptions from std/encoding.
+// ============================================================================
+module Ex073EncodingCsvAnalyticsCli
+
+import {
+  parseCsv,
+  serializeCsv,
+  parseCsvRecords,
+  stringifyCsvRecords,
+  csvColumnValues,
+  parseTsv,
+  stringifyTsv,
+  CsvReader,
+  CsvOptions
+} from "../std/encoding"
+
+// Parses an RFC-4180 CSV table (including quoted commas), extracts records and column vectors.
+pub fn evaluateCsvRowAndRecordCounts(): int:
+  let rawCsv = "name,score\nAlice,100\n\"Bob, Jr.\",95\n"
+  let rows = parseCsv(rawCsv, ",").unwrap()
+  let recs = parseCsvRecords(rawCsv)
+  let col0 = csvColumnValues(rows, 0)
+  assert(rows[1][0] == "Alice", "first data row is Alice")
+  assert(stringifyCsvRecords(recs, ["name", "score"]).contains("Alice,100"), "stringifyCsvRecords roundtrip")
+  ret rows.len + recs.len + col0.len
+
+// Verifies CSV serialization, TSV parsing/serialization, and streaming CsvReader row cursoring.
+pub fn verifyCsvAndTsvRoundTrip(): int:
+  let rawCsv = "name,score\nAlice,100\n"
+  let rows = parseCsv(rawCsv, ",").unwrap()
+  let csvOut = serializeCsv(rows, ",")
+
+  let rawTsv = "metric\tval\nlatency\t12\n"
+  let tsvRows = parseTsv(rawTsv)
+  let tsvOut = stringifyTsv(tsvRows)
+
+  mut reader = CsvReader(
+    text = rawCsv,
+    cursor = 0,
+    options = CsvOptions(delimiter = ",", quote = "\"", hasHeader = false, trimWhitespace = false)
+  )
+  let firstRow = reader.readRow().unwrap()
+  if csvOut.contains("Alice,100") and tsvOut.contains("latency\t12") and firstRow[0] == "name":
+    ret 1
+  ret 0
+
+// Identifies the active tabular delimiter dialect.
+pub fn describeCsvDialectMode(delim: str): str:
+  if delim == ",":
+    ret "CSV:RFC4180_COMMA_QUOTED"
+  ret "TSV:TAB_SEPARATED_STREAM"
+
+pub fn main(): int:
+  let countMetric = evaluateCsvRowAndRecordCounts()
+  let roundTripOk = verifyCsvAndTsvRoundTrip()
+  let dialect = describeCsvDialectMode(",")
+  println("ex_073_encoding_csv_analytics_cli: countMetric=" + str(countMetric) + " roundTripOk=" + str(roundTripOk) + " dialect=" + dialect)
+  ret 0

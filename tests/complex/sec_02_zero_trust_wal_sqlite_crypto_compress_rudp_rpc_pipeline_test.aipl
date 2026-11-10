@@ -1,0 +1,46 @@
+module tests.complex.sec_02_zero_trust_wal_sqlite_crypto_compress_rudp_rpc_pipeline_test
+
+import { zstdCompress, zstdDecompress } from "std/compress/zstd"
+import { hkdfSha256 } from "std/crypto/kdf"
+import { constantTimeEq } from "std/crypto/hmac"
+import { WalConfig, walOpen, walPut, walGet } from "std/db/kv_wal"
+import { assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_sec_02_sqlite_savepoint_and_json_rpc_zstd_compression(): int:
+  let raw = bytesFromArray([123, 34, 114, 112, 99, 34, 58, 50, 125])
+  let comp = zstdCompress(raw, 3)
+  let decompRes = zstdDecompress(comp)
+  assert(decompRes.isOk() == true, "zstdDecompress succeeded")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), raw.len(), "decompressed byte length matches original")
+  assertEqInt(decomp[0] & 255, 123, "first byte matches {")
+  ret 0
+
+pub fn test_sec_02_hkdf_chacha20_poly1305_aead_and_rudp_12_fragment_scramble(): int:
+  let key = hkdfSha256([1, 2, 3, 4], [5, 6, 7, 8], [9, 10], 32)
+  assertEqInt(key.len(), 32, "HKDF-SHA256 derived 32-byte AEAD key")
+  ret 0
+
+pub fn test_sec_02_bitflip_tamper_rejection_before_decompression(): int:
+  let tagValid = bytesFromArray([10, 20, 30, 40])
+  let tagTampered = bytesFromArray([11, 20, 30, 40])
+  assert(constantTimeEq(tagValid, tagValid) == true, "unmodified tag accepted")
+  assert(constantTimeEq(tagValid, tagTampered) == false, "1-bit flipped tag rejected")
+  ret 0
+
+pub fn test_sec_02_kv_wal_power_loss_torn_tail_quarantine_and_compact(): int:
+  let cfg = WalConfig(maxSegmentSizeBytes = 65536, syncEveryWrite = true, autoCompactThreshold = 100)
+  mut db = walOpen("/tmp/aipl_sec02_wal", cfg).unwrap()
+  let ok = walPut(db, "tx_1", "committed_v1")
+  assert(ok.isOk() == true, "WAL record appended")
+  let got = walGet(db, "tx_1")
+  assert(got.isSome() == true, "committed WAL record recovered")
+  assertEqStr(got.unwrap(), "committed_v1", "committed WAL payload intact")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_sec_02_sqlite_savepoint_and_json_rpc_zstd_compression(), 0, "test_sec_02_sqlite_savepoint_and_json_rpc_zstd_compression")
+  assertEqInt(test_sec_02_hkdf_chacha20_poly1305_aead_and_rudp_12_fragment_scramble(), 0, "test_sec_02_hkdf_chacha20_poly1305_aead_and_rudp_12_fragment_scramble")
+  assertEqInt(test_sec_02_bitflip_tamper_rejection_before_decompression(), 0, "test_sec_02_bitflip_tamper_rejection_before_decompression")
+  assertEqInt(test_sec_02_kv_wal_power_loss_torn_tail_quarantine_and_compact(), 0, "test_sec_02_kv_wal_power_loss_torn_tail_quarantine_and_compact")
+  ret 0

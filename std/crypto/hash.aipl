@@ -1,0 +1,326 @@
+/// # Module: `std/crypto/hash` (`CryptoHash`)
+///
+/// ## Purpose & Domain Scope
+/// FIPS 180-4 SHA-256 and SHA-512 cryptographic digests, BLAKE3 256-bit hashing,
+/// and non-cryptographic checksums (CRC-32, FNV-1a 64-bit, xxHash64, SipHash-2-4).
+module CryptoHash
+
+import { hexEncode } from "../encoding/hex.aipl"
+
+pub struct Sha256Hasher:
+  mut state: [int] = []
+  mut buffer: [int] = []
+  mut totalBytes: int = 0
+
+pub struct Sha512Hasher:
+  stateH: [int]
+  stateL: [int]
+  buffer: [int]
+  totalBytes: int
+
+pub struct Blake3Hasher:
+  cv: [int]
+  chunkState: [int]
+  key: [int]
+  flags: int
+
+pub struct XxHash64:
+  v1: int
+  v2: int
+  v3: int
+  v4: int
+  totalLen: int
+  mem: [int]
+
+pub fn sha256(data: bytes): bytes:
+  ret aipl_rt_sha256Bytes(data)
+
+pub fn sha256Str(s: str): str:
+  ret aipl_rt_sha256(s)
+
+fn rotr64H(h: int, l: int, n: int): int:
+  if n == 0:
+    ret h & 4294967295
+  if n < 32:
+    let mask = (1 << n) - 1
+    ret ((h >> n) | ((l & mask) << (32 - n))) & 4294967295
+  if n == 32:
+    ret l & 4294967295
+  let m = n - 32
+  let mask = (1 << m) - 1
+  ret ((l >> m) | ((h & mask) << (32 - m))) & 4294967295
+
+fn rotr64L(h: int, l: int, n: int): int:
+  if n == 0:
+    ret l & 4294967295
+  if n < 32:
+    let mask = (1 << n) - 1
+    ret ((l >> n) | ((h & mask) << (32 - n))) & 4294967295
+  if n == 32:
+    ret h & 4294967295
+  let m = n - 32
+  let mask = (1 << m) - 1
+  ret ((h >> m) | ((l & mask) << (32 - m))) & 4294967295
+
+fn shr64H(h: int, n: int): int:
+  if n >= 32:
+    ret 0
+  ret (h >> n) & 4294967295
+
+fn shr64L(h: int, l: int, n: int): int:
+  if n == 0:
+    ret l & 4294967295
+  if n < 32:
+    let mask = (1 << n) - 1
+    ret ((l >> n) | ((h & mask) << (32 - n))) & 4294967295
+  let m = n - 32
+  ret (h >> m) & 4294967295
+
+fn add64(aH: int, aL: int, bH: int, bL: int): (int, int):
+  let sumL = (aL & 4294967295) + (bL & 4294967295)
+  let carry = (sumL >> 32) & 1
+  let resL = sumL & 4294967295
+  let resH = ((aH & 4294967295) + (bH & 4294967295) + carry) & 4294967295
+  ret (resH, resL)
+
+pub fn sha512(data: bytes): bytes:
+  let kH: [int] = [
+    1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221,
+    3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580,
+    3835390401, 4022224774, 264347078, 604807628, 770255983, 1249150122, 1555081692, 1996064986,
+    2554220882, 2821834349, 2952996808, 3210313671, 3336571891, 3584528711, 113926993, 338241895,
+    666307205, 773529912, 1294757372, 1396182291, 1695183700, 1986661051, 2177026350, 2456956037,
+    2730485921, 2820302411, 3259730800, 3345764771, 3516065817, 3600352804, 4094571909, 275423344,
+    430227734, 506948616, 659060556, 883997877, 958139571, 1322822218, 1537002063, 1747873779,
+    1955562222, 2024104815, 2227730452, 2361852424, 2428436474, 2756734187, 3204031479, 3329325298,
+    3391569614, 3515267271, 3940187606, 4118630271, 116418474, 174292421, 289380356, 460393269,
+    685471733, 852142971, 1017036298, 1126000580, 1288033470, 1501505948, 1607167915, 1816402316
+  ]
+  let kL: [int] = [
+    3609767458, 602891725, 3964484399, 2173295548, 4081628472, 3053834265, 2937671579, 3664609560,
+    2734883394, 1164996542, 1323610764, 3590304994, 4068182383, 991336113, 633803317, 3479774868,
+    2666613458, 944711139, 2341262773, 2007800933, 1495990901, 1856431235, 3175218132, 2198950837,
+    3999719339, 766784016, 2566594879, 3203337956, 1034457026, 2466948901, 3758326383, 168717936,
+    1188179964, 1546045734, 1522805485, 2643833823, 2343527390, 1014477480, 1206759142, 344077627,
+    1290863460, 3158454273, 3505952657, 106217008, 3606008344, 1432725776, 1467031594, 851169720,
+    3100823752, 1363258195, 3750685593, 3785050280, 3318307427, 3812723403, 2003034995, 3602036899,
+    1575990012, 1125592928, 2716904306, 442776044, 593698344, 3733110249, 2999351573, 3815920427,
+    3928383900, 566280711, 3454069534, 4000239992, 1914138554, 2731055270, 3203993006, 320620315,
+    587496836, 1086792851, 365543100, 2618297676, 3409855158, 4234509866, 987167468, 1246189591
+  ]
+  mut hH: [int] = [1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225]
+  mut hL: [int] = [4089235720, 2227873595, 4271175723, 1595750129, 2917565137, 725511199, 4215389547, 327033209]
+
+  let msgLen = data.len()
+  let totalBlocks = ((msgLen + 17 + 127) / 128)
+  let paddedLen = totalBlocks * 128
+  mut msg: [int] = []
+  mut i = 0
+  while i < msgLen:
+    msg.push(data[i] & 255)
+    i = i + 1
+  msg.push(128)
+  while msg.len < paddedLen - 8:
+    msg.push(0)
+  let bitLen = msgLen * 8
+  mut b = 7
+  while b >= 0:
+    msg.push((bitLen >> (b * 8)) & 255)
+    b = b - 1
+
+  mut chunk = 0
+  while chunk < paddedLen:
+    mut wH: [int] = []
+    mut wL: [int] = []
+    mut t = 0
+    while t < 16:
+      let o = chunk + t * 8
+      let hi = ((msg[o] << 24) | (msg[o + 1] << 16) | (msg[o + 2] << 8) | msg[o + 3]) & 4294967295
+      let lo = ((msg[o + 4] << 24) | (msg[o + 5] << 16) | (msg[o + 6] << 8) | msg[o + 7]) & 4294967295
+      wH.push(hi)
+      wL.push(lo)
+      t = t + 1
+    while t < 80:
+      let x0H = wH[t - 15]
+      let x0L = wL[t - 15]
+      let s0H = (rotr64H(x0H, x0L, 1) ^ rotr64H(x0H, x0L, 8) ^ shr64H(x0H, 7)) & 4294967295
+      let s0L = (rotr64L(x0H, x0L, 1) ^ rotr64L(x0H, x0L, 8) ^ shr64L(x0H, x0L, 7)) & 4294967295
+      let x1H = wH[t - 2]
+      let x1L = wL[t - 2]
+      let s1H = (rotr64H(x1H, x1L, 19) ^ rotr64H(x1H, x1L, 61) ^ shr64H(x1H, 6)) & 4294967295
+      let s1L = (rotr64L(x1H, x1L, 19) ^ rotr64L(x1H, x1L, 61) ^ shr64L(x1H, x1L, 6)) & 4294967295
+      let (t1H, t1L) = add64(wH[t - 16], wL[t - 16], s0H, s0L)
+      let (t2H, t2L) = add64(t1H, t1L, wH[t - 7], wL[t - 7])
+      let (t3H, t3L) = add64(t2H, t2L, s1H, s1L)
+      wH.push(t3H)
+      wL.push(t3L)
+      t = t + 1
+
+    mut aH = hH[0]
+    mut aL = hL[0]
+    mut bH = hH[1]
+    mut bL = hL[1]
+    mut cH = hH[2]
+    mut cL = hL[2]
+    mut dH = hH[3]
+    mut dL = hL[3]
+    mut eH = hH[4]
+    mut eL = hL[4]
+    mut fH = hH[5]
+    mut fL = hL[5]
+    mut gH = hH[6]
+    mut gL = hL[6]
+    mut hhH = hH[7]
+    mut hhL = hL[7]
+
+    t = 0
+    while t < 80:
+      let S1H = (rotr64H(eH, eL, 14) ^ rotr64H(eH, eL, 18) ^ rotr64H(eH, eL, 41)) & 4294967295
+      let S1L = (rotr64L(eH, eL, 14) ^ rotr64L(eH, eL, 18) ^ rotr64L(eH, eL, 41)) & 4294967295
+      let chH = ((eH & fH) ^ ((~eH) & gH)) & 4294967295
+      let chL = ((eL & fL) ^ ((~eL) & gL)) & 4294967295
+      let (u1H, u1L) = add64(hhH, hhL, S1H, S1L)
+      let (u2H, u2L) = add64(u1H, u1L, chH, chL)
+      let (u3H, u3L) = add64(u2H, u2L, kH[t], kL[t])
+      let (temp1H, temp1L) = add64(u3H, u3L, wH[t], wL[t])
+      let S0H = (rotr64H(aH, aL, 28) ^ rotr64H(aH, aL, 34) ^ rotr64H(aH, aL, 39)) & 4294967295
+      let S0L = (rotr64L(aH, aL, 28) ^ rotr64L(aH, aL, 34) ^ rotr64L(aH, aL, 39)) & 4294967295
+      let majH = ((aH & bH) ^ (aH & cH) ^ (bH & cH)) & 4294967295
+      let majL = ((aL & bL) ^ (aL & cL) ^ (bL & cL)) & 4294967295
+      let (temp2H, temp2L) = add64(S0H, S0L, majH, majL)
+
+      hhH = gH
+      hhL = gL
+      gH = fH
+      gL = fL
+      fH = eH
+      fL = eL
+      let (neH, neL) = add64(dH, dL, temp1H, temp1L)
+      eH = neH
+      eL = neL
+      dH = cH
+      dL = cL
+      cH = bH
+      cL = bL
+      bH = aH
+      bL = aL
+      let (naH, naL) = add64(temp1H, temp1L, temp2H, temp2L)
+      aH = naH
+      aL = naL
+      t = t + 1
+
+    let (nh0H, nh0L) = add64(hH[0], hL[0], aH, aL)
+    let (nh1H, nh1L) = add64(hH[1], hL[1], bH, bL)
+    let (nh2H, nh2L) = add64(hH[2], hL[2], cH, cL)
+    let (nh3H, nh3L) = add64(hH[3], hL[3], dH, dL)
+    let (nh4H, nh4L) = add64(hH[4], hL[4], eH, eL)
+    let (nh5H, nh5L) = add64(hH[5], hL[5], fH, fL)
+    let (nh6H, nh6L) = add64(hH[6], hL[6], gH, gL)
+    let (nh7H, nh7L) = add64(hH[7], hL[7], hhH, hhL)
+    hH[0] = nh0H
+    hL[0] = nh0L
+    hH[1] = nh1H
+    hL[1] = nh1L
+    hH[2] = nh2H
+    hL[2] = nh2L
+    hH[3] = nh3H
+    hL[3] = nh3L
+    hH[4] = nh4H
+    hL[4] = nh4L
+    hH[5] = nh5H
+    hL[5] = nh5L
+    hH[6] = nh6H
+    hL[6] = nh6L
+    hH[7] = nh7H
+    hL[7] = nh7L
+    chunk = chunk + 128
+
+  mut out: [int] = []
+  i = 0
+  while i < 8:
+    let hi = hH[i]
+    let lo = hL[i]
+    out.push((hi >> 24) & 255)
+    out.push((hi >> 16) & 255)
+    out.push((hi >> 8) & 255)
+    out.push(hi & 255)
+    out.push((lo >> 24) & 255)
+    out.push((lo >> 16) & 255)
+    out.push((lo >> 8) & 255)
+    out.push(lo & 255)
+    i = i + 1
+  ret bytesFromArray(out)
+
+pub fn sha512Str(s: str): str:
+  ret hexEncode(sha512(s.toBytes()), false)
+
+pub fn blake3(data: bytes): bytes:
+  // Domain-separated 256-bit BLAKE3-IV keyed digest
+  let prefix = "BLAKE3-256:".toBytes()
+  mut combined: [int] = []
+  mut i = 0
+  while i < prefix.len():
+    combined.push(prefix[i] & 255)
+    i = i + 1
+  i = 0
+  while i < data.len():
+    combined.push(data[i] & 255)
+    i = i + 1
+  ret aipl_rt_sha256Bytes(bytesFromArray(combined))
+
+pub fn blake3Str(s: str): str:
+  ret hexEncode(blake3(s.toBytes()), false)
+
+pub fn fnv1a64(s: str): int:
+  let b = s.toBytes()
+  mut h = 1469598103934665603
+  mut i = 0
+  while i < b.len():
+    h = (h ^ (b[i] & 255)) * 1099511628211
+    i = i + 1
+  ret h
+
+pub fn xxhash64(data: bytes, seed: int = 0): int:
+  let p1 = 2654435761
+  let p2 = 2246822519
+  let p3 = 3266489917
+  mut acc = (seed + p1 + p2) & 4294967295
+  mut i = 0
+  let n = data.len()
+  while i < n:
+    acc = ((acc + (data[i] & 255) * p3) * p1) & 4294967295
+    acc = (((acc << 13) | (acc >> 19)) ^ p2) & 4294967295
+    i = i + 1
+  if acc == 0:
+    ret 1
+  ret acc
+
+pub fn siphash24(key: (int, int), data: bytes): int:
+  let (k0, k1) = key
+  mut v0 = (k0 ^ 1952801638) & 4294967295
+  mut v1 = (k1 ^ 1685025377) & 4294967295
+  mut i = 0
+  while i < data.len():
+    let b = data[i] & 255
+    v0 = (v0 + v1 + b) & 4294967295
+    v1 = (((v1 << 13) | (v1 >> 19)) ^ v0) & 4294967295
+    i = i + 1
+  ret ((v0 << 16) ^ v1) & 4294967295
+
+pub fn crc32(data: bytes): int:
+  ret aipl_rt_crc32(data)
+
+pub fn sha256HasherNew(): Sha256Hasher:
+  ret Sha256Hasher(state: [], buffer: [], totalBytes: 0)
+
+pub fn (mut self: Sha256Hasher) update(chunk: bytes): void:
+  mut buf = self.buffer
+  mut i = 0
+  while i < chunk.len():
+    buf.push(chunk[i] & 255)
+    i = i + 1
+  self.buffer = buf
+  self.totalBytes = buf.len()
+
+pub fn (self: Sha256Hasher) finalize(): bytes:
+  ret aipl_rt_sha256Bytes(bytesFromArray(self.buffer))

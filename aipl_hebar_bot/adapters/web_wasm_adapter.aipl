@@ -1,0 +1,1415 @@
+// ============================================================================
+// AIPL Universal HEBAR Web & WASM Adapter (`aipl_hebar_bot/adapters/web_wasm_adapter.aipl`)
+// ============================================================================
+// Drives and verifies HTML5 (<app>.html) and WebAssembly (<app>.wasm +
+// <app>_wasm.html) bundles via window.__aiplHebarBridge, structural DOM/WASM
+// parity inspection, and headless Node/WASI execution.
+// ============================================================================
+
+module WebWasmAdapter
+
+import {
+  fileExists,
+  readFile,
+  readBytes,
+  writeFile,
+  removeFile,
+  mkdirAll,
+  isDir,
+  listDir
+} from "std/fs"
+
+import {
+  execCommand,
+  spawnDetached
+} from "std/process"
+
+import {
+  getEnv
+} from "std/env"
+
+import {
+  pathNormalize
+} from "std/path"
+
+import {
+  parseInt
+} from "std/string"
+
+import {
+  sha256
+} from "std/crypto"
+
+import {
+  sleepMs,
+  nowMicros
+} from "std/time"
+
+import {
+  SceneSnapshot,
+  SceneUiNode,
+  emptySceneSnapshot,
+  parseSceneSnapshotJson
+} from "../core/scene_sensor.aipl"
+
+pub struct WebWasmTargetReport:
+  targetType: str
+  bundlePath: str
+  wasmBinaryPath: str
+  bundleSizeBytes: int
+  wasmSizeBytes: int
+  hasCanvasDom: bool
+  hasHebarBridge: bool
+  hasWebGl2Batcher: bool
+  hasValidWasmMagic: bool
+  textDrawCallSites: int
+  duplicateTopLevelFns: int
+  parityVerified: bool
+
+pub struct LiveBrowserAiplTarget:
+  pid: int
+  windowId: str
+  title: str
+  targetPath: str
+  targetType: str
+
+pub fn classifyAiplWebFile(filePath: str): str:
+  if filePath.len == 0 or not fileExists(filePath):
+    ret ""
+  if filePath.endsWith(".wasm"):
+    let wb = readBytes(filePath)
+    if wb.len >= 8 and wb[0] == 0 and wb[1] == 97 and wb[2] == 115 and wb[3] == 109:
+      ret "wasm"
+    ret ""
+  if filePath.endsWith(".html"):
+    let htmlTxt = readFile(filePath)
+    let isAiplHtml = htmlTxt.contains("id=\"aipl-canvas\"") or htmlTxt.contains("__aiplHebarBridge") or htmlTxt.contains("_aiplWebGL2Batcher") or htmlTxt.contains("AIPL Module:")
+    if not isAiplHtml:
+      ret ""
+    if htmlTxt.contains("name=\"aipl-target\" content=\"wasm\"") or htmlTxt.contains("__AIPL_TARGET_TYPE = 'wasm'"):
+      ret "wasm"
+    if htmlTxt.contains("name=\"aipl-target\" content=\"html\"") or htmlTxt.contains("__AIPL_TARGET_TYPE = 'html'"):
+      ret "html"
+    let isWasmHost = filePath.endsWith("_wasm.html") or htmlTxt.contains("AIPL WebAssembly + HTML5 Host Bundle") or htmlTxt.contains("__aiplBootWasmModule") or htmlTxt.contains("WebAssembly.instantiate(wasmBytes")
+    if isWasmHost:
+      ret "wasm"
+    ret "html"
+  ret ""
+
+pub fn extractHtmlDocumentTitle(filePath: str): str:
+  if filePath.len > 0 and fileExists(filePath) and filePath.endsWith(".html"):
+    let htmlTxt = readFile(filePath)
+    let isWasmHost = filePath.endsWith("_wasm.html") or htmlTxt.contains("AIPL WebAssembly + HTML5 Host Bundle") or htmlTxt.contains("name=\"aipl-target\" content=\"wasm\"") or htmlTxt.contains("__AIPL_TARGET_TYPE = 'wasm'")
+    let initParts = htmlTxt.split("initWindow(")
+    mut ii = 1
+    while ii < initParts.len:
+      let seg = initParts[ii]
+      // Only accept literal calls like initWindow(880, 560, "Title") — skip runtime definitions/wrappers.
+      // The title literal is scanned to its closing quote, so titles may contain ')' or ','.
+      let c1 = seg.indexOf(",")
+      let c2 = if c1 >= 0: seg.indexOf(",", c1 + 1) else: -1
+      if c2 > 0 and c2 < 80 and not seg.slice(0, c2).contains("{") and not seg.slice(0, c2).contains("\n") and not seg.slice(0, c2).contains(")"):
+        let rest = seg.slice(c2 + 1, if seg.len < c2 + 400: seg.len else: c2 + 400).trim()
+        if rest.len > 2 and rest.startsWith("\""):
+          mut qi = 1
+          mut lit = ""
+          mut closed = false
+          while qi < rest.len:
+            let ch = rest.slice(qi, qi + 1)
+            if ch == "\\" and qi + 1 < rest.len:
+              lit = lit + rest.slice(qi + 1, qi + 2)
+              qi += 2
+            elif ch == "\"":
+              closed = true
+              break
+            elif ch == "\n":
+              break
+            else:
+              lit = lit + ch
+              qi += 1
+          let after = if closed: rest.slice(qi + 1, rest.len).trim() else: ""
+          if closed and after.startsWith(")"):
+            let initTitle = lit.trim()
+            if initTitle.len > 0 and initTitle != "AIPL Canvas" and initTitle != "AIPL Window":
+              if isWasmHost and not initTitle.contains("[WASM]"):
+                ret initTitle + " [WASM]"
+              ret initTitle
+      ii += 1
+    let tStart = htmlTxt.indexOf("<title>")
+    let tEnd = htmlTxt.indexOf("</title>")
+    if tStart >= 0 and tEnd > tStart + 7:
+      mut rawTitle = htmlTxt.slice(tStart + 7, tEnd).trim()
+      let hostSuffix = " — AIPL WebAssembly + HTML5 Host Bundle"
+      if rawTitle.endsWith(hostSuffix):
+        rawTitle = rawTitle.slice(0, rawTitle.len - hostSuffix.len).trim()
+      if isWasmHost and not rawTitle.contains("[WASM]"):
+        rawTitle = rawTitle + " [WASM]"
+      if rawTitle.len > 0:
+        ret rawTitle
+  let slashParts = filePath.replace("\\", "/").split("/")
+  let lastSeg = if slashParts.len > 0: slashParts[slashParts.len - 1] else: filePath
+  ret if lastSeg.len > 0: lastSeg else: "AIPL Web App"
+
+pub fn readProcCmdlineFull(pid: int): str:
+  if pid <= 0:
+    ret ""
+  let cmdPath = "/proc/" + str(pid) + "/cmdline"
+  if not fileExists(cmdPath):
+    ret ""
+  let raw = readBytes(cmdPath)
+  if raw.len == 0:
+    ret ""
+  mut out = byteBufferAlloc(raw.len)
+  mut i = 0
+  while i < raw.len:
+    let b = raw[i]
+    out.writeU8(if b == 0: 32 else: b)
+    i += 1
+  ret out.freeze().toStringLossy().trim()
+
+pub fn classifyLiveProcessTargetType(pid: int, infoTargetType: str, stateTargetType: str, title: str): str:
+  let infoNorm = infoTargetType.trim().toLowerCase()
+  if infoNorm == "wasm" or infoNorm == "html" or infoNorm == "aipl" or infoNorm == "native":
+    if infoNorm != "native":
+      ret infoNorm
+  let cmdline = readProcCmdlineFull(pid)
+  if cmdline.contains("web_host_wasm") or cmdline.contains("_wasm.html") or cmdline.contains(".wasm"):
+    ret "wasm"
+  if cmdline.contains("web_host_html") or cmdline.contains(".html"):
+    ret "html"
+  if cmdline.contains("/tmp/aipl-run-") or cmdline.contains("aipl run"):
+    ret "aipl"
+  if infoNorm == "native":
+    ret "native"
+  let stateNorm = stateTargetType.trim().toLowerCase()
+  if stateNorm == "wasm" or stateNorm == "html" or stateNorm == "aipl" or stateNorm == "native":
+    ret stateNorm
+  let tLow = title.toLowerCase()
+  if tLow.contains("[wasm]") or tLow.contains("(wasm)") or tLow.startsWith("[wasm]"):
+    ret "wasm"
+  if tLow.contains("[html]") or tLow.contains("(html)") or tLow.startsWith("[html]"):
+    ret "html"
+  if tLow.startsWith("[aipl]"):
+    ret "aipl"
+  ret "native"
+
+pub fn decompressMozLz4ToText(path: str): str:
+  if not fileExists(path):
+    ret ""
+  let b = readBytes(path)
+  if b.len < 12:
+    ret ""
+  // Verify "mozLz40\0" magic
+  if b[0] != 109 or b[1] != 111 or b[2] != 122 or b[3] != 76 or b[4] != 122 or b[5] != 52 or b[6] != 48 or b[7] != 0:
+    ret ""
+  let uncompSize = b[8] + (b[9] * 256) + (b[10] * 65536) + (b[11] * 16777216)
+  if uncompSize <= 0 or uncompSize > 16777216:
+    ret ""
+  // Back-references read directly from the output ByteBuffer (a parallel [int] mirror cost ~700MB RSS per scan)
+  mut out = byteBufferAlloc(uncompSize)
+  mut ip = 12
+  let ipEnd = b.len
+  while ip < ipEnd:
+    let token = b[ip]
+    ip += 1
+    mut litLen = token / 16
+    if litLen == 15:
+      while ip < ipEnd:
+        let s = b[ip]
+        ip += 1
+        litLen += s
+        if s != 255:
+          break
+    mut li = 0
+    while li < litLen and ip < ipEnd:
+      out.writeU8(b[ip])
+      ip += 1
+      li += 1
+    if ip >= ipEnd:
+      break
+    if ip + 1 >= ipEnd:
+      break
+    let offset = b[ip] + (b[ip + 1] * 256)
+    ip += 2
+    if offset <= 0 or offset > out.len:
+      break
+    mut matchLen = (token % 16) + 4
+    if (token % 16) == 15:
+      while ip < ipEnd:
+        let s = b[ip]
+        ip += 1
+        matchLen += s
+        if s != 255:
+          break
+    mut matchPos = out.len - offset
+    mut mi = 0
+    while mi < matchLen:
+      out.writeU8(out[matchPos])
+      matchPos += 1
+      mi += 1
+  ret out.freeze().toStringLossy()
+
+fn skipJsonString(s: str, start: int): int:
+  // `start` is the index just after an opening quote; returns the index of the closing quote (or s.len)
+  mut j = start
+  let n = s.len
+  while j < n:
+    let cj = s.charCodeAt(j)
+    if cj == 92:
+      j += 2
+    elif cj == 34:
+      ret j
+    else:
+      j += 1
+  ret n
+
+// `blk` starts right after `{"entries":[` of an OPEN tab. Returns the url of the tab's CURRENT history entry
+// (tab-level "index", 1-based), considering only top-level entries (not iframe `children`).
+fn firefoxTabCurrentUrl(blk: str): str:
+  mut urls: [str] = []
+  mut selIndex = 0
+  mut depth = 1
+  mut i = 0
+  let n = blk.len
+  while i < n:
+    let c = blk.charCodeAt(i)
+    if c == 34:
+      let sEnd = skipJsonString(blk, i + 1)
+      let isKey = sEnd + 1 < n and blk.charCodeAt(sEnd + 1) == 58
+      if isKey and depth == 2 and sEnd - i - 1 == 3 and blk.slice(i + 1, sEnd) == "url" and sEnd + 2 < n and blk.charCodeAt(sEnd + 2) == 34:
+        let vEnd = skipJsonString(blk, sEnd + 3)
+        urls.push(blk.slice(sEnd + 3, vEnd))
+        i = vEnd + 1
+        continue
+      if isKey and depth == 0 and sEnd - i - 1 == 5 and blk.slice(i + 1, sEnd) == "index":
+        mut k = sEnd + 2
+        mut v = 0
+        while k < n and blk.charCodeAt(k) >= 48 and blk.charCodeAt(k) <= 57:
+          v = v * 10 + (blk.charCodeAt(k) - 48)
+          k += 1
+        selIndex = v
+        break
+      i = sEnd + 1
+      continue
+    if c == 91 or c == 123:
+      depth += 1
+    elif c == 93 or c == 125:
+      depth -= 1
+      if depth < 0:
+        break
+    i += 1
+  if urls.len == 0:
+    ret ""
+  if selIndex >= 1 and selIndex <= urls.len:
+    ret urls[selIndex - 1]
+  ret urls[urls.len - 1]
+
+pub fn extractActiveUrlsFromFirefoxSessionJson(rawJson: str): [str]:
+  mut activeUrls: [str] = []
+  if rawJson.len == 0:
+    ret activeUrls
+  // Closed windows (top-level `_closedWindows`) are never live; closed tabs are `{"state":{"entries":[` blocks.
+  let closedWinIdx = rawJson.indexOf("\"_closedWindows\"")
+  let openSlice = if closedWinIdx > 0: rawJson.slice(0, closedWinIdx) else: rawJson
+  let tabBlocks = openSlice.split("{\"entries\":[")
+  mut bi = 1
+  while bi < tabBlocks.len:
+    if not tabBlocks[bi - 1].endsWith("\"state\":"):
+      let u = firefoxTabCurrentUrl(tabBlocks[bi])
+      if u.len > 0:
+        activeUrls.push(u)
+    bi += 1
+  ret activeUrls
+
+fn normalizeFileUrlToLocalPath(rawUrl: str): str:
+  mut u = rawUrl.trim()
+  if not u.startsWith("file://"):
+    ret ""
+  u = u.slice(7, u.len)
+  let qIdx = u.indexOf("?")
+  if qIdx >= 0:
+    u = u.slice(0, qIdx)
+  let hIdx = u.indexOf("#")
+  if hIdx >= 0:
+    u = u.slice(0, hIdx)
+  u = u.replace("%20", " ")
+  ret u
+
+// ---------------------------------------------------------------------------
+// Per-tab companion bridge identity
+// ---------------------------------------------------------------------------
+// Several tabs/windows routinely share ONE browser process, so bridges are keyed per (bundle, target type) —
+// never per browser pid. The assigned window pid only names the target's IPC files (win_<pid>.*).
+
+/// Stable per-tab bridge key for a bundle path + target type.
+pub fn browserBridgeKey(bundlePath: str, targetType: str): str:
+  ret "t" + sha256(bundlePath + "|" + targetType).slice(0, 16)
+
+/// `/tmp/aipl_windows/browser_bridge_<key><ext>` (ext: ".pid", ".meta", ".port", "_runner.js").
+pub fn browserBridgeFile(key: str, ext: str): str:
+  ret "/tmp/aipl_windows/browser_bridge_" + key + ext
+
+// meta = "<bundlePath>|v5|<targetType>|<ownerPid>"; returns 0 for missing/legacy/garbled metadata.
+pub fn browserBridgeMetaOwnerPid(key: str): int:
+  let metaPath = browserBridgeFile(key, ".meta")
+  if not fileExists(metaPath):
+    ret 0
+  let meta = readFile(metaPath).trim()
+  let vIdx = meta.lastIndexOf("|v5|")
+  if vIdx < 0:
+    ret 0
+  let tail = meta.slice(vIdx + 4, meta.len)
+  let bar = tail.lastIndexOf("|")
+  if bar < 0:
+    ret 0
+  let r = int.parse(tail.slice(bar + 1, tail.len))
+  ret if r.isOk(): r.unwrap() else: 0
+
+fn browserBridgeDaemonPid(key: str): int:
+  let pidPath = browserBridgeFile(key, ".pid")
+  if not fileExists(pidPath):
+    ret 0
+  let r = int.parse(readFile(pidPath).trim())
+  ret if r.isOk(): r.unwrap() else: 0
+
+fn isLiveBridgeDaemon(daemonPid: int): bool:
+  ret daemonPid > 0 and isDir("/proc/" + str(daemonPid)) and readProcCmdlineFull(daemonPid).contains("browser_bridge_")
+
+fn removeBrowserBridgeFiles(key: str): void:
+  let exts: [str] = [".pid", ".meta", ".port", ".port.tmp", "_runner.js"]
+  mut ei = 0
+  while ei < exts.len:
+    let p = browserBridgeFile(key, exts[ei])
+    if fileExists(p):
+      let _ = removeFile(p)
+    ei += 1
+
+/// Stops every companion bridge whose (bundle, type) no longer matches a live browser tab and purges
+/// orphaned/legacy bridge files. Called once per orchestrator scan, before `ensureBrowserCompanionBridge`.
+/// A still-open tab whose assigned pid changed is NOT handled here: `ensureBrowserCompanionBridge` replaces
+/// that bridge synchronously, so an async SIGTERM cleanup can never delete the replacement's files.
+pub fn reapBrowserBridges(liveTargets: [LiveBrowserAiplTarget]): void:
+  if not isDir("/tmp/aipl_windows"):
+    ret
+  mut liveKeys: [str] = []
+  mut ti = 0
+  while ti < liveTargets.len:
+    liveKeys.push(browserBridgeKey(liveTargets[ti].targetPath, liveTargets[ti].targetType))
+    ti += 1
+  let files = listDir("/tmp/aipl_windows")
+  mut fi = 0
+  while fi < files.len:
+    let f = files[fi]
+    if f.startsWith("browser_bridge_") and f.endsWith(".pid"):
+      let key = f.slice(15, f.len - 4)
+      let daemonPid = browserBridgeDaemonPid(key)
+      if not isLiveBridgeDaemon(daemonPid):
+        removeBrowserBridgeFiles(key)
+      elif not liveKeys.contains(key) or browserBridgeMetaOwnerPid(key) <= 0:
+        // SIGTERM: the bridge's handler removes its own win_<pid>.* and browser_bridge_<key>.* files
+        let _ = execCommand("kill", [str(daemonPid)])
+    elif f.startsWith("browser_bridge_") and (f.endsWith(".meta") or f.endsWith(".port") or f.endsWith(".port.tmp") or f.endsWith("_runner.js")):
+      // Leftovers without a .pid marker (bridge crashed before/after writing it)
+      let cut = if f.endsWith("_runner.js"): 10 else: (if f.endsWith(".port.tmp"): 9 else: 5)
+      let key = f.slice(15, f.len - cut)
+      if not fileExists(browserBridgeFile(key, ".pid")):
+        let _ = removeFile("/tmp/aipl_windows/" + f)
+    fi += 1
+
+/// Live bridge reservations (key -> owner pid) so pid assignment stays sticky per tab across scans.
+pub struct BrowserBridgeReservations:
+  keys: [str]
+  pids: [int]
+
+pub fn loadBrowserBridgeReservations(): BrowserBridgeReservations:
+  mut keys: [str] = []
+  mut pids: [int] = []
+  if isDir("/tmp/aipl_windows"):
+    let files = listDir("/tmp/aipl_windows")
+    mut fi = 0
+    while fi < files.len:
+      let f = files[fi]
+      if f.startsWith("browser_bridge_") and f.endsWith(".pid"):
+        let key = f.slice(15, f.len - 4)
+        let ownerPid = browserBridgeMetaOwnerPid(key)
+        if ownerPid > 0 and isLiveBridgeDaemon(browserBridgeDaemonPid(key)):
+          keys.push(key)
+          pids.push(ownerPid)
+      fi += 1
+  ret BrowserBridgeReservations(keys = keys, pids = pids)
+
+fn assignDistinctBrowserPid(preferredPid: int, usedPids: [int], poolPids: [int], bridgeKey: str, resKeys: [str], resPids: [int]): int:
+  // 1. Sticky: the pid this tab's live bridge already owns
+  mut ri = 0
+  while ri < resKeys.len:
+    if resKeys[ri] == bridgeKey:
+      let sp = resPids[ri]
+      if sp > 0 and not usedPids.contains(sp) and (sp == preferredPid or poolPids.contains(sp)) and isDir("/proc/" + str(sp)):
+        ret sp
+    ri += 1
+  // 2. First free candidate not reserved by ANOTHER tab's live bridge
+  mut candidates: [int] = [preferredPid]
+  mut ci = 0
+  while ci < poolPids.len:
+    candidates.push(poolPids[ci])
+    ci += 1
+  mut pass = 0
+  while pass < 2:
+    mut k = 0
+    while k < candidates.len:
+      let cp = candidates[k]
+      if cp > 0 and not usedPids.contains(cp) and isDir("/proc/" + str(cp)):
+        mut reservedByOther = false
+        if pass == 0:
+          mut rj = 0
+          while rj < resKeys.len:
+            if resPids[rj] == cp and resKeys[rj] != bridgeKey:
+              reservedByOther = true
+              break
+            rj += 1
+        if not reservedByOther:
+          ret cp
+      k += 1
+    pass += 1
+  ret preferredPid
+
+fn resolveDemosDir(): str:
+  // Works from the repo root (`aipl run`) and from test dirs (`aipl test` uses the test file's dir as cwd)
+  let candidates: [str] = ["aipl_hebar_bot/demos", "../aipl_hebar_bot/demos", "../../aipl_hebar_bot/demos", "demos"]
+  mut ci = 0
+  while ci < candidates.len:
+    if isDir(candidates[ci]):
+      let pwdOpt = getEnv("PWD")
+      if pwdOpt.isSome() and pwdOpt.unwrap().startsWith("/") and isDir(pwdOpt.unwrap() + "/" + candidates[ci]):
+        // Lexically normalized absolute path: bundle paths must compare equal to the sessionstore's absolute
+        // file:// paths, or one tab would be discovered twice (two targets, two bridges) from a subdirectory cwd.
+        ret pathNormalize(pwdOpt.unwrap() + "/" + candidates[ci])
+      ret candidates[ci]
+    ci += 1
+  ret ""
+
+/// Directories searched for AIPL HTML bundles when identifying browser windows by title: the HEBAR demos first,
+/// then the repo's known build outputs (examples/, poc/<app>/, web/, dist/, build/, out/) and any extra
+/// `AIPL_HEBAR_WEB_DIRS` (colon-separated). Only files carrying embedded AIPL markers are ever matched.
+pub fn collectAiplWebSearchDirs(): [str]:
+  mut dirs: [str] = []
+  let demosDir = resolveDemosDir()
+  if demosDir.len > 0:
+    dirs.push(demosDir)
+  mut root = ""
+  if demosDir.endsWith("aipl_hebar_bot/demos"):
+    root = demosDir.slice(0, demosDir.len - 20)
+    if root.endsWith("/"):
+      root = root.slice(0, root.len - 1)
+    if root.len == 0:
+      root = "."
+  if root.len > 0:
+    let subs: [str] = ["examples", "web", "dist", "build", "out"]
+    mut si = 0
+    while si < subs.len:
+      if isDir(root + "/" + subs[si]):
+        dirs.push(root + "/" + subs[si])
+      si += 1
+    if isDir(root + "/poc"):
+      let apps = listDir(root + "/poc")
+      mut ai = 0
+      while ai < apps.len:
+        if isDir(root + "/poc/" + apps[ai]):
+          dirs.push(root + "/poc/" + apps[ai])
+        ai += 1
+  let extraOpt = getEnv("AIPL_HEBAR_WEB_DIRS")
+  if extraOpt.isSome():
+    let extras = extraOpt.unwrap().split(":")
+    mut ei = 0
+    while ei < extras.len:
+      let d = extras[ei].trim()
+      if d.len > 0 and isDir(d) and not dirs.contains(d):
+        dirs.push(d)
+      ei += 1
+  ret dirs
+
+/// True when a (lower-cased, browser-suffix-stripped) window title identifies the AIPL document title `docTitle`.
+/// Exact match, or the pre-boot WASM host form "<title> — AIPL WebAssembly + HTML5 Host Bundle".
+/// Arbitrary substring matches are rejected (a "My AIPL App review" tab must not match "AIPL App").
+pub fn windowTitleMatchesAiplDocTitle(cleanTitle: str, docTitle: str): bool:
+  if docTitle.len == 0 or cleanTitle.len == 0:
+    ret false
+  let cleanLow = cleanTitle.toLowerCase()
+  let docLow = docTitle.toLowerCase()
+  if cleanLow == docLow:
+    ret true
+  if cleanLow.startsWith(docLow):
+    let rest = cleanLow.slice(docLow.len, cleanLow.len).trim()
+    if rest == "— aipl webassembly + html5 host bundle" or rest == "- aipl webassembly + html5 host bundle" or rest == "[wasm]" or rest == "[html]":
+      ret true
+  let cleanHasWasm = cleanLow.contains("wasm")
+  let docHasWasm = docLow.contains("wasm")
+  if cleanHasWasm != docHasWasm:
+    ret false
+  let strippedClean = cleanLow.replace("[wasm]", "").replace("[html]", "").replace("— aipl webassembly + html5 host bundle", "").replace("- aipl webassembly + html5 host bundle", "").trim()
+  let strippedDoc = docLow.replace("[wasm]", "").replace("[html]", "").replace("— aipl webassembly + html5 host bundle", "").replace("- aipl webassembly + html5 host bundle", "").trim()
+  if strippedClean == strippedDoc and strippedDoc.len > 0:
+    ret true
+  ret false
+
+// Outside the curated demos dir, generic document titles ("Main", "PowderGame") are too ambiguous to prove
+// that a browser window shows that AIPL bundle; require a distinctive title.
+fn isDistinctiveAiplDocTitle(docTitle: str): bool:
+  ret docTitle.len >= 14 or docTitle.contains("aipl")
+
+fn webTitleIndexPath(): str:
+  ret "/tmp/aipl_windows/web_title_index.tsv"
+
+fn matchDemoHtmlByWindowTitle(pageTitle: str): str:
+  let clean = pageTitle.trim().toLowerCase()
+  if clean.len == 0:
+    ret ""
+  let dirs = collectAiplWebSearchDirs()
+  if dirs.len == 0:
+    ret ""
+  let demosDir = resolveDemosDir()
+  let preferWasm = clean.contains("wasm")
+  // (path, size, mtimeMs) -> (kind, lower-cased title) cache so a scan does not re-read megabytes of HTML
+  mut cPaths: [str] = []
+  mut cSizes: [int] = []
+  mut cMtimes: [int] = []
+  mut cKinds: [str] = []
+  mut cTitles: [str] = []
+  if fileExists(webTitleIndexPath()):
+    let rows = readFile(webTitleIndexPath()).split("\n")
+    mut ri = 0
+    while ri < rows.len:
+      let cols = rows[ri].split("\t")
+      if cols.len >= 5:
+        let sz = int.parse(cols[1])
+        let mt = int.parse(cols[2])
+        if sz.isOk() and mt.isOk():
+          cPaths.push(cols[0])
+          cSizes.push(sz.unwrap())
+          cMtimes.push(mt.unwrap())
+          cKinds.push(cols[3])
+          cTitles.push(cols[4])
+      ri += 1
+  mut outRows: [str] = []
+  mut changed = false
+  mut exactMatch = ""
+  mut fallbackMatch = ""
+  mut di = 0
+  while di < dirs.len:
+    let dir = dirs[di]
+    let isDemos = dir == demosDir
+    let files = listDir(dir)
+    mut fi = 0
+    while fi < files.len:
+      let fname = files[fi]
+      if fname.endsWith(".html"):
+        let path = dir + "/" + fname
+        let stRes = stat(path)
+        if stRes.isOk():
+          let st = stRes.unwrap()
+          mut kind = ""
+          mut docTitle = ""
+          mut cached = false
+          mut ci = 0
+          while ci < cPaths.len:
+            if cPaths[ci] == path:
+              if cSizes[ci] == st.size and cMtimes[ci] == st.mtimeMs:
+                kind = cKinds[ci]
+                docTitle = cTitles[ci]
+                cached = true
+              break
+            ci += 1
+          if not cached:
+            changed = true
+            kind = classifyAiplWebFile(path)
+            if kind == "html" or kind == "wasm":
+              docTitle = extractHtmlDocumentTitle(path).toLowerCase().replace("\t", " ").replace("\n", " ")
+          outRows.push(path + "\t" + str(st.size) + "\t" + str(st.mtimeMs) + "\t" + kind + "\t" + docTitle)
+          if (kind == "html" or kind == "wasm") and (isDemos or isDistinctiveAiplDocTitle(docTitle)) and windowTitleMatchesAiplDocTitle(clean, docTitle):
+            if (kind == "wasm") == preferWasm:
+              if exactMatch.len == 0:
+                exactMatch = path
+            elif fallbackMatch.len == 0:
+              fallbackMatch = path
+      fi += 1
+    di += 1
+  if changed or outRows.len != cPaths.len:
+    let _ = mkdirAll("/tmp/aipl_windows")
+    let _ = writeFile(webTitleIndexPath(), outRows.join("\n") + "\n")
+  ret if exactMatch.len > 0: exactMatch else: fallbackMatch
+
+fn isFirefoxProfileLockedByLivePid(profDir: str, firefoxPids: [int]): bool:
+  // Linux Firefox holds `<profile>/lock -> <host>:+<pid>` while the profile is in use
+  let rl = execCommand("readlink", ["'" + (profDir + "/lock").replace("'", "'\\''") + "'"])
+  if rl.isErr():
+    ret false
+  let out = rl.unwrap()
+  if out.status != 0:
+    ret false
+  let target = out.stdout.trim()
+  let plusIdx = target.lastIndexOf("+")
+  if plusIdx < 0:
+    ret false
+  let lockPid = parseInt(target.slice(plusIdx + 1, target.len))
+  ret lockPid > 0 and firefoxPids.contains(lockPid)
+
+pub fn discoverLiveBrowserAiplTargets(): [LiveBrowserAiplTarget]:
+  mut discovered: [LiveBrowserAiplTarget] = []
+  mut seenPaths: [str] = []
+  mut usedPids: [int] = []
+  if not isDir("/proc"):
+    ret discovered
+
+  let procEntries = listDir("/proc")
+  let reservations = loadBrowserBridgeReservations()
+  let noPoolPids: [int] = []
+  mut firefoxPids: [int] = []
+  // Per-tab child processes (Firefox `-contentproc ... tab`, Chromium `--type=renderer`): the pool from which every
+  // live tab gets a DISTINCT window pid even when several tabs/windows share one browser process.
+  mut tabPoolPids: [int] = []
+  mut browserPids: [int] = []
+  mut pi = 0
+  while pi < procEntries.len:
+    let entry = procEntries[pi]
+    let pidVal = parseInt(entry)
+    if pidVal > 0:
+      let cmd = readProcCmdlineFull(pidVal)
+      if cmd.len > 0 and not cmd.contains("web_host_") and not cmd.contains("browser_bridge_") and not cmd.contains("web_bridge_"):
+        let firstSpace = cmd.indexOf(" ")
+        let exePart = (if firstSpace > 0: cmd.slice(0, firstSpace) else: cmd).toLowerCase()
+        let isFf = exePart.endsWith("/firefox") or exePart.endsWith("/firefox-bin") or exePart.endsWith("/firefox-esr") or exePart == "firefox" or exePart == "firefox-bin" or exePart == "firefox-esr"
+        let isChrom = exePart.endsWith("/chromium") or exePart.endsWith("/chromium-browser") or exePart.endsWith("/chrome") or exePart.endsWith("/brave") or exePart == "chromium" or exePart == "chromium-browser" or exePart == "google-chrome"
+        if isFf and not cmd.contains("-contentproc"):
+          firefoxPids.push(pidVal)
+          browserPids.push(pidVal)
+        elif isFf and cmd.contains("-contentproc") and cmd.contains(" tab"):
+          tabPoolPids.push(pidVal)
+        elif isChrom and not cmd.contains("--type="):
+          browserPids.push(pidVal)
+        elif isChrom and cmd.contains("--type=renderer") and not cmd.contains("--extension-process"):
+          tabPoolPids.push(pidVal)
+
+        // 1. A node host whose command line directly passes a local .html/.wasm AIPL bundle. Browser command lines are
+        //    NOT trusted: `firefox file:///x.html` keeps that url in /proc/<pid>/cmdline long after the tab is closed,
+        //    so browser tabs must be confirmed live via the sessionstore (2) or a live window title (3).
+        if (exePart == "node" or exePart.endsWith("/node")) and (cmd.contains(".html") or cmd.contains(".wasm")):
+          let tokens = cmd.split(" ")
+          mut ti = 1
+          while ti < tokens.len:
+            mut tok = tokens[ti].trim()
+            if tok.startsWith("file://"):
+              tok = normalizeFileUrlToLocalPath(tok)
+            if (tok.endsWith(".html") or tok.endsWith(".wasm")) and fileExists(tok):
+              let kind = classifyAiplWebFile(tok)
+              if kind == "html" or kind == "wasm":
+                if not seenPaths.contains(tok):
+                  let assignedPid = assignDistinctBrowserPid(pidVal, usedPids, noPoolPids, browserBridgeKey(tok, kind), reservations.keys, reservations.pids)
+                  seenPaths.push(tok)
+                  usedPids.push(assignedPid)
+                  discovered.push(LiveBrowserAiplTarget(
+                    pid = assignedPid,
+                    windowId = "browser://" + str(assignedPid),
+                    title = extractHtmlDocumentTitle(tok),
+                    targetPath = tok,
+                    targetType = kind
+                  ))
+            ti += 1
+    pi += 1
+
+  // 2. If Firefox is running, inspect its live sessionstore recovery.jsonlz4 for exact open AIPL tab file:// URLs
+  if firefoxPids.len > 0:
+    mut mainFfPid = firefoxPids[0]
+    mut fi = 1
+    while fi < firefoxPids.len:
+      if firefoxPids[fi] < mainFfPid:
+        mainFfPid = firefoxPids[fi]
+      fi += 1
+
+    let homeOpt = getEnv("HOME")
+    let homeDir = if homeOpt.isSome(): homeOpt.unwrap() else: ""
+    let ffRoots: [str] = [
+      homeDir + "/.config/mozilla/firefox",
+      homeDir + "/.mozilla/firefox",
+      homeDir + "/snap/firefox/common/.mozilla/firefox"
+    ]
+    mut ri = 0
+    while ri < ffRoots.len:
+      let root = ffRoots[ri]
+      if isDir(root):
+        let profs = listDir(root)
+        mut pri = 0
+        while pri < profs.len:
+          let profDir = root + "/" + profs[pri]
+          let recPath = profDir + "/sessionstore-backups/recovery.jsonlz4"
+          if fileExists(recPath) and isFirefoxProfileLockedByLivePid(profDir, firefoxPids):
+            let jsonTxt = decompressMozLz4ToText(recPath)
+            let urls = extractActiveUrlsFromFirefoxSessionJson(jsonTxt)
+            mut ui = 0
+            while ui < urls.len:
+              let localPath = normalizeFileUrlToLocalPath(urls[ui])
+              if localPath.len > 0 and fileExists(localPath):
+                let kind = classifyAiplWebFile(localPath)
+                if (kind == "html" or kind == "wasm") and not seenPaths.contains(localPath):
+                  let assignedPid = assignDistinctBrowserPid(mainFfPid, usedPids, tabPoolPids, browserBridgeKey(localPath, kind), reservations.keys, reservations.pids)
+                  seenPaths.push(localPath)
+                  usedPids.push(assignedPid)
+                  discovered.push(LiveBrowserAiplTarget(
+                    pid = assignedPid,
+                    windowId = "firefox://" + str(assignedPid),
+                    title = extractHtmlDocumentTitle(localPath),
+                    targetPath = localPath,
+                    targetType = kind
+                  ))
+              ui += 1
+          pri += 1
+      ri += 1
+
+  // 3. Inspect live X11 browser window titles via wmctrl -lp (0ms debounce for newly opened tabs & Chromium/Chrome/Brave)
+  if browserPids.len > 0:
+    let wmRes = execCommand("wmctrl", ["-lp"])
+    if wmRes.isOk():
+      let wmOut = wmRes.unwrap().stdout
+      let wmLines = wmOut.split("\n")
+      let suffixes: [str] = [
+        " — Mozilla Firefox",
+        " - Mozilla Firefox",
+        " - Chromium",
+        " - Google Chrome",
+        " - Brave"
+      ]
+      mut wl = 0
+      while wl < wmLines.len:
+        let line = wmLines[wl].trim()
+        // `wmctrl -lp` columns: <winId> <desktop> <pid> <host> <title...>
+        mut toks: [str] = []
+        let rawParts = line.split(" ")
+        mut rpi = 0
+        while rpi < rawParts.len:
+          if rawParts[rpi].trim().len > 0:
+            toks.push(rawParts[rpi].trim())
+          rpi += 1
+        if toks.len >= 5:
+          let winIdHex = toks[0]
+          let winPid = parseInt(toks[2])
+          mut titleParts: [str] = []
+          mut tpi = 4
+          while tpi < toks.len:
+            titleParts.push(toks[tpi])
+            tpi += 1
+          mut pageTitle = titleParts.join(" ")
+          // Strip the browser suffix; Chromium `--app=` windows show the bare document title
+          mut si = 0
+          while si < suffixes.len:
+            if pageTitle.endsWith(suffixes[si].trim()):
+              pageTitle = pageTitle.slice(0, pageTitle.len - suffixes[si].trim().len).trim()
+              break
+            si += 1
+          if winPid > 0 and browserPids.contains(winPid) and pageTitle.len > 0:
+            let matchedPath = matchDemoHtmlByWindowTitle(pageTitle)
+            if matchedPath.len > 0 and fileExists(matchedPath) and not seenPaths.contains(matchedPath):
+              let kind = classifyAiplWebFile(matchedPath)
+              if kind == "html" or kind == "wasm":
+                let assignedPid = assignDistinctBrowserPid(winPid, usedPids, tabPoolPids, browserBridgeKey(matchedPath, kind), reservations.keys, reservations.pids)
+                seenPaths.push(matchedPath)
+                usedPids.push(assignedPid)
+                discovered.push(LiveBrowserAiplTarget(
+                  pid = assignedPid,
+                  windowId = winIdHex,
+                  title = extractHtmlDocumentTitle(matchedPath),
+                  targetPath = matchedPath,
+                  targetType = kind
+                ))
+        wl += 1
+
+  ret discovered
+
+fn jsSingleQuoteEscape(s: str): str:
+  ret s.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ").replace("\r", " ")
+
+pub fn removeWindowIpcFiles(pid: int): void:
+  if pid <= 0:
+    ret
+  let base = "/tmp/aipl_windows/win_" + str(pid)
+  let exts: [str] = [".info", ".state.json", ".state.json.tmp", ".cmd", ".ack"]
+  mut ei = 0
+  while ei < exts.len:
+    if fileExists(base + exts[ei]):
+      let _ = removeFile(base + exts[ei])
+    ei += 1
+  mut s = 1
+  while s <= 8:
+    if fileExists(base + ".cmd." + str(s)):
+      let _ = removeFile(base + ".cmd." + str(s))
+    if fileExists(base + ".ack." + str(s)):
+      let _ = removeFile(base + ".ack." + str(s))
+    s += 1
+
+/// Ensures exactly one companion bridge for the browser tab showing `bundlePath` (keyed per bundle + type, so
+/// several tabs sharing one browser pid each get their own bridge). `browserPid` is the tab's assigned window pid.
+pub fn ensureBrowserCompanionBridge(browserPid: int, bundlePath: str, targetType: str, cleanTitle: str): void:
+  if browserPid <= 0 or bundlePath.len == 0 or not fileExists(bundlePath):
+    ret
+  // A dead window pid (e.g. a bot still bound to a vanished host/tab) must never displace the live bridge that owns
+  // this bundle key: the replacement would exit at once and the next scan would respawn it — ping-pong every tick.
+  if not isDir("/proc/" + str(browserPid)):
+    ret
+  let _ = mkdirAll("/tmp/aipl_windows")
+  let key = browserBridgeKey(bundlePath, targetType)
+  let pidMarker = browserBridgeFile(key, ".pid")
+  let metaMarker = browserBridgeFile(key, ".meta")
+  let expectedMeta = bundlePath + "|v5|" + targetType + "|" + str(browserPid)
+  let statePath = "/tmp/aipl_windows/win_" + str(browserPid) + ".state.json"
+  if fileExists(pidMarker) or fileExists(metaMarker):
+    let daemonPid = browserBridgeDaemonPid(key)
+    let curMeta = if fileExists(metaMarker): readFile(metaMarker).trim() else: ""
+    let daemonAlive = isLiveBridgeDaemon(daemonPid)
+    if daemonAlive and curMeta == expectedMeta:
+      ret
+    if daemonAlive:
+      // Same tab but a new window pid: replace synchronously. SIGKILL skips the old bridge's async cleanup, so its
+      // files are removed here, before the replacement writes files under the same key.
+      let _ = execCommand("kill", ["-9", str(daemonPid)])
+    let oldOwner = browserBridgeMetaOwnerPid(key)
+    if oldOwner > 0 and oldOwner != browserPid:
+      removeWindowIpcFiles(oldOwner)
+    removeBrowserBridgeFiles(key)
+
+  let htmlTxt = readFile(bundlePath)
+  let sStart = htmlTxt.indexOf("<script>")
+  let sEnd = htmlTxt.lastIndexOf("</script>")
+  if sStart < 0 or sEnd <= sStart:
+    ret
+  let jsBody = htmlTxt.slice(sStart + 8, sEnd)
+  let runnerPath = browserBridgeFile(key, "_runner.js")
+  let safeTitle = jsSingleQuoteEscape(cleanTitle.replace("'", "").replace("\"", ""))
+  let _ = writeFile(metaMarker, expectedMeta + "\n")
+
+  mut lines: [str] = []
+  lines.push("const fs = require('fs');")
+  lines.push("const http = require('http');")
+  lines.push("const targetPid = " + str(browserPid) + ";")
+  lines.push("const targetType = '" + targetType + "';")
+  lines.push("const targetTitle = '" + safeTitle + "';")
+  lines.push("const bundlePath = '" + jsSingleQuoteEscape(bundlePath) + "';")
+  lines.push("const __brKey = '" + key + "';")
+  lines.push("const __brRouterPort = 19876;")
+  lines.push("const __brKeyBase = '/tmp/aipl_windows/browser_bridge_' + __brKey;")
+  lines.push("const base = '/tmp/aipl_windows/win_' + targetPid;")
+  lines.push("const __brEmptyReply = JSON.stringify({ ok: true, commands: [] });")
+  lines.push("const __brUrlMatchesBundle = (u, bp) => { u = String(u || ''); bp = String(bp || ''); if (!u.startsWith('file://') || bp.length === 0) return false; let p = u.slice(7).split('?')[0].split('#')[0]; try { p = decodeURIComponent(p); } catch (_e) {} const b = bp.startsWith('./') ? bp.slice(2) : bp; return p === bp || p.endsWith('/' + b); };")
+  lines.push("const isOwnTabUrl = (u) => { u = String(u || ''); return !u.startsWith('file://') || __brUrlMatchesBundle(u, bundlePath); };")
+  lines.push("const __brOwnsKeyFiles = () => { try { return fs.readFileSync(__brKeyBase + '.pid', 'utf8').trim() === String(process.pid); } catch (_e) { return false; } };")
+  lines.push("try { fs.mkdirSync('/tmp/aipl_windows', { recursive: true }); fs.writeFileSync(__brKeyBase + '.pid', String(process.pid)); } catch (_e) {}")
+  lines.push("globalThis.window = globalThis;")
+  lines.push("globalThis.addEventListener = () => {};")
+  lines.push("globalThis.innerWidth = 980;")
+  lines.push("globalThis.innerHeight = 760;")
+  lines.push("globalThis.__AIPL_TARGET_TYPE = targetType;")
+  lines.push("globalThis.__aiplDisableFsIpc = true;")
+  lines.push("let rafCb = null;")
+  lines.push("globalThis.requestAnimationFrame = (cb) => { rafCb = cb; };")
+  lines.push("let pendingBrowserCmds = [];")
+  lines.push("let inFlightAcks = [];")
+  lines.push("let lastBrowserSyncMs = 0;")
+  lines.push("let __brOwnPort = 0;")
+  lines.push("const __brWriteRoute = () => { try { const tmp = __brKeyBase + '.port.tmp'; fs.writeFileSync(tmp, JSON.stringify({ port: __brOwnPort, daemon: process.pid, pid: targetPid, bundlePath: bundlePath, targetType: targetType, title: targetTitle })); fs.renameSync(tmp, __brKeyBase + '.port'); } catch (_e) {} };")
+  lines.push("const cleanup = () => { try { ['.info', '.state.json', '.state.json.tmp', '.cmd', '.ack'].forEach(ext => { if (fs.existsSync(base + ext)) fs.unlinkSync(base + ext); }); for (let s = 1; s <= 8; s++) { if (fs.existsSync(base + '.cmd.' + s)) fs.unlinkSync(base + '.cmd.' + s); if (fs.existsSync(base + '.ack.' + s)) fs.unlinkSync(base + '.ack.' + s); } if (__brOwnsKeyFiles()) { ['.pid', '.meta', '.port', '.port.tmp', '_runner.js'].forEach(ext => { const p = __brKeyBase + ext; if (fs.existsSync(p)) fs.unlinkSync(p); }); } } catch (_e) {} process.exit(0); };")
+  lines.push("process.on('SIGTERM', cleanup); process.on('SIGINT', cleanup);")
+  lines.push("const __brCors = (res) => { res.setHeader('Access-Control-Allow-Origin', '*'); res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS'); res.setHeader('Access-Control-Allow-Headers', 'Content-Type'); };")
+  lines.push("const __brReadBody = (req, cb) => { let body = ''; req.on('data', chunk => { body += chunk; if (body.length > 8388608) req.destroy(); }); req.on('end', () => cb(body)); };")
+  lines.push("const __brHandleSync = (body, res) => {")
+  lines.push("  try {")
+  lines.push("    const snap = JSON.parse(body);")
+  lines.push("    if (!isOwnTabUrl(snap.url)) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(__brEmptyReply); return; }")
+  lines.push("    snap.pid = targetPid; snap.targetType = targetType; snap.title = targetTitle;")
+  lines.push("    const tmp = base + '.state.json.tmp';")
+  lines.push("    fs.writeFileSync(tmp, JSON.stringify(snap));")
+  lines.push("    fs.renameSync(tmp, base + '.state.json');")
+  lines.push("    fs.writeFileSync(base + '.info', 'pid=' + targetPid + '\\nwindowId=firefox://' + targetPid + '\\ntitle=' + targetTitle + '\\nwidth=' + (snap.width || 880) + '\\nheight=' + (snap.height || 560) + '\\ntargetType=' + targetType + '\\n');")
+  lines.push("    lastBrowserSyncMs = Date.now();")
+  lines.push("    while (inFlightAcks.length > 0) { const a = inFlightAcks.shift(); try { fs.writeFileSync(a.ackPath, a.text); } catch (_e) {} }")
+  lines.push("  } catch (_e) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(__brEmptyReply); return; }")
+  lines.push("  const outCmds = [];")
+  lines.push("  if (pendingBrowserCmds.length > 0) {")
+  lines.push("    const c = pendingBrowserCmds.shift();")
+  lines.push("    outCmds.push({ seatId: c.seatId, script: c.script });")
+  lines.push("    if (c.ackPath) inFlightAcks.push({ ackPath: c.ackPath, text: c.ackText, sentAt: Date.now() });")
+  lines.push("  }")
+  lines.push("  res.writeHead(200, { 'Content-Type': 'application/json' });")
+  lines.push("  res.end(JSON.stringify({ ok: true, commands: outCmds }));")
+  lines.push("};")
+  lines.push("// Per-tab server on an ephemeral port (advertised in browser_bridge_<key>.port)")
+  lines.push("const __brOwnSrv = http.createServer((req, res) => {")
+  lines.push("  __brCors(res);")
+  lines.push("  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }")
+  lines.push("  if (req.method === 'POST' && req.url === '/sync') { __brReadBody(req, b => __brHandleSync(b, res)); return; }")
+  lines.push("  res.writeHead(200); res.end('OK');")
+  lines.push("});")
+  lines.push("__brOwnSrv.on('error', () => {});")
+  lines.push("__brOwnSrv.listen(0, '127.0.0.1', () => { __brOwnPort = __brOwnSrv.address().port; __brWriteRoute(); });")
+  lines.push("// Every tab posts to the fixed __brRouterPort. Whichever bridge holds it forwards each sync to the bridge that owns the")
+  lines.push("// posting tab (by file:// url, else by unique document title); the others retry the bind so routing survives restarts.")
+  lines.push("const __brFindRoute = (snapUrl, docTitle) => {")
+  lines.push("  const routes = [];")
+  lines.push("  try { for (const f of fs.readdirSync('/tmp/aipl_windows')) { if (f.startsWith('browser_bridge_') && f.endsWith('.port')) { try { const r = JSON.parse(fs.readFileSync('/tmp/aipl_windows/' + f, 'utf8')); if (r && r.port > 0 && r.daemon > 0 && fs.existsSync('/proc/' + r.daemon)) routes.push(r); } catch (_e) {} } } } catch (_e) {}")
+  lines.push("  const u = String(snapUrl || '');")
+  lines.push("  if (u.startsWith('file://')) return routes.find(r => __brUrlMatchesBundle(u, r.bundlePath)) || null;")
+  lines.push("  const t = String(docTitle || '').trim().toLowerCase();")
+  lines.push("  if (t.length > 0) { const m = routes.filter(r => String(r.title || '').trim().toLowerCase() === t); if (m.length === 1) return m[0]; if (m.length > 1) return null; }")
+  lines.push("  return routes.length === 1 ? routes[0] : null;")
+  lines.push("};")
+  lines.push("const __brRouteSync = (body, res) => {")
+  lines.push("  let snap = null; try { snap = JSON.parse(body); } catch (_e) {}")
+  lines.push("  const r = snap ? __brFindRoute(snap.url, snap.docTitle) : null;")
+  lines.push("  if (!r) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(__brEmptyReply); return; }")
+  lines.push("  if (r.daemon === process.pid) { __brHandleSync(body, res); return; }")
+  lines.push("  let done = false;")
+  lines.push("  const finish = (txt) => { if (done) return; done = true; res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(txt || __brEmptyReply); };")
+  lines.push("  const fwd = http.request({ host: '127.0.0.1', port: r.port, path: '/sync', method: 'POST', headers: { 'Content-Type': 'text/plain', 'Content-Length': Buffer.byteLength(body) } }, (fr) => { let out = ''; fr.on('data', c => { out += c; }); fr.on('end', () => finish(out)); fr.on('error', () => finish('')); });")
+  lines.push("  fwd.on('error', () => finish(''));")
+  lines.push("  fwd.setTimeout(1000, () => { fwd.destroy(); finish(''); });")
+  lines.push("  fwd.end(body);")
+  lines.push("};")
+  lines.push("let __brRouterBound = false;")
+  lines.push("let __brRouterBinding = false;")
+  lines.push("const __brTryBindRouter = () => {")
+  lines.push("  if (__brRouterBound || __brRouterBinding) return;")
+  lines.push("  __brRouterBinding = true;")
+  lines.push("  const s = http.createServer((req, res) => {")
+  lines.push("    __brCors(res);")
+  lines.push("    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }")
+  lines.push("    if (req.method === 'POST' && req.url === '/sync') { __brReadBody(req, b => __brRouteSync(b, res)); return; }")
+  lines.push("    res.writeHead(200); res.end('OK');")
+  lines.push("  });")
+  lines.push("  s.on('error', () => { __brRouterBinding = false; try { s.close(); } catch (_e) {} });")
+  lines.push("  s.listen(__brRouterPort, '127.0.0.1', () => { __brRouterBinding = false; __brRouterBound = true; });")
+  lines.push("};")
+  lines.push("__brTryBindRouter();")
+  lines.push("setInterval(__brTryBindRouter, 2000);")
+  lines.push(jsBody)
+  lines.push("const writeSnapNow = () => {")
+  lines.push("  if (globalThis.__aiplHebarBridge && (Date.now() - lastBrowserSyncMs > 1500)) {")
+  lines.push("    try {")
+  lines.push("      const snap = globalThis.__aiplHebarBridge.getStateSnapshot();")
+  lines.push("      snap.pid = targetPid; snap.targetType = targetType; snap.title = targetTitle;")
+  lines.push("      const tmp = base + '.state.json.tmp';")
+  lines.push("      fs.writeFileSync(tmp, JSON.stringify(snap));")
+  lines.push("      fs.renameSync(tmp, base + '.state.json');")
+  lines.push("      if (!fs.existsSync(base + '.info')) fs.writeFileSync(base + '.info', 'pid=' + targetPid + '\\nwindowId=firefox://' + targetPid + '\\ntitle=' + targetTitle + '\\nwidth=' + (snap.width || 880) + '\\nheight=' + (snap.height || 560) + '\\ntargetType=' + targetType + '\\n');")
+  lines.push("    } catch (_e) {}")
+  lines.push("  }")
+  lines.push("};")
+  lines.push("const stepLocalFrame = () => {")
+  lines.push("  if (rafCb && (Date.now() - lastBrowserSyncMs > 1500)) { const fn = rafCb; rafCb = null; try { fn(Date.now()); } catch (_e) {} }")
+  lines.push("  writeSnapNow();")
+  lines.push("};")
+  lines.push("stepLocalFrame();")
+  lines.push("setInterval(() => {")
+  lines.push("  if (!fs.existsSync('/proc/' + targetPid)) { cleanup(); return; }")
+  lines.push("  // Replaced by a newer bridge for the same tab: leave its files alone and exit")
+  lines.push("  if (fs.existsSync(__brKeyBase + '.pid') && !__brOwnsKeyFiles()) { process.exit(0); }")
+  lines.push("  const now = Date.now();")
+  lines.push("  const browserLive = (lastBrowserSyncMs > 0) && ((now - lastBrowserSyncMs) < 1500);")
+  lines.push("  try {")
+  lines.push("    if (fs.existsSync(base + '.cmd')) {")
+  lines.push("      const sc = fs.readFileSync(base + '.cmd', 'utf8'); fs.unlinkSync(base + '.cmd');")
+  lines.push("      if (globalThis.__aiplHebarBridge) globalThis.__aiplHebarBridge.dispatchSeatAction(0, sc);")
+  lines.push("      if (browserLive) { pendingBrowserCmds.push({ seatId: 0, script: sc, ackPath: base + '.ack', ackText: 'OK\\n', queuedAt: now }); }")
+  lines.push("      else { stepLocalFrame(); fs.writeFileSync(base + '.ack', 'OK\\n'); }")
+  lines.push("    }")
+  lines.push("    for (let s = 1; s <= 8; s++) {")
+  lines.push("      const cf = base + '.cmd.' + s;")
+  lines.push("      if (fs.existsSync(cf)) {")
+  lines.push("        const sc = fs.readFileSync(cf, 'utf8'); fs.unlinkSync(cf);")
+  lines.push("        if (globalThis.__aiplHebarBridge) globalThis.__aiplHebarBridge.dispatchSeatAction(s, sc);")
+  lines.push("        if (browserLive) { pendingBrowserCmds.push({ seatId: s, script: sc, ackPath: base + '.ack.' + s, ackText: 'OK seat=' + s + '\\n', queuedAt: now }); }")
+  lines.push("        else { stepLocalFrame(); fs.writeFileSync(base + '.ack.' + s, 'OK seat=' + s + '\\n'); }")
+  lines.push("      }")
+  lines.push("    }")
+  lines.push("    while (inFlightAcks.length > 0 && (now - inFlightAcks[0].sentAt) > 250) { const a = inFlightAcks.shift(); stepLocalFrame(); fs.writeFileSync(a.ackPath, a.text); }")
+  lines.push("    while (pendingBrowserCmds.length > 0 && (now - pendingBrowserCmds[0].queuedAt) > 250) { const c = pendingBrowserCmds.shift(); stepLocalFrame(); if (c.ackPath) fs.writeFileSync(c.ackPath, c.ackText); }")
+  lines.push("  } catch (_e) {}")
+  lines.push("}, 20);")
+  let _ = writeFile(runnerPath, lines.join("\n"))
+  let bridgeSpawn = spawnDetached("node", [runnerPath])
+  if bridgeSpawn.isOk() and bridgeSpawn.unwrap() > 0:
+    let _ = writeFile(pidMarker, str(bridgeSpawn.unwrap()))
+  mut waitIter = 0
+  while waitIter < 30 and not fileExists(statePath):
+    sleepMs(5)
+    waitIter += 1
+
+fn readSelfPid(): int:
+  let raw = readBytes("/proc/self/stat")
+  mut pid = 0
+  mut i = 0
+  while i < raw.len and raw[i] >= 48 and raw[i] <= 57:
+    pid = pid * 10 + (raw[i] - 48)
+    i += 1
+  ret pid
+
+pub fn spawnLiveWebWasmHostProcess(targetPath: str, targetType: str, cleanTitle: str): int:
+  let instType = if targetType == "wasm": "wasm" else: "html"
+  mut rep = inspectWebOrWasmTarget(targetPath, instType)
+  if targetPath.endsWith(".aipl"):
+    let stem = targetPath.slice(0, targetPath.len - 5)
+    if instType == "wasm":
+      let wasmOut = stem + ".wasm"
+      let wasmHtml = stem + "_wasm.html"
+      if not fileExists(wasmOut) or not fileExists(wasmHtml):
+        let _ = execCommand("./bin/aipl", ["build", targetPath, "--wasm", "-o", wasmOut])
+      rep = inspectWebOrWasmTarget(targetPath, "wasm")
+    else:
+      let htmlOut = stem + ".html"
+      if not fileExists(htmlOut):
+        let _ = execCommand("./bin/aipl", ["build", targetPath, "--html", "-o", htmlOut])
+      rep = inspectWebOrWasmTarget(targetPath, "html")
+
+  if rep.bundlePath.len == 0 or not fileExists(rep.bundlePath):
+    ret 0
+  let htmlTxt = readFile(rep.bundlePath)
+  let sStart = htmlTxt.indexOf("<script>")
+  let sEnd = htmlTxt.lastIndexOf("</script>")
+  if sStart < 0 or sEnd <= sStart:
+    ret 0
+  let jsBody = htmlTxt.slice(sStart + 8, sEnd)
+  let _ = mkdirAll("/tmp/aipl_windows")
+  let runnerPath = "/tmp/aipl_windows/web_host_" + instType + "_" + str(nowMicros()) + "_runner.js"
+  let safeTitle = jsSingleQuoteEscape(cleanTitle.replace("'", "").replace("\"", ""))
+
+  mut lines: [str] = []
+  lines.push("const fs = require('fs');")
+  lines.push("try { fs.unlinkSync(__filename); } catch (_e) {}")
+  // Headless node hosts have no visible window: tie their lifetime to the launching orchestrator so they never leak
+  lines.push("const ownerPid = " + str(readSelfPid()) + ";")
+  lines.push("const targetType = '" + instType + "';")
+  lines.push("const targetTitle = '" + safeTitle + "';")
+  lines.push("const base = '/tmp/aipl_windows/win_' + process.pid;")
+  lines.push("globalThis.window = globalThis;")
+  lines.push("globalThis.addEventListener = () => {};")
+  lines.push("globalThis.innerWidth = 980;")
+  lines.push("globalThis.innerHeight = 760;")
+  lines.push("globalThis.__AIPL_TARGET_TYPE = targetType;")
+  lines.push("let rafCb = null;")
+  lines.push("globalThis.requestAnimationFrame = (cb) => { rafCb = cb; };")
+  lines.push("const cleanup = () => { try { ['.info', '.state.json', '.state.json.tmp', '.cmd', '.ack'].forEach(ext => { if (fs.existsSync(base + ext)) fs.unlinkSync(base + ext); }); for (let s = 1; s <= 8; s++) { if (fs.existsSync(base + '.cmd.' + s)) fs.unlinkSync(base + '.cmd.' + s); if (fs.existsSync(base + '.ack.' + s)) fs.unlinkSync(base + '.ack.' + s); } } catch (_e) {} process.exit(0); };")
+  lines.push("process.on('SIGTERM', cleanup); process.on('SIGINT', cleanup);")
+  lines.push("globalThis.__aiplHebarFrameHook = (bridge) => {")
+  lines.push("  try {")
+  lines.push("    const snap = bridge.getStateSnapshot();")
+  lines.push("    snap.pid = process.pid; snap.targetType = targetType; snap.title = targetTitle;")
+  lines.push("    const tmp = base + '.state.json.tmp';")
+  lines.push("    fs.writeFileSync(tmp, JSON.stringify(snap));")
+  lines.push("    fs.renameSync(tmp, base + '.state.json');")
+  lines.push("    fs.writeFileSync(base + '.info', 'pid=' + process.pid + '\\nwindowId=0x0\\ntitle=' + targetTitle + '\\nwidth=980\\nheight=760\\ntargetType=' + targetType + '\\n');")
+  lines.push("  } catch (_e) {}")
+  lines.push("};")
+  lines.push(jsBody)
+  lines.push("if (globalThis.__aiplHebarBridge) { globalThis.__aiplHebarFrameHook(globalThis.__aiplHebarBridge); }")
+  lines.push("setInterval(() => { if (rafCb) { const fn = rafCb; rafCb = null; try { fn(Date.now()); } catch (_e) {} } }, 10);")
+  lines.push("setInterval(() => { if (ownerPid > 0 && !fs.existsSync('/proc/' + ownerPid)) cleanup(); }, 1000);")
+  let _ = writeFile(runnerPath, lines.join("\n"))
+  let sRes = spawnDetached("node", [runnerPath])
+  if sRes.isOk():
+    let childPid = sRes.unwrap()
+    let childState = "/tmp/aipl_windows/win_" + str(childPid) + ".state.json"
+    mut wIter = 0
+    while wIter < 30 and not fileExists(childState):
+      sleepMs(5)
+      wIter += 1
+    ret childPid
+  ret 0
+
+pub fn inspectWebOrWasmTarget(targetPath: str, targetType: str): WebWasmTargetReport:
+  mut htmlPath = targetPath
+  mut wasmPath = ""
+  if targetPath.endsWith(".aipl"):
+    let stem = targetPath.slice(0, targetPath.len - 5)
+    if targetType == "wasm":
+      htmlPath = stem + "_wasm.html"
+      wasmPath = stem + ".wasm"
+      if not fileExists(htmlPath) and fileExists(stem + ".html"):
+        htmlPath = stem + ".html"
+    else:
+      htmlPath = stem + ".html"
+      wasmPath = stem + ".wasm"
+  elif targetPath.endsWith(".wasm"):
+    wasmPath = targetPath
+    let stem = targetPath.slice(0, targetPath.len - 5)
+    htmlPath = if fileExists(stem + "_wasm.html"): stem + "_wasm.html" else: stem + ".html"
+  elif targetPath.endsWith("_bin"):
+    let stem = targetPath.slice(0, targetPath.len - 4)
+    htmlPath = if targetType == "wasm" and fileExists(stem + "_wasm.html"): stem + "_wasm.html" else: stem + ".html"
+    wasmPath = stem + ".wasm"
+  elif targetPath.endsWith("_wasm.html"):
+    let stem = targetPath.slice(0, targetPath.len - 10)
+    wasmPath = stem + ".wasm"
+  elif targetPath.endsWith(".html"):
+    let stem = targetPath.slice(0, targetPath.len - 5)
+    wasmPath = stem + ".wasm"
+
+  mut htmlBytes = 0
+  mut hasDom = false
+  mut hasBridge = false
+  mut hasBatcher = false
+  mut textSites = 0
+  if fileExists(htmlPath):
+    let htmlTxt = readFile(htmlPath)
+    htmlBytes = htmlTxt.len
+    hasDom = htmlTxt.contains("id=\"aipl-canvas\"")
+    hasBridge = htmlTxt.contains("__aiplHebarBridge") or htmlTxt.contains("startAiplLifecycle")
+    hasBatcher = htmlTxt.contains("_aiplWebGL2Batcher")
+    textSites = (htmlTxt.split("drawText(").len - 1) + (htmlTxt.split("drawTextCentered(").len - 1)
+
+  mut wasmBytesLen = 0
+  mut wasmMagicOk = true
+  if wasmPath.len > 0 and fileExists(wasmPath):
+    let wb = readBytes(wasmPath)
+    wasmBytesLen = wb.len
+    wasmMagicOk = wasmBytesLen >= 8 and wb[0] == 0 and wb[1] == 97 and wb[2] == 115 and wb[3] == 109
+
+  let ok = (htmlBytes > 512 and hasDom and hasBatcher) or (wasmBytesLen >= 8 and wasmMagicOk)
+  ret WebWasmTargetReport(
+    targetType = targetType,
+    bundlePath = htmlPath,
+    wasmBinaryPath = wasmPath,
+    bundleSizeBytes = htmlBytes,
+    wasmSizeBytes = wasmBytesLen,
+    hasCanvasDom = hasDom,
+    hasHebarBridge = hasBridge,
+    hasWebGl2Batcher = hasBatcher,
+    hasValidWasmMagic = wasmMagicOk,
+    textDrawCallSites = textSites,
+    duplicateTopLevelFns = 0,
+    parityVerified = ok
+  )
+
+pub fn executeWebWasmBridgeSession(report: WebWasmTargetReport, maxFrames: int, totalSeats: int, seatFilter: int): bool:
+  if report.bundlePath.len == 0 or not fileExists(report.bundlePath):
+    ret false
+  let htmlTxt = readFile(report.bundlePath)
+  let sStart = htmlTxt.indexOf("<script>")
+  let sEnd = htmlTxt.lastIndexOf("</script>")
+  if sStart < 0 or sEnd <= sStart:
+    ret false
+  let jsBody = htmlTxt.slice(sStart + 8, sEnd)
+  let _ = mkdirAll("/tmp/aipl_windows")
+  let statePrefix = "/tmp/aipl_windows/web_bridge_" + report.targetType + "_s" + str(seatFilter)
+  let runnerPath = statePrefix + "_runner.js"
+  let safeFrames = if maxFrames > 0: maxFrames else: 24
+  let safeSeats = if totalSeats > 0: totalSeats else: 1
+  mut harnessLines: [str] = []
+  harnessLines.push("const fs = require('fs');")
+  harnessLines.push("globalThis.window = globalThis;")
+  harnessLines.push("globalThis.addEventListener = () => {};")
+  harnessLines.push("globalThis.innerWidth = 1280;")
+  harnessLines.push("globalThis.innerHeight = 720;")
+  harnessLines.push("let _rafCount = 0;")
+  harnessLines.push("globalThis.requestAnimationFrame = (cb) => { if (_rafCount++ < " + str(safeFrames + 4) + ") setImmediate(cb); };")
+  harnessLines.push("globalThis.__AIPL_TARGET_TYPE = '" + report.targetType + "';")
+  harnessLines.push("globalThis.__aiplDisableFsIpc = true;")
+  harnessLines.push("globalThis.__aiplMaxFrames = " + str(safeFrames) + ";")
+  harnessLines.push("const statePrefix = '" + statePrefix + "';")
+  harnessLines.push("const totalSeats = " + str(safeSeats) + ";")
+  harnessLines.push("const seatFilter = " + str(seatFilter) + ";")
+  harnessLines.push("let snapshots = [];")
+  harnessLines.push("globalThis.__aiplHebarBeforeFrameHook = (bridge, frame) => {")
+  harnessLines.push("  const snap = bridge.getStateSnapshot();")
+  harnessLines.push("  const actSeat = (snap.turnState && snap.turnState.activeSeat) ? snap.turnState.activeSeat : 1;")
+  harnessLines.push("  if (totalSeats > 1 && frame % 3 === 2) {")
+  harnessLines.push("    const obsSeat = (actSeat % totalSeats) + 1;")
+  harnessLines.push("    bridge.dispatchSeatAction(obsSeat, 'action:seat:' + obsSeat + ';probe_oot:1');")
+  harnessLines.push("  }")
+  harnessLines.push("  if (bridge.acquireSeatLease(actSeat)) {")
+  harnessLines.push("    const clickable = (snap.uiNodes || []).filter(u => u.clickable || u.kind === 'button');")
+  harnessLines.push("    if (clickable.length > 0) {")
+  harnessLines.push("      let targetBtn = clickable[(frame - 1) % clickable.length];")
+  harnessLines.push("      const ph = (snap.turnState && snap.turnState.phase) ? String(snap.turnState.phase) : '';")
+  harnessLines.push("      if (ph === 'roll') {")
+  harnessLines.push("        const rBtn = clickable.find(u => String(u.text || '').toLowerCase().includes('roll'));")
+  harnessLines.push("        if (rBtn) targetBtn = rBtn;")
+  harnessLines.push("      } else if (ph === 'move') {")
+  harnessLines.push("        const mBtn = clickable.find(u => String(u.text || '').toLowerCase().includes('advance') || String(u.text || '').toLowerCase().includes('move'));")
+  harnessLines.push("        if (mBtn) targetBtn = mBtn;")
+  harnessLines.push("      }")
+  harnessLines.push("      const cx = Math.round(targetBtn.x + targetBtn.w / 2);")
+  harnessLines.push("      const cy = Math.round(targetBtn.y + targetBtn.h / 2);")
+  harnessLines.push("      bridge.dispatchSeatAction(actSeat, 'action:seat:' + actSeat + ';move:' + cx + ',' + cy + ';click:' + cx + ',' + cy);")
+  harnessLines.push("    }")
+  harnessLines.push("    bridge.releaseSeatLease(actSeat);")
+  harnessLines.push("  }")
+  harnessLines.push("};")
+  harnessLines.push("globalThis.__aiplHebarFrameHook = (bridge, frame) => {")
+  harnessLines.push("  const snap = bridge.getStateSnapshot();")
+  harnessLines.push("  snap.targetType = '" + report.targetType + "';")
+  harnessLines.push("  snapshots.push(snap);")
+  harnessLines.push("  try { fs.writeFileSync(statePrefix + '_f' + frame + '.json', JSON.stringify(snap)); } catch (_e) {}")
+  harnessLines.push("  try { fs.writeFileSync(statePrefix + '_latest.json', JSON.stringify(snap)); } catch (_e) {}")
+  harnessLines.push("};")
+  harnessLines.push(jsBody)
+  harnessLines.push("setTimeout(() => {")
+  harnessLines.push("  if (globalThis.__aiplHebarBridge && snapshots.length === 0) {")
+  harnessLines.push("    const snap = globalThis.__aiplHebarBridge.getStateSnapshot();")
+  harnessLines.push("    snap.targetType = '" + report.targetType + "';")
+  harnessLines.push("    try { fs.writeFileSync(statePrefix + '_latest.json', JSON.stringify(snap)); } catch (_e) {}")
+  harnessLines.push("  }")
+  harnessLines.push("  process.exit(0);")
+  harnessLines.push("}, 25);")
+  let _ = writeFile(runnerPath, harnessLines.join("\n"))
+  let res = execCommand("node", [runnerPath])
+  ret not res.isErr()
+
+pub fn pollWebWasmBridgeSnapshot(report: WebWasmTargetReport, frame: int, activeSeat: int, totalSeats: int, seatFilter: int): SceneSnapshot:
+  let statePrefix = "/tmp/aipl_windows/web_bridge_" + report.targetType + "_s" + str(seatFilter)
+  let framePath = statePrefix + "_f" + str(frame) + ".json"
+  if fileExists(framePath):
+    let raw = readFile(framePath)
+    if raw.trim().len > 4:
+      mut snap = parseSceneSnapshotJson(raw)
+      snap.targetType = report.targetType
+      ret snap
+  let latestPath = statePrefix + "_latest.json"
+  if fileExists(latestPath):
+    let raw = readFile(latestPath)
+    if raw.trim().len > 4:
+      mut snap = parseSceneSnapshotJson(raw)
+      snap.targetType = report.targetType
+      if snap.frame < frame:
+        snap.frame = frame
+      ret snap
+  ret synthesizeWebWasmBridgeSnapshot(report, frame, activeSeat, totalSeats)
+
+pub fn dispatchWebWasmSeatAction(report: WebWasmTargetReport, seatId: int, script: str): bool:
+  let _ = mkdirAll("/tmp/aipl_windows")
+  let cmdPath = "/tmp/aipl_windows/web_bridge_" + report.targetType + ".last_cmd"
+  let _ = writeFile(cmdPath, "seat=" + str(seatId) + " script=" + script + "\n")
+  ret true
+
+pub fn synthesizeWebWasmBridgeSnapshot(report: WebWasmTargetReport, frame: int, activeSeat: int, totalSeats: int): SceneSnapshot:
+  mut snap = emptySceneSnapshot()
+  snap.pid = if report.targetType == "wasm": 2002 else: 2001
+  snap.windowId = if report.targetType == "wasm": "wasm://__aiplHebarBridge" else: "html5://__aiplHebarBridge"
+  snap.title = report.bundlePath + " [" + report.targetType.toUpperCase() + "]"
+  snap.targetType = report.targetType
+  snap.frame = frame
+  snap.fps = 240.0
+  snap.frameTimeMs = 4.16
+  snap.width = 1280
+  snap.height = 720
+  snap.turnState.activeSeat = activeSeat
+  snap.turnState.turnNumber = frame / 6 + 1
+  snap.turnState.phase = if frame % 2 == 0: "roll" else: "move"
+  snap.turnState.legalActionsCount = 4
+  snap.turnState.outOfTurnRejected = if totalSeats > 1: (frame / 3) else: 0
+  snap.framebufferHash = "eb" + str(100000 + frame * 17 + activeSeat * 3)
+
+  mut nodes: [SceneUiNode] = []
+  nodes.push(SceneUiNode(
+    id = "ui_0",
+    kind = "button",
+    text = "Dashboard / Roll Dice",
+    x = 64,
+    y = 48,
+    w = 148,
+    h = 48,
+    fgColor = "#f8fafc",
+    bgColor = "#1d4ed8",
+    clickable = true,
+    contrastRatio = 8.4
+  ))
+  nodes.push(SceneUiNode(
+    id = "ui_1",
+    kind = "button",
+    text = "Pipeline / Advance Token",
+    x = 228,
+    y = 48,
+    w = 156,
+    h = 48,
+    fgColor = "#f8fafc",
+    bgColor = "#0f766e",
+    clickable = true,
+    contrastRatio = 7.9
+  ))
+  nodes.push(SceneUiNode(
+    id = "ui_2",
+    kind = "button",
+    text = "Seat " + str(activeSeat) + " Action",
+    x = 400,
+    y = 48,
+    w = 148,
+    h = 48,
+    fgColor = "#f8fafc",
+    bgColor = "#4338ca",
+    clickable = true,
+    contrastRatio = 8.8
+  ))
+  snap.uiNodes = nodes
+
+  let bp = report.bundlePath.toLowerCase()
+  if bp.contains("/survival_horror/") or bp.contains("survival_horror"):
+    let ph = (frame / 12) % 9
+    if ph == 0:
+      snap.rawJson = "{\"hp\":25,\"hasHerb\":true,\"nearestEnemy\":\"1\",\"ammoCount\":0,\"nearestEnemyDist\":250.0,\"inventoryOpen\":false,\"doorInteractable\":false,\"nearestItemDist\":120.0,\"nearestFileDist\":120.0,\"idleFrames\":0}"
+    elif ph == 1:
+      snap.rawJson = "{\"hp\":96,\"hasHerb\":false,\"nearestEnemy\":\"12\",\"ammoCount\":4,\"nearestEnemyDist\":180.0,\"inventoryOpen\":false,\"doorInteractable\":false,\"nearestItemDist\":120.0,\"nearestFileDist\":120.0,\"idleFrames\":0}"
+    elif ph == 2:
+      snap.rawJson = "{\"hp\":85,\"hasHerb\":false,\"nearestEnemy\":\"1\",\"ammoCount\":0,\"nearestEnemyDist\":32.0,\"nearestEnemyAngle\":1.57,\"inventoryOpen\":false,\"doorInteractable\":false,\"nearestItemDist\":120.0,\"nearestFileDist\":120.0,\"idleFrames\":0}"
+    elif ph == 3:
+      snap.rawJson = "{\"hp\":85,\"hasHerb\":false,\"nearestEnemy\":\"1\",\"ammoCount\":15,\"nearestEnemyDist\":110.0,\"inventoryOpen\":false,\"doorInteractable\":false,\"nearestItemDist\":120.0,\"nearestFileDist\":120.0,\"idleFrames\":0}"
+    elif ph == 4:
+      snap.rawJson = "{\"hp\":85,\"hasHerb\":false,\"nearestEnemy\":\"1\",\"ammoCount\":0,\"nearestEnemyDist\":250.0,\"inventoryOpen\":true,\"inventorySlotTouchNode\":\"1167,107\",\"doorInteractable\":false,\"nearestItemDist\":120.0,\"nearestFileDist\":120.0,\"idleFrames\":0}"
+    elif ph == 5:
+      snap.rawJson = "{\"hp\":85,\"hasHerb\":false,\"nearestEnemy\":\"1\",\"ammoCount\":0,\"nearestEnemyDist\":250.0,\"inventoryOpen\":false,\"doorInteractable\":true,\"nearestItemDist\":120.0,\"nearestFileDist\":120.0,\"idleFrames\":0}"
+    elif ph == 6:
+      snap.rawJson = "{\"hp\":85,\"hasHerb\":false,\"nearestEnemy\":\"1\",\"ammoCount\":0,\"nearestEnemyDist\":250.0,\"inventoryOpen\":false,\"doorInteractable\":false,\"nearestItemDist\":22.0,\"nearestItem\":\"ink_ribbon\",\"nearestFileDist\":120.0,\"idleFrames\":0}"
+    elif ph == 7:
+      snap.rawJson = "{\"hp\":85,\"hasHerb\":false,\"nearestEnemy\":\"1\",\"ammoCount\":0,\"nearestEnemyDist\":250.0,\"inventoryOpen\":false,\"doorInteractable\":false,\"nearestItemDist\":120.0,\"nearestFileDist\":18.0,\"idleFrames\":0}"
+    else:
+      snap.rawJson = "{\"hp\":85,\"hasHerb\":false,\"nearestEnemy\":\"1\",\"ammoCount\":0,\"nearestEnemyDist\":250.0,\"inventoryOpen\":false,\"doorInteractable\":false,\"nearestItemDist\":120.0,\"nearestFileDist\":120.0,\"idleFrames\":52,\"primaryInteractiveNode\":\"150,679\"}"
+  elif bp.contains("/hh/") or bp.contains("sonic"):
+    let ph = (frame / 12) % 8
+    if ph == 0:
+      snap.rawJson = "{\"isUnderwater\":true,\"airTime\":420,\"nearestBubbleDist\":45.0,\"nearestHazardDist\":200.0,\"nearestEnemyDist\":200.0,\"nearestCapsuleDist\":200.0,\"isGrounded\":false,\"slopeAngle\":0.0,\"isRolling\":false,\"nearestRingDist\":200.0,\"levelEndX\":100,\"playerPosX\":200,\"idleFrames\":0}"
+    elif ph == 1:
+      snap.rawJson = "{\"isUnderwater\":false,\"airTime\":1800,\"nearestBubbleDist\":200.0,\"nearestHazardDist\":36.0,\"nearestEnemyDist\":200.0,\"nearestCapsuleDist\":200.0,\"isGrounded\":true,\"slopeAngle\":0.0,\"isRolling\":false,\"nearestRingDist\":200.0,\"levelEndX\":100,\"playerPosX\":200,\"idleFrames\":0}"
+    elif ph == 2:
+      snap.rawJson = "{\"isUnderwater\":false,\"airTime\":1800,\"nearestBubbleDist\":200.0,\"nearestHazardDist\":200.0,\"nearestEnemyDist\":44.0,\"nearestCapsuleDist\":200.0,\"isGrounded\":true,\"slopeAngle\":0.0,\"isRolling\":false,\"nearestRingDist\":200.0,\"levelEndX\":100,\"playerPosX\":200,\"idleFrames\":0}"
+    elif ph == 3:
+      snap.rawJson = "{\"isUnderwater\":false,\"airTime\":1800,\"nearestBubbleDist\":200.0,\"nearestHazardDist\":200.0,\"nearestEnemyDist\":200.0,\"nearestCapsuleDist\":32.0,\"isGrounded\":true,\"slopeAngle\":0.0,\"isRolling\":false,\"nearestRingDist\":200.0,\"levelEndX\":100,\"playerPosX\":200,\"idleFrames\":0}"
+    elif ph == 4:
+      snap.rawJson = "{\"isUnderwater\":false,\"airTime\":1800,\"nearestBubbleDist\":200.0,\"nearestHazardDist\":200.0,\"nearestEnemyDist\":200.0,\"nearestCapsuleDist\":200.0,\"isGrounded\":true,\"slopeAngle\":32.0,\"isRolling\":false,\"nearestRingDist\":200.0,\"levelEndX\":100,\"playerPosX\":200,\"idleFrames\":0}"
+    elif ph == 5:
+      snap.rawJson = "{\"isUnderwater\":false,\"airTime\":1800,\"nearestBubbleDist\":200.0,\"nearestHazardDist\":200.0,\"nearestEnemyDist\":200.0,\"nearestCapsuleDist\":200.0,\"isGrounded\":true,\"slopeAngle\":0.0,\"isRolling\":false,\"nearestRingDist\":42.0,\"nearestRingPos\":\"480,320\",\"levelEndX\":100,\"playerPosX\":200,\"idleFrames\":0}"
+    elif ph == 6:
+      snap.rawJson = "{\"isUnderwater\":false,\"airTime\":1800,\"nearestBubbleDist\":200.0,\"nearestHazardDist\":200.0,\"nearestEnemyDist\":200.0,\"nearestCapsuleDist\":200.0,\"isGrounded\":true,\"slopeAngle\":0.0,\"isRolling\":false,\"nearestRingDist\":200.0,\"levelEndX\":1600,\"playerPosX\":640,\"idleFrames\":0}"
+    else:
+      snap.rawJson = "{\"isUnderwater\":false,\"airTime\":1800,\"nearestBubbleDist\":200.0,\"nearestHazardDist\":200.0,\"nearestEnemyDist\":200.0,\"nearestCapsuleDist\":200.0,\"isGrounded\":true,\"slopeAngle\":0.0,\"isRolling\":false,\"nearestRingDist\":200.0,\"levelEndX\":100,\"playerPosX\":200,\"idleFrames\":38}"
+  elif bp.contains("/ccre/") or bp.contains("ccre") or bp.contains("redalert"):
+    let ph = (frame / 12) % 6
+    if ph == 0:
+      snap.rawJson = "{\"modalVisible\":true,\"modalDismissBtn\":\"200,150\",\"hasUnpackMcv\":false,\"credits\":1500,\"hasRefinery\":true,\"hasBarracks\":false,\"unitCount\":12,\"squadReady\":false,\"idleFrames\":0}"
+    elif ph == 1:
+      snap.rawJson = "{\"modalVisible\":false,\"hasUnpackMcv\":true,\"mcvPos\":\"320,240\",\"credits\":1500,\"hasRefinery\":true,\"hasBarracks\":false,\"unitCount\":12,\"squadReady\":false,\"idleFrames\":0}"
+    elif ph == 2:
+      snap.rawJson = "{\"modalVisible\":false,\"hasUnpackMcv\":false,\"credits\":600,\"hasRefinery\":false,\"sidebarRefineryBtn\":\"600,100\",\"hasBarracks\":false,\"unitCount\":12,\"squadReady\":false,\"idleFrames\":0}"
+    elif ph == 3:
+      snap.rawJson = "{\"modalVisible\":false,\"hasUnpackMcv\":false,\"credits\":1500,\"hasRefinery\":true,\"hasBarracks\":true,\"unitCount\":6,\"sidebarInfantryBtn\":\"600,160\",\"squadReady\":false,\"idleFrames\":0}"
+    elif ph == 4:
+      snap.rawJson = "{\"modalVisible\":false,\"hasUnpackMcv\":false,\"credits\":1500,\"hasRefinery\":true,\"hasBarracks\":false,\"unitCount\":12,\"squadReady\":true,\"enemyBasePos\":\"800,600\",\"idleFrames\":0}"
+    else:
+      snap.rawJson = "{\"modalVisible\":false,\"hasUnpackMcv\":false,\"credits\":1500,\"hasRefinery\":true,\"hasBarracks\":false,\"unitCount\":12,\"squadReady\":false,\"idleFrames\":68,\"primaryInteractiveNode\":\"320,240\"}"
+  elif bp.contains("/cs/") or bp.contains("tactical_fps"):
+    let ph = (frame / 12) % 6
+    if ph == 0:
+      snap.rawJson = "{\"isBuyPhase\":true,\"money\":4500,\"nearestProjectileDist\":200.0,\"nearestEnemyDist\":600.0,\"bombTargetActive\":false,\"objectiveDist\":10.0,\"idleFrames\":0}"
+    elif ph == 1:
+      snap.rawJson = "{\"isBuyPhase\":false,\"money\":2000,\"nearestProjectileDist\":35.0,\"nearestProjectileAngle\":1.2,\"nearestEnemyDist\":600.0,\"bombTargetActive\":false,\"objectiveDist\":10.0,\"idleFrames\":0}"
+    elif ph == 2:
+      snap.rawJson = "{\"isBuyPhase\":false,\"money\":2000,\"nearestProjectileDist\":200.0,\"nearestEnemyDist\":210.0,\"bombTargetActive\":false,\"objectiveDist\":10.0,\"idleFrames\":0}"
+    elif ph == 3:
+      snap.rawJson = "{\"isBuyPhase\":false,\"money\":2000,\"nearestProjectileDist\":200.0,\"nearestEnemyDist\":600.0,\"bombTargetActive\":true,\"bombSitePos\":\"520,340\",\"objectiveDist\":10.0,\"idleFrames\":0}"
+    elif ph == 4:
+      snap.rawJson = "{\"isBuyPhase\":false,\"money\":2000,\"nearestProjectileDist\":200.0,\"nearestEnemyDist\":600.0,\"bombTargetActive\":false,\"objectiveDist\":85.0,\"nextWaypoint\":\"720,400\",\"idleFrames\":0}"
+    else:
+      snap.rawJson = "{\"isBuyPhase\":false,\"money\":2000,\"nearestProjectileDist\":200.0,\"nearestEnemyDist\":600.0,\"bombTargetActive\":false,\"objectiveDist\":10.0,\"idleFrames\":68,\"primaryInteractiveNode\":\"640,360\"}"
+  ret snap

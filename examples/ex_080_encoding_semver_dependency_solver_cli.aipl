@@ -1,0 +1,52 @@
+// ============================================================================
+// Example 080: SemVer 2.0 Parser, Range Matcher & Dependency Solver (CLI)
+// Demonstrates: parseSemVer, formatSemVer, compareSemVer, satisfiesSemVer,
+//               satisfiesRange, bumpMajor, bumpMinor, bumpPatch, and
+//               bumpSemver from std/encoding.
+// ============================================================================
+module Ex080EncodingSemverDependencySolverCli
+
+import {
+  parseSemVer,
+  formatSemVer,
+  compareSemVer,
+  satisfiesSemVer,
+  satisfiesRange,
+  bumpMajor,
+  bumpMinor,
+  bumpPatch,
+  bumpSemver
+} from "../std/encoding"
+
+// Parses a SemVer version and returns the sum of its bumped major, minor, and patch numbers.
+pub fn evaluateSemVerBumpedVersionSum(verStr: str): int:
+  let v = parseSemVer(verStr).unwrap()
+  let maj = bumpMajor(v).major
+  let min = bumpMinor(v).minor
+  let pat = bumpPatch(v).patch
+  assert(bumpSemver(v, "minor").minor == min, "bumpSemver('minor') matches bumpMinor")
+  ret maj + min + pat
+
+// Verifies SemVer 2.0 pre-release precedence and caret/comparator range matching.
+pub fn verifySemVerRangeAndPreReleaseOrder(): int:
+  let vPre = parseSemVer("1.2.3-alpha.1+build.9").unwrap()
+  let vRel = parseSemVer("1.2.3").unwrap()
+  let preStr = formatSemVer(vPre)
+  let orderOk = compareSemVer(vPre, vRel) < 0
+  let rangeOk = satisfiesSemVer(vRel, "^1.0.0 >=1.2.0") and satisfiesRange(vRel, "^1.0.0")
+  if preStr == "1.2.3-alpha.1+build.9" and orderOk and rangeOk:
+    ret 1
+  ret 0
+
+// Summarizes whether a dependency constraint is satisfied by the candidate release.
+pub fn describeSemVerCompatibilityVerdict(satisfied: bool): str:
+  if satisfied:
+    ret "SEMVER:CARET_RANGE_SATISFIED"
+  ret "SEMVER:BREAKING_MAJOR_MISMATCH"
+
+pub fn main(): int:
+  let bumpSum = evaluateSemVerBumpedVersionSum("1.2.3")
+  let solverOk = verifySemVerRangeAndPreReleaseOrder()
+  let verdict = describeSemVerCompatibilityVerdict(solverOk == 1)
+  println("ex_080_encoding_semver_dependency_solver_cli: bumpSum=" + str(bumpSum) + " solverOk=" + str(solverOk) + " verdict=" + verdict)
+  ret 0

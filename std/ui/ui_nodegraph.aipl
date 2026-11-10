@@ -1,0 +1,75 @@
+/// # Module: `std/ui/ui_nodegraph` (`UiNodeGraphMod`)
+///
+/// ## Purpose & Domain Scope
+/// Interactive node-graph canvas, typed input/output pins, connection validation,
+/// and cubic Bezier wire control point routing.
+module UiNodeGraphMod
+
+import { absFloat, maxFloat } from "std/math/consts"
+import { Vec2 } from "std/math/vec_math"
+
+pub struct GraphPin(pinId: int, nodeId: int, name: str, isOutput: bool, dataType: int, pinPosition: Vec2)
+
+pub struct GraphNode(nodeId: int, title: str, position: Vec2, size: Vec2, inputPins: [GraphPin], outputPins: [GraphPin])
+
+pub struct GraphWire(startPinId: int, endPinId: int)
+
+pub fn computeBezierWireControlPoints(startPt: Vec2, endPt: Vec2): [Vec2]:
+  let dx = maxFloat(absFloat(endPt.x - startPt.x) * 0.5, 40.0)
+  let c1 = Vec2(x = startPt.x + dx, y = startPt.y)
+  let c2 = Vec2(x = endPt.x - dx, y = endPt.y)
+  ret [startPt, c1, c2, endPt]
+
+pub fn validatePinConnection(outPin: GraphPin, inPin: GraphPin): bool:
+  if outPin.nodeId == inPin.nodeId:
+    ret false
+  if not outPin.isOutput or inPin.isOutput:
+    ret false
+  ret outPin.dataType == inPin.dataType
+
+pub struct AuraUndoHistory(undoStack: [str], redoStack: [str], maxDepth: int = 100)
+
+// =============================================================================
+// Undo/Redo History Engine
+// =============================================================================
+
+pub fn auraUndoHistoryNew(maxDepth: int = 100): AuraUndoHistory:
+  let emptyU: [str] = []
+  let emptyR: [str] = []
+  ret AuraUndoHistory(undoStack = emptyU, redoStack = emptyR, maxDepth = maxDepth)
+
+pub fn auraUndoHistoryPush(mut h: AuraUndoHistory, current: str): AuraUndoHistory:
+  h.undoStack.push(current)
+  if h.undoStack.len > h.maxDepth:
+    mut trimmed: [str] = []
+    mut i = 1
+    while i < h.undoStack.len:
+      trimmed.push(h.undoStack[i])
+      i += 1
+    h.undoStack = trimmed
+  let emptyR: [str] = []
+  h.redoStack = emptyR
+  ret h
+
+pub fn auraUndoHistoryCanUndo(h: AuraUndoHistory): bool:
+  ret h.undoStack.len > 0
+
+pub fn auraUndoHistoryCanRedo(h: AuraUndoHistory): bool:
+  ret h.redoStack.len > 0
+
+pub fn auraUndoHistoryUndo(mut h: AuraUndoHistory, current: str): (str, bool):
+  if h.undoStack.len == 0:
+    ret (current, false)
+  h.redoStack.push(current)
+  let prev = h.undoStack.pop()
+  ret (prev, true)
+
+pub fn auraUndoHistoryRedo(mut h: AuraUndoHistory, current: str): (str, bool):
+  if h.redoStack.len == 0:
+    ret (current, false)
+  h.undoStack.push(current)
+  let next = h.redoStack.pop()
+  ret (next, true)
+
+// =============================================================================
+// Multi-Select Range & Anchor Engine

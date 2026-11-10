@@ -1,0 +1,146 @@
+/// # Module: `std/procgen/wfc_solver` (`WfcSolverMod`)
+///
+/// ## Purpose & Domain Scope
+/// 2D Wave Function Collapse (WFC) constraint satisfaction solver with
+/// entropy tracking and constraint propagation.
+module WfcSolverMod
+
+pub struct WfcPattern(id: int, weight: float, compatibleNeighbors: [[int]])
+
+pub struct WfcSolver2D(width: int, height: int, numPatterns: int, patterns: [WfcPattern], waveMasks: [int], collapsedGrid: [int], isSolved: bool)
+
+pub fn wfcSolver2dNew(width: int, height: int, numPatterns: int): WfcSolver2D:
+  let fullMask = (1 << numPatterns) - 1
+  let total = width * height
+  mut wave: [int] = []
+  mut grid: [int] = []
+  mut i = 0
+  while i < total:
+    wave.push(fullMask)
+    grid.push(-1)
+    i = i + 1
+  mut pats: [WfcPattern] = []
+  ret WfcSolver2D(
+    width = width,
+    height = height,
+    numPatterns = numPatterns,
+    patterns = pats,
+    waveMasks = wave,
+    collapsedGrid = grid,
+    isSolved = false
+  )
+
+pub fn wfcAddPattern(mut solver: WfcSolver2D, pattern: WfcPattern): void:
+  mut pats = solver.patterns
+  pats.push(pattern)
+  solver.patterns = pats
+
+fn countSetBits(mask: int, maxBits: int): int:
+  mut c = 0
+  mut b = 0
+  while b < maxBits:
+    if (mask & (1 << b)) != 0:
+      c = c + 1
+    b = b + 1
+  ret c
+
+pub fn wfcStep(mut solver: WfcSolver2D, seed: int): bool:
+  let total = solver.width * solver.height
+  mut bestCell = -1
+  mut bestBits = solver.numPatterns + 1
+
+  mut i = 0
+  while i < total:
+    if solver.collapsedGrid[i] < 0:
+      let bits = countSetBits(solver.waveMasks[i], solver.numPatterns)
+      if bits == 0:
+        ret false
+      if bits < bestBits:
+        bestBits = bits
+        bestCell = i
+    i = i + 1
+
+  if bestCell < 0:
+    solver.isSolved = true
+    ret true
+
+  let mask = solver.waveMasks[bestCell]
+  mut choices: [int] = []
+  mut p = 0
+  while p < solver.numPatterns:
+    if (mask & (1 << p)) != 0:
+      choices.push(p)
+    p = p + 1
+  if choices.len == 0:
+    ret false
+
+  let s = ((seed + bestCell * 7919) * 1103515245 + 12345) & 2147483647
+  let chosenPat = choices[s % choices.len]
+
+  mut wave = solver.waveMasks
+  mut grid = solver.collapsedGrid
+  wave[bestCell] = 1 << chosenPat
+  grid[bestCell] = chosenPat
+
+  let cx = bestCell % solver.width
+  let cy = bestCell / solver.width
+  let dxs = [0, 1, 0, -1]
+  let dys = [-1, 0, 1, 0]
+
+  if chosenPat < solver.patterns.len:
+    let patObj: WfcPattern = solver.patterns[chosenPat]
+    mut dir = 0
+    while dir < 4 and dir < patObj.compatibleNeighbors.len:
+      let nx = cx + dxs[dir]
+      let ny = cy + dys[dir]
+      if nx >= 0 and nx < solver.width and ny >= 0 and ny < solver.height:
+        let nIdx = ny * solver.width + nx
+        let allowedList = patObj.compatibleNeighbors[dir]
+        mut allowedMask = 0
+        mut k = 0
+        while k < allowedList.len:
+          allowedMask = allowedMask | (1 << allowedList[k])
+          k = k + 1
+        wave[nIdx] = wave[nIdx] & allowedMask
+        if wave[nIdx] == 0:
+          ret false
+      dir = dir + 1
+
+  solver.waveMasks = wave
+  solver.collapsedGrid = grid
+
+  mut allDone = true
+  mut m = 0
+  while m < total:
+    if grid[m] < 0:
+      allDone = false
+    m = m + 1
+  solver.isSolved = allDone
+  ret true
+
+pub fn wfcSolve(mut solver: WfcSolver2D, maxRestarts: int, seed: int): bool:
+  let total = solver.width * solver.height
+  let fullMask = (1 << solver.numPatterns) - 1
+  mut attempt = 0
+  while attempt <= maxRestarts:
+    mut wave: [int] = []
+    mut grid: [int] = []
+    mut i = 0
+    while i < total:
+      wave.push(fullMask)
+      grid.push(-1)
+      i = i + 1
+    solver.waveMasks = wave
+    solver.collapsedGrid = grid
+    solver.isSolved = false
+
+    mut ok = true
+    mut stepIdx = 0
+    while stepIdx < total and ok and (not solver.isSolved):
+      ok = wfcStep(solver, seed + attempt * 997 + stepIdx * 31)
+      stepIdx = stepIdx + 1
+
+    if solver.isSolved:
+      ret true
+    attempt = attempt + 1
+  ret false

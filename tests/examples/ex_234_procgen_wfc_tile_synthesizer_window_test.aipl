@@ -1,0 +1,45 @@
+module Ex234ProcgenWfcTileSynthesizerWindowTest
+
+import {
+  WfcPattern, WfcSolver2D, wfcSolver2dNew,
+  wfcAddPattern, wfcStep, wfcSolve
+} from "../../std/procgen/wfc_solver"
+import {
+  WfcScene, createWfcScene, stepScene, auditProcgenWfcTileSynthesizer
+} from "../../examples/ex_234_procgen_wfc_tile_synthesizer_window"
+
+pub fn test_procgen_wfc_tile_synthesizer(): void:
+  mut solver = wfcSolver2dNew(3, 3, 2)
+  let pat0 = WfcPattern(id = 0, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  let pat1 = WfcPattern(id = 1, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  wfcAddPattern(solver, pat0)
+  wfcAddPattern(solver, pat1)
+  assert(wfcStep(solver, 42), "wfcStep succeeded")
+  assert(wfcSolve(solver, 3, 12345) and solver.isSolved, "wfcSolve converged")
+
+  mut scene: WfcScene = createWfcScene()
+  let c0 = scene.collapsedCount
+  assert(c0 == 0, "Initially 0 cells collapsed")
+  stepScene(scene, 0, 0.05)
+  let c1 = scene.collapsedCount
+  assert(c1 > c0, "t=0 -> t=1 collapses first WFC cell")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let c20 = scene.collapsedCount
+  assert(c20 > c1, "t=1 -> t=20 progressively collapses WFC wave grid")
+
+  while f <= 100:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  assert(scene.waveCount >= 2 and scene.collapsedCount > 0 and scene.collapsedCount != c20, "t=20 -> t=100 starts a new WFC wave once solved so synthesis runs continuously")
+
+  let audit = auditProcgenWfcTileSynthesizer()
+  assert(audit == 37, "WFC tile synthesizer audit")
+
+pub fn main(): int:
+  test_procgen_wfc_tile_synthesizer()
+  println("PASS: ex_234_procgen_wfc_tile_synthesizer_window_test")
+  ret 0

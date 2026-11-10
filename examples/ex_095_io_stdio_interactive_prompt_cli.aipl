@@ -1,0 +1,65 @@
+// ============================================================================
+// Example 095: Standard I/O Descriptors, Prompt Queue & Error Codes (CLI)
+// Demonstrates: stdioStdin, stdioStdout, stdioStderr, stdioPrint,
+//               stdioPrintln, stdioEprint, stdioEprintln, stdioWriteBytes,
+//               stdioFlush, stdioReadLineMock, ioErrNotFound, and
+//               ioErrUnexpectedEof from std/io.
+// ============================================================================
+module Ex095IoStdioInteractivePromptCli
+
+import {
+  stdioStdin,
+  stdioStdout,
+  stdioStderr,
+  stdioPrint,
+  stdioPrintln,
+  stdioEprint,
+  stdioEprintln,
+  stdioWriteBytes,
+  stdioFlush,
+  stdioReadLineMock,
+  ioErrNotFound,
+  ioErrUnexpectedEof
+} from "../std/io"
+
+// Inspects standard file descriptors (0, 1, 2) and measures formatted write byte counts.
+pub fn evaluateStdioDescriptorAndByteCounts(): int:
+  let inH = stdioStdin()
+  let outH = stdioStdout()
+  let errH = stdioStderr()
+  let fdSum = inH.fd + outH.fd + errH.fd
+
+  let b1 = stdioPrint("hi")
+  let b2 = stdioPrintln("hi")
+  let b3 = stdioEprint("err")
+  let b4 = stdioEprintln("err")
+  ret fdSum + b1 + b2 + b3 + b4
+
+// Exercises interactive line queueing on stdin and verifies POSIX IoError codes.
+pub fn verifyInteractivePromptQueueAndErrors(): int:
+  mut inH = stdioStdin()
+  let written = stdioWriteBytes(inH, [79, 75])
+  let flushed = stdioFlush(inH)
+  let line1 = stdioReadLineMock(inH).unwrap()
+  let eofAfter = stdioReadLineMock(inH).isNone()
+
+  let eNotFound = ioErrNotFound("missing.cfg")
+  let eEof = ioErrUnexpectedEof("short frame")
+  if written == 2 and flushed and line1 == "OK" and eofAfter and eNotFound.code == 2 and eEof.code == 100:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a standard POSIX file descriptor.
+pub fn describeStdioStreamChannel(fd: int): str:
+  if fd == 0:
+    ret "STDIO:FD0_STDIN_READER"
+  if fd == 1:
+    ret "STDIO:FD1_STDOUT_BUFFERED"
+  ret "STDIO:FD2_STDERR_UNBUFFERED"
+
+pub fn main(): int:
+  let byteMetric = evaluateStdioDescriptorAndByteCounts()
+  let promptOk = verifyInteractivePromptQueueAndErrors()
+  let channel = describeStdioStreamChannel(1)
+  println("ex_095_io_stdio_interactive_prompt_cli: byteMetric=" + str(byteMetric) + " promptOk=" + str(promptOk) + " channel=" + channel)
+  ret 0

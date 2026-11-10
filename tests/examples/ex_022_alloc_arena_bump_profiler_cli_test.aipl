@@ -1,0 +1,36 @@
+// ============================================================================
+// Twin Test Suite 022: Arena Bump Allocator & Scoped Checkpoint Profiler (CLI)
+// Verifies examples/ex_022_alloc_arena_bump_profiler_cli.aipl
+// ============================================================================
+module Ex022AllocArenaBumpProfilerCliTest
+
+import {
+  computeArenaBumpOffset,
+  computeArenaRemainingBytes,
+  classifyArenaPressure,
+  profileNestedArenaScopes,
+  profileArenaMarkEvacuation
+} from "../../examples/ex_022_alloc_arena_bump_profiler_cli.aipl"
+
+pub fn test_arena_alignment_and_pressure_metrics(): int:
+  assert(computeArenaBumpOffset(128, 20) == 152, "20 bytes rounds up to 24 bytes (128 + 24 = 152)")
+  assert(computeArenaBumpOffset(0, 8) == 8, "exact 8-byte alignment")
+  assert(computeArenaRemainingBytes(4096, 1024) == 3072, "4096 - 1024 == 3072")
+  assert(computeArenaRemainingBytes(1024, 2048) == 0, "clamped at 0 on overflow")
+  assert(classifyArenaPressure(25) == "ARENA:NOMINAL", "25% is nominal")
+  assert(classifyArenaPressure(85) == "ARENA:HIGH_WATER_WARNING", "85% is warning")
+  assert(classifyArenaPressure(98) == "ARENA:CRITICAL_SPILL", "98% is critical")
+  ret 0
+
+pub fn test_real_std_arena_nested_scopes_and_evacuate(): int:
+  let highWaterDelta = profileNestedArenaScopes(512, 1024)
+  assert(highWaterDelta == 1536, "nested scopes allocate 512 + 1024 = 1536 bytes at peak and rewind cleanly")
+  let evacuated = profileArenaMarkEvacuation(256, 4242)
+  assert(evacuated == 4242, "arenaPopEvacuate preserves return payload while rewinding mark")
+  ret 0
+
+pub fn main(): int:
+  test_arena_alignment_and_pressure_metrics()
+  test_real_std_arena_nested_scopes_and_evacuate()
+  println("PASS: ex_022_alloc_arena_bump_profiler_cli_test")
+  ret 0

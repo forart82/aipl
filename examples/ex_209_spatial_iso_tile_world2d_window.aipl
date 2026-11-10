@@ -1,0 +1,96 @@
+module Ex209SpatialIsoTileWorld2dWindow
+
+import { Vec2, IVec2 } from "../std/math/vec_math"
+import {
+  isoTileWorldNew, isoWorldGridToScreen, isoScreenToGrid,
+  isoPickCellWithHeight, isoDepthSortKey
+} from "../std/spatial/iso_tile_world2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepIsoTileElevation(col: int, row: int, frame: int): float:
+  let base = if col >= 2 and col <= 5 and row >= 2 and row <= 5: 1.4 else: 0.2
+  let wave = sin(float(frame) * 0.06 + float(col) * 0.55 + float(row) * 0.45) * 0.65
+  let h = base + wave
+  ret if h < 0.0: 0.0 else: h
+
+pub fn buildSpatialIsoTileAudit(): int:
+  let iso = isoTileWorldNew(8, 8, 64.0, 32.0, 16.0)
+  let sPos: Vec2 = isoWorldGridToScreen(iso, 2, 2, 0.0)
+  let gPos: Vec2 = isoScreenToGrid(iso, 0.0, 64.0)
+  let pk: IVec2 = isoPickCellWithHeight(iso, 0.0, 64.0).unwrap()
+  ret int(sPos.y) + int(gPos.x) + pk.x + pk.y
+
+pub fn main(): int:
+  let auditScore = buildSpatialIsoTileAudit()
+  let iso = isoTileWorldNew(8, 8, 84.0, 42.0, 18.0)
+
+  initWindow(1280, 720, "AIPL ex_209: Spatial 2.5D Isometric Tile World & Painter's Depth Sort")
+  mut frame = 0
+  while not windowShouldClose():
+    let originX = 640.0
+    let originY = 204.0
+    let hw = iso.tileWidth * 0.5
+    let hh = iso.tileHeight * 0.5
+    let activeCol = (frame / 9) % 8
+    let activeRow = (frame / 13) % 8
+    let activeElev = stepIsoTileElevation(activeCol, activeRow, frame)
+    let dKey = isoDepthSortKey(activeCol, activeRow, activeElev)
+    let activeScreenPt = isoWorldGridToScreen(iso, activeCol, activeRow, 0.0)
+    let unprojGrid = isoScreenToGrid(iso, activeScreenPt.x, activeScreenPt.y)
+    let pickedCell: IVec2 = isoPickCellWithHeight(iso, activeScreenPt.x, activeScreenPt.y).unwrap()
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_209: 2.5D ISOMETRIC TILE WORLD (2:1 PROJECTION & ELEVATION PICKING)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("grid=8x8 (84x42px) | elevScale=18.0 | picked=(" + str(pickedCell.x) + "," + str(pickedCell.y) + ") | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    mut r = 0
+    while r < iso.rows:
+      mut c = 0
+      while c < iso.cols:
+        let elev = stepIsoTileElevation(c, r, frame)
+        let pt = isoWorldGridToScreen(iso, c, r, elev)
+        let basePt = isoWorldGridToScreen(iso, c, r, 0.0)
+        let sx = originX + pt.x
+        let sy = originY + pt.y
+        let baseSy = originY + basePt.y
+        let isPicked = c == activeCol and r == activeRow
+        let lineCol = if isPicked: rgb(250, 204, 21) else: (if elev > 1.0: rgb(52, 211, 153) else: rgb(56, 189, 248))
+        let sideCol = if isPicked: rgb(202, 138, 4) else: (if elev > 1.0: rgb(16, 120, 88) else: rgb(30, 64, 110))
+        let thick = if isPicked: 3.0 else: 1.6
+
+        // 2.5D vertical prism cliff sides when elevated
+        if baseSy - sy > 2.0:
+          drawLine(sx - hw, sy, sx - hw, baseSy, sideCol, 1.4)
+          drawLine(sx, sy + hh, sx, baseSy + hh, sideCol, 1.6)
+          drawLine(sx + hw, sy, sx + hw, baseSy, sideCol, 1.4)
+          drawLine(sx - hw, baseSy, sx, baseSy + hh, sideCol, 1.2)
+          drawLine(sx, baseSy + hh, sx + hw, baseSy, sideCol, 1.2)
+
+        // Top diamond tile outline
+        drawLine(sx, sy - hh, sx + hw, sy, lineCol, thick)
+        drawLine(sx + hw, sy, sx, sy + hh, lineCol, thick)
+        drawLine(sx, sy + hh, sx - hw, sy, lineCol, thick)
+        drawLine(sx - hw, sy, sx, sy - hh, lineCol, thick)
+        if isPicked:
+          drawCircle(sx, sy, 5.0, rgb(250, 204, 21))
+        c = c + 1
+      r = r + 1
+
+    drawRect(60.0, 624.0, 1160.0, 56.0, rgb(17, 24, 39))
+    drawRectOutline(60.0, 624.0, 1160.0, 56.0, 1.5, rgb(250, 204, 21))
+    let elevTenths = int(activeElev * 10.0)
+    drawText("Picked Tile: (" + str(pickedCell.x) + ", " + str(pickedCell.y) + ") | Elev=" + str(elevTenths / 10) + "." + str(elevTenths % 10) + " | Unproj=(" + str(int(unprojGrid.x)) + "," + str(int(unprojGrid.y)) + ") | Painter Depth Key = " + str(int(dKey * 100.0)), 84.0, 644.0, 16.0, rgb(250, 204, 21))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

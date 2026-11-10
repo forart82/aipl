@@ -1,0 +1,132 @@
+// ============================================================================
+// Canonical Example 153: Audio Device & Pentatonic Step Sequencer (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/audio/audio_device
+// ============================================================================
+module Ex153AudioDevicePentatonicSequencerWindow
+
+import {
+  AudioDevice,
+  createAudioDevice,
+  startAudioDevice,
+  stopAudioDevice,
+  writeAudioPcmInterleaved,
+  getAudioLatencyMs,
+  destroyAudioDevice,
+  playToneEx
+} from "../std/audio/audio_device.aipl"
+import { quantizeToPentatonicLadder } from "../std/audio/audio_synth.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { maxInt } from "../std/std_root.aipl"
+
+pub fn verifyAudioDeviceAndPentatonicQuantizer(): int:
+  mut dev = createAudioDevice(44100, 512, 2)
+  assert(getAudioLatencyMs(dev) > 11.5 and getAudioLatencyMs(dev) < 11.7, "latency ~11.6ms")
+  dev = startAudioDevice(dev)
+  let framesWritten = writeAudioPcmInterleaved(dev, [0.1, -0.1, 0.2, -0.2])
+  dev = stopAudioDevice(dev)
+  dev = destroyAudioDevice(dev)
+
+  let g4Hz = int(quantizeToPentatonicLadder(400.0, 261.63) + 0.5)
+  ret framesWritten + g4Hz
+
+pub fn computeSequencerStepDurationMs(bpm: int): int:
+  let safeBpm = maxInt(30, bpm)
+  ret 15000 / safeBpm
+
+pub fn describeAudioDeviceConfig(sampleRate: int, bufferFrames: int): str:
+  ret "AUDIO:DEV_" + str(sampleRate) + "HZ_BUF_" + str(bufferFrames)
+
+pub fn stepSequencerDeviceFrame(frameIndex: int): (AudioDevice, [float], int):
+  mut dev = createAudioDevice(44100, 512, 2)
+  dev = startAudioDevice(dev)
+  let rawPitches = [445.0, 398.0, 332.0, 296.0, 264.0]
+  mut ladderHz: [float] = []
+  mut r = 0
+  while r < rawPitches.len:
+    ladderHz.push(quantizeToPentatonicLadder(rawPitches[r], 261.63))
+    r = r + 1
+  let activeStep = ((frameIndex / 4) + (frameIndex / 23)) % 16
+  let activeRow = activeStep % 5
+  let stepFreq = ladderHz[activeRow]
+  let ringFrames = 2 + (frameIndex % 7)
+  mut pcmChunk: [float] = []
+  mut k = 0
+  while k < ringFrames:
+    pcmChunk.push(stepFreq * 0.001)
+    pcmChunk.push(-stepFreq * 0.001)
+    k = k + 1
+  let written = writeAudioPcmInterleaved(dev, pcmChunk)
+  ret (dev, ladderHz, int(stepFreq + 0.5) + written + activeStep * 10)
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let (_, _, stepMetric) = stepSequencerDeviceFrame(frameIndex)
+  ret verifyAudioDeviceAndPentatonicQuantizer() + stepMetric + int(dt * 0.0)
+
+pub fn renderPentatonicSequencerScene(frameIndex: int): void:
+  let (dev, ladderHz, _) = stepSequencerDeviceFrame(frameIndex)
+  let activeStep = ((frameIndex / 4) + (frameIndex / 23)) % 16
+  let ringFrames = 2 + (frameIndex % 7)
+  let noteNames = ["A4", "G4", "E4", "D4", "C4"]
+  let latencyMs = getAudioLatencyMs(dev)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_153 // 16-STEP PENTATONIC PITCH LADDER SEQUENCER & AUDIO DEVICE RING", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // 5-Row x 16-Column Pentatonic Step Grid driven by quantizeToPentatonicLadder
+  let gx0 = 210.0
+  let gy0 = 104.0
+  mut row = 0
+  while row < ladderHz.len:
+    let ry = gy0 + float(row * 94)
+    let qHz = int(ladderHz[row] + 0.5)
+    drawText(noteNames[row] + " (" + str(qHz) + " Hz)", 56.0, ry + 28.0, 16.0, rgb(125, 211, 252))
+
+    mut col = 0
+    while col < 16:
+      let cx = gx0 + float(col * 63)
+      let noteActive = ((col * 3 + row * 2) % 5) == 0
+      let isPlayhead = col == activeStep
+      let padCol = if isPlayhead and noteActive: rgb(34, 197, 94) else: (if noteActive: rgb(56, 189, 248) else: (if isPlayhead: rgb(30, 41, 59) else: rgb(15, 23, 42)))
+      let borderCol = if isPlayhead: rgb(250, 204, 21) else: rgb(51, 65, 85)
+      drawRect(cx, ry, 54.0, 76.0, padCol)
+      drawRectOutline(cx, ry, 54.0, 76.0, 2.0, borderCol)
+      col = col + 1
+    row = row + 1
+
+  let activeRow = activeStep % 5
+  let activeHz = int(ladderHz[activeRow] + 0.5)
+  // Bottom Hardware Audio Device Telemetry Strip driven by AudioDevice & getAudioLatencyMs
+  drawRect(56.0, 596.0, 1164.0, 80.0, rgb(16, 24, 42))
+  drawRectOutline(56.0, 596.0, 1164.0, 80.0, 2.0, rgb(56, 189, 248))
+  drawText(describeAudioDeviceConfig(dev.config.sampleRate, dev.config.bufferSizeFrames) + " | Latency: " + str(int(latencyMs)) + " ms | Tempo: 120 BPM (" + str(computeSequencerStepDurationMs(120)) + "ms/step)", 80.0, 616.0, 16.0, rgb(74, 222, 128))
+  drawText("Pentatonic Pitch: " + str(activeHz) + "Hz (" + noteNames[activeRow] + ") | Step: #" + str(activeStep + 1) + "/16 | RingFrames=" + str(ringFrames), 80.0, 646.0, 15.0, rgb(250, 204, 21))
+
+pub fn main(): int:
+  let m = verifyAudioDeviceAndPentatonicQuantizer()
+  assert(m == 394, "audio device + pentatonic metric 394")
+  initWindow(1280, 720, "AIPL ex_153 - Audio Device & Pentatonic Step Sequencer")
+  mut frame: int = 0
+  while not windowShouldClose():
+    if frame % 8 == 0:
+      let (_, ladderHz, _) = stepSequencerDeviceFrame(frame)
+      let stepHz = ladderHz[((frame / 8) % 5)]
+      let _ = playToneEx(stepHz, 150.0, 0.35, "pluck")
+    beginDrawing()
+    renderPentatonicSequencerScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,76 @@
+// ============================================================================
+// Module: std/collections/spatial_hash (SpatialHash)
+// Layer 1 (Core Primitives & Math) — Uniform Spatial Hash Grid 2D
+// ============================================================================
+module SpatialHashMod
+
+import { floor } from "std/math/trig"
+import { HashMap, hashMapNew } from "std/collections/hash_map"
+
+pub struct SpatialHashEntry2D[T]:
+  x: float
+  y: float
+  val: T
+
+pub struct SpatialHashGrid2D[T]:
+  cellSize: float
+  buckets: HashMap[int, [SpatialHashEntry2D[T]]]
+  entries: [SpatialHashEntry2D[T]]
+
+pub fn spatialCellHash2D(cx: int, cy: int): int:
+  ret (cx * 73856093) ^ (cy * 19349663)
+
+pub fn spatialHash2DNew[T](cellSize: float): SpatialHashGrid2D[T]:
+  mut cs = cellSize
+  if cs <= 0.0001:
+    cs = 1.0
+  let b = hashMapNew[int, [SpatialHashEntry2D[T]]]()
+  let e: [SpatialHashEntry2D[T]] = []
+  ret SpatialHashGrid2D(cellSize = cs, buckets = b, entries = e)
+
+pub fn (mut self: SpatialHashGrid2D[T]) insert(x: float, y: float, val: T): void:
+  let cx = floor(x / self.cellSize)
+  let cy = floor(y / self.cellSize)
+  let key = spatialCellHash2D(cx, cy)
+  let entry = SpatialHashEntry2D(x = x, y = y, val = val)
+  let existing = self.buckets.get(key)
+  if existing.isSome():
+    mut arr = existing.unwrap()
+    arr.push(entry)
+    self.buckets.insert(key, arr)
+  else:
+    mut arr: [SpatialHashEntry2D[T]] = [entry]
+    self.buckets.insert(key, arr)
+  self.entries.push(entry)
+
+pub fn (self: SpatialHashGrid2D[T]) queryRadius(x: float, y: float, radius: float): [T]:
+  mut out: [T] = []
+  if radius < 0.0:
+    ret out
+  let rSq = radius * radius
+  let minCx = floor((x - radius) / self.cellSize)
+  let maxCx = floor((x + radius) / self.cellSize)
+  let minCy = floor((y - radius) / self.cellSize)
+  let maxCy = floor((y + radius) / self.cellSize)
+  mut cy = minCy
+  while cy <= maxCy:
+    mut cx = minCx
+    while cx <= maxCx:
+      let key = spatialCellHash2D(cx, cy)
+      let bucketOpt = self.buckets.get(key)
+      if bucketOpt.isSome():
+        let bucket = bucketOpt.unwrap()
+        for i in 0..bucket.len:
+          let ent = bucket[i]
+          let dx = ent.x - x
+          let dy = ent.y - y
+          if (dx * dx + dy * dy) <= rSq:
+            out.push(ent.val)
+      cx = cx + 1
+    cy = cy + 1
+  ret out
+
+pub fn (mut self: SpatialHashGrid2D[T]) clear(): void:
+  self.buckets.clear()
+  let e: [SpatialHashEntry2D[T]] = []
+  self.entries = e

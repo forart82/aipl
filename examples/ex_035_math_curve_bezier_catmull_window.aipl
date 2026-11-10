@@ -1,0 +1,152 @@
+// ============================================================================
+// Example 035: Cubic Bezier, Catmull-Rom & Frenet Frame Window
+// Demonstrates: quadraticBezier2D, cubicBezier2D, catmullRom2D, hermite2D,
+//               evaluateCubicBezierTangentVec2, evaluateCubicBezierNormalVec2,
+//               evaluateCubicBezierArcLengthVec2, and
+//               evaluateUniformCubicBSplineVec2 from std/math/curve,
+//               rendered in a 1280x720 spline & Frenet frame visualizer.
+// ============================================================================
+module Ex035MathCurveBezierCatmullWindow
+
+import { clampInt } from "../std/prelude"
+import { Vec2 } from "../std/math/vec_math"
+import {
+  quadraticBezier2D,
+  cubicBezier2D,
+  catmullRom2D,
+  hermite2D,
+  evaluateCubicBezierTangentVec2,
+  evaluateCubicBezierNormalVec2,
+  evaluateCubicBezierArcLengthVec2,
+  evaluateUniformCubicBSplineVec2
+} from "../std/math/curve"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct SplineEditorState:
+  tPermille: int
+  arcLengthPx: int
+  normalLenPermille: int
+  carriageX: float
+  carriageY: float
+
+pub fn evaluateSplineControlInvariants(): int:
+  let p0 = Vec2(x = 0.0, y = 0.0)
+  let p1 = Vec2(x = 5.0, y = 10.0)
+  let p2 = Vec2(x = 10.0, y = 0.0)
+  let p3 = Vec2(x = 15.0, y = 10.0)
+  let qMid = quadraticBezier2D(p0, p1, p2, 0.5)
+  let cEnd = cubicBezier2D(p0, p1, p2, p3, 1.0)
+  let cr0 = catmullRom2D(p0, p1, p2, p3, 0.0)
+  let h0 = hermite2D(p0, p1, p2, p3, 0.0)
+  if h0.x == 0.0:
+    ret int(qMid.x + cr0.x + cEnd.x)
+  ret -1
+
+pub fn computeBezierArcLengthInt(): int:
+  let p0 = Vec2(x = 120.0, y = 460.0)
+  let p1 = Vec2(x = 260.0, y = 140.0)
+  let p2 = Vec2(x = 460.0, y = 600.0)
+  let p3 = Vec2(x = 640.0, y = 220.0)
+  let arc = evaluateCubicBezierArcLengthVec2(p0, p1, p2, p3, 24)
+  ret int(arc)
+
+pub fn describeSplineBasisKind(kindId: int): str:
+  if kindId == 0:
+    ret "SPLINE:BERNSTEIN_CUBIC_BEZIER"
+  if kindId == 1:
+    ret "SPLINE:CATMULL_ROM_C1"
+  ret "SPLINE:UNIFORM_B_SPLINE_C2"
+
+pub fn buildSplineEditorState(frameIdx: int): SplineEditorState:
+  let t = float(frameIdx % 120) / 120.0
+  let p0 = Vec2(x = 120.0, y = 460.0)
+  let p1 = Vec2(x = 260.0, y = 140.0)
+  let p2 = Vec2(x = 460.0, y = 600.0)
+  let p3 = Vec2(x = 640.0, y = 220.0)
+  let pos = cubicBezier2D(p0, p1, p2, p3, t)
+  let nrm = evaluateCubicBezierNormalVec2(p0, p1, p2, p3, t)
+  ret SplineEditorState(
+    tPermille = int(t * 1000.0 + 0.5),
+    arcLengthPx = computeBezierArcLengthInt(),
+    normalLenPermille = int(nrm.len() * 1000.0 + 0.5),
+    carriageX = pos.x,
+    carriageY = pos.y
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildSplineEditorState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.arcLengthPx + frameIndex + dtPad
+
+pub fn renderSplineEditorScene(frameIdx: int): void:
+  let st = buildSplineEditorState(frameIdx)
+  let t = float(st.tPermille) / 1000.0
+  let p0 = Vec2(x = 120.0, y = 460.0)
+  let p1 = Vec2(x = 260.0, y = 140.0)
+  let p2 = Vec2(x = 460.0, y = 600.0)
+  let p3 = Vec2(x = 640.0, y = 220.0)
+
+  clearScreen(rgb(11, 15, 25))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 44))
+  drawText("AIPL ex_035: Cubic Bezier, Catmull-Rom, B-Spline & Frenet-Serret Tangent/Normal Frame", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Control polygon hull lines & control points
+  drawLine(p0.x, p0.y, p1.x, p1.y, rgb(71, 85, 105), 1.5)
+  drawLine(p1.x, p1.y, p2.x, p2.y, rgb(71, 85, 105), 1.5)
+  drawLine(p2.x, p2.y, p3.x, p3.y, rgb(71, 85, 105), 1.5)
+  drawCircle(p0.x, p0.y, 7.0, rgb(248, 113, 113))
+  drawCircle(p1.x, p1.y, 7.0, rgb(250, 204, 21))
+  drawCircle(p2.x, p2.y, 7.0, rgb(250, 204, 21))
+  drawCircle(p3.x, p3.y, 7.0, rgb(248, 113, 113))
+
+  // Plot Cubic Bezier (cyan) and Uniform Cubic B-Spline (emerald)
+  for seg in 0..32:
+    let t0 = float(seg) / 32.0
+    let t1 = float(seg + 1) / 32.0
+    let b0 = cubicBezier2D(p0, p1, p2, p3, t0)
+    let b1 = cubicBezier2D(p0, p1, p2, p3, t1)
+    drawLine(b0.x, b0.y, b1.x, b1.y, rgb(56, 189, 248), 3.0)
+
+    let s0 = evaluateUniformCubicBSplineVec2(p0, p1, p2, p3, t0)
+    let s1 = evaluateUniformCubicBSplineVec2(p0, p1, p2, p3, t1)
+    drawLine(s0.x, s0.y, s1.x, s1.y, rgb(52, 211, 153), 2.0)
+
+  // Moving carriage + tangent vector (gold) + unit normal vector (magenta)
+  let tanVec = evaluateCubicBezierTangentVec2(p0, p1, p2, p3, t).norm()
+  let nrmVec = evaluateCubicBezierNormalVec2(p0, p1, p2, p3, t)
+  drawLine(st.carriageX, st.carriageY, st.carriageX + tanVec.x * 64.0, st.carriageY + tanVec.y * 64.0, rgb(250, 204, 21), 3.0)
+  drawLine(st.carriageX, st.carriageY, st.carriageX + nrmVec.x * 64.0, st.carriageY + nrmVec.y * 64.0, rgb(232, 121, 249), 3.0)
+  drawCircle(st.carriageX, st.carriageY, 9.0, rgb(255, 255, 255))
+
+  // Right Telemetry Panel
+  drawRect(736.0, 92.0, 500.0, 540.0, rgb(17, 24, 39))
+  drawRectOutline(736.0, 92.0, 500.0, 540.0, 2.0, rgb(56, 189, 248))
+  drawText("Active Basis: " + describeSplineBasisKind(0), 764.0, 128.0, 18.0, rgb(125, 211, 252))
+  drawText("Secondary Basis: " + describeSplineBasisKind(2), 764.0, 162.0, 16.0, rgb(52, 211, 153))
+  drawText("Bezier Arc Length (24 steps): " + str(st.arcLengthPx) + " px", 764.0, 204.0, 16.0, rgb(250, 204, 21))
+  drawText("Carriage Parameter t: " + str(st.tPermille) + " permille", 764.0, 240.0, 16.0, rgb(203, 213, 225))
+  drawText("Frenet Unit Normal Length: " + str(st.normalLenPermille) + " permille", 764.0, 276.0, 16.0, rgb(232, 121, 249))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_035 - Cubic Bezier, B-Spline & Frenet Frame")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderSplineEditorScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

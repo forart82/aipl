@@ -1,0 +1,139 @@
+/// # Module: `std/particle/curve_prop` (`CurvePropMod`)
+///
+/// ## Purpose & Domain Scope
+/// Dynamic parameter curves, cubic Hermite keyframes, Min/Max curve properties,
+/// and Oklab perceptual color gradients evaluated over particle lifetime [0.0..1.0].
+module CurvePropMod
+
+import { EPSILON, clampFloat } from "std/math/consts"
+import { ColorRgba8, lerpOklab } from "std/gfx/color"
+
+pub let CURVE_MODE_CONSTANT: int = 0
+pub let CURVE_MODE_RANDOM_BETWEEN_CONSTANTS: int = 1
+pub let CURVE_MODE_CURVE: int = 2
+pub let CURVE_MODE_RANDOM_BETWEEN_CURVES: int = 3
+
+pub struct CurveKeyframe(time: float, value: float, inTangent: float, outTangent: float)
+
+pub struct KeyframeCurve(keyframes: [CurveKeyframe])
+
+pub struct ColorStop(time: float, color: ColorRgba8)
+
+pub struct ColorGradient(stops: [ColorStop])
+
+pub struct MinMaxCurveProperty(mode: int, constantMin: float, constantMax: float, curveMin: KeyframeCurve, curveMax: KeyframeCurve)
+
+pub fn evaluateKeyframeCurve(curve: KeyframeCurve, t: float): float:
+  let count = curve.keyframes.len
+  if count == 0:
+    ret 0.0
+  if count == 1:
+    ret curve.keyframes[0].value
+  if t <= curve.keyframes[0].time:
+    ret curve.keyframes[0].value
+  let lastIdx = count - 1
+  if t >= curve.keyframes[lastIdx].time:
+    ret curve.keyframes[lastIdx].value
+
+  mut i = 0
+  while i < lastIdx:
+    let k0 = curve.keyframes[i]
+    let k1 = curve.keyframes[i + 1]
+    if t >= k0.time and t <= k1.time:
+      let dt = k1.time - k0.time
+      if dt <= EPSILON:
+        ret k0.value
+      let u = clampFloat((t - k0.time) / dt, 0.0, 1.0)
+      let u2 = u * u
+      let u3 = u2 * u
+      let h00 = 2.0 * u3 - 3.0 * u2 + 1.0
+      let h10 = u3 - 2.0 * u2 + u
+      let h01 = -2.0 * u3 + 3.0 * u2
+      let h11 = u3 - u2
+      let m0 = k0.outTangent * dt
+      let m1 = k1.inTangent * dt
+      ret h00 * k0.value + h10 * m0 + h01 * k1.value + h11 * m1
+    i = i + 1
+  ret curve.keyframes[lastIdx].value
+
+pub fn evaluateMinMaxCurve(prop: MinMaxCurveProperty, t: float, random01: float): float:
+  let r = clampFloat(random01, 0.0, 1.0)
+  if prop.mode == CURVE_MODE_CONSTANT:
+    ret prop.constantMin
+  if prop.mode == CURVE_MODE_RANDOM_BETWEEN_CONSTANTS:
+    ret prop.constantMin + (prop.constantMax - prop.constantMin) * r
+  if prop.mode == CURVE_MODE_CURVE:
+    ret evaluateKeyframeCurve(prop.curveMin, t)
+  if prop.mode == CURVE_MODE_RANDOM_BETWEEN_CURVES:
+    let vMin = evaluateKeyframeCurve(prop.curveMin, t)
+    let vMax = evaluateKeyframeCurve(prop.curveMax, t)
+    ret vMin + (vMax - vMin) * r
+  ret prop.constantMin
+
+pub fn evaluateColorGradient(gradient: ColorGradient, t: float): ColorRgba8:
+  let count = gradient.stops.len
+  if count == 0:
+    ret ColorRgba8(r = 255, g = 255, b = 255, a = 255)
+  if count == 1 or t <= gradient.stops[0].time:
+    ret gradient.stops[0].color
+  let lastIdx = count - 1
+  if t >= gradient.stops[lastIdx].time:
+    ret gradient.stops[lastIdx].color
+
+  mut i = 0
+  while i < lastIdx:
+    let s0 = gradient.stops[i]
+    let s1 = gradient.stops[i + 1]
+    if t >= s0.time and t <= s1.time:
+      let dt = s1.time - s0.time
+      let u = if dt > EPSILON: clampFloat((t - s0.time) / dt, 0.0, 1.0) else: 0.0
+      ret lerpOklab(s0.color, s1.color, u)
+    i = i + 1
+  ret gradient.stops[lastIdx].color
+
+pub fn createLinearRampCurve(startVal: float, endVal: float): KeyframeCurve:
+  let slope = endVal - startVal
+  ret KeyframeCurve(keyframes = [
+    CurveKeyframe(time = 0.0, value = startVal, inTangent = slope, outTangent = slope),
+    CurveKeyframe(time = 1.0, value = endVal, inTangent = slope, outTangent = slope)
+  ])
+
+pub fn createConstantCurveProperty(val: float): MinMaxCurveProperty:
+  let emptyCurve = KeyframeCurve(keyframes = [])
+  ret MinMaxCurveProperty(
+    mode = CURVE_MODE_CONSTANT,
+    constantMin = val,
+    constantMax = val,
+    curveMin = emptyCurve,
+    curveMax = emptyCurve
+  )
+
+pub fn createRandomConstantsProperty(minVal: float, maxVal: float): MinMaxCurveProperty:
+  let emptyCurve = KeyframeCurve(keyframes = [])
+  ret MinMaxCurveProperty(
+    mode = CURVE_MODE_RANDOM_BETWEEN_CONSTANTS,
+    constantMin = minVal,
+    constantMax = maxVal,
+    curveMin = emptyCurve,
+    curveMax = emptyCurve
+  )
+
+pub fn createTwoStopColorGradient(startColor: ColorRgba8, endColor: ColorRgba8): ColorGradient:
+  ret ColorGradient(stops = [
+    ColorStop(time = 0.0, color = startColor),
+    ColorStop(time = 1.0, color = endColor)
+  ])
+
+pub fn sampleCurveIntegral(curve: KeyframeCurve, steps: int = 16): float:
+  let n = if steps > 1: steps else: 2
+  mut sum = 0.0
+  let dt = 1.0 / float(n)
+  mut i = 0
+  while i < n:
+    let t0 = float(i) * dt
+    let t1 = float(i + 1) * dt
+    let v0 = evaluateKeyframeCurve(curve, t0)
+    let v1 = evaluateKeyframeCurve(curve, t1)
+    sum = sum + 0.5 * (v0 + v1) * dt
+    i = i + 1
+  ret sum

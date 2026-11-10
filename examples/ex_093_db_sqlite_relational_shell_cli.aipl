@@ -1,0 +1,99 @@
+// ============================================================================
+// Example 093: SQLite Relational Engine, Prepared Stmts & Savepoints (CLI)
+// Demonstrates: sqliteOpenInMemory, sqliteExec, sqlitePrepare, stmtBindInt,
+//               stmtBindStr, stmtBindFloat, stmtStep, stmtColInt, stmtColStr,
+//               stmtFinalize, sqliteQuery, sqlTableFilter, sqlRowCount,
+//               sqlRowGet, sqliteBegin, sqliteSavepoint, sqliteRollbackTo,
+//               sqliteReleaseSavepoint, sqliteCommit, SqlMigration,
+//               sqliteCreateMigrationPlan, and sqliteApplyMigrations from std/db.
+// ============================================================================
+module Ex093DbSqliteRelationalShellCli
+
+import {
+  SqlMigration,
+  sqliteOpenInMemory,
+  sqliteExec,
+  sqlitePrepare,
+  stmtBindInt,
+  stmtBindStr,
+  stmtBindFloat,
+  stmtStep,
+  stmtColInt,
+  stmtColStr,
+  stmtFinalize,
+  sqliteQuery,
+  sqlTableFilter,
+  sqlRowCount,
+  sqlRowGet,
+  sqliteBegin,
+  sqliteSavepoint,
+  sqliteRollbackTo,
+  sqliteReleaseSavepoint,
+  sqliteCommit,
+  sqliteTableExists,
+  sqliteCreateMigrationPlan,
+  sqliteApplyMigrations
+} from "../std/db"
+
+// Executes DDL, binds and steps a prepared INSERT and SELECT statement, and returns id + age.
+pub fn evaluatePreparedSelectIdAndAge(): int:
+  mut db = sqliteOpenInMemory()
+  assert(sqliteExec(db, "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER, score REAL)").isOk(), "CREATE TABLE users")
+
+  mut ins = sqlitePrepare(db, "INSERT INTO users (id, name, age, score) VALUES (?, ?, ?, ?)").unwrap()
+  ins = stmtBindInt(ins, 1, 101)
+  ins = stmtBindStr(ins, 2, "Alice")
+  ins = stmtBindInt(ins, 3, 30)
+  ins = stmtBindFloat(ins, 4, 95.5)
+  assert(not stmtStep(ins), "INSERT step completes")
+  stmtFinalize(ins)
+
+  mut sel = sqlitePrepare(db, "SELECT id, name, age, score FROM users WHERE id = ?").unwrap()
+  sel = stmtBindInt(sel, 1, 101)
+  assert(stmtStep(sel), "SELECT yields row")
+  let idVal = stmtColInt(sel, 0)
+  let nameVal = stmtColStr(sel, 1)
+  let ageVal = stmtColInt(sel, 2)
+  stmtFinalize(sel)
+
+  let fullTbl = sqliteQuery(db, "SELECT * FROM users").unwrap()
+  let aliceOnly = sqlTableFilter(fullTbl, "name", "Alice")
+  assert(nameVal == "Alice" and sqlRowCount(aliceOnly) == 1, "sqlTableFilter confirms Alice row")
+  ret idVal + ageVal
+
+// Exercises nested SAVEPOINT rollback inside a transaction plus versioned schema migrations.
+pub fn verifySavepointRollbackAndMigrations(): int:
+  mut db = sqliteOpenInMemory()
+  sqliteExec(db, "CREATE TABLE accounts (id INTEGER, balance INTEGER)")
+  sqliteExec(db, "INSERT INTO accounts (id, balance) VALUES (1, 500)")
+
+  sqliteBegin(db)
+  sqliteExec(db, "UPDATE accounts SET balance = 700 WHERE id = 1")
+  sqliteSavepoint(db, "sp_bonus")
+  sqliteExec(db, "UPDATE accounts SET balance = 999 WHERE id = 1")
+  sqliteRollbackTo(db, "sp_bonus")
+  sqliteReleaseSavepoint(db, "sp_bonus")
+  sqliteCommit(db)
+
+  let tbl = sqliteQuery(db, "SELECT balance FROM accounts WHERE id = 1").unwrap()
+  let bal = sqlRowGet(tbl.rows[0], "balance").intVal
+
+  mut migs: [SqlMigration] = []
+  migs.push(SqlMigration(version = 1, name = "create_items", upSql = "CREATE TABLE items (id INT, sku TEXT)", downSql = "DROP TABLE items"))
+  migs.push(SqlMigration(version = 2, name = "add_price", upSql = "ALTER TABLE items ADD COLUMN price INT", downSql = "ALTER TABLE items DROP COLUMN price"))
+  let plan = sqliteCreateMigrationPlan(migs, 0, 2)
+  assert(sqliteApplyMigrations(db, plan).isOk() and sqliteTableExists(db, "items"), "migrations applied")
+  ret bal
+
+// Returns a canonical label for the SQLite transaction journal mode.
+pub fn describeSqliteJournalMode(mode: str): str:
+  if mode == "WAL":
+    ret "SQLITE:WAL_ACID_TRANSACTIONS"
+  ret "SQLITE:DELETE_JOURNAL"
+
+pub fn main(): int:
+  let idAge = evaluatePreparedSelectIdAndAge()
+  let finalBal = verifySavepointRollbackAndMigrations()
+  let jMode = describeSqliteJournalMode("WAL")
+  println("ex_093_db_sqlite_relational_shell_cli: idAge=" + str(idAge) + " finalBal=" + str(finalBal) + " jMode=" + jMode)
+  ret 0

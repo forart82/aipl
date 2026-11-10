@@ -1,0 +1,314 @@
+module tests.functions.mechanics.attribute_pipeline_test
+
+import * from "std/mechanics/attribute_pipeline"
+import { clampFloat, maxFloat, minFloat, minInt, maxInt } from "std/math/consts"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_attribute_pipeline_evalStatModifierStack_1(): int:
+  let arg_baseValue = 1.0
+  let edge_baseValue = 0.5
+  let arg_modifiers = [StatModifier(id = 1, statTag = "test", stage = ModifierStage.FlatAdd, value = 1.0, durationRemaining = 1.0, isPermanent = true)]
+  let edge_modifiers = []
+  let resNom = evalStatModifierStack(arg_baseValue, arg_modifiers)
+  let resEdge = evalStatModifierStack(edge_baseValue, edge_modifiers)
+  assertApproxEq(resNom, 2.0, 0.001, "evalStatModifierStack nominal resNom ~= 2.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "evalStatModifierStack boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_attribute_pipeline_computeFractionalCurrentHpDamage_2(): int:
+  let arg_currentHp = 2.0
+  let edge_currentHp = 1.0
+  let arg_fraction = 1.0
+  let edge_fraction = 0.5
+  let resNom = computeFractionalCurrentHpDamage(arg_currentHp, arg_fraction)
+  let resEdge = computeFractionalCurrentHpDamage(edge_currentHp, edge_fraction)
+  assertApproxEq(resNom, 2.0, 0.001, "computeFractionalCurrentHpDamage nominal resNom ~= 2.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "computeFractionalCurrentHpDamage boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_attribute_pipeline_computeDamageOverTimeTick_3(): int:
+  let arg_baseDps = 1.0
+  let edge_baseDps = 0.5
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = computeDamageOverTimeTick(arg_baseDps, arg_dt)
+  let resEdge = computeDamageOverTimeTick(edge_baseDps, edge_dt)
+  assertApproxEq(resNom, 2.0, 0.001, "computeDamageOverTimeTick nominal resNom ~= 2.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "computeDamageOverTimeTick boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_attribute_pipeline_computeCooldownWithReduction_4(): int:
+  let arg_baseCooldown = 2.0
+  let edge_baseCooldown = 1.0
+  let arg_cdrPercent = 1.0
+  let edge_cdrPercent = 0.5
+  let resNom = computeCooldownWithReduction(arg_baseCooldown, arg_cdrPercent)
+  let resEdge = computeCooldownWithReduction(edge_baseCooldown, edge_cdrPercent)
+  assertApproxEq(resNom, 1.98, 0.001, "computeCooldownWithReduction nominal resNom ~= 1.98")
+  assertApproxEq(resEdge, 0.995, 0.001, "computeCooldownWithReduction boundary resEdge ~= 0.995")
+  ret 0
+
+pub fn test_attribute_pipeline_computeLinearScaledCost_5(): int:
+  let arg_baseCost = 4
+  let edge_baseCost = 1
+  let arg_scaleLevel = 2
+  let edge_scaleLevel = 0
+  let arg_growthFactor = 2.0
+  let edge_growthFactor = 1.0
+  let resNom = computeLinearScaledCost(arg_baseCost, arg_scaleLevel, arg_growthFactor)
+  let resEdge = computeLinearScaledCost(edge_baseCost, edge_scaleLevel, edge_growthFactor)
+  assertEqInt(resNom, 20, "computeLinearScaledCost nominal resNom == 20")
+  assertEqInt(resEdge, 1, "computeLinearScaledCost boundary resEdge == 1")
+  ret 0
+
+pub fn test_attribute_pipeline_attributePoolNew_6(): int:
+  let arg_baseMax = 2.0
+  let edge_baseMax = 1.0
+  let arg_regenRatePerSec = 2.0
+  let edge_regenRatePerSec = 1.0
+  let resNom = attributePoolNew(arg_baseMax, arg_regenRatePerSec)
+  let resEdge = attributePoolNew(edge_baseMax, edge_regenRatePerSec)
+  assertApproxEq(resNom.current, 2.0, 0.001, "attributePoolNew nominal resNom.current ~= 2.0")
+  assertApproxEq(resEdge.current, 1.0, 0.001, "attributePoolNew boundary resEdge.current ~= 1.0")
+  ret 0
+
+pub fn test_attribute_pipeline_attributePoolStepRegen_7(): int:
+  let arg_pool = AttributePool(current = 1.0, baseMax = 2.0, regenRatePerSec = 2.0)
+  let edge_pool = AttributePool(current = 0.5, baseMax = 1.0, regenRatePerSec = 1.0)
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = attributePoolStepRegen(arg_pool, arg_dt)
+  let resEdge = attributePoolStepRegen(edge_pool, edge_dt)
+  assertApproxEq(resNom.current, 2.0, 0.001, "attributePoolStepRegen nominal resNom.current ~= 2.0")
+  assertApproxEq(resEdge.current, 1.0, 0.001, "attributePoolStepRegen boundary resEdge.current ~= 1.0")
+  ret 0
+
+pub fn test_attribute_pipeline_attributePoolSpend_8(): int:
+  let arg_pool = AttributePool(current = 1.0, baseMax = 2.0, regenRatePerSec = 2.0)
+  let edge_pool = AttributePool(current = 0.5, baseMax = 1.0, regenRatePerSec = 1.0)
+  let arg_cost = 1.0
+  let edge_cost = 0.5
+  let resNom = attributePoolSpend(arg_pool, arg_cost)
+  let resEdge = attributePoolSpend(edge_pool, edge_cost)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertApproxEq(n_t0.current, 0.0, 0.001, "attributePoolSpend nominal n_t0.current ~= 0.0")
+  assertApproxEq(e_t0.current, 0.0, 0.001, "attributePoolSpend boundary e_t0.current ~= 0.0")
+  ret 0
+
+pub fn test_attribute_pipeline_attributePoolRestore_9(): int:
+  let arg_pool = AttributePool(current = 1.0, baseMax = 2.0, regenRatePerSec = 2.0)
+  let edge_pool = AttributePool(current = 0.5, baseMax = 1.0, regenRatePerSec = 1.0)
+  let arg_amount = 1.0
+  let edge_amount = 0.5
+  let resNom = attributePoolRestore(arg_pool, arg_amount)
+  let resEdge = attributePoolRestore(edge_pool, edge_amount)
+  assertApproxEq(resNom.current, 2.0, 0.001, "attributePoolRestore nominal resNom.current ~= 2.0")
+  assertApproxEq(resEdge.current, 1.0, 0.001, "attributePoolRestore boundary resEdge.current ~= 1.0")
+  ret 0
+
+pub fn test_attribute_pipeline_attributePoolRatio_10(): int:
+  let arg_pool = AttributePool(current = 1.0, baseMax = 2.0, regenRatePerSec = 2.0)
+  let edge_pool = AttributePool(current = 0.5, baseMax = 1.0, regenRatePerSec = 1.0)
+  let resNom = attributePoolRatio(arg_pool)
+  let resEdge = attributePoolRatio(edge_pool)
+  assertApproxEq(resNom, 0.5, 0.001, "attributePoolRatio nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.5, 0.001, "attributePoolRatio boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_attribute_pipeline_statusEffectTickerNew_11(): int:
+  let arg_effectTag = "test"
+  let edge_effectTag = "a"
+  let arg_tickInterval = 1.0
+  let edge_tickInterval = 0.5
+  let arg_totalDuration = 1.0
+  let edge_totalDuration = 0.5
+  let arg_valuePerTick = 1.0
+  let edge_valuePerTick = 0.5
+  let resNom = statusEffectTickerNew(arg_effectTag, arg_tickInterval, arg_totalDuration, arg_valuePerTick)
+  let resEdge = statusEffectTickerNew(edge_effectTag, edge_tickInterval, edge_totalDuration, edge_valuePerTick)
+  assertEqStr(resNom.effectTag, "test", "statusEffectTickerNew nominal string matches")
+  assertEqStr(resEdge.effectTag, "a", "statusEffectTickerNew boundary string matches")
+  ret 0
+
+pub fn test_attribute_pipeline_statusEffectTickerStep_12(): int:
+  let arg_ticker = StatusEffectTicker(effectTag = "test", tickInterval = 1.0, tickTimer = 1.0, totalDuration = 1.0, valuePerTick = 1.0)
+  let edge_ticker = StatusEffectTicker(effectTag = "a", tickInterval = 0.5, tickTimer = 0.5, totalDuration = 0.5, valuePerTick = 0.5)
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = statusEffectTickerStep(arg_ticker, arg_dt)
+  let resEdge = statusEffectTickerStep(edge_ticker, edge_dt)
+  let (n_t0, n_t1, n_t2) = resNom
+  let (e_t0, e_t1, e_t2) = resEdge
+  assertEqStr(n_t0.effectTag, "test", "statusEffectTickerStep nominal string matches")
+  assertEqStr(e_t0.effectTag, "a", "statusEffectTickerStep boundary string matches")
+  ret 0
+
+pub fn test_attribute_pipeline_statusEffectIsExpired_13(): int:
+  let arg_ticker = StatusEffectTicker(effectTag = "test", tickInterval = 1.0, tickTimer = 1.0, totalDuration = 1.0, valuePerTick = 1.0)
+  let edge_ticker = StatusEffectTicker(effectTag = "a", tickInterval = 0.5, tickTimer = 0.5, totalDuration = 0.5, valuePerTick = 0.5)
+  let resNom = statusEffectIsExpired(arg_ticker)
+  let resEdge = statusEffectIsExpired(edge_ticker)
+  assert(resNom == false, "statusEffectIsExpired nominal resNom == false")
+  assert(resEdge == false, "statusEffectIsExpired boundary resEdge == false")
+  ret 0
+
+pub fn test_attribute_pipeline_stepStatModifierDurations_14(): int:
+  let arg_modifiers = [StatModifier(id = 1, statTag = "test", stage = ModifierStage.FlatAdd, value = 1.0, durationRemaining = 1.0, isPermanent = true)]
+  let edge_modifiers = []
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = stepStatModifierDurations(arg_modifiers, arg_dt)
+  let resEdge = stepStatModifierDurations(edge_modifiers, edge_dt)
+  assertEqInt(resNom.len(), 1, "stepStatModifierDurations nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "stepStatModifierDurations boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_attribute_pipeline_filterStatModifiersByTag_15(): int:
+  let arg_modifiers = [StatModifier(id = 1, statTag = "test", stage = ModifierStage.FlatAdd, value = 1.0, durationRemaining = 1.0, isPermanent = true)]
+  let edge_modifiers = []
+  let arg_statTag = "test"
+  let edge_statTag = "a"
+  let resNom = filterStatModifiersByTag(arg_modifiers, arg_statTag)
+  let resEdge = filterStatModifiersByTag(edge_modifiers, edge_statTag)
+  assertEqInt(resNom.len(), 1, "filterStatModifiersByTag nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "filterStatModifiersByTag boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_attribute_pipeline_computeArmorMitigationRatio_16(): int:
+  let arg_armorRating = 1.0
+  let edge_armorRating = 0.5
+  let arg_halfMitigationConstant = 2.0
+  let edge_halfMitigationConstant = 1.0
+  let resNom = computeArmorMitigationRatio(arg_armorRating, arg_halfMitigationConstant)
+  let resEdge = computeArmorMitigationRatio(edge_armorRating, edge_halfMitigationConstant)
+  assertApproxEq(resNom, 0.333333, 0.001, "computeArmorMitigationRatio nominal resNom ~= 0.333333")
+  assertApproxEq(resEdge, 0.333333, 0.001, "computeArmorMitigationRatio boundary resEdge ~= 0.333333")
+  ret 0
+
+pub fn test_attribute_pipeline_applyMitigatedDamage_17(): int:
+  let arg_rawDamage = 2.0
+  let edge_rawDamage = 1.0
+  let arg_armorRating = 1.0
+  let edge_armorRating = 0.5
+  let arg_flatBlock = 0.0
+  let edge_flatBlock = 0.0
+  let resNom = applyMitigatedDamage(arg_rawDamage, arg_armorRating, arg_flatBlock)
+  let resEdge = applyMitigatedDamage(edge_rawDamage, edge_armorRating, edge_flatBlock)
+  assertApproxEq(resNom, 1.9802, 0.001, "applyMitigatedDamage nominal resNom ~= 1.9802")
+  assertApproxEq(resEdge, 0.995025, 0.001, "applyMitigatedDamage boundary resEdge ~= 0.995025")
+  ret 0
+
+pub fn test_attribute_pipeline_computeCriticalStrikeMultiplier_18(): int:
+  let arg_baseDamage = 1.0
+  let edge_baseDamage = 0.5
+  let arg_isCrit = true
+  let edge_isCrit = false
+  let arg_critBonusRatio = 1.0
+  let edge_critBonusRatio = 0.5
+  let resNom = computeCriticalStrikeMultiplier(arg_baseDamage, arg_isCrit, arg_critBonusRatio)
+  let resEdge = computeCriticalStrikeMultiplier(edge_baseDamage, edge_isCrit, edge_critBonusRatio)
+  assertApproxEq(resNom, 2.0, 0.001, "computeCriticalStrikeMultiplier nominal resNom ~= 2.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "computeCriticalStrikeMultiplier boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_attribute_pipeline_computeDiminishingReturns_19(): int:
+  let arg_rawBonus = 2.0
+  let edge_rawBonus = 1.0
+  let arg_softCap = 1.0
+  let edge_softCap = 0.5
+  let resNom = computeDiminishingReturns(arg_rawBonus, arg_softCap)
+  let resEdge = computeDiminishingReturns(edge_rawBonus, edge_softCap)
+  assertApproxEq(resNom, 0.666667, 0.001, "computeDiminishingReturns nominal resNom ~= 0.666667")
+  assertApproxEq(resEdge, 0.5, 0.001, "computeDiminishingReturns boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_attribute_pipeline_computeExponentialLevelXp_20(): int:
+  let arg_level = 2
+  let edge_level = 0
+  let arg_baseXp = 4
+  let edge_baseXp = 1
+  let arg_growthRate = 2.0
+  let edge_growthRate = 1.0
+  let resNom = computeExponentialLevelXp(arg_level, arg_baseXp, arg_growthRate)
+  let resEdge = computeExponentialLevelXp(edge_level, edge_baseXp, edge_growthRate)
+  assertEqInt(resNom, 12, "computeExponentialLevelXp nominal resNom == 12")
+  assertEqInt(resEdge, 1, "computeExponentialLevelXp boundary resEdge == 1")
+  ret 0
+
+pub fn test_attribute_pipeline_computeAttributeSoftCap_21(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_capThreshold = 2.0
+  let edge_capThreshold = 1.0
+  let arg_postCapEfficiency = 1.0
+  let edge_postCapEfficiency = 0.5
+  let resNom = computeAttributeSoftCap(arg_val, arg_capThreshold, arg_postCapEfficiency)
+  let resEdge = computeAttributeSoftCap(edge_val, edge_capThreshold, edge_postCapEfficiency)
+  assertApproxEq(resNom, 1.0, 0.001, "computeAttributeSoftCap nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "computeAttributeSoftCap boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_attribute_pipeline_rollWeightedIndex_22(): int:
+  let arg_weights = [2]
+  let edge_weights = []
+  let arg_rollVal = 2
+  let edge_rollVal = 0
+  let resNom = rollWeightedIndex(arg_weights, arg_rollVal)
+  let resEdge = rollWeightedIndex(edge_weights, edge_rollVal)
+  assertEqInt(resNom, 0, "rollWeightedIndex nominal resNom == 0")
+  assertEqInt(resEdge, 0, "rollWeightedIndex boundary resEdge == 0")
+  ret 0
+
+pub fn test_attribute_pipeline_rollAttributeRange_23(): int:
+  let arg_minValue = 4
+  let edge_minValue = 1
+  let arg_maxValue = 4
+  let edge_maxValue = 1
+  let arg_rollRatio = 1.0
+  let edge_rollRatio = 0.5
+  let resNom = rollAttributeRange(arg_minValue, arg_maxValue, arg_rollRatio)
+  let resEdge = rollAttributeRange(edge_minValue, edge_maxValue, edge_rollRatio)
+  assertEqInt(resNom, 4, "rollAttributeRange nominal resNom == 4")
+  assertEqInt(resEdge, 1, "rollAttributeRange boundary resEdge == 1")
+  ret 0
+
+pub fn test_attribute_pipeline_rollItemAffixBonus_24(): int:
+  let arg_baseStat = 4
+  let edge_baseStat = 1
+  let arg_tier = 2
+  let edge_tier = 0
+  let arg_qualityMult = 1.0
+  let edge_qualityMult = 0.5
+  let resNom = rollItemAffixBonus(arg_baseStat, arg_tier, arg_qualityMult)
+  let resEdge = rollItemAffixBonus(edge_baseStat, edge_tier, edge_qualityMult)
+  assertEqInt(resNom, 14, "rollItemAffixBonus nominal resNom == 14")
+  assertEqInt(resEdge, 6, "rollItemAffixBonus boundary resEdge == 6")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_attribute_pipeline_evalStatModifierStack_1(), 0, "test_attribute_pipeline_evalStatModifierStack_1")
+  assertEqInt(test_attribute_pipeline_computeFractionalCurrentHpDamage_2(), 0, "test_attribute_pipeline_computeFractionalCurrentHpDamage_2")
+  assertEqInt(test_attribute_pipeline_computeDamageOverTimeTick_3(), 0, "test_attribute_pipeline_computeDamageOverTimeTick_3")
+  assertEqInt(test_attribute_pipeline_computeCooldownWithReduction_4(), 0, "test_attribute_pipeline_computeCooldownWithReduction_4")
+  assertEqInt(test_attribute_pipeline_computeLinearScaledCost_5(), 0, "test_attribute_pipeline_computeLinearScaledCost_5")
+  assertEqInt(test_attribute_pipeline_attributePoolNew_6(), 0, "test_attribute_pipeline_attributePoolNew_6")
+  assertEqInt(test_attribute_pipeline_attributePoolStepRegen_7(), 0, "test_attribute_pipeline_attributePoolStepRegen_7")
+  assertEqInt(test_attribute_pipeline_attributePoolSpend_8(), 0, "test_attribute_pipeline_attributePoolSpend_8")
+  assertEqInt(test_attribute_pipeline_attributePoolRestore_9(), 0, "test_attribute_pipeline_attributePoolRestore_9")
+  assertEqInt(test_attribute_pipeline_attributePoolRatio_10(), 0, "test_attribute_pipeline_attributePoolRatio_10")
+  assertEqInt(test_attribute_pipeline_statusEffectTickerNew_11(), 0, "test_attribute_pipeline_statusEffectTickerNew_11")
+  assertEqInt(test_attribute_pipeline_statusEffectTickerStep_12(), 0, "test_attribute_pipeline_statusEffectTickerStep_12")
+  assertEqInt(test_attribute_pipeline_statusEffectIsExpired_13(), 0, "test_attribute_pipeline_statusEffectIsExpired_13")
+  assertEqInt(test_attribute_pipeline_stepStatModifierDurations_14(), 0, "test_attribute_pipeline_stepStatModifierDurations_14")
+  assertEqInt(test_attribute_pipeline_filterStatModifiersByTag_15(), 0, "test_attribute_pipeline_filterStatModifiersByTag_15")
+  assertEqInt(test_attribute_pipeline_computeArmorMitigationRatio_16(), 0, "test_attribute_pipeline_computeArmorMitigationRatio_16")
+  assertEqInt(test_attribute_pipeline_applyMitigatedDamage_17(), 0, "test_attribute_pipeline_applyMitigatedDamage_17")
+  assertEqInt(test_attribute_pipeline_computeCriticalStrikeMultiplier_18(), 0, "test_attribute_pipeline_computeCriticalStrikeMultiplier_18")
+  assertEqInt(test_attribute_pipeline_computeDiminishingReturns_19(), 0, "test_attribute_pipeline_computeDiminishingReturns_19")
+  assertEqInt(test_attribute_pipeline_computeExponentialLevelXp_20(), 0, "test_attribute_pipeline_computeExponentialLevelXp_20")
+  assertEqInt(test_attribute_pipeline_computeAttributeSoftCap_21(), 0, "test_attribute_pipeline_computeAttributeSoftCap_21")
+  assertEqInt(test_attribute_pipeline_rollWeightedIndex_22(), 0, "test_attribute_pipeline_rollWeightedIndex_22")
+  assertEqInt(test_attribute_pipeline_rollAttributeRange_23(), 0, "test_attribute_pipeline_rollAttributeRange_23")
+  assertEqInt(test_attribute_pipeline_rollItemAffixBonus_24(), 0, "test_attribute_pipeline_rollItemAffixBonus_24")
+  ret 0

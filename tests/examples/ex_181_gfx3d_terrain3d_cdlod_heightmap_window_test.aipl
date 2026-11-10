@@ -1,0 +1,49 @@
+module Ex181Gfx3dTerrain3dCdlodHeightmapWindowTest
+
+import {
+  buildTerrain3dCdlodAudit, stepTerrainZSlice
+} from "../../examples/ex_181_gfx3d_terrain3d_cdlod_heightmap_window"
+import { Vec3 } from "../../std/math/vec_math"
+import {
+  TerrainHeightfield, sampleHeightAt,
+  computeTerrainNormal, computeTriplanarWeights
+} from "../../std/gfx3d/terrain3d"
+
+pub fn test_gfx3d_terrain3d_cdlod_heightmap(): void:
+  let hf = TerrainHeightfield(
+    width = 3,
+    depth = 3,
+    heightValues = [
+      0.0, 1.0, 2.0,
+      0.0, 1.0, 2.0,
+      0.0, 1.0, 2.0
+    ],
+    heightScale = 10.0,
+    horizontalScale = 1.0
+  )
+  let hMid = sampleHeightAt(hf, 0.5, 1.0)
+  assert(hMid > 4.9 and hMid < 5.1, "Bilinear height interpolation at x=0.5 is 5.0")
+
+  let norm = computeTerrainNormal(hf, 1, 1)
+  assert(norm.y > 0.0 and norm.x < 0.0, "Finite-difference normal tilts toward -X on +X slope")
+
+  let wFlat = computeTriplanarWeights(Vec3(x = 0.0, y = 1.0, z = 0.0), 4.0)
+  assert(wFlat.y > 0.99, "Flat ground uses 100% Y planar texture projection")
+
+  let wSlope = computeTriplanarWeights(Vec3(x = 0.7071, y = 0.7071, z = 0.0), 4.0)
+  assert(wSlope.x > 0.49 and wSlope.y > 0.49, "45-deg cliff blends X and Y equally")
+  assert(buildTerrain3dCdlodAudit() == 200, "buildTerrain3dCdlodAudit returns 50 + 100 + 50 == 200")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let z0 = stepTerrainZSlice(0)
+  let z1 = stepTerrainZSlice(1)
+  let z20 = stepTerrainZSlice(20)
+  let z100 = stepTerrainZSlice(100)
+  assert(z0 != z1, "Terrain z-slice advances from t=0 to t=1")
+  assert(z1 != z20, "Terrain z-slice advances from t=1 to t=20")
+  assert(z20 != z100 and z0 != z100, "Terrain z-slice does not alias or freeze at t=100")
+
+pub fn main(): int:
+  test_gfx3d_terrain3d_cdlod_heightmap()
+  println("PASS: ex_181_gfx3d_terrain3d_cdlod_heightmap_window_test")
+  ret 0

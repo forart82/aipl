@@ -1,0 +1,46 @@
+// ============================================================================
+// Example 082: RFC-1951 DEFLATE, LZ77 Sliding Window & Huffman Tree (CLI)
+// Demonstrates: DeflateOptions, buildHuffmanTree, lz77FindMatches,
+//               deflateCompress, and deflateDecompress from std/compress.
+// ============================================================================
+module Ex082CompressDeflateHuffmanCli
+
+import {
+  DeflateOptions,
+  buildHuffmanTree,
+  lz77FindMatches,
+  deflateCompress,
+  deflateDecompress
+} from "../std/compress"
+
+// Builds a canonical Huffman tree from symbol frequencies and returns codeLens.len + maxLen.
+pub fn evaluateHuffmanCodeLenCountAndMax(): int:
+  let freqs: [int] = [10, 20, 5, 40]
+  let tree = buildHuffmanTree(freqs)
+  assert(tree.codeLens.len == 4, "Huffman tree assigns 4 symbol lengths")
+  ret tree.codeLens.len + tree.maxLen
+
+// Runs LZ77 sliding-window match finding and RFC-1951 DEFLATE lossless round-trip.
+pub fn verifyDeflateAndLz77RoundTrip(): int:
+  let payloadStr = "The AIPL standard library compression engine provides lossless DEFLATE, LZ4, and Zstd encoding for high performance applications."
+  let raw = payloadStr.toBytes()
+  let matches = lz77FindMatches(raw, 4096, 3)
+  let opts = DeflateOptions(level = 6, windowBits = 15, memLevel = 8)
+  let compressed = deflateCompress(raw, opts)
+  let decompressed = deflateDecompress(compressed).unwrap()
+  if matches.len > 0 and compressed.len() > 0 and decompressed.toStringLossy() == payloadStr:
+    ret 1
+  ret 0
+
+// Returns a canonical descriptor for a DEFLATE compression level.
+pub fn describeDeflateCompressionLevel(level: int): str:
+  if level == 6:
+    ret "DEFLATE:RFC1951_DYNAMIC_HUFFMAN_L6"
+  ret "DEFLATE:FAST_STATIC_BLOCKS"
+
+pub fn main(): int:
+  let huffMetric = evaluateHuffmanCodeLenCountAndMax()
+  let deflateOk = verifyDeflateAndLz77RoundTrip()
+  let mode = describeDeflateCompressionLevel(6)
+  println("ex_082_compress_deflate_huffman_cli: huffMetric=" + str(huffMetric) + " deflateOk=" + str(deflateOk) + " mode=" + mode)
+  ret 0

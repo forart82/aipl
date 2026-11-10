@@ -1,0 +1,61 @@
+module Ex226Phys3dJointRagdollAndChainsWindowTest
+
+import {
+  JointType3D, Joint3D, ballSocketJointNew,
+  hingeJointNew, sixDofJointNew, joint3dSolveVelocity
+} from "../../std/phys3d/joint3d"
+import { BodyType3D, RigidBody3D, rigidBody3dNew } from "../../std/phys3d/rigid_body3d"
+import { Vec3 } from "../../std/math/vec_math"
+import { Quat } from "../../std/math/quat"
+import {
+  RagdollChainScene, createRagdollChainScene, stepScene, auditPhys3dRagdollAndChains
+} from "../../examples/ex_226_phys3d_joint_ragdoll_and_chains_window"
+
+pub fn test_phys3d_joint_ragdoll_and_chains(): void:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut ba = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 0.0, z = 0.0), idRot)
+  mut bb = rigidBody3dNew(1, BodyType3D.Dynamic, Vec3(x = 2.0, y = 0.0, z = 0.0), idRot)
+  let jBall = ballSocketJointNew(0, 1, Vec3(x = 1.0, y = 0.0, z = 0.0))
+  let jHinge = hingeJointNew(0, 1, Vec3(x = 1.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 1.0, z = 0.0))
+  let jSix = sixDofJointNew(0, 1, Vec3(x = 0.0, y = 0.0, z = 0.0), Vec3(x = 0.0, y = 0.0, z = 0.0))
+  joint3dSolveVelocity(jBall, ba, bb, 0.1)
+  assert(jHinge.jointType == JointType3D.Hinge and jSix.jointType == JointType3D.SixDof, "3D joints")
+
+  mut scene: RagdollChainScene = createRagdollChainScene()
+  let tip0: RigidBody3D = scene.chainBodies[6]
+  let hand0: RigidBody3D = scene.ragdollBodies[3]
+  let x0 = tip0.position.x
+  let y0 = tip0.position.y
+  let hx0 = hand0.position.x
+  let hy0 = hand0.position.y
+  stepScene(scene, 0, 0.05)
+  let tip1: RigidBody3D = scene.chainBodies[6]
+  let hand1: RigidBody3D = scene.ragdollBodies[3]
+  let x1 = tip1.position.x
+  assert(x1 != x0 or tip1.position.y != y0, "t=0 -> t=1 moves 3D chain tip")
+  assert(hand1.position.x != hx0 or hand1.position.y != hy0, "t=0 -> t=1 moves 3D ragdoll limb")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let tip20: RigidBody3D = scene.chainBodies[6]
+  let x20 = tip20.position.x
+  let y20 = tip20.position.y
+  assert(x20 != x1, "t=1 -> t=20 swings 3D pendulum chain")
+
+  while f <= 100:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let tip100: RigidBody3D = scene.chainBodies[6]
+  let hand100: RigidBody3D = scene.ragdollBodies[3]
+  assert(tip100.position.x != x20 or tip100.position.y != y20, "t=20 -> t=100 continues swinging 3D pendulum chain")
+  assert(hand100.position.x >= 80.0 and hand100.position.x <= 600.0 and tip100.position.x >= 680.0 and tip100.position.x <= 1200.0, "ragdoll and chain remain within panel bounds at t=100")
+
+  let audit = auditPhys3dRagdollAndChains()
+  assert(audit == 36, "3D ragdoll and chains audit")
+
+pub fn main(): int:
+  test_phys3d_joint_ragdoll_and_chains()
+  println("PASS: ex_226_phys3d_joint_ragdoll_and_chains_window_test")
+  ret 0

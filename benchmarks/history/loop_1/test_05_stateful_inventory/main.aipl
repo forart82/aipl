@@ -1,0 +1,42 @@
+struct Item(id, name, qty, priceCents)
+struct InventoryStore(items, snapshot)
+
+fn beginTx(mut st):
+  st.snapshot = st.items.map(|i| Item(i.id, i.name, i.qty, i.priceCents))
+  ret st
+
+fn rollbackTx(mut st):
+  st.items = st.snapshot.map(|i| Item(i.id, i.name, i.qty, i.priceCents))
+  ret st
+
+fn upsertItem(mut st, id, name, qty, priceCents):
+  mut next = []
+  mut found = false
+  for it in st.items:
+    if it.id == id:
+      next.push(Item(id, name, qty, priceCents))
+      found = true
+    else:
+      next.push(it)
+  if not found:
+    next.push(Item(id, name, qty, priceCents))
+  st.items = next
+  ret st
+
+fn removeItem(mut st, id):
+  st.items = st.items.filter(|i| i.id != id)
+  ret st
+
+fn totalValuationCents(st) = st.items.sum(|i| i.qty * i.priceCents)
+
+mut st = InventoryStore([], [])
+st = upsertItem(st, 1, "GPU-Node", 4, 250000)
+st = upsertItem(st, 2, "NVMe-4TB", 10, 30000)
+st = upsertItem(st, 3, "Switch-100G", 2, 150000)
+st = beginTx(st)
+st = removeItem(st, 1)
+st = upsertItem(st, 2, "NVMe-4TB", 1, 30000)
+assert(totalValuationCents(st) == 330000)
+st = rollbackTx(st)
+assert(st.items.len == 3 and totalValuationCents(st) == 1600000)
+println("Valuation={totalValuationCents(st)}\nBENCH_05_OK")

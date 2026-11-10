@@ -1,0 +1,67 @@
+module tests.functions.asset.apk_container_format_test
+
+import * from "std/asset/apk_container_format"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_apk_container_format_createAiplApkPayloadHeader(): int:
+  let hdr = createAiplApkPayloadHeader("pub fn main(): int: ret 0", 3)
+  assertEqStr(hdr.magic, "AIPLAPK1", "8-byte magic AIPLAPK1")
+  assertEqInt(hdr.formatVersion, 1, "formatVersion == 1")
+  assertEqInt(hdr.bootMode, 1, "bootMode == BOOT_LOCKED_SINGLE_APP (1)")
+  assertEqInt(hdr.codeByteLen, 25, "codeByteLen == 25")
+  assertEqInt(hdr.assetCount, 3, "assetCount == 3")
+  assertEqInt(hdr.payloadCrc32, 4268412645, "crc32 == 4268412645")
+  assertEqInt(hdr.magicValid, 1, "magicValid == 1")
+  let emptyHdr = createAiplApkPayloadHeader("", 0)
+  assertEqInt(emptyHdr.magicValid, 0, "empty payload flagged magicValid == 0")
+  assertEqInt(emptyHdr.payloadCrc32, 0, "empty payload crc32 == 0")
+  assertEqInt(hdr.magic.toBytes().len(), 8, "b\"AIPLAPK1\" byte length == 8")
+  ret 0
+
+pub fn test_apk_container_format_serializeAiplApkPayload(): int:
+  let img = serializeAiplApkPayload("pub fn main(): int: ret 0", 2)
+  assertEqStr(img, "AIPLAPK1|1|1|25|2|4268412645|pub fn main(): int: ret 0", "exact serialized main.aiplb container image")
+  assert(img.startsWith("AIPLAPK1|1|1|") == true, "starts with magic, version 1, BOOT_LOCKED_SINGLE_APP 1")
+  assertEqStr(serializeAiplApkPayload("", 0), "", "empty codePayload returns empty image")
+  assertEqInt(img.len(), 54, "serialized image byte length == 54")
+  let imgZeroAssets = serializeAiplApkPayload("ret 0", 0)
+  assert(imgZeroAssets.startsWith("AIPLAPK1|1|1|5|0|") == true, "0 assets header prefix verified")
+  assert(imgZeroAssets.endsWith("|ret 0") == true, "payload suffix verified")
+  ret 0
+
+pub fn test_apk_container_format_parseAndVerifyAiplApkPayload(): int:
+  let validImg = "AIPLAPK1|1|1|25|2|4268412645|pub fn main(): int: ret 0"
+  let okRes = parseAndVerifyAiplApkPayload(validImg)
+  assert(okRes.isOk() == true, "valid main.aiplb verified")
+  assertEqStr(okRes.unwrap(), "pub fn main(): int: ret 0", "extracted embedded source matches")
+  let badMagic = parseAndVerifyAiplApkPayload("WRONGMAG|1|1|25|2|4268412645|pub fn main(): int: ret 0")
+  assertEqStr(badMagic.unwrapErr(), "E_BAD_APK_MAGIC", "bad magic rejected")
+  let badBoot = parseAndVerifyAiplApkPayload("AIPLAPK1|1|0|25|2|4268412645|pub fn main(): int: ret 0")
+  assertEqStr(badBoot.unwrapErr(), "E_NOT_LOCKED_SINGLE_APP", "unlocked bootMode 0 rejected")
+  let badCrc = parseAndVerifyAiplApkPayload("AIPLAPK1|1|1|25|2|999999|pub fn main(): int: ret 0")
+  assertEqStr(badCrc.unwrapErr(), "E_CRC_MISMATCH", "corrupted CRC32 rejected")
+  let pipePayload = "let x = 1 | 2"
+  let pipeImg = serializeAiplApkPayload(pipePayload, 1)
+  let pipeRes = parseAndVerifyAiplApkPayload(pipeImg)
+  assert(pipeRes.isOk() == true, "payload containing bitwise pipe operator parsed successfully")
+  assertEqStr(pipeRes.unwrap(), pipePayload, "payload containing pipe preserved verbatim")
+  ret 0
+
+pub fn test_apk_container_format_appendApkEmbeddedAssetEntry(): int:
+  mut tbl: Map[str, int] = Map.new()
+  let (t1, c1) = appendApkEmbeddedAssetEntry(tbl, "assets/sprites/hero.png", "hello")
+  assertEqInt(t1.keys().len, 1, "1 asset entry added")
+  assertEqInt(c1, 907060870, "crc32('hello') == 907060870")
+  assertEqInt(t1.get("assets/sprites/hero.png").unwrap(), 907060870, "table stores exact CRC32")
+  let (t2, c2) = appendApkEmbeddedAssetEntry(t1, "../bad.png", "hello")
+  assertEqInt(c2, 0, "path traversal rejected with 0")
+  assertEqInt(t2.keys().len, 1, "table count still 1")
+  ret 0
+
+pub fn main(): int:
+  test_apk_container_format_createAiplApkPayloadHeader()
+  test_apk_container_format_serializeAiplApkPayload()
+  test_apk_container_format_parseAndVerifyAiplApkPayload()
+  test_apk_container_format_appendApkEmbeddedAssetEntry()
+  println("PASS: tests/functions/asset/apk_container_format_test.aipl")
+  ret 0

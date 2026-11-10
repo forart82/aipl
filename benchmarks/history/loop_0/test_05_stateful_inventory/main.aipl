@@ -1,0 +1,50 @@
+module Bench05StatefulInventory
+
+struct Item(id: int, name: str, qty: int, priceCents: int)
+struct InventoryStore(items: [Item], snapshot: [Item])
+
+fn beginTx(store: InventoryStore): InventoryStore:
+  ret InventoryStore(store.items.clone(), store.items.clone())
+
+fn rollbackTx(store: InventoryStore): InventoryStore:
+  ret InventoryStore(store.snapshot.clone(), store.snapshot.clone())
+
+fn upsertItem(store: InventoryStore, id: int, name: str, qty: int, priceCents: int): InventoryStore:
+  mut next: [Item] = []
+  mut found = false
+  for it in store.items:
+    if it.id == id:
+      next.push(Item(id, name, qty, priceCents))
+      found = true
+    else:
+      next.push(it)
+  if not found:
+    next.push(Item(id, name, qty, priceCents))
+  ret InventoryStore(..store, items = next)
+
+fn removeItem(store: InventoryStore, id: int): InventoryStore:
+  ret InventoryStore(..store, items = store.items.filter(|it| it.id != id))
+
+fn totalValuationCents(store: InventoryStore): int:
+  mut total = 0
+  for it in store.items:
+    total += it.qty * it.priceCents
+  ret total
+
+fn main(): void:
+  let empty: [Item] = []
+  mut st = InventoryStore(empty, empty)
+  st = upsertItem(st, 1, "GPU-Node", 4, 250000)
+  st = upsertItem(st, 2, "NVMe-4TB", 10, 30000)
+  st = upsertItem(st, 3, "Switch-100G", 2, 150000)
+  assert(totalValuationCents(st) == 1600000)
+
+  // Transactional mutation followed by rollback
+  st = beginTx(st)
+  st = removeItem(st, 1)
+  st = upsertItem(st, 2, "NVMe-4TB", 1, 30000)
+  assert(totalValuationCents(st) == 330000)
+  st = rollbackTx(st)
+  assert(st.items.len == 3 and totalValuationCents(st) == 1600000)
+  println("Valuation=" + str(totalValuationCents(st)))
+  println("BENCH_05_OK")

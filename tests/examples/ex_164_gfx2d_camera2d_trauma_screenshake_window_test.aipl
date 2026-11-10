@@ -1,0 +1,45 @@
+module Ex164Gfx2dCamera2dTraumaScreenshakeWindowTest
+
+import {
+  buildCamera2dTraumaAudit,
+  stepCameraTraumaFrame
+} from "../../examples/ex_164_gfx2d_camera2d_trauma_screenshake_window"
+import { Vec2 } from "../../std/math/vec_math"
+import {
+  createCamera2D, setCameraCenter, setCameraZoom,
+  addCameraTrauma, updateCameraShake, computeCameraShakeOffset,
+  screenToWorld2D, worldToScreen2D, getCameraVisibleBounds
+} from "../../std/gfx2d/camera2d"
+
+pub fn test_gfx2d_camera2d_trauma_screenshake(): void:
+  mut cam = createCamera2D(1280.0, 720.0)
+  let centerScreen = worldToScreen2D(cam, Vec2(x = 0.0, y = 0.0))
+  assert(centerScreen.x == 640.0 and centerScreen.y == 360.0, "Origin maps to (640, 360)")
+
+  let unproj = screenToWorld2D(cam, centerScreen)
+  assert(unproj.x > -0.01 and unproj.x < 0.01, "Screen center unprojects to world (0,0)")
+
+  cam = setCameraCenter(cam, Vec2(x = 100.0, y = 50.0))
+  cam = setCameraZoom(cam, 2.0)
+  let bounds = getCameraVisibleBounds(cam)
+  assert(bounds.maxX - bounds.minX == 640.0, "At 2x zoom, visible width is 640")
+
+  cam = addCameraTrauma(cam, 0.8)
+  assert(cam.trauma == 0.8, "Trauma set to 0.8")
+  let shakeOff = computeCameraShakeOffset(cam, 1.5, 0.1, 24.0)
+  assert(shakeOff.x != 0.0 or shakeOff.y != 0.0, "Quadratic trauma^2 produces non-zero shake offset")
+
+  let decayed = updateCameraShake(cam, 0.5, 1.0)
+  assert(decayed.trauma > 0.29 and decayed.trauma < 0.31, "Linear trauma decay over 0.5s")
+
+  let c0 = stepCameraTraumaFrame(cam, 0)
+  let c1 = stepCameraTraumaFrame(c0, 1)
+  let c20 = stepCameraTraumaFrame(c1, 20)
+  let c100 = stepCameraTraumaFrame(c20, 100)
+  assert(c0.trauma != c1.trauma and c1.zoom != c20.zoom and c20.zoom != c100.zoom, "stepCameraTraumaFrame progresses across t=0, t=1, t=20, t=100")
+  assert(buildCamera2dTraumaAudit() == 750, "buildCamera2dTraumaAudit returns 640 + 80 + 30 == 750")
+
+pub fn main(): int:
+  test_gfx2d_camera2d_trauma_screenshake()
+  println("PASS: ex_164_gfx2d_camera2d_trauma_screenshake_window_test")
+  ret 0

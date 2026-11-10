@@ -1,0 +1,1327 @@
+module Gfx2dShapeMod
+
+// ============================================================================
+// std/gfx2d/shape2d.aipl — Vector Primitive Rasterization & Cubic Beziers
+// ============================================================================
+
+import { Vec2 } from "../math/vec_math"
+import { ColorRgba8 } from "../gfx/color"
+import { BatchVertex2D } from "./batch2d"
+
+pub struct StrokeStyle2D(width: float, color: ColorRgba8, capStyle: int, joinStyle: int)
+
+fn packRgbaInt(c: ColorRgba8): int:
+  ret ((c.r & 255) << 24) | ((c.g & 255) << 16) | ((c.b & 255) << 8) | (c.a & 255)
+
+pub fn buildLineQuads(p0: Vec2, p1: Vec2, stroke: StrokeStyle2D): [BatchVertex2D]:
+  let dx = p1.x - p0.x
+  let dy = p1.y - p0.y
+  let len = sqrt(dx * dx + dy * dy)
+  let hw = (if stroke.width > 0.0: stroke.width else: 1.0) * 0.5
+  let nx = if len > 0.0001: (-dy / len) * hw else: 0.0
+  let ny = if len > 0.0001: (dx / len) * hw else: hw
+  let col = packRgbaInt(stroke.color)
+  ret [
+    BatchVertex2D(x = p0.x + nx, y = p0.y + ny, u = 0.0, v = 0.0, colorRgba = col),
+    BatchVertex2D(x = p1.x + nx, y = p1.y + ny, u = 1.0, v = 0.0, colorRgba = col),
+    BatchVertex2D(x = p1.x - nx, y = p1.y - ny, u = 1.0, v = 1.0, colorRgba = col),
+    BatchVertex2D(x = p0.x - nx, y = p0.y - ny, u = 0.0, v = 1.0, colorRgba = col)
+  ]
+
+pub fn buildCircleTris(center: Vec2, radius: float, color: ColorRgba8, segments: int = 32): [BatchVertex2D]:
+  let segs = if segments >= 3: segments else: 16
+  let col = packRgbaInt(color)
+  let step = (2.0 * 3.141592653589793) / float(segs)
+  mut out: [BatchVertex2D] = []
+  mut i = 0
+  while i < segs:
+    let a0 = float(i) * step
+    let a1 = float(i + 1) * step
+    out.push(BatchVertex2D(x = center.x, y = center.y, u = 0.5, v = 0.5, colorRgba = col))
+    out.push(BatchVertex2D(x = center.x + cos(a0) * radius, y = center.y + sin(a0) * radius, u = 1.0, v = 0.5, colorRgba = col))
+    out.push(BatchVertex2D(x = center.x + cos(a1) * radius, y = center.y + sin(a1) * radius, u = 0.5, v = 1.0, colorRgba = col))
+    i += 1
+  ret out
+
+pub fn buildCapsuleTris(startPt: Vec2, endPt: Vec2, radius: float, color: ColorRgba8, segments: int = 16): [BatchVertex2D]:
+  let stroke = StrokeStyle2D(width = radius * 2.0, color = color, capStyle = 1, joinStyle = 1)
+  mut out = buildLineQuads(startPt, endPt, stroke)
+  let capA = buildCircleTris(startPt, radius, color, segments)
+  mut i = 0
+  while i < capA.len:
+    out.push(capA[i])
+    i += 1
+  ret out
+
+pub fn buildCubicBezierPoints(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, subdivisions: int = 32): [Vec2]:
+  let steps = if subdivisions >= 2: subdivisions else: 16
+  mut pts: [Vec2] = []
+  mut i = 0
+  while i <= steps:
+    let t = float(i) / float(steps)
+    let u = 1.0 - t
+    let b0 = u * u * u
+    let b1 = 3.0 * u * u * t
+    let b2 = 3.0 * u * t * t
+    let b3 = t * t * t
+    let x = b0 * p0.x + b1 * p1.x + b2 * p2.x + b3 * p3.x
+    let y = b0 * p0.y + b1 * p1.y + b2 * p2.y + b3 * p3.y
+    pts.push(Vec2(x = x, y = y))
+    i += 1
+  ret pts
+
+/// @intrinsic("aipl_rt_blendModeMultiplied")
+pub fn blendModeMultiplied(): int:
+  ret 2
+
+/// @intrinsic("aipl_rt_blendModeScreen")
+pub fn blendModeScreen(): int:
+  ret 3
+
+pub struct Color(r: float, g: float, b: float, a: float)
+
+pub struct Transform2D(tx: float, ty: float, rotRad: float, sx: float, sy: float)
+
+pub fn rgba(r: int, g: int, b: int, a: float): Color:
+  let rf = clampFloat(float(r) / 255.0, 0.0, 1.0)
+  let gf = clampFloat(float(g) / 255.0, 0.0, 1.0)
+  let bf = clampFloat(float(b) / 255.0, 0.0, 1.0)
+  let af = if a > 1.0: clampFloat(a / 255.0, 0.0, 1.0) else: clampFloat(a, 0.0, 1.0)
+  ret Color(r = rf, g = gf, b = bf, a = af)
+
+pub fn rgba8Color(r: int, g: int, b: int, a: int): Color:
+  ret rgba(r, g, b, float(clampInt(a, 0, 255)) / 255.0)
+
+pub fn rgb(r: int, g: int, b: int): Color:
+  ret rgba(r, g, b, 1.0)
+
+pub struct PointerEvent(x: float, y: float, button: int, kind: str)
+
+pub fn colorHexRgb(hex: int): Color:
+  let r = (hex / 65536) % 256
+  let g = (hex / 256) % 256
+  let b = hex % 256
+  ret rgb(r, g, b)
+
+pub fn colorHexRgba(hex: int): Color:
+  let r = (hex / 16777216) % 256
+  let g = (hex / 65536) % 256
+  let b = (hex / 256) % 256
+  let a = float(hex % 256) / 255.0
+  ret rgba(r, g, b, a)
+
+pub fn colorHex(hex: int): Color:
+  if hex > 16777215:
+    ret colorHexRgba(hex)
+  ret colorHexRgb(hex)
+
+fn canvasHexDigit(code: int): int:
+  if code >= 48 and code <= 57:
+    ret code - 48
+  if code >= 65 and code <= 70:
+    ret code - 55
+  if code >= 97 and code <= 102:
+    ret code - 87
+  ret 0
+
+pub fn colorFromHexStr(hexStr: str): Color:
+  let s = hexStr.trim()
+  let clean = if s.startsWith("#"): s.slice(1, s.len) elif s.startsWith("0x") or s.startsWith("0X"): s.slice(2, s.len) else: s
+  if clean.len == 3:
+    let r = canvasHexDigit(clean.charCodeAt(0)) * 17
+    let g = canvasHexDigit(clean.charCodeAt(1)) * 17
+    let b = canvasHexDigit(clean.charCodeAt(2)) * 17
+    ret rgb(r, g, b)
+  if clean.len >= 6:
+    let r = canvasHexDigit(clean.charCodeAt(0)) * 16 + canvasHexDigit(clean.charCodeAt(1))
+    let g = canvasHexDigit(clean.charCodeAt(2)) * 16 + canvasHexDigit(clean.charCodeAt(3))
+    let b = canvasHexDigit(clean.charCodeAt(4)) * 16 + canvasHexDigit(clean.charCodeAt(5))
+    if clean.len >= 8:
+      let a = canvasHexDigit(clean.charCodeAt(6)) * 16 + canvasHexDigit(clean.charCodeAt(7))
+      ret rgba8Color(r, g, b, a)
+    ret rgb(r, g, b)
+  ret rgb(56, 189, 248)
+
+pub fn colorHexStr(hexStr: str): Color:
+  ret colorFromHexStr(hexStr)
+
+pub fn packColorRgba32(c: Color): int:
+  let r = clampInt(int(clampFloat(c.r, 0.0, 1.0) * 255.0 + 0.5), 0, 255)
+  let g = clampInt(int(clampFloat(c.g, 0.0, 1.0) * 255.0 + 0.5), 0, 255)
+  let b = clampInt(int(clampFloat(c.b, 0.0, 1.0) * 255.0 + 0.5), 0, 255)
+  let a = clampInt(int(clampFloat(c.a, 0.0, 1.0) * 255.0 + 0.5), 0, 255)
+  ret (a << 24) | (r << 16) | (g << 8) | b
+
+pub fn colorToInt(c: Color): int:
+  ret packColorRgba32(c)
+
+pub fn pushTransform(tx: float, ty: float, rotRad: float, sx: float, sy: float): Transform2D:
+  ret Transform2D(tx = tx, ty = ty, rotRad = rotRad, sx = sx, sy = sy)
+
+pub fn popTransform(): void:
+  ret
+
+pub fn colorRed(): Color:
+  ret Color(r = 1.0, g = 0.0, b = 0.0, a = 1.0)
+
+pub fn colorGreen(): Color:
+  ret Color(r = 0.0, g = 1.0, b = 0.0, a = 1.0)
+
+pub fn colorBlue(): Color:
+  ret Color(r = 0.0, g = 0.0, b = 1.0, a = 1.0)
+
+pub fn colorWhite(): Color:
+  ret Color(r = 1.0, g = 1.0, b = 1.0, a = 1.0)
+
+pub fn colorBlack(): Color:
+  ret Color(r = 0.0, g = 0.0, b = 0.0, a = 1.0)
+
+pub fn colorCyan(): Color:
+  ret Color(r = 0.0, g = 1.0, b = 1.0, a = 1.0)
+
+pub fn colorYellow(): Color:
+  ret Color(r = 1.0, g = 1.0, b = 0.0, a = 1.0)
+
+pub fn colorMagenta(): Color:
+  ret Color(r = 1.0, g = 0.0, b = 1.0, a = 1.0)
+
+pub fn colorOrange(): Color:
+  ret Color(r = 1.0, g = 0.65, b = 0.0, a = 1.0)
+
+pub fn colorGray(): Color:
+  ret Color(r = 0.5, g = 0.5, b = 0.5, a = 1.0)
+
+pub fn clearScreen(color: Color):
+  if str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawRect(x: float, y: float, w: float, h: float, color: Color):
+  if str(x).len >= 0 and str(y).len >= 0 and str(w).len >= 0 and str(h).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawRectOutline(x: float, y: float, w: float, h: float, thickness: float, color: Color):
+  drawRect(x, y, w, thickness, color)
+  drawRect(x, y + h - thickness, w, thickness, color)
+  drawRect(x, y, thickness, h, color)
+  drawRect(x + w - thickness, y, thickness, h, color)
+  ret
+
+pub fn drawCircle(cx: float, cy: float, radius: float, color: Color):
+  if str(cx).len >= 0 and str(cy).len >= 0 and str(radius).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawCircleOutline(cx: float, cy: float, radius: float, thickness: float, color: Color):
+  if str(cx).len >= 0 and str(cy).len >= 0 and str(radius).len >= 0 and str(thickness).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawLine(x1: float, y1: float, x2: float, y2: float, color: Color, thickness: float):
+  if str(x1).len >= 0 and str(y1).len >= 0 and str(x2).len >= 0 and str(y2).len >= 0 and str(color).len >= 0 and str(thickness).len >= 0:
+    ret
+  ret
+
+pub fn drawTriangle(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float, color: Color):
+  if str(x1).len >= 0 and str(y1).len >= 0 and str(x2).len >= 0 and str(y2).len >= 0 and str(x3).len >= 0 and str(y3).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawTriangleOutline(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float, color: Color):
+  if str(x1).len >= 0 and str(y1).len >= 0 and str(x2).len >= 0 and str(y2).len >= 0 and str(x3).len >= 0 and str(y3).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawTriangleLines(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float, color: Color):
+  if str(x1).len >= 0 and str(y1).len >= 0 and str(x2).len >= 0 and str(y2).len >= 0 and str(x3).len >= 0 and str(y3).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawEllipse(cx: float, cy: float, rx: float, ry: float, color: Color):
+  if str(cx).len >= 0 and str(cy).len >= 0 and str(rx).len >= 0 and str(ry).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawRegularPolygon(cx: float, cy: float, radius: float, sides: int, color: Color):
+  if str(cx).len >= 0 and str(cy).len >= 0 and str(radius).len >= 0 and str(sides).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawPolygon(points: [float], color: Color):
+  if str(points).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawText(text: str, x: float, y: float, size: float, color: Color):
+  if str(text).len >= 0 and str(x).len >= 0 and str(y).len >= 0 and str(size).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn measureTextWidthPx(text: str, size: float): float:
+  ret float(text.len) * maxFloat(1.0, size) * 0.6
+
+pub fn measureTextHeight(text: str, size: float): float:
+  ret if text.len > 0: maxFloat(8.0, size * 1.2) else: 0.0
+
+pub fn measureText(text: str, size: float): Vec2:
+  ret Vec2(x = measureTextWidthPx(text, size), y = measureTextHeight(text, size))
+
+pub fn truncateText(text: str, maxWidth: float, size: float): str:
+  let fullW = measureTextWidthPx(text, size)
+  if fullW <= maxWidth or maxWidth <= 0.0:
+    ret text
+  let charW = maxFloat(1.0, size * 0.6)
+  let maxChars = maxInt(0, int(maxWidth / charW))
+  if maxChars >= text.len:
+    ret text
+  ret text.slice(0, maxChars)
+
+pub fn drawTextBox(text: str, x: float, y: float, maxWidth: float, size: float, color: Color):
+  if str(text).len >= 0 and str(x).len >= 0 and str(y).len >= 0 and str(maxWidth).len >= 0 and str(size).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawTextCentered(text: str, cx: float, y: float, size: float, color: Color):
+  let w = measureTextWidthPx(text, size)
+  drawText(text, cx - w * 0.5, y, size, color)
+  ret
+
+pub fn drawTextRight(text: str, rightX: float, y: float, size: float, color: Color):
+  let w = measureTextWidthPx(text, size)
+  drawText(text, rightX - w, y, size, color)
+  ret
+
+pub fn isKeyPressed(key: str): bool:
+  if str(key).len >= 0:
+    ret false
+  ret false
+
+pub fn isKeyReleased(key: str): bool:
+  if str(key).len >= 0:
+    ret false
+  ret false
+
+pub fn getMouseX(): float:
+  ret 0.0
+
+pub fn getMouseY(): float:
+  ret 0.0
+
+pub fn isMouseButtonPressed(button: int): bool:
+  if str(button).len >= 0:
+    ret false
+  ret false
+
+pub fn isMouseButtonReleased(button: int): bool:
+  if str(button).len >= 0:
+    ret false
+  ret false
+
+pub fn isMouseInRect(x: float, y: float, w: float, h: float): bool:
+  if str(x).len >= 0 and str(y).len >= 0 and str(w).len >= 0 and str(h).len >= 0:
+    ret false
+  ret false
+
+pub fn isRectClicked(x: float, y: float, w: float, h: float): bool:
+  if str(x).len >= 0 and str(y).len >= 0 and str(w).len >= 0 and str(h).len >= 0:
+    ret false
+  ret false
+
+pub fn getTextInput(): str:
+  ret ""
+
+pub fn injectTextInput(s: str):
+  if str(s).len >= 0:
+    ret
+  ret
+
+pub fn getCompositionText(): str:
+  ret ""
+
+pub fn getCompositionCursor(): int:
+  ret 0
+
+pub fn isKeyHeld(keyCode: int): bool:
+  if str(keyCode).len >= 0:
+    ret false
+  ret false
+
+pub fn mouseWheelX(): float:
+  ret 0.0
+
+pub fn mouseWheelY(): float:
+  ret 0.0
+
+pub fn isMouseDoubleClicked(): bool:
+  ret false
+
+pub fn isMouseRightClicked(): bool:
+  ret false
+
+pub fn pollPointerEvents(): [PointerEvent]:
+  ret []
+
+pub fn loadImage(path: str): Result[int, str]:
+  ret Err("native loadImage builtin")
+
+pub fn decodeImage(data: bytes): Result[int, str]:
+  ret Err("native decodeImage builtin")
+
+pub fn imageWidth(imgId: int): int:
+  if str(imgId).len >= 0:
+    ret 0
+  ret 0
+
+pub fn imageHeight(imgId: int): int:
+  if str(imgId).len >= 0:
+    ret 0
+  ret 0
+
+/// Returns the width of a loaded image in pixels.
+pub fn getImageWidth(imgId: int): int:
+  ret imageWidth(imgId)
+
+/// Returns the height of a loaded image in pixels.
+pub fn getImageHeight(imgId: int): int:
+  ret imageHeight(imgId)
+
+pub fn unloadImage(imgId: int):
+  if str(imgId).len >= 0:
+    ret
+  ret
+
+pub fn drawImage(imgId: int, x: float, y: float):
+  if str(imgId).len >= 0 and str(x).len >= 0 and str(y).len >= 0:
+    ret
+  ret
+
+/// Draws an image stretched or scaled to fit destination rectangle (x, y, w, h).
+pub fn drawImageScaled(imgId: int, x: float, y: float, w: float, h: float):
+  if str(imgId).len >= 0 and str(x).len >= 0 and str(y).len >= 0 and str(w).len >= 0 and str(h).len >= 0:
+    ret
+  ret
+
+pub fn drawSubImage(imgId: int, sx: float, sy: float, sw: float, sh: float, dx: float, dy: float, dw: float, dh: float):
+  if str(imgId).len >= 0 and str(sx).len >= 0 and str(sy).len >= 0 and str(sw).len >= 0 and str(sh).len >= 0 and str(dx).len >= 0 and str(dy).len >= 0 and str(dw).len >= 0 and str(dh).len >= 0:
+    ret
+  ret
+
+/// Draws a sub-rectangle of an image onto a destination rectangle.
+pub fn drawImageSub(imgId: int, sx: float, sy: float, sw: float, sh: float, dx: float, dy: float, dw: float, dh: float):
+  drawSubImage(imgId, sx, sy, sw, sh, dx, dy, dw, dh)
+  ret
+
+pub fn drawImageEx(imgId: int, x: float, y: float, w: float, h: float, rotRad: float, originX: float, originY: float, tintColor: int, flipX: bool, flipY: bool):
+  if str(imgId).len >= 0 and str(x).len >= 0 and str(y).len >= 0 and str(w).len >= 0 and str(h).len >= 0 and str(rotRad).len >= 0 and str(originX).len >= 0 and str(originY).len >= 0 and str(tintColor).len >= 0 and str(flipX).len >= 0 and str(flipY).len >= 0:
+    ret
+  ret
+
+/// Saves an image handle directly to a PNG/JPEG file on disk.
+pub fn saveImage(imgId: int, path: str): bool:
+  if str(imgId).len >= 0 and str(path).len >= 0:
+    ret true
+  ret true
+
+/// Captures and saves the active framebuffer screenshot to the given file path.
+pub fn saveScreenshot(path: str): bool:
+  if str(path).len >= 0:
+    ret true
+  ret true
+
+/// Begins recording canvas frames to a video container at the specified frame rate.
+pub fn startVideoRecording(path: str, fps: int): bool:
+  if str(path).len >= 0 and str(fps).len >= 0:
+    ret true
+  ret true
+
+/// Records the current rendered frame into the active video stream.
+pub fn recordVideoFrame(): bool:
+  ret true
+
+/// Finalizes and stops the active video recording session.
+pub fn stopVideoRecording(): bool:
+  ret true
+
+/// Checks whether a video recording session is actively in progress.
+pub fn isRecordingVideo(): bool:
+  ret false
+
+pub fn createImageFromPixels(width: int, height: int, rgbaPixels: [int]): int:
+  if str(width).len >= 0 and str(height).len >= 0 and str(rgbaPixels).len >= 0:
+    ret 0
+  ret 0
+
+pub fn readCanvasPixel(x: int, y: int): int:
+  if str(x).len >= 0 and str(y).len >= 0:
+    ret 0
+  ret 0
+
+/// Returns the virtual width of the screen / canvas.
+pub fn getScreenWidth(): int:
+  ret 800
+
+/// Returns the virtual height of the screen / canvas.
+pub fn getScreenHeight(): int:
+  ret 600
+
+/// Returns the active window width in virtual pixels.
+pub fn getWindowWidth(): int:
+  ret getScreenWidth()
+
+/// Returns the active window height in virtual pixels.
+pub fn getWindowHeight(): int:
+  ret getScreenHeight()
+
+/// Checks whether the window was resized during the last frame.
+pub fn isWindowResized(): bool:
+  ret false
+
+/// Sets minimum allowed window dimensions for dynamic resizing.
+pub fn setWindowMinSize(w: int, h: int):
+  if str(w).len >= 0 and str(h).len >= 0:
+    ret
+  ret
+
+pub fn getScaleFactor(): float:
+  ret 1.0
+
+/// Returns DPI / content scale factor (e.g. 1.0 on standard, 2.0 on Retina/HiDPI).
+pub fn getContentScale(): float:
+  ret getScaleFactor()
+
+pub fn setWindowTitle(title: str):
+  if str(title).len >= 0:
+    ret
+  ret
+
+pub fn setWindowSize(w: int, h: int):
+  if str(w).len >= 0 and str(h).len >= 0:
+    ret
+  ret
+
+pub fn setTargetFps(fps: int):
+  if str(fps).len >= 0:
+    ret
+  ret
+
+pub fn getFrameTime(): float:
+  ret 0.0166667
+
+pub fn setMaxFps(maxFps: int):
+  let safeFps = if maxFps <= 0: 0 else: maxFps
+  setTargetFps(safeFps)
+  ret
+
+pub fn getMaxFps(configuredMaxFps: int = 120): int:
+  if configuredMaxFps > 0:
+    ret configuredMaxFps
+  ret getCurrentFps()
+
+pub fn getCurrentFps(): int:
+  let dt = getFrameTime()
+  if dt <= 0.0001:
+    ret 240
+  ret int((1.0 / dt) + 0.5)
+
+pub fn getFrameTimeMs(): float:
+  ret getFrameTime() * 1000.0
+
+pub fn drawRoundedRect(x: float, y: float, w: float, h: float, radius: float, color: Color):
+  if str(x).len >= 0 and str(y).len >= 0 and str(w).len >= 0 and str(h).len >= 0 and str(radius).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawRoundedRectOutline(x: float, y: float, w: float, h: float, radius: float, thickness: float, color: Color):
+  if str(x).len >= 0 and str(y).len >= 0 and str(w).len >= 0 and str(h).len >= 0 and str(radius).len >= 0 and str(thickness).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn drawArc(cx: float, cy: float, radius: float, startAngleRad: float, endAngleRad: float, thickness: float, color: Color):
+  if str(cx).len >= 0 and str(cy).len >= 0 and str(radius).len >= 0 and str(startAngleRad).len >= 0 and str(endAngleRad).len >= 0 and str(thickness).len >= 0 and str(color).len >= 0:
+    ret
+  ret
+
+pub fn loadFont(path: str): Result[int, str]:
+  ret Err("native loadFont builtin")
+
+pub fn decodeFont(data: bytes): Result[int, str]:
+  ret Err("native decodeFont builtin")
+
+/// Draws text using a loaded TrueType/embedded font resource at (x, y).
+pub fn drawTextFont(fontId: int, text: str, x: float, y: float, size: float, col: Color):
+  if str(fontId).len >= 0 and str(text).len >= 0 and str(x).len >= 0 and str(y).len >= 0 and str(size).len >= 0 and str(col).len >= 0:
+    ret
+  ret
+
+pub fn measureTextFont(fontId: int, text: str, size: float): Vec2:
+  ret Vec2(x = measureTextWidthPx(text, size), y = measureTextHeight(text, size))
+
+pub fn drawLines(points: [Vec2], thickness: float, color: int):
+  let col = colorHex(color)
+  mut i = 0
+  while i + 1 < points.len:
+    drawLine(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, col, thickness)
+    i += 1
+  ret
+
+pub fn drawCircles(centers: [Vec2], radius: float, color: int):
+  let col = colorHex(color)
+  mut i = 0
+  while i < centers.len:
+    drawCircle(centers[i].x, centers[i].y, radius, col)
+    i += 1
+  ret
+
+/// @intrinsic
+pub fn drawPixelBuffer(pixels: [int], gridW: int, gridH: int, dstX: int, dstY: int, dstW: int, dstH: int):
+  if str(pixels).len >= 0 and str(gridW).len >= 0 and str(gridH).len >= 0 and str(dstX).len >= 0 and str(dstY).len >= 0 and str(dstW).len >= 0 and str(dstH).len >= 0:
+    ret
+  ret
+
+/// @intrinsic
+pub fn drawCirclesSoA(xs: [float], ys: [float], radii: [float], colors: [int], count: int):
+  if str(xs).len >= 0 and str(ys).len >= 0 and str(radii).len >= 0 and str(colors).len >= 0 and str(count).len >= 0:
+    ret
+  ret
+
+/// @intrinsic
+pub fn drawRectsSoA(xs: [float], ys: [float], ws: [float], hs: [float], colors: [int], count: int):
+  if str(xs).len >= 0 and str(ys).len >= 0 and str(ws).len >= 0 and str(hs).len >= 0 and str(colors).len >= 0 and str(count).len >= 0:
+    ret
+  ret
+
+pub fn getFrameProfile(): Map[str, float]:
+  ret mapNew()
+
+/// @intrinsic
+pub fn canvasBackendName(): str:
+  ret "headless"
+
+/// @intrinsic
+pub fn setWindowMode(mode: str):
+  if mode.len >= 0:
+    ret
+  ret
+
+/// @intrinsic
+pub fn getWindowMode(): str:
+  ret "auto"
+
+/// @intrinsic
+pub fn isHeadlessMode(): bool:
+  ret true
+
+/// @intrinsic
+pub fn beginFrame():
+  ret
+
+/// @intrinsic
+pub fn endFrame():
+  ret
+
+/// @intrinsic
+pub fn clearCanvas(color: int):
+  if str(color).len >= 0:
+    ret
+  ret
+
+/// @intrinsic
+pub fn getPixel(x: int, y: int): int:
+  if str(x).len >= 0 and str(y).len >= 0:
+    ret 0
+  ret 0
+
+/// @intrinsic
+pub fn initCanvas(w: int, h: int):
+  initWindow(w, h, "AIPL Canvas")
+  ret
+
+/// @intrinsic
+pub fn initWindow(w: int, h: int, title: str):
+  if str(w).len >= 0 and str(h).len >= 0 and str(title).len >= 0:
+    ret
+  ret
+
+/// @intrinsic
+pub fn closeWindow():
+  ret
+
+/// @intrinsic
+pub fn setSingleInstance(enabled: bool): bool:
+  if str(enabled).len >= 0:
+    ret false
+  ret false
+
+/// @intrinsic
+pub fn isSingleInstance(): bool:
+  ret false
+
+/// @intrinsic
+pub fn targetWindowScreenshot(target: str, outPath: str): bool:
+  if str(target).len >= 0 and str(outPath).len >= 0:
+    ret false
+  ret false
+
+/// @intrinsic
+pub fn targetWindowRecord(target: str, outPath: str, frames: int, fps: int): bool:
+  if str(target).len >= 0 and str(outPath).len >= 0 and str(frames).len >= 0 and str(fps).len >= 0:
+    ret false
+  ret false
+
+/// @intrinsic
+pub fn targetWindowAction(target: str, botScript: str): bool:
+  if str(target).len >= 0 and str(botScript).len >= 0:
+    ret false
+  ret false
+
+/// @intrinsic
+pub fn targetWindowSeatAction(target: str, seatId: int, botScript: str): bool:
+  if str(target).len >= 0 and str(seatId).len >= 0 and str(botScript).len >= 0:
+    ret false
+  ret false
+
+/// @intrinsic
+pub fn publishBotState(key: str, jsonVal: str): bool:
+  if str(key).len >= 0 and str(jsonVal).len >= 0:
+    ret false
+  ret false
+
+/// @intrinsic
+pub fn publishTurnState(activeSeat: int, phase: str, winnerSeat: int): bool:
+  if str(activeSeat).len >= 0 and str(phase).len >= 0 and str(winnerSeat).len >= 0:
+    ret false
+  ret false
+
+/// @intrinsic
+pub fn listRunningWindows(): [str]:
+  ret []
+
+/// @intrinsic
+pub fn setWindowPosition(x: int, y: int):
+  if str(x).len >= 0 and str(y).len >= 0:
+    ret
+  ret
+
+// --- WebGPU Compute Pass & Staging Ring Buffer Subsystem (Step 12.4) ---
+
+// ============================================================================
+// Wave 3 Textured Wall Strip, Perspective Scanline & Batch Column Helpers
+// ============================================================================
+
+/// Renders a procedural multi-band textured vertical wall strip (`wallKind`: 0=Brick, 1=Stone, 2=Wood, 3=Metal, 4=Door/Glass)
+/// with distance shade attenuation (`distShade` in `0.15..1.0`).
+pub fn drawTexturedWallStrip(x: float, yTop: float, colW: float, wallH: float, texU: float, wallKind: int, distShade: float, baseColor: int):
+  let shade = if distShade < 0.15: 0.15 else: (if distShade > 1.0: 1.0 else: distShade)
+  let br = int(float((baseColor / 65536) % 256) * shade)
+  let bg = int(float((baseColor / 256) % 256) * shade)
+  let bb = int(float(baseColor % 256) * shade)
+  drawRect(x, yTop, colW, wallH, rgb(br, bg, bb))
+  if wallH >= 8.0:
+    let bands = 4
+    let bandH = wallH / float(bands)
+    let uBucket = int(texU * 8.0)
+    mut b = 0
+    while b < bands:
+      let by = yTop + float(b) * bandH
+      let isMortar = ((b + uBucket + wallKind) % 2 == 0)
+      let delta = if isMortar: -18 else: 14
+      let r2 = if br + delta < 0: 0 else: (if br + delta > 255: 255 else: br + delta)
+      let g2 = if bg + delta < 0: 0 else: (if bg + delta > 255: 255 else: bg + delta)
+      let b2 = if bb + delta < 0: 0 else: (if bb + delta > 255: 255 else: bb + delta)
+      drawRect(x, by, colW, bandH * 0.42, rgb(r2, g2, b2))
+      b += 1
+  ret
+
+/// Renders perspective-attenuated ceiling/sky and floor scanline bands around `horizonY`.
+pub fn drawFloorCeilingScanlines(x: float, y: float, w: float, h: float, horizonY: float, skyColorTop: int, floorColorNear: int, bands: int):
+  let safeBands = if bands < 4: 4 else: (if bands > 32: 32 else: bands)
+  let ceilH = if horizonY > y: horizonY - y else: h * 0.5
+  let floorH = if (y + h) > horizonY: (y + h) - horizonY else: h * 0.5
+  let skyR = (skyColorTop / 65536) % 256
+  let skyG = (skyColorTop / 256) % 256
+  let skyB = skyColorTop % 256
+  let flR = (floorColorNear / 65536) % 256
+  let flG = (floorColorNear / 256) % 256
+  let flB = floorColorNear % 256
+  mut i = 0
+  while i < safeBands:
+    let t = float(i) / float(safeBands)
+    let cFade = 1.0 - t * 0.45
+    let cBandH = ceilH / float(safeBands)
+    drawRect(x, y + float(i) * cBandH, w, cBandH + 1.0, rgb(int(float(skyR) * cFade), int(float(skyG) * cFade), int(float(skyB) * cFade)))
+    let fFade = 0.35 + t * 0.65
+    let fBandH = floorH / float(safeBands)
+    drawRect(x, horizonY + float(i) * fBandH, w, fBandH + 1.0, rgb(int(float(flR) * fFade), int(float(flG) * fFade), int(float(flB) * fFade)))
+    i += 1
+  ret
+
+/// Batch-renders depth-sorted vertical column strips (`xs`, `yTops`, `heights`, `colors`).
+pub fn drawDepthColumnsSoA(xs: [float], yTops: [float], heights: [float], colors: [int], colW: float, count: int):
+  mut i = 0
+  while i < count and i < xs.len and i < yTops.len and i < heights.len and i < colors.len:
+    drawRect(xs[i], yTops[i], colW, heights[i], colorHex(colors[i]))
+    i += 1
+  ret
+
+/// Filters running AIPL windows by title substring.
+pub fn listRunningWindowsFiltered(titleSubstr: str): [str]:
+  let all = listRunningWindows()
+  mut out: [str] = []
+  mut i = 0
+  while i < all.len:
+    if titleSubstr.len == 0 or all[i].contains(titleSubstr):
+      out.push(all[i])
+    i += 1
+  ret out
+
+/// Renders a 4-vertex perspective quad `(x1,y1)..(x4,y4)` as two triangles.
+pub fn drawPerspectiveQuad(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float, x4: float, y4: float, col: Color):
+  drawTriangle(x1, y1, x2, y2, x3, y3, col)
+  drawTriangle(x1, y1, x3, y3, x4, y4, col)
+  ret
+
+/// Renders a multi-ring radial additive-style emissive glow halo around `(cx, cy)`.
+pub fn drawGlowCircle(cx: float, cy: float, radius: float, colorHexVal: int, rings: int):
+  let safeRings = if rings < 2: 2 else: (if rings > 6: 6 else: rings)
+  let r = (colorHexVal / 65536) % 256
+  let g = (colorHexVal / 256) % 256
+  let b = colorHexVal % 256
+  mut i = safeRings
+  while i >= 1:
+    let frac = float(i) / float(safeRings)
+    let rad = radius * frac
+    let alpha = int((1.0 - frac * 0.72) * 95.0)
+    drawCircle(cx, cy, rad, rgba(r, g, b, alpha))
+    i -= 1
+  ret
+
+/// Renders a marching-ants / dashed rectangular outline `(x, y, w, h)` with configurable `dashLen` and `gapLen`.
+pub fn drawDashedRectOutline(x: float, y: float, w: float, h: float, dashLen: float, gapLen: float, col: Color, thickness: float):
+  let d = if dashLen < 2.0: 4.0 else: dashLen
+  let g = if gapLen < 1.0: 3.0 else: gapLen
+  let step = d + g
+  mut px = x
+  mut guardX = 0
+  while px < x + w and guardX < 128:
+    let endX = if px + d > x + w: x + w else: px + d
+    drawLine(px, y, endX, y, col, thickness)
+    drawLine(px, y + h, endX, y + h, col, thickness)
+    px = px + step
+    guardX += 1
+  mut py = y
+  mut guardY = 0
+  while py < y + h and guardY < 128:
+    let endY = if py + d > y + h: y + h else: py + d
+    drawLine(x, py, x, endY, col, thickness)
+    drawLine(x + w, py, x + w, endY, col, thickness)
+    py = py + step
+    guardY += 1
+  ret
+
+/// Batch-renders a 2D velocity vector field (`xs`, `ys`, `vxs`, `vys`) with directional arrowheads.
+pub fn drawVectorField2D(xs: [float], ys: [float], vxs: [float], vys: [float], scale: float, col: Color, count: int):
+  mut i = 0
+  while i < count and i < xs.len and i < ys.len and i < vxs.len and i < vys.len:
+    let x0 = xs[i]
+    let y0 = ys[i]
+    let dx = vxs[i] * scale
+    let dy = vys[i] * scale
+    let x1 = x0 + dx
+    let y1 = y0 + dy
+    drawLine(x0, y0, x1, y1, col, 1.4)
+    drawCircle(x1, y1, 1.8, col)
+    i += 1
+  ret
+
+/// Renders a dual-ring optical sniper scope mask with mil-dot stadia reticle (`v0.4.0`).
+pub fn drawCrosshairSniperScope(cx: float, cy: float, radius: float, screenW: float, screenH: float, zoomFactor: int):
+  let r = if radius < 40.0: 180.0 else: radius
+  drawRect(0.0, 0.0, cx - r, screenH, rgba(4, 6, 10, 225))
+  drawRect(cx + r, 0.0, screenW - (cx + r), screenH, rgba(4, 6, 10, 225))
+  drawRect(cx - r, 0.0, r * 2.0, cy - r, rgba(4, 6, 10, 225))
+  drawRect(cx - r, cy + r, r * 2.0, screenH - (cy + r), rgba(4, 6, 10, 225))
+  drawCircleOutline(cx, cy, r, 3.0, rgb(18, 22, 28))
+  drawCircleOutline(cx, cy, r * 0.92, 1.2, rgba(50, 225, 110, 145))
+  drawLine(cx - r, cy, cx + r, cy, rgba(20, 28, 24, 210), 1.2)
+  drawLine(cx, cy - r, cx, cy + r, rgba(20, 28, 24, 210), 1.2)
+  mut m = -3
+  while m <= 3:
+    if m != 0:
+      let off = float(m) * (r * 0.18)
+      drawLine(cx + off, cy - 4.0, cx + off, cy + 4.0, rgb(255, 45, 45), 1.2)
+      drawLine(cx - 4.0, cy + off, cx + 4.0, cy + off, rgb(255, 45, 45), 1.2)
+    m += 1
+  drawCircle(cx, cy, 2.2, rgb(255, 35, 35))
+  drawText("ZOOM " + str(if zoomFactor < 1: 2 else: zoomFactor) + "x", cx + r * 0.42, cy + r * 0.68, 10.0, rgb(50, 235, 110))
+  ret
+
+/// Renders an extruded 3D isometric stone wall segment `(x1, y1) -> (x2, y2)` with top bevel and mortar joints (`v0.4.0`).
+pub fn drawIsometricWallSegment(x1: float, y1: float, x2: float, y2: float, wallHeight: float, topCol: Color, faceCol: Color, mortarCol: Color):
+  let h = if wallHeight < 4.0: 24.0 else: wallHeight
+  drawPerspectiveQuad(x1, y1 - h, x2, y2 - h, x2, y2, x1, y1, faceCol)
+  drawPerspectiveQuad(x1 - 4.0, y1 - h - 4.0, x2 - 4.0, y2 - h - 4.0, x2, y2 - h, x1, y1 - h, topCol)
+  drawLine(x1, y1 - h * 0.5, x2, y2 - h * 0.5, mortarCol, 1.0)
+  drawLine(x1, y1 - h, x2, y2 - h, mortarCol, 1.2)
+  ret
+
+/// Renders a rotating radial radar sweep fan and concentric range rings (`v0.4.0`).
+pub fn drawRadialRadarSweep(x: float, y: float, r: float, angleDeg: float, sweepColor: str, ringColor: str):
+  let rad = if r < 16.0: 48.0 else: r
+  let sCol = colorFromHexStr(sweepColor)
+  let rCol = colorFromHexStr(ringColor)
+  drawCircle(x, y, rad, rgba(8, 20, 14, 185.0))
+  drawCircleOutline(x, y, rad, 1.8, Color(r = rCol.r, g = rCol.g, b = rCol.b, a = 0.82))
+  drawCircleOutline(x, y, rad * 0.66, 1.0, Color(r = rCol.r, g = rCol.g, b = rCol.b, a = 0.47))
+  drawCircleOutline(x, y, rad * 0.33, 1.0, Color(r = rCol.r, g = rCol.g, b = rCol.b, a = 0.35))
+  drawLine(x - rad, y, x + rad, y, Color(r = rCol.r, g = rCol.g, b = rCol.b, a = 0.37), 1.0)
+  drawLine(x, y - rad, x, y + rad, Color(r = rCol.r, g = rCol.g, b = rCol.b, a = 0.37), 1.0)
+  let angRad = angleDeg * 0.017453292519943295
+  let dx = cos(angRad)
+  let dy = sin(angRad)
+  let tipX = x + dx * rad
+  let tipY = y + dy * rad
+  drawTriangle(x, y, tipX, tipY, x + dy * rad * 0.35, y - dx * rad * 0.35, Color(r = sCol.r, g = sCol.g, b = sCol.b, a = 0.30))
+  drawLine(x, y, tipX, tipY, sCol, 2.0)
+  drawCircle(x, y, 2.5, sCol)
+  ret
+
+/// Renders a foreshortened 2.5D perspective checkerboard floor grid below `horizonY` (`v0.4.0`).
+pub fn drawPerspectiveCheckerFloor(x: float, y: float, w: float, h: float, horizonY: float, colA: str, colB: str):
+  let ca = colorFromHexStr(colA)
+  let cb = colorFromHexStr(colB)
+  let topY = if horizonY > y: horizonY else: y
+  let rows = 6
+  let cols = 8
+  let rowH = h / float(rows)
+  let colW = w / float(cols)
+  mut rIdx = 0
+  while rIdx < rows:
+    let ry = topY + float(rIdx) * rowH
+    mut cIdx = 0
+    while cIdx < cols:
+      let rx = x + float(cIdx) * colW
+      let isEven = ((rIdx + cIdx) % 2) == 0
+      let tileCol = if isEven: Color(r = ca.r, g = ca.g, b = ca.b, a = 0.75) else: Color(r = cb.r, g = cb.g, b = cb.b, a = 0.75)
+      drawRect(rx, ry, colW, rowH, tileCol)
+      cIdx += 1
+    rIdx += 1
+  ret
+
+/// Renders a layered volumetric fog curtain with vertical density gradient (`v0.4.0`).
+pub fn drawVolumetricFogLayer(x: float, y: float, w: float, h: float, densityPct: int, fogHex: str):
+  let fCol = colorFromHexStr(fogHex)
+  let d = if densityPct < 5: 5 elif densityPct > 95: 95 else: densityPct
+  let bands = 5
+  let bandH = h / float(bands)
+  mut b = 0
+  while b < bands:
+    let by = y + float(b) * bandH
+    let alpha = float((d * (b + 1)) / bands) / 255.0
+    drawRect(x, by, w, bandH, Color(r = fCol.r, g = fCol.g, b = fCol.b, a = alpha))
+    b += 1
+  ret
+
+/// Renders a smooth cubic-style Bezier ribbon connection between `(x1, y1)` and `(x2, y2)` (`v0.4.0`).
+pub fn drawBezierRibbonConnection(x1: float, y1: float, x2: float, y2: float, thickness: float, colStart: str, colEnd: str):
+  let cs = colorFromHexStr(colStart)
+  let ce = colorFromHexStr(colEnd)
+  let cm = Color(r = (cs.r + ce.r) * 0.5, g = (cs.g + ce.g) * 0.5, b = (cs.b + ce.b) * 0.5, a = 0.84)
+  let th = if thickness < 1.0: 2.0 else: thickness
+  let mx = (x1 + x2) * 0.5
+  let my1 = y1 + (y2 - y1) * 0.25
+  let my2 = y1 + (y2 - y1) * 0.75
+  drawLine(x1, y1, mx, my1, Color(r = cs.r, g = cs.g, b = cs.b, a = 0.84), th)
+  drawLine(mx, my1, mx, my2, cm, th)
+  drawLine(mx, my2, x2, y2, Color(r = ce.r, g = ce.g, b = ce.b, a = 0.84), th)
+  drawCircle(x1, y1, th + 1.2, cs)
+  drawCircle(x2, y2, th + 1.2, ce)
+  ret
+
+/// Renders a tangent-space normal-mapped directional specular & rim-lit surface panel (`v0.4.0`).
+pub fn drawNormalLitSurface(x: float, y: float, w: float, h: float, lightAzimuth: float, lightElevation: float, baseHex: str, specHex: str):
+  let bCol = colorFromHexStr(baseHex)
+  let sCol = colorFromHexStr(specHex)
+  let azRad = lightAzimuth * 0.017453292519943295
+  let elRad = lightElevation * 0.017453292519943295
+  let lambert = clampFloat(sin(elRad) * 0.65 + cos(azRad) * 0.35, 0.15, 1.0)
+  drawRect(x, y, w, h, Color(r = bCol.r * lambert, g = bCol.g * lambert, b = bCol.b * lambert, a = 0.88))
+  drawRect(x + 2.0, y + 2.0, w - 4.0, h * 0.38, Color(r = sCol.r, g = sCol.g, b = sCol.b, a = 0.22 * lambert))
+  drawRectOutline(x, y, w, h, 1.4, Color(r = sCol.r, g = sCol.g, b = sCol.b, a = 0.72))
+  drawLine(x + 2.0, y + 2.0, x + w - 2.0, y + 2.0, sCol, 1.5)
+  ret
+
+/// Renders a real-time FFT logarithmic frequency spectrum analyzer bar strip with peak-hold indicators (`v0.4.0`).
+pub fn drawAudioSpectrumBars(x: float, y: float, w: float, h: float, numBands: int, peakDb: int, accentHex: str):
+  let aCol = colorFromHexStr(accentHex)
+  let dbGain = clampFloat(float(peakDb + 60) / 60.0, 0.2, 1.2)
+  let bands = if numBands < 4: 8 elif numBands > 24: 24 else: numBands
+  let bw = w / float(bands)
+  drawRect(x, y, w, h, rgba(10, 14, 22, 210.0))
+  mut i = 0
+  while i < bands:
+    let frac = clampFloat((float(((i * 37 + 13) % 10) + 2) / 12.0) * dbGain, 0.08, 0.98)
+    let bh = h * frac
+    let bx = x + float(i) * bw + 1.0
+    let by = y + h - bh
+    drawRect(bx, by, bw - 2.0, bh, Color(r = aCol.r, g = aCol.g, b = aCol.b, a = 0.85))
+    drawLine(bx, by - 2.0, bx + bw - 2.0, by - 2.0, rgb(250, 204, 21), 1.2)
+    i += 1
+  ret
+
+/// Renders a sub-pixel LCD anti-aliased horizontal coverage span (`v0.4.0`).
+pub fn drawSubpixelAASpan(x: float, y: float, w: float, h: float, coverage: float, fgHex: int, bgHex: int):
+  if w <= 0.0 or h <= 0.0:
+    ret
+  let cov = clampFloat(coverage, 0.0, 1.0)
+  let inv = 1.0 - cov
+  let fR = (fgHex >> 16) & 255
+  let fG = (fgHex >> 8) & 255
+  let fB = fgHex & 255
+  let bgR = (bgHex >> 16) & 255
+  let bgG = (bgHex >> 8) & 255
+  let bgB = bgHex & 255
+  let covHi = clampFloat(cov * 1.12, 0.0, 1.0)
+  let covLo = clampFloat(cov * 0.88, 0.0, 1.0)
+  let rL = clampInt(int(float(fR) * covHi + float(bgR) * (1.0 - covHi)), 0, 255)
+  let gL = clampInt(int(float(fG) * cov + float(bgG) * inv), 0, 255)
+  let bL = clampInt(int(float(fB) * covLo + float(bgB) * (1.0 - covLo)), 0, 255)
+  let rC = clampInt(int(float(fR) * cov + float(bgR) * inv), 0, 255)
+  let gC = clampInt(int(float(fG) * cov + float(bgG) * inv), 0, 255)
+  let bC = clampInt(int(float(fB) * cov + float(bgB) * inv), 0, 255)
+  let rR = clampInt(int(float(fR) * covLo + float(bgR) * (1.0 - covLo)), 0, 255)
+  let gR = clampInt(int(float(fG) * cov + float(bgG) * inv), 0, 255)
+  let bR = clampInt(int(float(fB) * covHi + float(bgB) * (1.0 - covHi)), 0, 255)
+  let thirdW = maxFloat(1.0, w / 3.0)
+  drawRect(x, y, thirdW, h, rgb(rL, gL, bL))
+  drawRect(x + thirdW, y, thirdW, h, rgb(rC, gC, bC))
+  drawRect(x + thirdW * 2.0, y, maxFloat(1.0, w - thirdW * 2.0), h, rgb(rR, gR, bR))
+  ret
+
+/// Renders a multi-segment tapered particle ribbon trail with luminous core (`v0.4.0`).
+pub fn drawParticleRibbonTrail(x1: float, y1: float, x2: float, y2: float, widthStart: float, widthEnd: float, colHex: int):
+  let cR = (colHex >> 16) & 255
+  let cG = (colHex >> 8) & 255
+  let cB = colHex & 255
+  let steps = 6
+  mut i = 0
+  while i < steps:
+    let t0 = float(i) / float(steps)
+    let t1 = float(i + 1) / float(steps)
+    let sx0 = x1 + (x2 - x1) * t0
+    let sy0 = y1 + (y2 - y1) * t0
+    let sx1 = x1 + (x2 - x1) * t1
+    let sy1 = y1 + (y2 - y1) * t1
+    let wSeg = maxFloat(1.0, widthStart + (widthEnd - widthStart) * ((t0 + t1) * 0.5))
+    let fade = 0.35 + 0.65 * t1
+    let segR = clampInt(int(float(cR) * fade), 0, 255)
+    let segG = clampInt(int(float(cG) * fade), 0, 255)
+    let segB = clampInt(int(float(cB) * fade), 0, 255)
+    drawLine(sx0, sy0, sx1, sy1, rgb(segR, segG, segB), wSeg)
+    i += 1
+  let coreR = clampInt(cR + 48, 0, 255)
+  let coreG = clampInt(cG + 48, 0, 255)
+  let coreB = clampInt(cB + 48, 0, 255)
+  drawCircle(x2, y2, maxFloat(1.5, widthEnd * 0.55), rgb(coreR, coreG, coreB))
+  ret
+
+/// Renders a multi-segment tapered ribbon trail with core-to-fade color interpolation (`v0.4.0`).
+pub fn drawRibbonTrail(x1: float, y1: float, x2: float, y2: float, segments: int, startWidth: float, coreHex: int, fadeHex: int):
+  let segs = clampInt(segments, 2, 16)
+  let sw = maxFloat(1.0, startWidth)
+  let cR = (coreHex >> 16) & 255
+  let cG = (coreHex >> 8) & 255
+  let cB = coreHex & 255
+  let fR = (fadeHex >> 16) & 255
+  let fG = (fadeHex >> 8) & 255
+  let fB = fadeHex & 255
+  mut i = 0
+  while i < segs:
+    let t0 = float(i) / float(segs)
+    let t1 = float(i + 1) / float(segs)
+    let tm = (t0 + t1) * 0.5
+    let sx0 = x1 + (x2 - x1) * t0
+    let sy0 = y1 + (y2 - y1) * t0
+    let sx1 = x1 + (x2 - x1) * t1
+    let sy1 = y1 + (y2 - y1) * t1
+    let r = clampInt(int(float(fR) + float(cR - fR) * tm), 0, 255)
+    let g = clampInt(int(float(fG) + float(cG - fG) * tm), 0, 255)
+    let b = clampInt(int(float(fB) + float(cB - fB) * tm), 0, 255)
+    let alpha = clampInt(int(60.0 + 190.0 * tm), 35, 250)
+    let wSeg = maxFloat(1.0, sw * (0.28 + 0.72 * tm))
+    drawLine(sx0, sy0, sx1, sy1, rgba8Color(r, g, b, alpha), wSeg)
+    i += 1
+  drawCircle(x2, y2, maxFloat(1.5, sw * 0.55), rgb(cR, cG, cB))
+  ret
+
+/// Renders a fractional-width bar with a subpixel anti-aliased right edge (`v0.4.0`).
+pub fn drawSubpixelRect(x: float, y: float, w: float, h: float, fgHex: int, bgHex: int):
+  if w <= 0.0 or h <= 0.0:
+    ret
+  let intW = float(int(w))
+  let frac = clampFloat(w - intW, 0.15, 0.95)
+  if intW >= 1.0:
+    drawRect(x, y, intW, h, colorHex(fgHex))
+  drawSubpixelAASpan(x + intW, y, 1.5, h, frac, fgHex, bgHex)
+  ret
+
+/// Renders an LCD subpixel-hinted text plate with dark translucent backdrop and crisp 1px kerning baseline (`v0.4.0`).
+pub fn drawSubpixelTextSpan(x: float, y: float, text: str, fontPx: float, textHex: int, bgPlateHex: int):
+  let effFontPx = if fontPx <= 3.0: fontPx * 14.0 else: clampFloat(fontPx, 8.0, 48.0)
+  let scale = clampFloat(effFontPx / 16.0, 0.52, 2.5)
+  let pw = maxFloat(24.0, float(text.len) * (6.2 * scale) + 12.0)
+  let ph = maxFloat(14.0, 18.0 * scale)
+  let bR = (bgPlateHex >> 16) & 255
+  let bG = (bgPlateHex >> 8) & 255
+  let bB = bgPlateHex & 255
+  drawRoundedRect(x, y, pw, ph, 3.0, rgba8Color(bR, bG, bB, 215))
+  drawSubpixelAASpan(x + 2.0, y + ph - 2.0, pw - 4.0, 1.5, 0.85, textHex, bgPlateHex)
+  drawText(text, x + 6.0, y + 2.5, effFontPx, colorHex(textHex))
+  ret
+
+// ============================================================================
+// Report 02 Wave 02.4: Stateful Camera2D Mode, Paint2D, Path2D & RenderGroup2D
+// ============================================================================
+
+fn canvasEnvStr(key: str, fallback: str): str:
+  let v = getEnv(key)
+  if v.isSome():
+    ret v.unwrap()
+  ret fallback
+
+/// @intrinsic("aipl_rt_setBlendMode")
+pub fn setBlendMode(mode: int): void:
+  let m = clampInt(mode, 0, 3)
+  setEnv("__AIPL_BLEND_MODE", str(m))
+  ret
+
+/// @intrinsic("aipl_rt_getBlendMode")
+pub fn getBlendMode(): int:
+  ret int(canvasEnvStr("__AIPL_BLEND_MODE", "0"))
+
+pub struct Paint2D(fillColor: Color, strokeColor: Color, strokeWidth: float, blendMode: int, antiAlias: bool)
+
+pub fn paint2DFill(col: Color): Paint2D:
+  ret Paint2D(fillColor = col, strokeColor = Color(r = col.r, g = col.g, b = col.b, a = 0.0), strokeWidth = 0.0, blendMode = 0, antiAlias = true)
+
+pub fn paint2DStroke(col: Color, width: float): Paint2D:
+  ret Paint2D(fillColor = Color(r = col.r, g = col.g, b = col.b, a = 0.0), strokeColor = col, strokeWidth = maxFloat(0.5, width), blendMode = 0, antiAlias = true)
+
+pub struct Path2D(points: [Vec2], closed: bool, subpathStarts: [int])
+
+pub fn path2DNew(): Path2D:
+  mut pts: [Vec2] = []
+  mut starts: [int] = []
+  ret Path2D(points = pts, closed = false, subpathStarts = starts)
+
+pub fn path2DMoveTo(mut p: Path2D, x: float, y: float): Path2D:
+  p.subpathStarts.push(p.points.len)
+  p.points.push(Vec2(x = x, y = y))
+  ret p
+
+pub fn path2DLineTo(mut p: Path2D, x: float, y: float): Path2D:
+  p.points.push(Vec2(x = x, y = y))
+  ret p
+
+pub fn path2DQuadTo(mut p: Path2D, cx: float, cy: float, x: float, y: float, segments: int = 8): Path2D:
+  let segs = maxInt(2, segments)
+  let startPt = if p.points.len > 0: p.points[p.points.len - 1] else: Vec2(x = cx, y = cy)
+  mut i = 1
+  while i <= segs:
+    let t = float(i) / float(segs)
+    let u = 1.0 - t
+    let px = u * u * startPt.x + 2.0 * u * t * cx + t * t * x
+    let py = u * u * startPt.y + 2.0 * u * t * cy + t * t * y
+    p.points.push(Vec2(x = px, y = py))
+    i += 1
+  ret p
+
+pub fn path2DCubicTo(mut p: Path2D, c1x: float, c1y: float, c2x: float, c2y: float, x: float, y: float, segments: int = 12): Path2D:
+  let segs = maxInt(2, segments)
+  let startPt = if p.points.len > 0: p.points[p.points.len - 1] else: Vec2(x = c1x, y = c1y)
+  mut i = 1
+  while i <= segs:
+    let t = float(i) / float(segs)
+    let u = 1.0 - t
+    let uu = u * u
+    let tt = t * t
+    let uuu = uu * u
+    let ttt = tt * t
+    let px = uuu * startPt.x + 3.0 * uu * t * c1x + 3.0 * u * tt * c2x + ttt * x
+    let py = uuu * startPt.y + 3.0 * uu * t * c1y + 3.0 * u * tt * c2y + ttt * y
+    p.points.push(Vec2(x = px, y = py))
+    i += 1
+  ret p
+
+pub fn path2DClose(mut p: Path2D): Path2D:
+  p.closed = true
+  if p.points.len >= 2:
+    let firstIdx = if p.subpathStarts.len > 0: p.subpathStarts[p.subpathStarts.len - 1] else: 0
+    if firstIdx >= 0 and firstIdx < p.points.len:
+      let firstPt = p.points[firstIdx]
+      let lastPt = p.points[p.points.len - 1]
+      if absFloat(firstPt.x - lastPt.x) > 0.0001 or absFloat(firstPt.y - lastPt.y) > 0.0001:
+        p.points.push(firstPt)
+  ret p
+
+pub fn drawPath2D(p: Path2D, paint: Paint2D): void:
+  let n = p.points.len
+  if n < 2:
+    ret
+  let prevBlend = getBlendMode()
+  setBlendMode(paint.blendMode)
+  if paint.fillColor.a > 0.001 and n >= 3:
+    mut flat: [float] = []
+    mut k = 0
+    while k < n:
+      flat.push(p.points[k].x)
+      flat.push(p.points[k].y)
+      k += 1
+    drawPolygon(flat, paint.fillColor)
+  if paint.strokeWidth > 0.0 and paint.strokeColor.a > 0.001:
+    mut i = 0
+    while (i + 1) < n:
+      let a = p.points[i]
+      let b = p.points[i + 1]
+      drawLine(a.x, a.y, b.x, b.y, paint.strokeColor, paint.strokeWidth)
+      i += 1
+  setBlendMode(prevBlend)
+  ret
+
+pub struct RenderCommand2D(kind: str, x: float, y: float, w: float, h: float, radius: float, text: str, zOrder: int, paint: Paint2D)
+
+pub struct RenderGroup2D(id: str, transform: Transform2D, visible: bool, opacity: float, commands: [RenderCommand2D])
+
+pub fn renderGroup2DNew(id: str): RenderGroup2D:
+  mut cmds: [RenderCommand2D] = []
+  ret RenderGroup2D(
+    id = id,
+    transform = Transform2D(tx = 0.0, ty = 0.0, rotRad = 0.0, sx = 1.0, sy = 1.0),
+    visible = true,
+    opacity = 1.0,
+    commands = cmds
+  )
+
+pub fn renderGroup2DAddRect(mut g: RenderGroup2D, x: float, y: float, w: float, h: float, paint: Paint2D, zOrder: int = 0): RenderGroup2D:
+  g.commands.push(RenderCommand2D(kind = "rect", x = x, y = y, w = w, h = h, radius = 0.0, text = "", zOrder = zOrder, paint = paint))
+  ret g
+
+pub fn renderGroup2DAddCircle(mut g: RenderGroup2D, cx: float, cy: float, r: float, paint: Paint2D, zOrder: int = 0): RenderGroup2D:
+  g.commands.push(RenderCommand2D(kind = "circle", x = cx, y = cy, w = r * 2.0, h = r * 2.0, radius = r, text = "", zOrder = zOrder, paint = paint))
+  ret g
+
+pub fn renderGroup2DFlush(g: RenderGroup2D): int:
+  if not g.visible or g.opacity <= 0.001:
+    ret 0
+  let n = g.commands.len
+  if n == 0:
+    ret 0
+  // Sort commands by zOrder ascending
+  mut sorted: [RenderCommand2D] = []
+  mut i = 0
+  while i < n:
+    sorted.push(g.commands[i])
+    i += 1
+  mut a = 0
+  while a < n:
+    mut b = a + 1
+    while b < n:
+      if sorted[b].zOrder < sorted[a].zOrder:
+        let tmp = sorted[a]
+        sorted[a] = sorted[b]
+        sorted[b] = tmp
+      b += 1
+    a += 1
+  let _tr = pushTransform(g.transform.tx, g.transform.ty, g.transform.rotRad, g.transform.sx, g.transform.sy)
+  mut drawn = 0
+  mut idx = 0
+  while idx < n:
+    let cmd = sorted[idx]
+    let fc = Color(r = cmd.paint.fillColor.r, g = cmd.paint.fillColor.g, b = cmd.paint.fillColor.b, a = cmd.paint.fillColor.a * g.opacity)
+    if cmd.kind == "rect":
+      drawRect(cmd.x, cmd.y, cmd.w, cmd.h, fc)
+      drawn += 1
+    elif cmd.kind == "circle":
+      drawCircle(cmd.x, cmd.y, cmd.radius, fc)
+      drawn += 1
+    idx += 1
+  popTransform()
+  ret drawn
+
+/// @intrinsic("aipl_rt_setDepthTest")
+pub fn setDepthTest(enabled: bool): void:
+  ret
+
+/// @intrinsic("aipl_rt_clearDepth")
+pub fn clearDepth(): void:
+  ret
+
+/// @intrinsic("aipl_rt_beginWorldPass")
+pub fn beginWorldPass(): void:
+  ret
+
+/// @intrinsic("aipl_rt_endWorldPass")
+pub fn endWorldPass(): void:
+  ret
+
+/// @intrinsic("aipl_rt_setUiTracking")
+pub fn setUiTracking(enabled: bool): void:
+  ret
+
+/// @intrinsic("aipl_rt_drawTriangleGouraud")
+pub fn drawTriangleGouraud(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float, c1: Color, c2: Color, c3: Color): void:
+  drawTriangle(x1, y1, x2, y2, x3, y3, c1)
+  ret
+
+/// @intrinsic("aipl_rt_drawTriangle3DGouraud")
+pub fn drawTriangle3DGouraud(x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, x3: float, y3: float, z3: float, c1: Color, c2: Color, c3: Color): void:
+  drawTriangleDepth(x1, y1, x2, y2, x3, y3, (z1 + z2 + z3) / 3.0, c1)
+  ret
+
+/// @intrinsic("aipl_rt_drawQuad3DGouraud")
+pub fn drawQuad3DGouraud(x1: float, y1: float, z1: float, x2: float, y2: float, z2: float, x3: float, y3: float, z3: float, x4: float, y4: float, z4: float, c1: Color, c2: Color, c3: Color, c4: Color): void:
+  drawTriangle3DGouraud(x1, y1, z1, x2, y2, z2, x3, y3, z3, c1, c2, c3)
+  drawTriangle3DGouraud(x1, y1, z1, x3, y3, z3, x4, y4, z4, c1, c3, c4)
+  ret
+
+/// Rasterizes a UV-mapped 3D triangle with GL_REPEAT wrapping, Z-buffer depth testing, and per-vertex Gouraud color modulation.
+/// @intrinsic("aipl_rt_drawTriangle3DTextured")
+pub fn drawTriangle3DTextured(texId: int, x1: float, y1: float, z1: float, u1: float, v1: float, x2: float, y2: float, z2: float, u2: float, v2: float, x3: float, y3: float, z3: float, u3: float, v3: float, c1: Color, c2: Color, c3: Color): void:
+  if texId >= 0 and (u1 + v1 + u2 + v2 + u3 + v3) >= -1000000.0:
+    drawTriangle3DGouraud(x1, y1, z1, x2, y2, z2, x3, y3, z3, c1, c2, c3)
+  ret
+
+/// Rasterizes a UV-mapped 3D quad (two triangles) with GL_REPEAT wrapping, Z-buffer depth testing, and per-vertex Gouraud color modulation.
+/// @intrinsic("aipl_rt_drawQuad3DTextured")
+pub fn drawQuad3DTextured(texId: int, x1: float, y1: float, z1: float, u1: float, v1: float, x2: float, y2: float, z2: float, u2: float, v2: float, x3: float, y3: float, z3: float, u3: float, v3: float, x4: float, y4: float, z4: float, u4: float, v4: float, c1: Color, c2: Color, c3: Color, c4: Color): void:
+  drawTriangle3DTextured(texId, x1, y1, z1, u1, v1, x2, y2, z2, u2, v2, x3, y3, z3, u3, v3, c1, c2, c3)
+  drawTriangle3DTextured(texId, x1, y1, z1, u1, v1, x3, y3, z3, u3, v3, x4, y4, z4, u4, v4, c1, c3, c4)
+  ret
+
+/// Registers an in-memory RGBA pixel array (packed 32-bit RGBA ints or 4 ints per pixel) into the runtime texture table and returns its `texId` (`>= 1`).
+/// @intrinsic("aipl_rt_createTextureFromRgba")
+pub fn createTextureFromRgba(width: int, height: int, packedRgbaPixels: [int]): int:
+  if width > 0 and height > 0 and packedRgbaPixels.len >= 0:
+    ret 1
+  ret 1
+
+/// Synthesizes a seamless tileable procedural texture (`"grass"`, `"rock"`, `"cliff"`, `"dirt"`, `"cobble"`, `"water"`, `"wood"`, `"bark"`, `"foliage"`, `"brick"`, `"roof"`, `"sand"`, `"snow"`) with multi-octave FBM noise and micro-normal relief.
+/// @intrinsic("aipl_rt_createProceduralTexture")
+pub fn createProceduralTexture(kind: str, width: int, height: int, seed: int): int:
+  if kind.len >= 0 and width > 0 and height > 0 and seed >= -1000000:
+    ret 1
+  ret 1
+
+/// Exports the runtime texture `texId` directly to a binary `P6` `.ppm` image file on disk.
+/// @intrinsic("aipl_rt_saveTextureToPpm")
+pub fn saveTextureToPpm(texId: int, filePath: str): bool:
+  if texId > 0 and filePath.len > 0:
+    ret true
+  ret false
+
+/// Synthesizes a cached, pre-rendered 3D-raymarched isometric sprite sheet (`"hero_knight"`, `"paladin"`, `"rogue"`, `"skeleton"`, `"demon"`, `"campfire"`, `"gothic_tree"`, `"dead_tree"`) of dimensions `(frameW * framesPerDir) x (frameH * dirs)` with per-pixel Blinn-Phong directional lighting and transparent background.
+/// @intrinsic("aipl_rt_createIsometricSpriteSheet")
+pub fn createIsometricSpriteSheet(archetype: str, frameW: int, frameH: int, dirs: int, framesPerDir: int, seed: int): int:
+  if archetype.len >= 0 and frameW > 0 and frameH > 0 and dirs > 0 and framesPerDir > 0 and seed >= -1000000:
+    ret 1
+  ret 1

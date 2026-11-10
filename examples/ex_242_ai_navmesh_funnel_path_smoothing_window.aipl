@@ -1,0 +1,212 @@
+module Ex242AiNavmeshFunnelPathSmoothingWindow
+
+import { NavMeshPortalEdge, NavMeshPoly2D, NavMesh2D, navMeshNew, navMeshFindPath, navFunnelSmoothPortals } from "../std/ai/navmesh"
+import { Vec2 } from "../std/math/vec_math"
+import { sin, sqrt } from "../std/math/trig"
+import { initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow, clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb } from "../std/gfx2d/shape2d"
+
+pub struct NavMeshScene(mesh: NavMesh2D, start: Vec2, goal: Vec2, portalPath: [Vec2], funnelCoords: [float], agentPos: Vec2, waypointIdx: int, stepCount: int)
+
+pub fn initScene(): NavMeshScene:
+  let p0 = NavMeshPoly2D(
+    id = 0,
+    vertices = [Vec2(x = 90.0, y = 150.0), Vec2(x = 450.0, y = 150.0), Vec2(x = 450.0, y = 550.0), Vec2(x = 90.0, y = 550.0)],
+    center = Vec2(x = 270.0, y = 350.0),
+    portals = [NavMeshPortalEdge(leftVertex = Vec2(x = 450.0, y = 190.0), rightVertex = Vec2(x = 450.0, y = 300.0), neighborPolyIdx = 1)]
+  )
+  let p1 = NavMeshPoly2D(
+    id = 1,
+    vertices = [Vec2(x = 450.0, y = 150.0), Vec2(x = 810.0, y = 150.0), Vec2(x = 810.0, y = 550.0), Vec2(x = 450.0, y = 550.0)],
+    center = Vec2(x = 630.0, y = 350.0),
+    portals = [
+      NavMeshPortalEdge(leftVertex = Vec2(x = 450.0, y = 300.0), rightVertex = Vec2(x = 450.0, y = 190.0), neighborPolyIdx = 0),
+      NavMeshPortalEdge(leftVertex = Vec2(x = 810.0, y = 400.0), rightVertex = Vec2(x = 810.0, y = 510.0), neighborPolyIdx = 2)
+    ]
+  )
+  let p2 = NavMeshPoly2D(
+    id = 2,
+    vertices = [Vec2(x = 810.0, y = 150.0), Vec2(x = 1180.0, y = 150.0), Vec2(x = 1180.0, y = 550.0), Vec2(x = 810.0, y = 550.0)],
+    center = Vec2(x = 995.0, y = 350.0),
+    portals = [NavMeshPortalEdge(leftVertex = Vec2(x = 810.0, y = 510.0), rightVertex = Vec2(x = 810.0, y = 400.0), neighborPolyIdx = 1)]
+  )
+  let mesh = navMeshNew([p0, p1, p2])
+  let start = Vec2(x = 160.0, y = 480.0)
+  let goal = Vec2(x = 1090.0, y = 260.0)
+  let portalPath = navMeshFindPath(mesh, start, goal).unwrap()
+  let funnelCoords = navFunnelSmoothPortals(
+    [start.x, start.y, 450.0, 300.0, 810.0, 510.0, goal.x, goal.y],
+    [start.x, start.y, 450.0, 190.0, 810.0, 400.0, goal.x, goal.y]
+  )
+  ret NavMeshScene(
+    mesh = mesh,
+    start = start,
+    goal = goal,
+    portalPath = portalPath,
+    funnelCoords = funnelCoords,
+    agentPos = start,
+    waypointIdx = 1,
+    stepCount = 0
+  )
+
+pub fn stepScene(mut scene: NavMeshScene, frame: int, dt: float): NavMeshScene:
+  scene.goal = Vec2(x = 1090.0, y = 340.0 + sin(float(frame) * 0.09) * 150.0)
+  scene.portalPath = navMeshFindPath(scene.mesh, scene.start, scene.goal).unwrap()
+  scene.funnelCoords = navFunnelSmoothPortals(
+    [scene.start.x, scene.start.y, 450.0, 300.0, 810.0, 510.0, scene.goal.x, scene.goal.y],
+    [scene.start.x, scene.start.y, 450.0, 190.0, 810.0, 400.0, scene.goal.x, scene.goal.y]
+  )
+
+  let nPts = scene.funnelCoords.len() / 2
+  if nPts >= 2:
+    if scene.waypointIdx >= nPts:
+      scene.waypointIdx = 1
+      scene.agentPos = scene.start
+    let tx = scene.funnelCoords[scene.waypointIdx * 2]
+    let ty = scene.funnelCoords[scene.waypointIdx * 2 + 1]
+    let dx = tx - scene.agentPos.x
+    let dy = ty - scene.agentPos.y
+    let dist = sqrt(dx * dx + dy * dy)
+    let stepDist = 310.0 * dt
+    if dist <= stepDist:
+      scene.agentPos = Vec2(x = tx, y = ty)
+      if scene.waypointIdx + 1 < nPts:
+        scene.waypointIdx = scene.waypointIdx + 1
+      else:
+        scene.waypointIdx = 1
+        scene.agentPos = scene.start
+    else:
+      scene.agentPos = Vec2(
+        x = scene.agentPos.x + (dx / dist) * stepDist,
+        y = scene.agentPos.y + (dy / dist) * stepDist
+      )
+
+  scene.stepCount = scene.stepCount + 1
+  ret scene
+
+pub fn auditAiNavmeshFunnelSmoothing(): int:
+  mut scene = initScene()
+  scene = stepScene(scene, 1, 0.05)
+  ret scene.portalPath.len() * 10 + scene.funnelCoords.len()
+
+pub fn main(): int:
+  let audit = auditAiNavmeshFunnelSmoothing()
+  println("EX_242_AI_NAVMESH_AUDIT=" + str(audit))
+
+  mut scene = initScene()
+  mut frame = 0
+
+  initWindow(1280, 720, "AIPL ex_242: NavMesh Polygons, Portals & Funnel String-Pulling")
+  while not windowShouldClose():
+    scene = stepScene(scene, frame, 0.05)
+
+    mut rawLen = 0.0
+    mut rk = 1
+    while rk < scene.portalPath.len():
+      let ra: Vec2 = scene.portalPath[rk - 1]
+      let rb: Vec2 = scene.portalPath[rk]
+      rawLen = rawLen + sqrt((rb.x - ra.x) * (rb.x - ra.x) + (rb.y - ra.y) * (rb.y - ra.y))
+      rk = rk + 1
+
+    let nFunPts = scene.funnelCoords.len() / 2
+    mut smoothLen = 0.0
+    mut sk = 1
+    while sk < nFunPts:
+      let sdx = scene.funnelCoords[sk * 2] - scene.funnelCoords[(sk - 1) * 2]
+      let sdy = scene.funnelCoords[sk * 2 + 1] - scene.funnelCoords[(sk - 1) * 2 + 1]
+      smoothLen = smoothLen + sqrt(sdx * sdx + sdy * sdy)
+      sk = sk + 1
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_242: CONVEX NAVMESH POLYGONS, PORTAL EDGES & FUNNEL PATH SMOOTHING", 36.0, 24.0, 21.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Polygons=" + str(scene.mesh.polygons.len()) + " | PortalMidpointLen=" + str(int(rawLen)) + "px | FunnelStringPulledLen=" + str(int(smoothLen)) + "px | FunnelVertices=" + str(nFunPts), 36.0, 52.0, 15.0, rgb(148, 163, 184))
+
+    drawRect(44.0, 88.0, 1192.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(44.0, 88.0, 1192.0, 594.0, 2.0, rgb(56, 189, 248))
+    drawText("CHICANE NAVMESH CORRIDOR: PORTAL MIDPOINT PATH (BLUE) vs FUNNEL STRING-PULLING (EMERALD)", 68.0, 106.0, 14.0, rgb(125, 211, 252))
+
+    mut p = 0
+    while p < scene.mesh.polygons.len():
+      let poly: NavMeshPoly2D = scene.mesh.polygons[p]
+      let v0: Vec2 = poly.vertices[0]
+      let v2: Vec2 = poly.vertices[2]
+      let pw = v2.x - v0.x
+      let ph = v2.y - v0.y
+      let fillCol = if p % 2 == 0: rgb(15, 25, 48) else: rgb(20, 34, 64)
+      drawRect(v0.x, v0.y, pw, ph, fillCol)
+      drawRectOutline(v0.x, v0.y, pw, ph, 2.0, rgb(59, 130, 246))
+      drawText("NavMeshPoly2D #" + str(poly.id), v0.x + 110.0, v0.y + 16.0, 14.0, rgb(147, 197, 253))
+      drawCircle(poly.center.x, poly.center.y, 5.0, rgb(96, 165, 250))
+      drawText("Centroid #" + str(poly.id), poly.center.x - 36.0, poly.center.y - 20.0, 12.0, rgb(100, 116, 139))
+      p = p + 1
+
+    drawRect(440.0, 150.0, 20.0, 40.0, rgb(127, 29, 29))
+    drawRectOutline(440.0, 150.0, 20.0, 40.0, 1.5, rgb(248, 113, 113))
+    drawRect(440.0, 300.0, 20.0, 250.0, rgb(127, 29, 29))
+    drawRectOutline(440.0, 300.0, 20.0, 250.0, 1.5, rgb(248, 113, 113))
+    drawText("WALL", 432.0, 420.0, 12.0, rgb(252, 165, 165))
+
+    drawRect(800.0, 150.0, 20.0, 250.0, rgb(127, 29, 29))
+    drawRectOutline(800.0, 150.0, 20.0, 250.0, 1.5, rgb(248, 113, 113))
+    drawText("WALL", 792.0, 260.0, 12.0, rgb(252, 165, 165))
+    drawRect(800.0, 510.0, 20.0, 40.0, rgb(127, 29, 29))
+    drawRectOutline(800.0, 510.0, 20.0, 40.0, 1.5, rgb(248, 113, 113))
+
+    drawLine(450.0, 190.0, 450.0, 300.0, rgb(250, 204, 21), 5.0)
+    drawCircle(450.0, 190.0, 6.0, rgb(253, 224, 71))
+    drawCircle(450.0, 300.0, 6.0, rgb(253, 224, 71))
+    drawText("Portal 0 [L0..R0]", 395.0, 170.0, 12.0, rgb(253, 224, 71))
+
+    drawLine(810.0, 400.0, 810.0, 510.0, rgb(250, 204, 21), 5.0)
+    drawCircle(810.0, 400.0, 6.0, rgb(253, 224, 71))
+    drawCircle(810.0, 510.0, 6.0, rgb(253, 224, 71))
+    drawText("Portal 1 [L1..R1]", 755.0, 524.0, 12.0, rgb(253, 224, 71))
+
+    drawLine(scene.agentPos.x, scene.agentPos.y, 450.0, 190.0, rgb(71, 85, 105), 1.0)
+    drawLine(scene.agentPos.x, scene.agentPos.y, 450.0, 300.0, rgb(71, 85, 105), 1.0)
+    drawLine(scene.agentPos.x, scene.agentPos.y, 810.0, 400.0, rgb(71, 85, 105), 1.0)
+    drawLine(scene.agentPos.x, scene.agentPos.y, 810.0, 510.0, rgb(71, 85, 105), 1.0)
+
+    mut k = 1
+    while k < scene.portalPath.len():
+      let a: Vec2 = scene.portalPath[k - 1]
+      let b: Vec2 = scene.portalPath[k]
+      drawLine(a.x, a.y, b.x, b.y, rgb(56, 189, 248), 2.5)
+      drawCircle(a.x, a.y, 5.0, rgb(56, 189, 248))
+      k = k + 1
+
+    mut fIdx = 0
+    while fIdx < nFunPts:
+      let fx = scene.funnelCoords[fIdx * 2]
+      let fy = scene.funnelCoords[fIdx * 2 + 1]
+      if fIdx > 0:
+        let pfx = scene.funnelCoords[(fIdx - 1) * 2]
+        let pfy = scene.funnelCoords[(fIdx - 1) * 2 + 1]
+        drawLine(pfx, pfy, fx, fy, rgb(16, 185, 129), 4.5)
+      drawCircle(fx, fy, 7.5, rgb(52, 211, 153))
+      drawCircleOutline(fx, fy, 9.5, 1.5, rgb(255, 255, 255))
+      fIdx = fIdx + 1
+
+    drawCircle(scene.start.x, scene.start.y, 11.0, rgb(56, 189, 248))
+    drawCircleOutline(scene.start.x, scene.start.y, 14.0, 2.0, rgb(255, 255, 255))
+    drawText("START", scene.start.x - 20.0, scene.start.y + 18.0, 13.0, rgb(125, 211, 252))
+
+    drawCircle(scene.goal.x, scene.goal.y, 11.0, rgb(239, 68, 68))
+    drawCircleOutline(scene.goal.x, scene.goal.y, 14.0, 2.0, rgb(255, 255, 255))
+    drawText("DYNAMIC GOAL", scene.goal.x - 44.0, scene.goal.y + 18.0, 13.0, rgb(252, 165, 165))
+
+    drawCircle(scene.agentPos.x, scene.agentPos.y, 13.0, rgb(244, 114, 182))
+    drawCircleOutline(scene.agentPos.x, scene.agentPos.y, 17.0, 2.5, rgb(255, 255, 255))
+    drawText("AGENT", scene.agentPos.x - 20.0, scene.agentPos.y - 28.0, 12.0, rgb(251, 207, 232))
+
+    drawRect(88.0, 568.0, 1094.0, 92.0, rgb(11, 17, 30))
+    drawRectOutline(88.0, 568.0, 1094.0, 92.0, 1.0, rgb(51, 65, 85))
+    let savedPx = int(rawLen - smoothLen)
+    drawText("PATH LENGTH COMPARISON: Unsmoothed Portal Midpoints = " + str(int(rawLen)) + " px (Blue)  vs  Funnel String-Pulled = " + str(int(smoothLen)) + " px (Emerald)  [Saved " + str(savedPx) + " px]", 108.0, 582.0, 14.0, rgb(110, 231, 183))
+    drawRect(108.0, 608.0, rawLen * 0.65, 16.0, rgb(56, 189, 248))
+    drawRect(108.0, 630.0, smoothLen * 0.65, 16.0, rgb(16, 185, 129))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

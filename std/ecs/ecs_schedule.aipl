@@ -1,0 +1,79 @@
+/// # Module: `std/ecs/ecs_schedule` (`EcsScheduleMod`)
+///
+/// ## Purpose & Domain Scope
+/// System execution stages (`PreUpdate`, `Update`, `FixedUpdate`, `PostUpdate`,
+/// `Render`), topological dependency ordering, and conflict detection.
+module EcsScheduleMod
+
+pub const STAGE_PRE_UPDATE: int = 0
+pub const STAGE_UPDATE: int = 1
+pub const STAGE_FIXED_UPDATE: int = 2
+pub const STAGE_POST_UPDATE: int = 3
+pub const STAGE_RENDER: int = 4
+
+pub struct SystemDescriptor(systemId: int, stage: int, readComponentMask: int, writeComponentMask: int, priority: int)
+
+pub fn systemsConflict(a: SystemDescriptor, b: SystemDescriptor): bool:
+  let aWritesWhatBReadsOrWrites = (a.writeComponentMask & (b.readComponentMask | b.writeComponentMask)) != 0
+  let bWritesWhatAReadsOrWrites = (b.writeComponentMask & (a.readComponentMask | a.writeComponentMask)) != 0
+  ret aWritesWhatBReadsOrWrites or bWritesWhatAReadsOrWrites
+
+pub fn sortSystemsByPriority(systems: [SystemDescriptor], stage: int): [SystemDescriptor]:
+  mut stageSys: [SystemDescriptor] = []
+  mut i = 0
+  while i < systems.len:
+    let sys: SystemDescriptor = systems[i]
+    if sys.stage == stage:
+      stageSys.push(sys)
+    i = i + 1
+
+  let n = stageSys.len
+  mut a = 0
+  while a < n:
+    mut b = 0
+    while b < n - 1 - a:
+      let s0: SystemDescriptor = stageSys[b]
+      let s1: SystemDescriptor = stageSys[b + 1]
+      if s0.priority > s1.priority:
+        stageSys[b] = s1
+        stageSys[b + 1] = s0
+      b = b + 1
+    a = a + 1
+  ret stageSys
+
+pub fn buildParallelBatches(sortedSystems: [SystemDescriptor]): [[int]]:
+  mut batches: [[int]] = []
+  mut batchDescriptors: [[SystemDescriptor]] = []
+
+  mut i = 0
+  while i < sortedSystems.len:
+    let sys: SystemDescriptor = sortedSystems[i]
+    mut placed = false
+    mut bIdx = 0
+    while bIdx < batches.len and (not placed):
+      let existingDescs = batchDescriptors[bIdx]
+      mut conflict = false
+      mut k = 0
+      while k < existingDescs.len:
+        let ex: SystemDescriptor = existingDescs[k]
+        if systemsConflict(sys, ex):
+          conflict = true
+        k = k + 1
+      if not conflict:
+        mut bIds = batches[bIdx]
+        bIds.push(sys.systemId)
+        batches[bIdx] = bIds
+        mut bDescs = batchDescriptors[bIdx]
+        bDescs.push(sys)
+        batchDescriptors[bIdx] = bDescs
+        placed = true
+      bIdx = bIdx + 1
+
+    if not placed:
+      mut newIds: [int] = [sys.systemId]
+      batches.push(newIds)
+      mut newDescs: [SystemDescriptor] = [sys]
+      batchDescriptors.push(newDescs)
+    i = i + 1
+
+  ret batches

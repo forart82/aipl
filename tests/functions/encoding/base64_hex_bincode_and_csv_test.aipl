@@ -1,0 +1,720 @@
+module tests.functions.encoding.base64_hex_bincode_and_csv_test
+
+import * from "std/encoding/base64"
+import * from "std/encoding/bincode"
+import * from "std/encoding/csv"
+import * from "std/encoding/encoding_mod"
+import * from "std/encoding/hex"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_base64_b64CharVal_1(): int:
+  let arg_code = 2
+  let edge_code = 0
+  let arg_urlSafe = true
+  let edge_urlSafe = false
+  let resNom = b64CharVal(arg_code, arg_urlSafe)
+  let resEdge = b64CharVal(edge_code, edge_urlSafe)
+  assertEqInt(resNom, -1, "b64CharVal nominal resNom == -1")
+  assertEqInt(resEdge, -1, "b64CharVal boundary resEdge == -1")
+  ret 0
+
+pub fn test_base64_base64Encode_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = base64Encode(arg_data)
+  let resEdge = base64Encode(edge_data)
+  assertEqStr(resNom, "QUlQTA==", "base64Encode nominal string matches")
+  assertEqStr(resEdge, "QQ==", "base64Encode boundary string matches")
+  ret 0
+
+pub fn test_base64_base64Decode_3(): int:
+  let arg_s = "QUJD"
+  let edge_s = ""
+  let resNom = base64Decode(arg_s)
+  let resEdge = base64Decode(edge_s)
+  assert(resNom.isOk() == true, "base64Decode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "base64Decode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_base64UrlEncode_4(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = base64UrlEncode(arg_data)
+  let resEdge = base64UrlEncode(edge_data)
+  assertEqStr(resNom, "QUlQTA", "base64UrlEncode nominal string matches")
+  assertEqStr(resEdge, "QQ", "base64UrlEncode boundary string matches")
+  ret 0
+
+pub fn test_base64_base64UrlDecode_5(): int:
+  let encoded = base64UrlEncode([65, 73, 80, 76])
+  assertEqStr(encoded, "QUlQTA", "base64UrlEncode generates QUlQTA")
+  let resNom = base64UrlDecode(encoded)
+  assert(resNom.isOk() == true, "base64UrlDecode nominal resNom.isOk() == true")
+  let decBytes = resNom.unwrap()
+  assertEqInt(decBytes.len, 4, "base64UrlDecode decoded length is 4")
+  assertEqInt(decBytes[0], 65, "base64UrlDecode byte 0")
+  assertEqInt(decBytes[1], 73, "base64UrlDecode byte 1")
+  assertEqInt(decBytes[2], 80, "base64UrlDecode byte 2")
+  assertEqInt(decBytes[3], 76, "base64UrlDecode byte 3")
+  let resEdge = base64UrlDecode("http://localhost/test")
+  assert(resEdge.isOk() == false, "base64UrlDecode invalid url string returns Err")
+  ret 0
+
+pub fn test_base64_base62Encode_6(): int:
+  let arg_n = 4
+  let edge_n = 1
+  let resNom = base62Encode(arg_n)
+  let resEdge = base62Encode(edge_n)
+  assertEqStr(resNom, "4", "base62Encode nominal string matches")
+  assertEqStr(resEdge, "1", "base62Encode boundary string matches")
+  ret 0
+
+pub fn test_base64_base62Decode_7(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = base62Decode(arg_s)
+  let resEdge = base62Decode(edge_s)
+  assert(resNom.isOk() == true, "base62Decode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "base62Decode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_crockfordBase32Encode_8(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = crockfordBase32Encode(arg_data)
+  let resEdge = crockfordBase32Encode(edge_data)
+  assertEqStr(resNom, "854N0K0", "crockfordBase32Encode nominal string matches")
+  assertEqStr(resEdge, "84", "crockfordBase32Encode boundary string matches")
+  ret 0
+
+pub fn test_base64_crockfordCharVal_9(): int:
+  let arg_code = 2
+  let edge_code = 0
+  let resNom = crockfordCharVal(arg_code)
+  let resEdge = crockfordCharVal(edge_code)
+  assertEqInt(resNom, -1, "crockfordCharVal nominal resNom == -1")
+  assertEqInt(resEdge, -1, "crockfordCharVal boundary resEdge == -1")
+  ret 0
+
+pub fn test_base64_crockfordBase32Decode_10(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = crockfordBase32Decode(arg_s)
+  let resEdge = crockfordBase32Decode(edge_s)
+  assert(resNom.isOk() == true, "crockfordBase32Decode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "crockfordBase32Decode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_isUnreservedUrlByte_11(): int:
+  let arg_b = 4
+  let edge_b = 1
+  let resNom = isUnreservedUrlByte(arg_b)
+  let resEdge = isUnreservedUrlByte(edge_b)
+  assert(resNom == false, "isUnreservedUrlByte nominal resNom == false")
+  assert(resEdge == false, "isUnreservedUrlByte boundary resEdge == false")
+  ret 0
+
+pub fn test_base64_urlPercentEncode_12(): int:
+  let arg_s = "http://localhost/test"
+  let edge_s = "http://localhost/test"
+  let resNom = urlPercentEncode(arg_s)
+  let resEdge = urlPercentEncode(edge_s)
+  assertEqStr(resNom, "http%3A%2F%2Flocalhost%2Ftest", "urlPercentEncode nominal string matches")
+  assertEqStr(resEdge, "http%3A%2F%2Flocalhost%2Ftest", "urlPercentEncode boundary string matches")
+  ret 0
+
+pub fn test_base64_urlPercentDecode_13(): int:
+  let arg_s = "http://localhost/test"
+  let edge_s = "http://localhost/test"
+  let resNom = urlPercentDecode(arg_s)
+  let resEdge = urlPercentDecode(edge_s)
+  assert(resNom.isOk() == true, "urlPercentDecode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "urlPercentDecode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_base62DecodeResult_14(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = base62DecodeResult(arg_s)
+  let resEdge = base62DecodeResult(edge_s)
+  assert(resNom.isOk() == true, "base62DecodeResult nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "base62DecodeResult boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_urlEncode_15(): int:
+  let arg_s = "http://localhost/test"
+  let edge_s = "http://localhost/test"
+  let resNom = urlEncode(arg_s)
+  let resEdge = urlEncode(edge_s)
+  assertEqStr(resNom, "http%3A%2F%2Flocalhost%2Ftest", "urlEncode nominal string matches")
+  assertEqStr(resEdge, "http%3A%2F%2Flocalhost%2Ftest", "urlEncode boundary string matches")
+  ret 0
+
+pub fn test_base64_urlDecode_16(): int:
+  let arg_s = "http://localhost/test"
+  let edge_s = "http://localhost/test"
+  let resNom = urlDecode(arg_s)
+  let resEdge = urlDecode(edge_s)
+  assert(resNom.isOk() == true, "urlDecode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "urlDecode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_base64_base64EncodeStr_17(): int:
+  let arg_s = "QUJD"
+  let edge_s = ""
+  let resNom = base64EncodeStr(arg_s)
+  let resEdge = base64EncodeStr(edge_s)
+  assertEqStr(resNom, "UVVKRA==", "base64EncodeStr nominal string matches")
+  assertEqStr(resEdge, "", "base64EncodeStr boundary string matches")
+  ret 0
+
+pub fn test_base64_base64DecodeStr_18(): int:
+  let arg_s = "QUJD"
+  let edge_s = ""
+  let resNom = base64DecodeStr(arg_s)
+  let resEdge = base64DecodeStr(edge_s)
+  assert(resNom.isOk() == true, "base64DecodeStr nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "base64DecodeStr boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_hex_hexNibbleToChar_1(): int:
+  let arg_nib = 4
+  let edge_nib = 1
+  let arg_uppercase = true
+  let edge_uppercase = false
+  let resNom = hexNibbleToChar(arg_nib, arg_uppercase)
+  let resEdge = hexNibbleToChar(edge_nib, edge_uppercase)
+  assertEqStr(resNom, "4", "hexNibbleToChar nominal string matches")
+  assertEqStr(resEdge, "1", "hexNibbleToChar boundary string matches")
+  ret 0
+
+pub fn test_hex_hexCharToVal_2(): int:
+  let arg_code = 2
+  let edge_code = 0
+  let resNom = hexCharToVal(arg_code)
+  let resEdge = hexCharToVal(edge_code)
+  assertEqInt(resNom, -1, "hexCharToVal nominal resNom == -1")
+  assertEqInt(resEdge, -1, "hexCharToVal boundary resEdge == -1")
+  ret 0
+
+pub fn test_hex_hexEncode_3(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_uppercase = true
+  let edge_uppercase = false
+  let resNom = hexEncode(arg_data, arg_uppercase)
+  let resEdge = hexEncode(edge_data, edge_uppercase)
+  assertEqStr(resNom, "4149504C", "hexEncode nominal string matches")
+  assertEqStr(resEdge, "41", "hexEncode boundary string matches")
+  ret 0
+
+pub fn test_hex_hexDecode_4(): int:
+  let arg_s = "4142"
+  let edge_s = "00"
+  let resNom = hexDecode(arg_s)
+  let resEdge = hexDecode(edge_s)
+  assert(resNom.isOk() == true, "hexDecode nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "hexDecode boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_hex_padHex4_5(): int:
+  let arg_val = 2
+  let edge_val = 0
+  let resNom = padHex4(arg_val)
+  let resEdge = padHex4(edge_val)
+  assertEqStr(resNom, "0002", "padHex4 nominal string matches")
+  assertEqStr(resEdge, "0000", "padHex4 boundary string matches")
+  ret 0
+
+pub fn test_hex_hexDump_6(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_bytesPerLine = 4
+  let edge_bytesPerLine = 1
+  let resNom = hexDump(arg_data, arg_bytesPerLine)
+  let resEdge = hexDump(edge_data, edge_bytesPerLine)
+  assertEqStr(resNom, "0000: 41 49 50 4c  |AIPL|", "hexDump nominal string matches")
+  assertEqStr(resEdge, "0000: 41  |A|", "hexDump boundary string matches")
+  ret 0
+
+pub fn test_hex_hexDigitChar_7(): int:
+  let arg_val = 2
+  let edge_val = 0
+  let resNom = hexDigitChar(arg_val)
+  let resEdge = hexDigitChar(edge_val)
+  assertEqStr(resNom, "2", "hexDigitChar nominal string matches")
+  assertEqStr(resEdge, "0", "hexDigitChar boundary string matches")
+  ret 0
+
+pub fn test_hex_hexEncodeUpper_8(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = hexEncodeUpper(arg_data)
+  let resEdge = hexEncodeUpper(edge_data)
+  assertEqStr(resNom, "4149504C", "hexEncodeUpper nominal string matches")
+  assertEqStr(resEdge, "41", "hexEncodeUpper boundary string matches")
+  ret 0
+
+pub fn test_hex_hexValidate_9(): int:
+  let arg_s = "4142"
+  let edge_s = "00"
+  let resNom = hexValidate(arg_s)
+  let resEdge = hexValidate(edge_s)
+  assert(resNom == true, "hexValidate nominal resNom == true")
+  assert(resEdge == true, "hexValidate boundary resEdge == true")
+  ret 0
+
+pub fn test_hex_formatHexOffset8_10(): int:
+  let arg_offset = 1
+  let edge_offset = 0
+  let resNom = formatHexOffset8(arg_offset)
+  let resEdge = formatHexOffset8(edge_offset)
+  assertEqStr(resNom, "00000001", "formatHexOffset8 nominal string matches")
+  assertEqStr(resEdge, "00000000", "formatHexOffset8 boundary string matches")
+  ret 0
+
+pub fn test_hex_formatHexdump_11(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = formatHexdump(arg_data)
+  let resEdge = formatHexdump(edge_data)
+  assertEqInt(resNom.len(), 1, "formatHexdump nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "formatHexdump boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_hex_hexdump_12(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = hexdump(arg_data)
+  let resEdge = hexdump(edge_data)
+  assertEqInt(resNom.len(), 66, "hexdump nominal string length == 66")
+  assertEqInt(resEdge.len(), 63, "hexdump boundary string length == 63")
+  ret 0
+
+pub fn test_bincode_bincodeWriterNew_1(): int:
+  let arg_initialCapacity = 4
+  let edge_initialCapacity = 1
+  let arg_littleEndian = true
+  let edge_littleEndian = false
+  let resNom = bincodeWriterNew(arg_initialCapacity, arg_littleEndian)
+  let resEdge = bincodeWriterNew(edge_initialCapacity, edge_littleEndian)
+  assertEqInt(resNom.buffer.len(), 4, "bincodeWriterNew nominal resNom.buffer.len() == 4")
+  assertEqInt(resEdge.buffer.len(), 1, "bincodeWriterNew boundary resEdge.buffer.len() == 1")
+  ret 0
+
+pub fn test_bincode_BincodeWriter_writeU8_2(): int:
+  let mut recv_self = BincodeWriter(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true, data = [])
+  let mut edge_self = BincodeWriter(buffer = [65], offset = 0, littleEndian = false, data = [])
+  let arg_val = 2
+  let edge_val = 0
+  recv_self.writeU8(arg_val)
+  edge_self.writeU8(edge_val)
+  assertEqInt(recv_self.offset, 1, "writeU8 nominal recv_self.offset == 1")
+  assertEqInt(edge_self.offset, 1, "writeU8 boundary edge_self.offset == 1")
+  ret 0
+
+pub fn test_bincode_BincodeWriter_writeI32_3(): int:
+  let mut recv_self = BincodeWriter(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true, data = [])
+  let mut edge_self = BincodeWriter(buffer = [65], offset = 0, littleEndian = false, data = [])
+  let arg_val = 2
+  let edge_val = 0
+  recv_self.writeI32(arg_val)
+  edge_self.writeI32(edge_val)
+  assertEqInt(recv_self.offset, 4, "writeI32 nominal recv_self.offset == 4")
+  assertEqInt(edge_self.offset, 4, "writeI32 boundary edge_self.offset == 4")
+  ret 0
+
+pub fn test_bincode_BincodeWriter_writeI64_4(): int:
+  let mut recv_self = BincodeWriter(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true, data = [])
+  let mut edge_self = BincodeWriter(buffer = [65], offset = 0, littleEndian = false, data = [])
+  let arg_val = 2
+  let edge_val = 0
+  recv_self.writeI64(arg_val)
+  edge_self.writeI64(edge_val)
+  assertEqInt(recv_self.offset, 8, "writeI64 nominal recv_self.offset == 8")
+  assertEqInt(edge_self.offset, 8, "writeI64 boundary edge_self.offset == 8")
+  ret 0
+
+pub fn test_bincode_f64ToF32Bits_5(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let resNom = f64ToF32Bits(arg_val)
+  let resEdge = f64ToF32Bits(edge_val)
+  assertEqInt(resNom, 1065353216, "f64ToF32Bits nominal resNom == 1065353216")
+  assertEqInt(resEdge, 1056964608, "f64ToF32Bits boundary resEdge == 1056964608")
+  ret 0
+
+pub fn test_bincode_f32BitsToF64_6(): int:
+  let arg_bits32 = 4
+  let edge_bits32 = 1
+  let resNom = f32BitsToF64(arg_bits32)
+  let resEdge = f32BitsToF64(edge_bits32)
+  assertApproxEq(resNom, 0.0, 0.001, "f32BitsToF64 nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "f32BitsToF64 boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_bincode_BincodeWriter_writeF32_7(): int:
+  let mut recv_self = BincodeWriter(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true, data = [])
+  let mut edge_self = BincodeWriter(buffer = [65], offset = 0, littleEndian = false, data = [])
+  let arg_val = 1.0
+  let edge_val = 0.5
+  recv_self.writeF32(arg_val)
+  edge_self.writeF32(edge_val)
+  assertEqInt(recv_self.offset, 4, "writeF32 nominal recv_self.offset == 4")
+  assertEqInt(edge_self.offset, 4, "writeF32 boundary edge_self.offset == 4")
+  ret 0
+
+pub fn test_bincode_BincodeWriter_writeF64_8(): int:
+  let mut recv_self = BincodeWriter(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true, data = [])
+  let mut edge_self = BincodeWriter(buffer = [65], offset = 0, littleEndian = false, data = [])
+  let arg_val = 1.0
+  let edge_val = 0.5
+  recv_self.writeF64(arg_val)
+  edge_self.writeF64(edge_val)
+  assertEqInt(recv_self.offset, 8, "writeF64 nominal recv_self.offset == 8")
+  assertEqInt(edge_self.offset, 8, "writeF64 boundary edge_self.offset == 8")
+  ret 0
+
+pub fn test_bincode_BincodeWriter_writeVarInt_9(): int:
+  let mut recv_self = BincodeWriter(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true, data = [])
+  let mut edge_self = BincodeWriter(buffer = [65], offset = 0, littleEndian = false, data = [])
+  let arg_val = 2
+  let edge_val = 0
+  recv_self.writeVarInt(arg_val)
+  edge_self.writeVarInt(edge_val)
+  assertEqInt(recv_self.offset, 1, "writeVarInt nominal recv_self.offset == 1")
+  assertEqInt(edge_self.offset, 1, "writeVarInt boundary edge_self.offset == 1")
+  ret 0
+
+pub fn test_bincode_BincodeWriter_writeString_10(): int:
+  let mut recv_self = BincodeWriter(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true, data = [])
+  let mut edge_self = BincodeWriter(buffer = [65], offset = 0, littleEndian = false, data = [])
+  let arg_s = "test"
+  let edge_s = "a"
+  recv_self.writeString(arg_s)
+  edge_self.writeString(edge_s)
+  assertEqInt(recv_self.offset, 5, "writeString nominal recv_self.offset == 5")
+  assertEqInt(edge_self.offset, 2, "writeString boundary edge_self.offset == 2")
+  ret 0
+
+pub fn test_bincode_BincodeWriter_toBytes_11(): int:
+  let recv_self = BincodeWriter(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true, data = [])
+  let edge_self = BincodeWriter(buffer = [65], offset = 0, littleEndian = false, data = [])
+  let resNom = recv_self.toBytes()
+  let resEdge = edge_self.toBytes()
+  assertEqInt(resNom.len(), 0, "toBytes nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "toBytes boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_bincode_bincodeReaderNew_12(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_littleEndian = true
+  let edge_littleEndian = false
+  let resNom = bincodeReaderNew(arg_data, arg_littleEndian)
+  let resEdge = bincodeReaderNew(edge_data, edge_littleEndian)
+  assertEqInt(resNom.buffer.len(), 4, "bincodeReaderNew nominal resNom.buffer.len() == 4")
+  assertEqInt(resEdge.buffer.len(), 1, "bincodeReaderNew boundary resEdge.buffer.len() == 1")
+  ret 0
+
+pub fn test_bincode_BincodeReader_readU8_13(): int:
+  let mut recv_self = BincodeReader(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true)
+  let mut edge_self = BincodeReader(buffer = [65], offset = 0, littleEndian = false)
+  let resNom = recv_self.readU8()
+  let resEdge = edge_self.readU8()
+  assert(resNom.isOk() == true, "readU8 nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "readU8 boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_bincode_BincodeReader_readI32_14(): int:
+  let mut recv_self = BincodeReader(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true)
+  let mut edge_self = BincodeReader(buffer = [65], offset = 0, littleEndian = false)
+  let resNom = recv_self.readI32()
+  let resEdge = edge_self.readI32()
+  assert(resNom.isOk() == true, "readI32 nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == false, "readI32 boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_bincode_BincodeReader_readI64_15(): int:
+  let mut recv_self = BincodeReader(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true)
+  let mut edge_self = BincodeReader(buffer = [65], offset = 0, littleEndian = false)
+  let resNom = recv_self.readI64()
+  let resEdge = edge_self.readI64()
+  assert(resNom.isOk() == false, "readI64 nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "readI64 boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_bincode_BincodeReader_readF32_16(): int:
+  let mut recv_self = BincodeReader(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true)
+  let mut edge_self = BincodeReader(buffer = [65], offset = 0, littleEndian = false)
+  let resNom = recv_self.readF32()
+  let resEdge = edge_self.readF32()
+  assert(resNom.isOk() == true, "readF32 nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == false, "readF32 boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_bincode_BincodeReader_readF64_17(): int:
+  let mut recv_self = BincodeReader(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true)
+  let mut edge_self = BincodeReader(buffer = [65], offset = 0, littleEndian = false)
+  let resNom = recv_self.readF64()
+  let resEdge = edge_self.readF64()
+  assert(resNom.isOk() == false, "readF64 nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "readF64 boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_bincode_BincodeReader_readVarInt_18(): int:
+  let mut recv_self = BincodeReader(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true)
+  let mut edge_self = BincodeReader(buffer = [65], offset = 0, littleEndian = false)
+  let resNom = recv_self.readVarInt()
+  let resEdge = edge_self.readVarInt()
+  assert(resNom.isOk() == true, "readVarInt nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "readVarInt boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_bincode_BincodeReader_readString_19(): int:
+  let mut recv_self = BincodeReader(buffer = [65, 73, 80, 76], offset = 0, littleEndian = true)
+  let mut edge_self = BincodeReader(buffer = [65], offset = 0, littleEndian = false)
+  let resNom = recv_self.readString()
+  let resEdge = edge_self.readString()
+  assert(resNom.isOk() == false, "readString nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "readString boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_bincode_bitStreamNew_20(): int:
+  let resNom = bitStreamNew()
+  let resEdge = bitStreamNew()
+  assertEqInt(resNom.bytes.len(), 0, "bitStreamNew nominal resNom.bytes.len() == 0")
+  assertEqInt(resEdge.bytes.len(), 0, "bitStreamNew boundary resEdge.bytes.len() == 0")
+  ret 0
+
+pub fn test_bincode_bitStreamWriteBits_21(): int:
+  let arg_bs = BitStream(bytes = [], bitOffset = 4)
+  let edge_bs = BitStream(bytes = [], bitOffset = 1)
+  let arg_val = 2
+  let edge_val = 0
+  let arg_count = 4
+  let edge_count = 1
+  let resNom = bitStreamWriteBits(arg_bs, arg_val, arg_count)
+  let resEdge = bitStreamWriteBits(edge_bs, edge_val, edge_count)
+  assertEqInt(resNom.bytes.len(), 0, "bitStreamWriteBits nominal resNom.bytes.len() == 0")
+  assertEqInt(resEdge.bytes.len(), 0, "bitStreamWriteBits boundary resEdge.bytes.len() == 0")
+  ret 0
+
+pub fn test_bincode_bitStreamToBytes_22(): int:
+  let arg_bs = BitStream(bytes = [], bitOffset = 4)
+  let edge_bs = BitStream(bytes = [], bitOffset = 1)
+  let resNom = bitStreamToBytes(arg_bs)
+  let resEdge = bitStreamToBytes(edge_bs)
+  assertEqInt(resNom.len(), 0, "bitStreamToBytes nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "bitStreamToBytes boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_bincode_bitStreamBitCount_23(): int:
+  let arg_bs = BitStream(bytes = [], bitOffset = 4)
+  let edge_bs = BitStream(bytes = [], bitOffset = 1)
+  let resNom = bitStreamBitCount(arg_bs)
+  let resEdge = bitStreamBitCount(edge_bs)
+  assertEqInt(resNom, 4, "bitStreamBitCount nominal resNom == 4")
+  assertEqInt(resEdge, 1, "bitStreamBitCount boundary resEdge == 1")
+  ret 0
+
+pub fn test_bincode_bincodePackIntArray_24(): int:
+  let arg_vals = [2]
+  let edge_vals = []
+  let resNom = bincodePackIntArray(arg_vals)
+  let resEdge = bincodePackIntArray(edge_vals)
+  assertEqInt(resNom.len(), 5, "bincodePackIntArray nominal resNom.len() == 5")
+  assertEqInt(resEdge.len(), 1, "bincodePackIntArray boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_bincode_bincodeUnpackIntArray_25(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = bincodeUnpackIntArray(arg_data)
+  let resEdge = bincodeUnpackIntArray(edge_data)
+  assert(resNom.isOk() == false, "bincodeUnpackIntArray nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "bincodeUnpackIntArray boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_csv_parseCsv_1(): int:
+  let arg_text = "a,b\n1,2"
+  let edge_text = "a,b\n1,2"
+  let arg_delimiter = "a,b\n1,2"
+  let edge_delimiter = "a,b\n1,2"
+  let resNom = parseCsv(arg_text, arg_delimiter)
+  let resEdge = parseCsv(edge_text, edge_delimiter)
+  assert(resNom.isOk() == true, "parseCsv nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseCsv boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_csv_serializeCsvCell_2(): int:
+  let arg_cell = "a,b\n1,2"
+  let edge_cell = "a,b\n1,2"
+  let arg_delimiter = "a,b\n1,2"
+  let edge_delimiter = "a,b\n1,2"
+  let resNom = serializeCsvCell(arg_cell, arg_delimiter)
+  let resEdge = serializeCsvCell(edge_cell, edge_delimiter)
+  assertEqInt(resNom.len(), 9, "serializeCsvCell nominal string length == 9")
+  assertEqInt(resEdge.len(), 9, "serializeCsvCell boundary string length == 9")
+  ret 0
+
+pub fn test_csv_serializeCsv_3(): int:
+  let arg_rows = [[]]
+  let edge_rows = []
+  let arg_delimiter = "a,b\n1,2"
+  let edge_delimiter = "a,b\n1,2"
+  let resNom = serializeCsv(arg_rows, arg_delimiter)
+  let resEdge = serializeCsv(edge_rows, edge_delimiter)
+  assertEqStr(resNom, "", "serializeCsv nominal string matches")
+  assertEqStr(resEdge, "", "serializeCsv boundary string matches")
+  ret 0
+
+pub fn test_csv_CsvReader_readRow_4(): int:
+  let mut recv_self = CsvReader(text = "test", opts = CsvOptions(delimiter = "test", quoteChar = "test", escapeChar = "test", hasHeader = true), currentLine = 4)
+  let mut edge_self = CsvReader(text = "a", opts = CsvOptions(delimiter = "a", quoteChar = "a", escapeChar = "a", hasHeader = false), currentLine = 1)
+  let resNom = recv_self.readRow()
+  let resEdge = edge_self.readRow()
+  assert(resNom.isSome() == false, "readRow nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "readRow boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_csv_stringifyCsv_5(): int:
+  let arg_rows = [[]]
+  let edge_rows = []
+  let arg_delimiter = "a,b\n1,2"
+  let edge_delimiter = "a,b\n1,2"
+  let resNom = stringifyCsv(arg_rows, arg_delimiter)
+  let resEdge = stringifyCsv(edge_rows, edge_delimiter)
+  assertEqStr(resNom, "", "stringifyCsv nominal string matches")
+  assertEqStr(resEdge, "", "stringifyCsv boundary string matches")
+  ret 0
+
+pub fn test_csv_formatCsv_6(): int:
+  let arg_rows = [[]]
+  let edge_rows = []
+  let arg_delimiter = "a,b\n1,2"
+  let edge_delimiter = "a,b\n1,2"
+  let resNom = formatCsv(arg_rows, arg_delimiter)
+  let resEdge = formatCsv(edge_rows, edge_delimiter)
+  assertEqStr(resNom, "", "formatCsv nominal string matches")
+  assertEqStr(resEdge, "", "formatCsv boundary string matches")
+  ret 0
+
+pub fn test_csv_toCsv_7(): int:
+  let arg_rows = [[]]
+  let edge_rows = []
+  let resNom = toCsv(arg_rows)
+  let resEdge = toCsv(edge_rows)
+  assertEqStr(resNom, "", "toCsv nominal string matches")
+  assertEqStr(resEdge, "", "toCsv boundary string matches")
+  ret 0
+
+pub fn test_csv_parseCsvRecords_8(): int:
+  let arg_text = "a,b\n1,2"
+  let edge_text = "a,b\n1,2"
+  let resNom = parseCsvRecords(arg_text)
+  let resEdge = parseCsvRecords(edge_text)
+  assertEqInt(resNom.len(), 1, "parseCsvRecords nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseCsvRecords boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_csv_parseCsvWithHeaders_9(): int:
+  let arg_text = "a,b\n1,2"
+  let edge_text = "a,b\n1,2"
+  let resNom = parseCsvWithHeaders(arg_text)
+  let resEdge = parseCsvWithHeaders(edge_text)
+  assertEqInt(resNom.len(), 1, "parseCsvWithHeaders nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseCsvWithHeaders boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_csv_stringifyCsvRecords_10(): int:
+  let arg_records = [{}]
+  let edge_records = []
+  let arg_headers = ["a,b\n1,2"]
+  let edge_headers = []
+  let resNom = stringifyCsvRecords(arg_records, arg_headers)
+  let resEdge = stringifyCsvRecords(edge_records, edge_headers)
+  assertEqInt(resNom.len(), 10, "stringifyCsvRecords nominal string length == 10")
+  assertEqStr(resEdge, "", "stringifyCsvRecords boundary string matches")
+  ret 0
+
+pub fn test_csv_parseTsv_11(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseTsv(arg_text)
+  let resEdge = parseTsv(edge_text)
+  assertEqInt(resNom.len(), 1, "parseTsv nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseTsv boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_csv_parseTsvRecords_12(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseTsvRecords(arg_text)
+  let resEdge = parseTsvRecords(edge_text)
+  assertEqInt(resNom.len(), 0, "parseTsvRecords nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "parseTsvRecords boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_csv_parseTsvWithHeaders_13(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseTsvWithHeaders(arg_text)
+  let resEdge = parseTsvWithHeaders(edge_text)
+  assertEqInt(resNom.len(), 0, "parseTsvWithHeaders nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "parseTsvWithHeaders boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_csv_stringifyTsv_14(): int:
+  let arg_rows = [[]]
+  let edge_rows = []
+  let resNom = stringifyTsv(arg_rows)
+  let resEdge = stringifyTsv(edge_rows)
+  assertEqStr(resNom, "", "stringifyTsv nominal string matches")
+  assertEqStr(resEdge, "", "stringifyTsv boundary string matches")
+  ret 0
+
+pub fn test_csv_toTsv_15(): int:
+  let arg_rows = [[]]
+  let edge_rows = []
+  let resNom = toTsv(arg_rows)
+  let resEdge = toTsv(edge_rows)
+  assertEqStr(resNom, "", "toTsv nominal string matches")
+  assertEqStr(resEdge, "", "toTsv boundary string matches")
+  ret 0
+
+pub fn test_csv_formatTsv_16(): int:
+  let arg_rows = [[]]
+  let edge_rows = []
+  let resNom = formatTsv(arg_rows)
+  let resEdge = formatTsv(edge_rows)
+  assertEqStr(resNom, "", "formatTsv nominal string matches")
+  assertEqStr(resEdge, "", "formatTsv boundary string matches")
+  ret 0
+
+pub fn test_csv_stringifyTsvRecords_17(): int:
+  let arg_records = [{}]
+  let edge_records = []
+  let arg_headers = ["test"]
+  let edge_headers = []
+  let resNom = stringifyTsvRecords(arg_records, arg_headers)
+  let resEdge = stringifyTsvRecords(edge_records, edge_headers)
+  assertEqInt(resNom.len(), 5, "stringifyTsvRecords nominal string length == 5")
+  assertEqStr(resEdge, "", "stringifyTsvRecords boundary string matches")
+  ret 0
+
+pub fn test_csv_csvColumnValues_18(): int:
+  let arg_rows = [[]]
+  let edge_rows = []
+  let arg_colIdx = 1
+  let edge_colIdx = 0
+  let resNom = csvColumnValues(arg_rows, arg_colIdx)
+  let resEdge = csvColumnValues(edge_rows, edge_colIdx)
+  assertEqInt(resNom.len(), 0, "csvColumnValues nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "csvColumnValues boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_encoding_mod_barrel(): int:
+  assertEqInt(ENCODING_MODULE_VERSION, 1, "encoding mod version")
+  ret 0

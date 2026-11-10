@@ -1,0 +1,32 @@
+module Ex171Gfx2dNinepatch2dScalablePanelsWindowTest
+
+import {
+  buildNinePatchScalableAudit,
+  stepNinePatchRect
+} from "../../examples/ex_171_gfx2d_ninepatch2d_scalable_panels_window"
+import { Rect } from "../../std/math/geom2d"
+import {
+  SliceInsets2D, createNinePatch2D, generateNinePatchQuads
+} from "../../std/gfx2d/ninepatch2d"
+
+pub fn test_gfx2d_ninepatch2d_scalable_panels(): void:
+  let insets = SliceInsets2D(left = 16.0, top = 16.0, right = 16.0, bottom = 16.0)
+  let np = createNinePatch2D(1, 64.0, 64.0, insets)
+  let verts = generateNinePatchQuads(np, Rect(x = 100.0, y = 50.0, w = 400.0, h = 240.0))
+  let vertsWide = generateNinePatchQuads(np, Rect(x = 100.0, y = 50.0, w = 500.0, h = 240.0))
+  assert(verts.len() == 36, "9-slice panel generates 9 quads * 4 vertices = 36 BatchVertex2D")
+  assert(verts[0].x == 100.0 and verts[0].y == 50.0, "Top-left corner starts at (100, 50)")
+  assert(verts[1].x == 116.0 and vertsWide[1].x == 116.0, "Top-left corner right edge preserves 16px inset unstretched")
+  assert(vertsWide[18].x > verts[18].x, "Stretching panel widens center quad")
+
+  let r0 = stepNinePatchRect(0)
+  let r1 = stepNinePatchRect(1)
+  let r20 = stepNinePatchRect(20)
+  let r100 = stepNinePatchRect(100)
+  assert(r0.w != r1.w and r1.w != r20.w and r20.w != r100.w, "stepNinePatchRect progresses across t=0, t=1, t=20, t=100")
+  assert(buildNinePatchScalableAudit() == 152, "buildNinePatchScalableAudit returns 36 + 116 == 152")
+
+pub fn main(): int:
+  test_gfx2d_ninepatch2d_scalable_panels()
+  println("PASS: ex_171_gfx2d_ninepatch2d_scalable_panels_window_test")
+  ret 0

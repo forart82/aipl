@@ -1,0 +1,435 @@
+/// # Module: `std/gfx3d/rigging3d` (`Rigging3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Hierarchical 3D skeletons, inverse bind pose matrices, Linear Blend Skinning (LBS)
+/// matrix palettes, and Dual Quaternion Skinning (DQS) for volume-preserving deformations.
+module Rigging3DMod
+
+import { DEG2RAD, RAD2DEG, EPSILON, absFloat, maxFloat, maxInt, clampFloat } from "std/math/consts"
+import { sin, cos, acos, atan2, sqrt } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { Mat4 } from "std/math/mat"
+import { Quat } from "std/math/quat"
+
+pub struct Bone3D(name: str, parentIdx: int, localPos: Vec3, localRot: Quat, localScale: Vec3, invBindMatrix: Mat4, worldMatrix: Mat4)
+
+pub struct Skeleton3D(bones: [Bone3D])
+
+pub struct DualQuatSkin(realQuat: Quat, dualQuat: Quat)
+
+fn composeBoneLocalMatrix(pos: Vec3, rot: Quat, scale: Vec3): Mat4:
+  let rMat = rot.norm().toMat4()
+  let sMat = Mat4.scaling(scale.x, scale.y, scale.z)
+  let tMat = Mat4.translation(pos.x, pos.y, pos.z)
+  ret tMat.mul(rMat.mul(sMat))
+
+pub fn updateSkeletonHierarchy(skel: Skeleton3D): Skeleton3D:
+  mut updatedBones: [Bone3D] = []
+  mut i = 0
+  while i < skel.bones.len:
+    let b = skel.bones[i]
+    let localM = composeBoneLocalMatrix(b.localPos, b.localRot, b.localScale)
+    let worldM = if b.parentIdx >= 0 and b.parentIdx < updatedBones.len:
+      updatedBones[b.parentIdx].worldMatrix.mul(localM)
+    else:
+      localM
+    updatedBones.push(Bone3D(
+      name = b.name,
+      parentIdx = b.parentIdx,
+      localPos = b.localPos,
+      localRot = b.localRot,
+      localScale = b.localScale,
+      invBindMatrix = b.invBindMatrix,
+      worldMatrix = worldM
+    ))
+    i = i + 1
+  ret Skeleton3D(bones = updatedBones)
+
+pub fn computeLinearSkinningPalette(skel: Skeleton3D): [Mat4]:
+  mut palette: [Mat4] = []
+  mut i = 0
+  while i < skel.bones.len:
+    let b = skel.bones[i]
+    palette.push(b.worldMatrix.mul(b.invBindMatrix))
+    i = i + 1
+  ret palette
+
+fn extractQuatFromMat4(m: Mat4): Quat:
+  let trace = m.m00 + m.m11 + m.m22
+  if trace > 0.0:
+    let s = sqrt(trace + 1.0) * 2.0
+    ret Quat(
+      x = (m.m21 - m.m12) / s,
+      y = (m.m02 - m.m20) / s,
+      z = (m.m10 - m.m01) / s,
+      w = 0.25 * s
+    ).norm()
+  elif m.m00 > m.m11 and m.m00 > m.m22:
+    let s = sqrt(1.0 + m.m00 - m.m11 - m.m22) * 2.0
+    ret Quat(
+      x = 0.25 * s,
+      y = (m.m01 + m.m10) / s,
+      z = (m.m02 + m.m20) / s,
+      w = (m.m21 - m.m12) / s
+    ).norm()
+  elif m.m11 > m.m22:
+    let s = sqrt(1.0 + m.m11 - m.m00 - m.m22) * 2.0
+    ret Quat(
+      x = (m.m01 + m.m10) / s,
+      y = 0.25 * s,
+      z = (m.m12 + m.m21) / s,
+      w = (m.m02 - m.m20) / s
+    ).norm()
+  else:
+    let s = sqrt(1.0 + m.m22 - m.m00 - m.m11) * 2.0
+    ret Quat(
+      x = (m.m02 + m.m20) / s,
+      y = (m.m12 + m.m21) / s,
+      z = 0.25 * s,
+      w = (m.m10 - m.m01) / s
+    ).norm()
+
+pub fn matrixToDualQuat(m: Mat4): DualQuatSkin:
+  let qr = extractQuatFromMat4(m)
+  let tx = m.m03
+  let ty = m.m13
+  let tz = m.m23
+  // Dual part: q_d = 0.5 * t_quat * q_r where t_quat = (tx, ty, tz, 0)
+  let tQuat = Quat(x = tx, y = ty, z = tz, w = 0.0)
+  let prod = tQuat.mul(qr)
+  let qd = Quat(
+    x = prod.x * 0.5,
+    y = prod.y * 0.5,
+    z = prod.z * 0.5,
+    w = prod.w * 0.5
+  )
+  ret DualQuatSkin(realQuat = qr, dualQuat = qd)
+
+pub fn blendDualQuaternions(dq1: DualQuatSkin, dq2: DualQuatSkin, weight: float): DualQuatSkin:
+  let w1 = 1.0 - weight
+  let dotR = dq1.realQuat.x * dq2.realQuat.x + dq1.realQuat.y * dq2.realQuat.y + dq1.realQuat.z * dq2.realQuat.z + dq1.realQuat.w * dq2.realQuat.w
+  let w2 = if dotR < 0.0: -weight else: weight
+
+  let rx = dq1.realQuat.x * w1 + dq2.realQuat.x * w2
+  let ry = dq1.realQuat.y * w1 + dq2.realQuat.y * w2
+  let rz = dq1.realQuat.z * w1 + dq2.realQuat.z * w2
+  let rw = dq1.realQuat.w * w1 + dq2.realQuat.w * w2
+
+  let dx = dq1.dualQuat.x * w1 + dq2.dualQuat.x * w2
+  let dy = dq1.dualQuat.y * w1 + dq2.dualQuat.y * w2
+  let dz = dq1.dualQuat.z * w1 + dq2.dualQuat.z * w2
+  let dw = dq1.dualQuat.w * w1 + dq2.dualQuat.w * w2
+
+  let rLen = sqrt(rx * rx + ry * ry + rz * rz + rw * rw)
+  let invLen = if rLen > EPSILON: 1.0 / rLen else: 1.0
+
+  ret DualQuatSkin(
+    realQuat = Quat(x = rx * invLen, y = ry * invLen, z = rz * invLen, w = rw * invLen),
+    dualQuat = Quat(x = dx * invLen, y = dy * invLen, z = dz * invLen, w = dw * invLen)
+  )
+
+pub struct TwoBoneIKResult3D(midPos: Vec3, endPos: Vec3, kneeBendDeg: float, reachable: bool)
+
+pub struct JointPose3D(id: int, parentId: int, localPos: Vec3, localRot: Quat, worldPos: Vec3, worldRot: Quat)
+
+pub struct SceneNode3D(id: int, parentId: int, localX: float, localY: float, localZ: float, scaleX: float, scaleY: float, scaleZ: float, worldX: float, worldY: float, worldZ: float, worldScaleX: float, worldScaleY: float, worldScaleZ: float, dirty: bool)
+
+pub struct TransformedAABB3D(minX: float, minY: float, minZ: float, maxX: float, maxY: float, maxZ: float)
+
+pub fn skelForwardKinematics2D_X(originX: float, boneLen: float, angleDeg: float): float:
+  ret originX + boneLen * cos(angleDeg * DEG2RAD)
+
+pub fn skelForwardKinematics2D_Y(originY: float, boneLen: float, angleDeg: float): float:
+  ret originY + boneLen * sin(angleDeg * DEG2RAD)
+
+pub fn skelSolveTwoBoneIKAngleDeg(rootX: float, rootY: float, targetX: float, targetY: float, len1: float, len2: float): float:
+  let a = maxFloat(0.001, len1)
+  let b = maxFloat(0.001, len2)
+  let dx = targetX - rootX
+  let dy = targetY - rootY
+  let minReach = absFloat(a - b) + 0.0001
+  let maxReach = a + b - 0.0001
+  let d = clampFloat(sqrt(dx * dx + dy * dy), minReach, maxReach)
+  let cosAngle = clampFloat((a * a + b * b - d * d) / (2.0 * a * b), -1.0, 1.0)
+  let sinAngle = sqrt(maxFloat(0.0, 1.0 - cosAngle * cosAngle))
+  let angleDeg = atan2(sinAngle, cosAngle) * RAD2DEG
+  ret clampFloat(angleDeg, 0.0, 180.0)
+
+pub fn skelInterpolateKeyframeHermite(val0: float, m0: float, val1: float, m1: float, t01: float): float:
+  let t = clampFloat(t01, 0.0, 1.0)
+  let t2 = t * t
+  let t3 = t2 * t
+  let h00 = 2.0 * t3 - 3.0 * t2 + 1.0
+  let h10 = t3 - 2.0 * t2 + t
+  let h01 = -2.0 * t3 + 3.0 * t2
+  let h11 = t3 - t2
+  ret h00 * val0 + h10 * m0 + h01 * val1 + h11 * m1
+
+pub fn skelSolveTwoBoneIK3D(rootPos: Vec3, targetPos: Vec3, polePos: Vec3, len1: float, len2: float): TwoBoneIKResult3D:
+  let a = maxFloat(0.001, len1)
+  let b = maxFloat(0.001, len2)
+  let toTarget = targetPos.sub(rootPos)
+  let rawDist = toTarget.len()
+  let reachable = rawDist <= (a + b) and rawDist >= absFloat(a - b)
+  let dir = if rawDist > 0.00001: toTarget.scale(1.0 / rawDist) else: Vec3(x = 1.0, y = 0.0, z = 0.0)
+  let minReach = absFloat(a - b) + 0.0001
+  let maxReach = a + b - 0.0001
+  let d = clampFloat(rawDist, minReach, maxReach)
+  let cosAlpha = clampFloat((a * a + d * d - b * b) / (2.0 * a * d), -1.0, 1.0)
+  let sinAlpha = sqrt(maxFloat(0.0, 1.0 - cosAlpha * cosAlpha))
+  let toPole = polePos.sub(rootPos)
+  let proj = dir.scale(toPole.dot(dir))
+  mut bendDir = toPole.sub(proj)
+  let bendLen = bendDir.len()
+  if bendLen > 0.00001:
+    bendDir = bendDir.scale(1.0 / bendLen)
+  else:
+    let up = if absFloat(dir.y) < 0.99: Vec3(x = 0.0, y = 1.0, z = 0.0) else: Vec3(x = 1.0, y = 0.0, z = 0.0)
+    bendDir = dir.cross(up).norm()
+  let midPos = rootPos.add(dir.scale(a * cosAlpha).add(bendDir.scale(a * sinAlpha)))
+  let endDir = rootPos.add(dir.scale(d)).sub(midPos).norm()
+  let endPos = midPos.add(endDir.scale(b))
+  let cosKnee = clampFloat((a * a + b * b - d * d) / (2.0 * a * b), -1.0, 1.0)
+  let kneeBendDeg = acos(cosKnee) * RAD2DEG
+  ret TwoBoneIKResult3D(midPos = midPos, endPos = endPos, kneeBendDeg = kneeBendDeg, reachable = reachable)
+
+pub fn skelSolveFabrik3D(joints: [Vec3], lengths: [float], targetPos: Vec3, iterations: int, tolerance: float): [Vec3]:
+  let n = joints.len
+  if n <= 1 or lengths.len < n - 1:
+    ret joints
+  mut pts: [Vec3] = []
+  mut i = 0
+  while i < n:
+    pts.push(joints[i])
+    i += 1
+  let root = pts[0]
+  mut totalLen = 0.0
+  mut k = 0
+  while k < n - 1:
+    totalLen = totalLen + maxFloat(0.0001, lengths[k])
+    k += 1
+  let rootToTarget = targetPos.sub(root)
+  let distToTarget = rootToTarget.len()
+  if distToTarget >= totalLen:
+    let dir = if distToTarget > 0.00001: rootToTarget.scale(1.0 / distToTarget) else: Vec3(x = 1.0, y = 0.0, z = 0.0)
+    mut j = 0
+    while j < n - 1:
+      pts[j + 1] = pts[j].add(dir.scale(maxFloat(0.0001, lengths[j])))
+      j += 1
+    ret pts
+  let maxIter = maxInt(1, iterations)
+  let tol = maxFloat(0.0001, tolerance)
+  mut iter = 0
+  while iter < maxIter:
+    let err = pts[n - 1].dist(targetPos)
+    if err <= tol:
+      ret pts
+    pts[n - 1] = targetPos
+    mut b = n - 2
+    while b >= 0:
+      let seg = pts[b].sub(pts[b + 1])
+      let d = seg.len()
+      let dir = if d > 0.00001: seg.scale(1.0 / d) else: Vec3(x = 1.0, y = 0.0, z = 0.0)
+      pts[b] = pts[b + 1].add(dir.scale(maxFloat(0.0001, lengths[b])))
+      b -= 1
+    pts[0] = root
+    mut f = 0
+    while f < n - 1:
+      let seg = pts[f + 1].sub(pts[f])
+      let d = seg.len()
+      let dir = if d > 0.00001: seg.scale(1.0 / d) else: Vec3(x = 1.0, y = 0.0, z = 0.0)
+      pts[f + 1] = pts[f].add(dir.scale(maxFloat(0.0001, lengths[f])))
+      f += 1
+    iter += 1
+  ret pts
+
+pub fn solveJointHierarchy3D(joints: [JointPose3D]): [JointPose3D]:
+  mut out: [JointPose3D] = []
+  mut i = 0
+  while i < joints.len:
+    let cur: JointPose3D = joints[i]
+    if cur.parentId >= 0 and cur.parentId < out.len:
+      let parent: JointPose3D = out[cur.parentId]
+      let pRot: Quat = parent.worldRot
+      let pPos: Vec3 = parent.worldPos
+      let cRot: Quat = cur.localRot
+      let cPos: Vec3 = cur.localPos
+      let wRot: Quat = pRot.mul(cRot)
+      let rotOffset: Vec3 = pRot.rotateVec3(cPos)
+      let wPos: Vec3 = pPos.add(rotOffset)
+      out.push(JointPose3D(
+        id = cur.id,
+        parentId = cur.parentId,
+        localPos = cPos,
+        localRot = cRot,
+        worldPos = wPos,
+        worldRot = wRot
+      ))
+    else:
+      out.push(JointPose3D(
+        id = cur.id,
+        parentId = cur.parentId,
+        localPos = cur.localPos,
+        localRot = cur.localRot,
+        worldPos = cur.localPos,
+        worldRot = cur.localRot
+      ))
+    i += 1
+  ret out
+
+pub fn createSceneNode3D(id: int, parentId: int, lx: float, ly: float, lz: float, sx: float, sy: float, sz: float): SceneNode3D:
+  ret SceneNode3D(
+    id = id,
+    parentId = parentId,
+    localX = lx,
+    localY = ly,
+    localZ = lz,
+    scaleX = sx,
+    scaleY = sy,
+    scaleZ = sz,
+    worldX = lx,
+    worldY = ly,
+    worldZ = lz,
+    worldScaleX = sx,
+    worldScaleY = sy,
+    worldScaleZ = sz,
+    dirty = true
+  )
+
+pub fn updateSceneGraph3D(nodes: [SceneNode3D]): [SceneNode3D]:
+  mut out: [SceneNode3D] = []
+  mut i = 0
+  while i < nodes.len:
+    let n = nodes[i]
+    if n.parentId < 0 or n.parentId >= out.len:
+      out.push(SceneNode3D(
+        id = n.id,
+        parentId = n.parentId,
+        localX = n.localX,
+        localY = n.localY,
+        localZ = n.localZ,
+        scaleX = n.scaleX,
+        scaleY = n.scaleY,
+        scaleZ = n.scaleZ,
+        worldX = n.localX,
+        worldY = n.localY,
+        worldZ = n.localZ,
+        worldScaleX = n.scaleX,
+        worldScaleY = n.scaleY,
+        worldScaleZ = n.scaleZ,
+        dirty = false
+      ))
+    else:
+      let p = out[n.parentId]
+      out.push(SceneNode3D(
+        id = n.id,
+        parentId = n.parentId,
+        localX = n.localX,
+        localY = n.localY,
+        localZ = n.localZ,
+        scaleX = n.scaleX,
+        scaleY = n.scaleY,
+        scaleZ = n.scaleZ,
+        worldX = p.worldX + n.localX * p.worldScaleX,
+        worldY = p.worldY + n.localY * p.worldScaleY,
+        worldZ = p.worldZ + n.localZ * p.worldScaleZ,
+        worldScaleX = p.worldScaleX * n.scaleX,
+        worldScaleY = p.worldScaleY * n.scaleY,
+        worldScaleZ = p.worldScaleZ * n.scaleZ,
+        dirty = false
+      ))
+    i += 1
+  ret out
+
+pub fn transformAABB3D(minX: float, minY: float, minZ: float, maxX: float, maxY: float, maxZ: float, m: [float]): TransformedAABB3D:
+  if m.len < 16:
+    ret TransformedAABB3D(minX = minX, minY = minY, minZ = minZ, maxX = maxX, maxY = maxY, maxZ = maxZ)
+  mut nMinX = m[12]
+  mut nMaxX = m[12]
+  mut nMinY = m[13]
+  mut nMaxY = m[13]
+  mut nMinZ = m[14]
+  mut nMaxZ = m[14]
+
+  let ex0 = m[0] * minX
+  let fx0 = m[0] * maxX
+  if ex0 < fx0:
+    nMinX += ex0
+    nMaxX += fx0
+  else:
+    nMinX += fx0
+    nMaxX += ex0
+
+  let ey0 = m[1] * minX
+  let fy0 = m[1] * maxX
+  if ey0 < fy0:
+    nMinY += ey0
+    nMaxY += fy0
+  else:
+    nMinY += fy0
+    nMaxY += ey0
+
+  let ez0 = m[2] * minX
+  let fz0 = m[2] * maxX
+  if ez0 < fz0:
+    nMinZ += ez0
+    nMaxZ += fz0
+  else:
+    nMinZ += fz0
+    nMaxZ += ez0
+
+  let ex1 = m[4] * minY
+  let fx1 = m[4] * maxY
+  if ex1 < fx1:
+    nMinX += ex1
+    nMaxX += fx1
+  else:
+    nMinX += fx1
+    nMaxX += ex1
+
+  let ey1 = m[5] * minY
+  let fy1 = m[5] * maxY
+  if ey1 < fy1:
+    nMinY += ey1
+    nMaxY += fy1
+  else:
+    nMinY += fy1
+    nMaxY += ey1
+
+  let ez1 = m[6] * minY
+  let fz1 = m[6] * maxY
+  if ez1 < fz1:
+    nMinZ += ez1
+    nMaxZ += fz1
+  else:
+    nMinZ += fz1
+    nMaxZ += ez1
+
+  let ex2 = m[8] * minZ
+  let fx2 = m[8] * maxZ
+  if ex2 < fx2:
+    nMinX += ex2
+    nMaxX += fx2
+  else:
+    nMinX += fx2
+    nMaxX += ex2
+
+  let ey2 = m[9] * minZ
+  let fy2 = m[9] * maxZ
+  if ey2 < fy2:
+    nMinY += ey2
+    nMaxY += fy2
+  else:
+    nMinY += fy2
+    nMaxY += ey2
+
+  let ez2 = m[10] * minZ
+  let fz2 = m[10] * maxZ
+  if ez2 < fz2:
+    nMinZ += ez2
+    nMaxZ += fz2
+  else:
+    nMinZ += fz2
+    nMaxZ += ez2
+
+  ret TransformedAABB3D(minX = nMinX, minY = nMinY, minZ = nMinZ, maxX = nMaxX, maxY = nMaxY, maxZ = nMaxZ)

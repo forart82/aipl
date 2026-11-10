@@ -1,0 +1,398 @@
+/// # Module: `std/gfx2d/tilemap_renderer2d` (`Gfx2dTilemapRendererMod`)
+///
+/// ## Purpose & Domain Scope
+/// Chunked 2D tile layers and Wang 47-tile blob autotiling for discrete 2D grid games.
+///
+/// ## Architectural Boundary
+/// - `std/gfx2d/tilemap_renderer2d`: Discrete 2D retro grid / tactical board games.
+/// - `std/gfx25d/*` + `std/gfx3d/terrain3d`: Continuous heightfield terrains, rivers, mountains, and isometric/2.5D worlds.
+module Gfx2dTilemapRendererMod
+
+// ============================================================================
+// std/gfx2d/tilemap_renderer2d.aipl — Chunked Tile Layers & Wang 47 Autotiling
+// ============================================================================
+
+import { ViewportBounds2D } from "./camera2d"
+
+pub struct TilemapLayer2D(layerId: int, width: int, height: int, tiles: [int], zOrder: int, opacity: float)
+
+pub struct WangBlob47Autotiler(transitionTable: [int])
+
+pub fn createWangBlob47Autotiler(): WangBlob47Autotiler:
+  mut table: [int] = []
+  mut m = 0
+  while m < 256:
+    // Reduce 8-bit neighbor bitmask: diagonal corner bits only count if both adjacent cardinals are set
+    // Bits: 0=N(1), 1=NE(2), 2=E(4), 3=SE(8), 4=S(16), 5=SW(32), 6=W(64), 7=NW(128)
+    let n = (m & 1) != 0
+    let e = (m & 4) != 0
+    let s = (m & 16) != 0
+    let w = (m & 64) != 0
+    let ne = ((m & 2) != 0) and n and e
+    let se = ((m & 8) != 0) and s and e
+    let sw = ((m & 32) != 0) and s and w
+    let nw = ((m & 128) != 0) and n and w
+
+    mut reduced = 0
+    if n: reduced = reduced | 1
+    if ne: reduced = reduced | 2
+    if e: reduced = reduced | 4
+    if se: reduced = reduced | 8
+    if s: reduced = reduced | 16
+    if sw: reduced = reduced | 32
+    if w: reduced = reduced | 64
+    if nw: reduced = reduced | 128
+
+    if reduced == 0:
+      table.push(0)
+    elif reduced == 255:
+      table.push(46)
+    else:
+      let mapped = 1 + ((reduced * 43) % 45)
+      table.push(mapped)
+    m += 1
+  ret WangBlob47Autotiler(transitionTable = table)
+
+fn hasTileAt(layer: TilemapLayer2D, c: int, r: int, target: int): bool:
+  if c < 0 or c >= layer.width or r < 0 or r >= layer.height:
+    ret false
+  let idx = r * layer.width + c
+  if idx < 0 or idx >= layer.tiles.len:
+    ret false
+  ret layer.tiles[idx] == target
+
+pub fn evaluateAutotileBitmask(layer: TilemapLayer2D, col: int, row: int, targetTileType: int): int:
+  mut mask = 0
+  if hasTileAt(layer, col, row - 1, targetTileType): mask = mask | 1
+  if hasTileAt(layer, col + 1, row - 1, targetTileType): mask = mask | 2
+  if hasTileAt(layer, col + 1, row, targetTileType): mask = mask | 4
+  if hasTileAt(layer, col + 1, row + 1, targetTileType): mask = mask | 8
+  if hasTileAt(layer, col, row + 1, targetTileType): mask = mask | 16
+  if hasTileAt(layer, col - 1, row + 1, targetTileType): mask = mask | 32
+  if hasTileAt(layer, col - 1, row, targetTileType): mask = mask | 64
+  if hasTileAt(layer, col - 1, row - 1, targetTileType): mask = mask | 128
+  ret mask
+
+pub fn resolveWang47TileIndex(autotiler: WangBlob47Autotiler, bitmask8: int): int:
+  let idx = bitmask8 & 255
+  if idx >= 0 and idx < autotiler.transitionTable.len:
+    ret autotiler.transitionTable[idx]
+  ret 0
+
+pub fn cullTilemapLayer(layer: TilemapLayer2D, bounds: ViewportBounds2D, tileW: float, tileH: float): [int]:
+  let tw = if tileW > 0.001: tileW else: 32.0
+  let th = if tileH > 0.001: tileH else: 32.0
+  mut minCol = int(bounds.minX / tw)
+  mut minRow = int(bounds.minY / th)
+  mut maxCol = int(bounds.maxX / tw) + 1
+  mut maxRow = int(bounds.maxY / th) + 1
+  if minCol < 0: minCol = 0
+  if minRow < 0: minRow = 0
+  if maxCol > layer.width: maxCol = layer.width
+  if maxRow > layer.height: maxRow = layer.height
+  ret [minCol, minRow, maxCol, maxRow]
+
+pub struct Tilemap2D(width: int, height: int, tileSize: float, tiles: [int], solidIds: [int], spawnX: float, spawnY: float)
+
+pub fn tilemapNew(width: int, height: int, tileSize: float, defaultTile: int = 0): Tilemap2D:
+  mut tiles: [int] = []
+  let total = width * height
+  mut i = 0
+  while i < total:
+    tiles.push(defaultTile)
+    i += 1
+  ret Tilemap2D(
+    width = width,
+    height = height,
+    tileSize = tileSize,
+    tiles = tiles,
+    solidIds = [1, 2],
+    spawnX = 0.0,
+    spawnY = 0.0
+  )
+
+pub fn tilemapInBounds(m: Tilemap2D, col: int, row: int): bool:
+  ret col >= 0 and col < m.width and row >= 0 and row < m.height
+
+pub fn tilemapGet(m: Tilemap2D, col: int, row: int): int:
+  if not tilemapInBounds(m, col, row):
+    ret 0
+  ret m.tiles[row * m.width + col]
+
+pub fn tilemapSet(m: Tilemap2D, col: int, row: int, tileId: int): Tilemap2D:
+  if not tilemapInBounds(m, col, row):
+    ret m
+  mut nextTiles = m.tiles.clone()
+  nextTiles[row * m.width + col] = tileId
+  ret Tilemap2D(
+    width = m.width,
+    height = m.height,
+    tileSize = m.tileSize,
+    tiles = nextTiles,
+    solidIds = m.solidIds,
+    spawnX = m.spawnX,
+    spawnY = m.spawnY
+  )
+
+pub fn tilemapSetInPlace(mut m: Tilemap2D, col: int, row: int, tileId: int): Tilemap2D:
+  if not tilemapInBounds(m, col, row):
+    ret m
+  m.tiles[row * m.width + col] = tileId
+  ret m
+
+pub fn tilemapIsSolidAtGrid(m: Tilemap2D, col: int, row: int): bool:
+  if not tilemapInBounds(m, col, row):
+    ret true
+  let tileId = tilemapGet(m, col, row)
+  mut i = 0
+  let n = m.solidIds.len()
+  while i < n:
+    if m.solidIds[i] == tileId:
+      ret true
+    i += 1
+  ret false
+
+pub fn tilemapFromAscii(rows: [str], tileSize: float): Tilemap2D:
+  let height = rows.len()
+  if height == 0:
+    ret Tilemap2D(
+      width = 0,
+      height = 0,
+      tileSize = tileSize,
+      tiles = [],
+      solidIds = [1, 2],
+      spawnX = 0.0,
+      spawnY = 0.0
+    )
+  let width = rows[0].length
+  mut tiles: [int] = []
+  mut spawnX = 0.0
+  mut spawnY = 0.0
+  mut r = 0
+  while r < height:
+    let rowStr = rows[r]
+    mut c = 0
+    while c < width:
+      let ch = if c < rowStr.length: rowStr.charAt(c) else: " "
+      mut tileId = 0
+      if ch == "." or ch == " ":
+        tileId = 0
+      elif ch == "#":
+        tileId = 1
+      elif ch == "~":
+        tileId = 2
+      elif ch == "^":
+        tileId = 3
+      elif ch == "C":
+        tileId = 4
+      elif ch == "D":
+        tileId = 5
+      elif ch == "P":
+        tileId = 0
+        spawnX = float(c) * tileSize
+        spawnY = float(r) * tileSize
+      else:
+        tileId = 0
+      tiles.push(tileId)
+      c += 1
+    r += 1
+  ret Tilemap2D(
+    width = width,
+    height = height,
+    tileSize = tileSize,
+    tiles = tiles,
+    solidIds = [1, 2],
+    spawnX = spawnX,
+    spawnY = spawnY
+  )
+
+pub fn tilemapWorldToCol(m: Tilemap2D, x: float): int:
+  if m.tileSize <= 0.0:
+    ret 0
+  ret int(floor(x / m.tileSize))
+
+pub fn tilemapWorldToRow(m: Tilemap2D, y: float): int:
+  if m.tileSize <= 0.0:
+    ret 0
+  ret int(floor(y / m.tileSize))
+
+pub fn tilemapColToWorld(m: Tilemap2D, col: int): float:
+  ret float(col) * m.tileSize
+
+pub fn tilemapRowToWorld(m: Tilemap2D, row: int): float:
+  ret float(row) * m.tileSize
+
+pub fn tilemapCheckAABB(m: Tilemap2D, x: float, y: float, w: float, h: float): bool:
+  if m.tileSize <= 0.0:
+    ret true
+  let eps = 0.0001
+  let minCol = int(floor(x / m.tileSize))
+  let right = if w > eps: x + w - eps else: x
+  let maxCol = int(floor(right / m.tileSize))
+  let minRow = int(floor(y / m.tileSize))
+  let bottom = if h > eps: y + h - eps else: y
+  let maxRow = int(floor(bottom / m.tileSize))
+
+  mut r = minRow
+  while r <= maxRow:
+    mut c = minCol
+    while c <= maxCol:
+      if tilemapIsSolidAtGrid(m, c, r):
+        ret true
+      c += 1
+    r += 1
+  ret false
+
+pub fn tilemapMoveAndSlide(m: Tilemap2D, x: float, y: float, w: float, h: float, vx: float, vy: float, dt: float): [float]:
+  mut finalX = x
+  mut outVx = vx
+  let nx = x + vx * dt
+  if tilemapCheckAABB(m, nx, y, w, h):
+    finalX = x
+    outVx = 0.0
+  else:
+    finalX = nx
+
+  mut finalY = y
+  mut outVy = vy
+  let ny = y + vy * dt
+  if tilemapCheckAABB(m, finalX, ny, w, h):
+    finalY = y
+    outVy = 0.0
+  else:
+    finalY = ny
+
+  ret [finalX, finalY, outVx, outVy]
+
+// ============================================================================
+// Branching RPG Dialogue Engine
+// ============================================================================
+
+pub fn tilemapAutotile16Mask(m: Tilemap2D, col: int, row: int, targetId: int): int:
+  mut mask = 0
+  if tilemapGet(m, col, row - 1) == targetId:
+    mask = mask | 1
+  if tilemapGet(m, col + 1, row) == targetId:
+    mask = mask | 2
+  if tilemapGet(m, col, row + 1) == targetId:
+    mask = mask | 4
+  if tilemapGet(m, col - 1, row) == targetId:
+    mask = mask | 8
+  ret mask
+
+/// Computes the canonical 8-bit Blob autotiling mask (`N=1, NE=2, E=4, SE=8, S=16, SW=32, W=64, NW=128`)
+/// with diagonal corner gating (`NE` requires `N & E`, etc.), collapsing 256 states to 47 canonical states.
+pub fn tilemapAutotile47CanonicalMask(m: Tilemap2D, col: int, row: int, targetId: int): int:
+  let n = tilemapGet(m, col, row - 1) == targetId
+  let e = tilemapGet(m, col + 1, row) == targetId
+  let s = tilemapGet(m, col, row + 1) == targetId
+  let w = tilemapGet(m, col - 1, row) == targetId
+  let ne = n and e and (tilemapGet(m, col + 1, row - 1) == targetId)
+  let se = s and e and (tilemapGet(m, col + 1, row + 1) == targetId)
+  let sw = s and w and (tilemapGet(m, col - 1, row + 1) == targetId)
+  let nw = n and w and (tilemapGet(m, col - 1, row - 1) == targetId)
+  mut mask = 0
+  if n:
+    mask = mask | 1
+  if ne:
+    mask = mask | 2
+  if e:
+    mask = mask | 4
+  if se:
+    mask = mask | 8
+  if s:
+    mask = mask | 16
+  if sw:
+    mask = mask | 32
+  if w:
+    mask = mask | 64
+  if nw:
+    mask = mask | 128
+  ret mask
+
+/// Maps a canonical 8-bit Blob autotile mask to a contiguous `0..46` tile index.
+pub fn tilemapBlobMaskToIndex47(canonicalMask: int): int:
+  let table: [int] = [
+    0, 1, 4, 5, 7, 16, 17, 20, 21, 23, 28, 29, 31, 64, 65, 68,
+    69, 71, 80, 81, 84, 85, 87, 92, 93, 95, 112, 113, 116, 117, 119, 124,
+    125, 127, 193, 197, 199, 209, 213, 215, 221, 223, 241, 245, 247, 253, 255
+  ]
+  mut i = 0
+  while i < table.len:
+    if table[i] == canonicalMask:
+      ret i
+    i += 1
+  ret 0
+
+pub struct SlideResult2D(x: float, y: float, vx: float, vy: float, hitX: bool, hitY: bool, onGround: bool)
+
+pub fn tilemapMoveAndSlideEx(m: Tilemap2D, x: float, y: float, w: float, h: float, vx: float, vy: float, dt: float): SlideResult2D:
+  let nx = x + vx * dt
+  mut finalX = nx
+  mut outVx = vx
+  mut hitX = false
+  if tilemapCheckAABB(m, nx, y, w, h):
+    finalX = x
+    outVx = 0.0
+    hitX = true
+
+  let ny = y + vy * dt
+  mut finalY = ny
+  mut outVy = vy
+  mut hitY = false
+  mut grounded = false
+  if tilemapCheckAABB(m, finalX, ny, w, h):
+    finalY = y
+    if vy > 0.0:
+      grounded = true
+    outVy = 0.0
+    hitY = true
+
+  ret SlideResult2D(x = finalX, y = finalY, vx = outVx, vy = outVy, hitX = hitX, hitY = hitY, onGround = grounded)
+
+pub struct TileRaycastHit2D(hit: bool, col: int, row: int, hitX: float, hitY: float, dist: float, normalX: float, normalY: float)
+
+/// Amanatides-Woo fast voxel/tilemap DDA raycast from `(startX, startY)` along `(dirX, dirY)` up to `maxDist`.
+pub fn tilemapRaycastDDA(m: Tilemap2D, startX: float, startY: float, dirX: float, dirY: float, maxDist: float): TileRaycastHit2D:
+  let ts = if m.tileSize <= 0.0001: 1.0 else: m.tileSize
+  let len = sqrt(dirX * dirX + dirY * dirY)
+  if len <= 0.000001 or maxDist <= 0.0:
+    ret TileRaycastHit2D(hit = false, col = -1, row = -1, hitX = startX, hitY = startY, dist = 0.0, normalX = 0.0, normalY = 0.0)
+  let rdx = dirX / len
+  let rdy = dirY / len
+
+  mut mapX = int(floor(startX / ts))
+  mut mapY = int(floor(startY / ts))
+
+  let deltaDistX = if absFloat(rdx) < 0.000001: 1000000000.0 else: absFloat(ts / rdx)
+  let deltaDistY = if absFloat(rdy) < 0.000001: 1000000000.0 else: absFloat(ts / rdy)
+
+  let stepX = if rdx < 0.0: -1 else: 1
+  let stepY = if rdy < 0.0: -1 else: 1
+
+  mut sideDistX = if rdx < 0.0: ((startX / ts) - float(mapX)) * deltaDistX else: (float(mapX + 1) - (startX / ts)) * deltaDistX
+  mut sideDistY = if rdy < 0.0: ((startY / ts) - float(mapY)) * deltaDistY else: (float(mapY + 1) - (startY / ts)) * deltaDistY
+
+  mut dist = 0.0
+  mut lastAxis = 0
+  mut steps = 0
+  while dist <= maxDist and steps < 512:
+    if tilemapInBounds(m, mapX, mapY) and tilemapIsSolidAtGrid(m, mapX, mapY):
+      let hx = startX + rdx * dist
+      let hy = startY + rdy * dist
+      let nx = if lastAxis == 1: float(-stepX) else: 0.0
+      let ny = if lastAxis == 2: float(-stepY) else: 0.0
+      ret TileRaycastHit2D(hit = true, col = mapX, row = mapY, hitX = hx, hitY = hy, dist = dist, normalX = nx, normalY = ny)
+    if sideDistX < sideDistY:
+      dist = sideDistX
+      sideDistX += deltaDistX
+      mapX += stepX
+      lastAxis = 1
+    else:
+      dist = sideDistY
+      sideDistY += deltaDistY
+      mapY += stepY
+      lastAxis = 2
+    steps += 1
+
+  ret TileRaycastHit2D(hit = false, col = -1, row = -1, hitX = startX + rdx * maxDist, hitY = startY + rdy * maxDist, dist = maxDist, normalX = 0.0, normalY = 0.0)

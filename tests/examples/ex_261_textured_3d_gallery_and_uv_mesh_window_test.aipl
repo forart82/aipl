@@ -1,0 +1,87 @@
+// ============================================================================
+// Twin Test Suite 261: Interactive 2.5D/3D Material & UV Mesh Gallery
+// Verifies examples/ex_261_textured_3d_gallery_and_uv_mesh_window.aipl
+// ============================================================================
+module Ex261Textured3dGalleryAndUvMeshWindowTest
+
+import {
+  Gallery3DState,
+  buildCheckerEmblemTexture,
+  createGallery3DState,
+  stepGallery3DState,
+  renderGallery3DScene,
+  renderGalleryFrameStep
+} from "../../examples/ex_261_textured_3d_gallery_and_uv_mesh_window.aipl"
+import {
+  initCanvas,
+  clearScreen,
+  getPixel,
+  getWindowMode,
+  saveTextureToPpm,
+  loadImage,
+  getImageWidth,
+  getImageHeight,
+  drawQuad3DTextured,
+  rgb
+} from "../../std/gfx2d/shape2d.aipl"
+import { assert, assertEqInt, absInt } from "../../std/prelude.aipl"
+
+pub fn test_textured_3d_gallery_and_uv_mesh(): int:
+  initCanvas(640, 360)
+  mut st: Gallery3DState = createGallery3DState(640.0, 360.0)
+  assertEqInt(getImageWidth(st.checkerTex), 32, "checkerTex width is 32")
+  assertEqInt(getImageHeight(st.checkerTex), 32, "checkerTex height is 32")
+
+  // Verify saveTextureToPpm + loadImage round-trip
+  let tmpPpm = "/tmp/aipl_ex261_roundtrip_tex.ppm"
+  assert(saveTextureToPpm(st.brickTex, tmpPpm), "saveTextureToPpm exports binary P6 PPM")
+  let loadedRes = loadImage(tmpPpm)
+  assert(loadedRes.isOk(), "loadImage reads exported PPM texture")
+  let loadedId = loadedRes.unwrap()
+  assertEqInt(getImageWidth(loadedId), 48, "round-trip PPM width is 48")
+  assertEqInt(getImageHeight(loadedId), 48, "round-trip PPM height is 48")
+
+  // Verify UV repeat wrapping (u > 1.0, v > 1.0) on a 2x2 tiled quad
+  clearScreen(rgb(0, 0, 0))
+  let white = rgb(255, 255, 255)
+  drawQuad3DTextured(
+    st.checkerTex,
+    100.0, 100.0, 0.0, 0.0, 0.0,
+    164.0, 100.0, 0.0, 2.0, 0.0,
+    164.0, 164.0, 0.0, 2.0, 2.0,
+    100.0, 164.0, 0.0, 0.0, 2.0,
+    white, white, white, white
+  )
+  // Sample two points shifted by exactly one tile period (32 px in a 64px 2x2 repeated quad)
+  let pxTile0 = getPixel(110, 110)
+  let pxTile1 = getPixel(142, 142)
+  assertEqInt(pxTile0, pxTile1, "GL_REPEAT UV wrapping repeats texels identically at u+1, v+1")
+
+  st = stepGallery3DState(st, 0.05)
+  assertEqInt(st.tick, 1, "stepGallery3DState increments tick")
+  let primCount = renderGallery3DScene(st)
+  // 2 floor tris + 4 pyramid tris + 4*5 obelisks + 2 banner primitives = 28
+  assertEqInt(primCount, 28, "renderGallery3DScene draws 28 primitives")
+
+  let f0 = renderGalleryFrameStep(0, 0.016)
+  assert(getWindowMode() == "glx", "window mode is glx")
+  assertEqInt(f0, 28, "renderGalleryFrameStep primitive count")
+
+  // Verify non-flat texel variance across the central textured pavilion & pyramid
+  mut diffSum = 0
+  mut prevR = -1
+  mut sx = 260
+  while sx <= 380:
+    let p = getPixel(sx, 190)
+    let r = (p >> 24) & 255
+    if prevR >= 0:
+      diffSum += absInt(r - prevR)
+    prevR = r
+    sx += 3
+  assert(diffSum > 120, "central pavilion/pyramid scanline exhibits UV texture modulation")
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_textured_3d_gallery_and_uv_mesh(), 0, "test_textured_3d_gallery_and_uv_mesh")
+  println("PASS: ex_261_textured_3d_gallery_and_uv_mesh_window_test")
+  ret 0

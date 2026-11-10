@@ -1,0 +1,129 @@
+module Ex187ParticleSubEmitterFireworksWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import { createParticlePool3D, stepParticlePool3D } from "../std/particle/emitter3d"
+import { createGravityAffector } from "../std/particle/affector"
+import {
+  SUB_TRIGGER_DEATH, bindSubEmitter, shouldTriggerSubEmitter,
+  dispatchSubEmitterEvent, dispatchSubEmitterCone, mergeSubEmitterSpawn3D
+} from "../std/particle/sub_emitter"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepFireworkApexPos3D(frame: int): Vec3:
+  let ax = 340.0 + sin(float(frame) * 0.067) * 75.0
+  let ay = 245.0 + cos(float(frame) * 0.053) * 35.0
+  ret Vec3(x = ax, y = ay, z = 0.0)
+
+pub fn buildParticleSubEmitterFireworksAudit(): int:
+  let bind = bindSubEmitter(SUB_TRIGGER_DEATH, 1, 12, 0.5)
+  let trigFlag = if shouldTriggerSubEmitter(bind, SUB_TRIGGER_DEATH): 1 else: 0
+  let burst = dispatchSubEmitterEvent(bind, Vec3(x = 0.0, y = 50.0, z = 0.0), Vec3(x = 0.0, y = 20.0, z = 0.0))
+  let coneBurst = dispatchSubEmitterCone(bind, Vec3(x = 0.0, y = 50.0, z = 0.0), Vec3(x = 0.0, y = 1.0, z = 0.0), 30.0, 1.5)
+  let pool = mergeSubEmitterSpawn3D(createParticlePool3D(64, 20.0), coneBurst)
+  ret burst.len() + coneBurst.len() + pool.liveCount + trigFlag
+
+pub fn main(): int:
+  let bind = bindSubEmitter(SUB_TRIGGER_DEATH, 1, 16, 0.5)
+  mut apexPos = stepFireworkApexPos3D(0)
+  let coneSparks = dispatchSubEmitterCone(bind, apexPos, Vec3(x = 0.0, y = -0.12, z = 0.0), 310.0, 1.8)
+  mut pool3d = mergeSubEmitterSpawn3D(createParticlePool3D(64, 20.0), coneSparks)
+  let grav = createGravityAffector(Vec3(x = 0.0, y = 55.0, z = 0.0))
+  let audit = buildParticleSubEmitterFireworksAudit()
+
+  initWindow(1280, 720, "AIPL ex_187: Particle Sub-Emitter Fireworks & Velocity Inheritance")
+  mut frame: int = 0
+  while not windowShouldClose():
+    pool3d = stepParticlePool3D(pool3d, 0.025, [grav])
+    if frame % 37 == 0 and frame > 0 and shouldTriggerSubEmitter(bind, SUB_TRIGGER_DEATH):
+      apexPos = stepFireworkApexPos3D(frame)
+      let dirVec = Vec3(x = sin(float(frame) * 0.11) * 0.08, y = -0.14, z = 0.0)
+      let nextSparks = dispatchSubEmitterCone(bind, apexPos, dirVec, 310.0, 1.8)
+      let ringSparks = dispatchSubEmitterEvent(bind, apexPos, Vec3(x = 0.0, y = -60.0, z = 0.0))
+      mut freshPool = mergeSubEmitterSpawn3D(createParticlePool3D(64, 20.0), nextSparks)
+      pool3d = mergeSubEmitterSpawn3D(freshPool, ringSparks)
+
+    let cycleT = float(frame % 37) / 36.0
+    let rocketX = 340.0 + (apexPos.x - 340.0) * cycleT
+    let rocketY = 465.0 + (apexPos.y - 465.0) * cycleT
+
+    beginDrawing()
+    clearScreen(rgb(9, 12, 22))
+
+    drawText("EX_187: PARTICLE SUB-EMITTER FIREWORKS & DEATH-TRIGGERED BURSTS", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/particle/sub_emitter: bindSubEmitter | dispatchSubEmitterCone | mergeSubEmitterSpawn3D | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Rocket Launch Trail + Death-Triggered Chrysanthemum Starburst
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(250, 204, 21))
+    drawText("3D CHRYSANTHEMUM FIREWORK SUB-EMITTER (SUB_TRIGGER_DEATH)", 60.0, 118.0, 15.0, rgb(253, 224, 71))
+
+    // Launch mortar & ascending next rocket trail
+    drawRect(322.0, 455.0, 36.0, 18.0, rgb(71, 85, 105))
+    drawLine(340.0, 455.0, rocketX, rocketY, rgb(148, 163, 184), 1.5)
+    drawCircle(rocketX, rocketY, 5.0, rgb(56, 189, 248))
+
+    // Active detonation core
+    drawCircleOutline(apexPos.x, apexPos.y, 16.0 + cycleT * 75.0, 1.0, rgb(71, 85, 105))
+    drawCircle(apexPos.x, apexPos.y, 8.0 * (1.0 - cycleT * 0.6), rgb(255, 251, 235))
+
+    mut i: int = 0
+    while i < pool3d.particles.len():
+      let sp = pool3d.particles[i]
+      if sp.isAlive:
+        // Project 3D child spark (x, y + z * 0.85) so radial XZ ring forms a full 2D starburst
+        let rawX = sp.pos.x
+        let rawY = sp.pos.y + sp.pos.z * 0.85
+        let sx = if rawX < 60.0: 60.0 else: (if rawX > 620.0: 620.0 else: rawX)
+        let sy = if rawY < 145.0: 145.0 else: (if rawY > 465.0: 465.0 else: rawY)
+        let tailX = sx - sp.vel.x * 0.12
+        let tailY = sy - (sp.vel.y + sp.vel.z * 0.85) * 0.12
+        let isOuter = i < 16
+        let col = if isOuter: rgb(250, 204, 21) else: rgb(56, 189, 248)
+        let trailCol = if isOuter: rgb(244, 63, 94) else: rgb(168, 85, 247)
+        drawLine(tailX, tailY, sx, sy, trailCol, 2.0)
+        drawCircle(sx, sy, if isOuter: 5.5 else: 4.0, col)
+      i = i + 1
+
+    drawText("Cyan Rocket Ascends -> Death Trigger Spawns 16 Cone + 16 Ring Child Sparks", 60.0, 478.0, 13.0, rgb(203, 213, 225))
+
+    // Right Panel: Sub-Emitter Event Pipeline & Velocity Inheritance Rules
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("SUB-EMITTER TRIGGER & VELOCITY INHERITANCE RULES", 680.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(685.0, 155.0, 530.0, 82.0, rgb(30, 41, 59))
+    drawText("1. SUB_TRIGGER_BIRTH (0): Muzzle Flash / Launch Smoke", 705.0, 175.0, 15.0, rgb(134, 239, 172))
+    drawText("Spawns secondary particles immediately when primary rocket is born", 705.0, 204.0, 13.0, rgb(203, 213, 225))
+
+    drawRect(685.0, 248.0, 530.0, 82.0, rgb(30, 41, 59))
+    drawText("2. SUB_TRIGGER_COLLISION (2): Impact Sparks / Ricochet Debris", 705.0, 268.0, 15.0, rgb(56, 189, 248))
+    drawText("Spawns radial burst when parent particle impacts surface normal", 705.0, 297.0, 13.0, rgb(203, 213, 225))
+
+    drawRect(685.0, 342.0, 530.0, 142.0, rgb(30, 41, 59))
+    drawRectOutline(685.0, 342.0, 530.0, 142.0, 2.0, rgb(250, 204, 21))
+    drawText("3. SUB_TRIGGER_DEATH (3): Firework Shell Detonation (ACTIVE)", 705.0, 362.0, 15.0, rgb(253, 224, 71))
+    drawText("v_child = v_parent * " + str(bind.inheritVelocityFactor) + " + v_radial_burst (" + str(bind.burstCount) + " Sparks)", 705.0, 388.0, 14.0, rgb(248, 250, 252))
+
+    // Live Velocity Inheritance Vector Addition Bar
+    let vInheritPx = 110.0 + sin(float(frame) * 0.08) * 35.0
+    let vBurstPx = 165.0 + cos(float(frame) * 0.06) * 40.0
+    drawRect(705.0, 416.0, vInheritPx, 20.0, rgb(56, 189, 248))
+    drawRect(705.0 + vInheritPx, 416.0, vBurstPx, 20.0, rgb(250, 204, 21))
+    drawText("Cyan = Inherited Parent Vel (50%) | Gold = Radial Cone Impulse", 705.0, 450.0, 13.0, rgb(203, 213, 225))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("SUB-EMITTER POOL TELEMETRY (Frame " + str(frame) + ")", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Child Pool ID=" + str(bind.childPoolId) + " | Burst Count=" + str(bind.burstCount) + " | Inherit Factor=" + str(bind.inheritVelocityFactor) + " | Shell Apex=(" + str(int(apexPos.x)) + ", " + str(int(apexPos.y)) + ")", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Active Child Sparks in Pool: " + str(pool3d.liveCount) + " | Next Detonation Progress: " + str(int(cycleT * 100.0)) + "% | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

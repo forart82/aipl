@@ -1,0 +1,199 @@
+// ============================================================================
+// Canonical Example 259: Continuous 2.5D/3D World Engine (WINDOW - GLX/Software)
+// Showcases std/gfx25d/* Gouraud heightfield, spline river ribbon, Z-buffered
+// volumetric primitives (drawPrism25D, drawCone25D, drawBillboard25D), and
+// beginWorldPass()/endWorldPass() UI hitbox isolation.
+// ============================================================================
+module Ex259ContinuousWorld25d
+
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  setWindowMode,
+  getWindowMode,
+  setDepthTest,
+  clearDepth,
+  beginWorldPass,
+  endWorldPass,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  rgb,
+  rgba,
+  getPixel
+} from "../std/gfx2d/shape2d.aipl"
+import { Vec3 } from "../std/math/vec_math.aipl"
+import {
+  TerrainHeightfield,
+  sampleHeightAt
+} from "../std/gfx3d/terrain3d.aipl"
+import {
+  Camera25D,
+  createCamera25D,
+  updateCamera25D,
+  getVisibleWorldAABB,
+  drawHeightfieldPatch25D,
+  drawPrism25D,
+  drawCone25D,
+  drawBillboard25D,
+  drawSplineRibbon25D
+} from "../std/gfx25d/gfx25d_mod.aipl"
+
+pub struct World25DState(terrain: TerrainHeightfield, cam: Camera25D, riverNodes: [Vec3], heroWx: float, heroWy: float, heroWz: float, tick: int)
+
+pub fn createWorld25DState(viewportW: float, viewportH: float): World25DState:
+  mut heights: [float] = []
+  mut gz = 0
+  while gz < 14:
+    mut gx = 0
+    while gx < 14:
+      let hVal = 0.45 + 0.35 * sin(float(gx) * 0.48) * cos(float(gz) * 0.44) + 0.15 * sin(float(gx + gz) * 0.32)
+      heights.push(hVal)
+      gx += 1
+    gz += 1
+  let terrain = TerrainHeightfield(
+    width = 14,
+    depth = 14,
+    heightValues = heights,
+    heightScale = 42.0,
+    horizontalScale = 18.0
+  )
+  let baseCam = createCamera25D(viewportW, viewportH, 1.35, 45.0, 32.0)
+  let cx = 110.0
+  let cy = 110.0
+  let cz = sampleHeightAt(terrain, cx, cy)
+  let cam = baseCam { worldX = cx, worldY = cy, worldZ = cz }
+
+  let riverNodes: [Vec3] = [
+    Vec3(x = 24.0, y = 36.0, z = sampleHeightAt(terrain, 24.0, 36.0) + 0.4),
+    Vec3(x = 68.0, y = 72.0, z = sampleHeightAt(terrain, 68.0, 72.0) + 0.4),
+    Vec3(x = 112.0, y = 104.0, z = sampleHeightAt(terrain, 112.0, 104.0) + 0.4),
+    Vec3(x = 156.0, y = 142.0, z = sampleHeightAt(terrain, 156.0, 142.0) + 0.4),
+    Vec3(x = 204.0, y = 188.0, z = sampleHeightAt(terrain, 204.0, 188.0) + 0.4)
+  ]
+
+  ret World25DState(
+    terrain = terrain,
+    cam = cam,
+    riverNodes = riverNodes,
+    heroWx = cx,
+    heroWy = cy,
+    heroWz = cz,
+    tick = 0
+  )
+
+pub fn stepWorld25DState(state: World25DState, dt: float): World25DState:
+  let nextTick = state.tick + 1
+  let phase = float(nextTick) * 0.04
+  let targetWx = 110.0 + cos(phase) * 28.0
+  let targetWy = 110.0 + sin(phase) * 28.0
+  let targetWz = sampleHeightAt(state.terrain, targetWx, targetWy)
+  let nextCam = updateCamera25D(state.cam, targetWx, targetWy, targetWz, dt)
+  ret state {
+    cam = nextCam,
+    heroWx = targetWx,
+    heroWy = targetWy,
+    heroWz = targetWz,
+    tick = nextTick
+  }
+
+pub fn renderWorld25DScene(state: World25DState): int:
+  clearScreen(rgb(12, 18, 32))
+  setDepthTest(true)
+  clearDepth()
+  beginWorldPass()
+
+  let sunDir = Vec3(x = 0.38, y = -0.42, z = 0.82)
+  let visBox = getVisibleWorldAABB(state.cam, -30.0, 80.0)
+
+  // 1. Continuous Gouraud-shaded heightfield terrain (zero discrete tile seams)
+  let terrainQuads = drawHeightfieldPatch25D(
+    state.cam,
+    state.terrain,
+    0,
+    0,
+    12,
+    12,
+    sunDir,
+    rgb(42, 118, 68),
+    rgb(198, 214, 228)
+  )
+
+  // 2. Continuous spline river ribbon with alpha-feathered banks
+  let riverQuads = drawSplineRibbon25D(
+    state.cam,
+    state.riverNodes,
+    10.0,
+    rgb(14, 165, 233),
+    rgba(56, 189, 248, 0.78),
+    3.5
+  )
+
+  // 3. Z-buffered volumetric buildings, bridge, trees, and moving hero
+  let hTower = sampleHeightAt(state.terrain, 92.0, 96.0)
+  let towerQuads = drawPrism25D(state.cam, 92.0, 96.0, hTower, 22.0, 22.0, 36.0, rgb(214, 190, 156), sunDir)
+
+  let hBridge = sampleHeightAt(state.terrain, 112.0, 104.0) + 4.0
+  let bridgeQuads = drawPrism25D(state.cam, 112.0, 104.0, hBridge, 28.0, 12.0, 4.0, rgb(146, 104, 68), sunDir)
+
+  let hPineA = sampleHeightAt(state.terrain, 76.0, 118.0)
+  let pineATris = drawCone25D(state.cam, 76.0, 118.0, hPineA, 12.0, 28.0, rgb(28, 142, 74), sunDir, 10)
+
+  let hPineB = sampleHeightAt(state.terrain, 134.0, 88.0)
+  let pineBTris = drawCone25D(state.cam, 134.0, 88.0, hPineB, 14.0, 32.0, rgb(34, 158, 82), sunDir, 10)
+
+  let heroQuads = drawBillboard25D(
+    state.cam,
+    state.heroWx,
+    state.heroWy,
+    state.heroWz + 2.0,
+    14.0,
+    24.0,
+    rgb(250, 204, 21),
+    rgb(234, 88, 12)
+  )
+
+  endWorldPass()
+  setDepthTest(false)
+
+  // 4. Screen-space HUD overlay (tracked outside beginWorldPass/endWorldPass)
+  drawRect(18.0, 16.0, 560.0, 62.0, rgba(15, 23, 42, 0.88))
+  drawRectOutline(18.0, 16.0, 560.0, 62.0, 1.5, rgb(56, 189, 248))
+  drawText("AIPL 2.5D/3D CONTINUOUS WORLD ENGINE (std/gfx25d)", 32.0, 26.0, 16.0, rgb(248, 250, 252))
+  drawText(
+    "TerrainQuads=" + str(terrainQuads) + " | RiverQuads=" + str(riverQuads) + " | VisW=" + str(int(visBox.maxX - visBox.minX)),
+    32.0,
+    50.0,
+    13.0,
+    rgb(148, 163, 184)
+  )
+
+  ret terrainQuads + riverQuads + towerQuads + bridgeQuads + pineATris + pineBTris + heroQuads
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  setWindowMode("glx")
+  mut st = createWorld25DState(640.0, 360.0)
+  mut i = 0
+  let steps = (frameIndex % 5) + 1
+  while i < steps:
+    st = stepWorld25DState(st, dt)
+    i = i + 1
+  ret renderWorld25DScene(st)
+
+pub fn main(): int:
+  setWindowMode("glx")
+  initWindow(1280, 720, "AIPL ex_259 - Continuous 2.5D/3D World Engine")
+  mut state = createWorld25DState(1280.0, 720.0)
+  mut frame: int = 0
+  while not windowShouldClose():
+    state = stepWorld25DState(state, 0.016)
+    beginDrawing()
+    let _ = renderWorld25DScene(state)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

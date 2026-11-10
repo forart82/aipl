@@ -1,0 +1,117 @@
+/// # Module: `std/spatial/bsp_sector_world3d` (`BspSectorWorld3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Indoor 3D convex sector world connected by polygonal portals and PVS bitmasks.
+module BspSectorWorld3DMod
+
+import { Vec3 } from "std/math/vec_math"
+import { AABB3D, Plane3D, Frustum3D } from "std/math/geom3d"
+
+pub struct BspPortal(targetSectorId: int, polygonVertices: [Vec3], plane: Plane3D, isOpen: bool)
+
+pub struct BspSector(sectorId: int, boundingBox: AABB3D, floorHeight: float, ceilingHeight: float, portals: [BspPortal], pvsMask: int)
+
+pub struct BspSectorWorld3D(sectors: [BspSector])
+
+pub fn bspSectorWorldNew(): BspSectorWorld3D:
+  mut secs: [BspSector] = []
+  ret BspSectorWorld3D(sectors = secs)
+
+pub fn bspAddSector(mut world: BspSectorWorld3D, sector: BspSector): int:
+  mut secs = world.sectors
+  secs.push(sector)
+  world.sectors = secs
+  ret sector.sectorId
+
+pub fn bspAddPortal(mut world: BspSectorWorld3D, fromSector: int, toSector: int, portal: BspPortal): bool:
+  mut secs = world.sectors
+  mut i = 0
+  while i < secs.len:
+    let sec: BspSector = secs[i]
+    if sec.sectorId == fromSector:
+      mut pts = sec.portals
+      pts.push(BspPortal(
+        targetSectorId = toSector,
+        polygonVertices = portal.polygonVertices,
+        plane = portal.plane,
+        isOpen = portal.isOpen
+      ))
+      secs[i] = BspSector(
+        sectorId = sec.sectorId,
+        boundingBox = sec.boundingBox,
+        floorHeight = sec.floorHeight,
+        ceilingHeight = sec.ceilingHeight,
+        portals = pts,
+        pvsMask = sec.pvsMask | (1 << toSector)
+      )
+      world.sectors = secs
+      ret true
+    i = i + 1
+  ret false
+
+pub fn bspFindSectorContainingPoint(world: BspSectorWorld3D, pt: Vec3): Option[int]:
+  mut i = 0
+  while i < world.sectors.len:
+    let sec: BspSector = world.sectors[i]
+    let b: AABB3D = sec.boundingBox
+    let inBox = pt.x >= b.min.x and pt.x <= b.max.x and pt.y >= b.min.y and pt.y <= b.max.y and pt.z >= b.min.z and pt.z <= b.max.z
+    let inFloorCeil = pt.y >= sec.floorHeight and pt.y <= sec.ceilingHeight
+    if inBox and inFloorCeil:
+      ret Some(sec.sectorId)
+    i = i + 1
+  ret None
+
+fn isPointInFrustum(frustum: Frustum3D, pt: Vec3): bool:
+  mut i = 0
+  while i < frustum.planes.len:
+    let pl: Plane3D = frustum.planes[i]
+    let n: Vec3 = pl.normal
+    let dVal = if pl.distance != 0.0: pl.distance else: pl.d
+    if n.dot(pt) + dVal < 0.0:
+      ret false
+    i = i + 1
+  ret true
+
+pub fn bspQueryVisibleSectors(world: BspSectorWorld3D, currentSectorId: int, cameraFrustum: Frustum3D): [int]:
+  mut visible: [int] = [currentSectorId]
+  mut queue: [int] = [currentSectorId]
+  mut head = 0
+
+  while head < queue.len:
+    let curId = queue[head]
+    head = head + 1
+
+    mut sIdx = -1
+    mut i = 0
+    while i < world.sectors.len:
+      let s: BspSector = world.sectors[i]
+      if s.sectorId == curId:
+        sIdx = i
+      i = i + 1
+
+    if sIdx >= 0:
+      let curSec: BspSector = world.sectors[sIdx]
+      mut p = 0
+      while p < curSec.portals.len:
+        let portal: BspPortal = curSec.portals[p]
+        if portal.isOpen and ((curSec.pvsMask & (1 << portal.targetSectorId)) != 0):
+          mut anyVertInFrustum = portal.polygonVertices.len == 0
+          mut v = 0
+          while v < portal.polygonVertices.len:
+            let pv: Vec3 = portal.polygonVertices[v]
+            if isPointInFrustum(cameraFrustum, pv):
+              anyVertInFrustum = true
+            v = v + 1
+
+          if anyVertInFrustum:
+            mut already = false
+            mut k = 0
+            while k < visible.len:
+              if visible[k] == portal.targetSectorId:
+                already = true
+              k = k + 1
+            if not already:
+              visible.push(portal.targetSectorId)
+              queue.push(portal.targetSectorId)
+        p = p + 1
+  ret visible

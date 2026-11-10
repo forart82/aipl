@@ -1,0 +1,199 @@
+module Ex212SpatialContinuousWorld3dWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import { Quat } from "../std/math/quat"
+import { AABB3D, Sphere3D, Plane3D, Ray3D, Frustum3D } from "../std/math/geom3d"
+import {
+  Transform3D, SpatialObject3D, SpatialRayHit3D, continuousWorld3dNew,
+  continuousWorld3dInsert, continuousWorld3dUpdateTransform,
+  continuousWorld3dQuerySphere, continuousWorld3dQueryFrustum,
+  continuousWorld3dRaycast
+} from "../std/spatial/continuous_world3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepCameraYawRad3D(frame: int): float:
+  ret sin(float(frame) * 0.045) * 0.48
+
+pub fn stepSphereQueryCenter3D(frame: int): Vec3:
+  ret Vec3(x = cos(float(frame) * 0.05) * 68.0, y = 0.0, z = 56.0 + sin(float(frame) * 0.04) * 18.0)
+
+fn hasId3D(ids: [int], target: int): bool:
+  mut i = 0
+  while i < ids.len():
+    if ids[i] == target:
+      ret true
+    i = i + 1
+  ret false
+
+pub fn buildSpatialContinuous3dAudit(): int:
+  let wb = AABB3D(min = Vec3(x = -100.0, y = -100.0, z = -100.0), max = Vec3(x = 100.0, y = 100.0, z = 100.0))
+  mut cw = continuousWorld3dNew(wb)
+  let t3 = Transform3D(
+    position = Vec3(x = 0.0, y = 0.0, z = 20.0),
+    rotation = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0),
+    scale = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  )
+  let obj = SpatialObject3D(
+    id = 301,
+    transform = t3,
+    boundingBox = AABB3D(min = Vec3(x = -2.0, y = -2.0, z = 18.0), max = Vec3(x = 2.0, y = 2.0, z = 22.0)),
+    boundingSphere = Sphere3D(center = Vec3(x = 0.0, y = 0.0, z = 20.0), radius = 2.0),
+    layerMask = 1
+  )
+  continuousWorld3dInsert(cw, obj)
+  let sphHits = continuousWorld3dQuerySphere(cw, Vec3(x = 0.0, y = 0.0, z = 19.0), 5.0, 1)
+  let frust = Frustum3D(planes = [Plane3D(normal = Vec3(x = 0.0, y = 0.0, z = 1.0), distance = 0.0, d = 0.0)])
+  let frustHits = continuousWorld3dQueryFrustum(cw, frust, 1)
+  let ray = Ray3D(origin = Vec3(x = 0.0, y = 0.0, z = 0.0), dir = Vec3(x = 0.0, y = 0.0, z = 1.0))
+  let hit = continuousWorld3dRaycast(cw, ray, 100.0, 1)
+  let _upd = continuousWorld3dUpdateTransform(cw, 301, t3)
+  ret sphHits[0] + frustHits.len() + (if hit.isSome(): 1 else: 0) + (if _upd: 1 else: 0)
+
+pub fn main(): int:
+  let auditScore = buildSpatialContinuous3dAudit()
+  let wb = AABB3D(min = Vec3(x = -200.0, y = -200.0, z = -200.0), max = Vec3(x = 200.0, y = 200.0, z = 200.0))
+  mut cw = continuousWorld3dNew(wb)
+
+  mut i = 0
+  while i < 8:
+    let px = -105.0 + float(i) * 30.0
+    let pz = 34.0 + float((i * 23) % 62)
+    let t3 = Transform3D(
+      position = Vec3(x = px, y = 0.0, z = pz),
+      rotation = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0),
+      scale = Vec3(x = 1.0, y = 1.0, z = 1.0)
+    )
+    let obj = SpatialObject3D(
+      id = 300 + i,
+      transform = t3,
+      boundingBox = AABB3D(min = Vec3(x = px - 7.5, y = -7.5, z = pz - 7.5), max = Vec3(x = px + 7.5, y = 7.5, z = pz + 7.5)),
+      boundingSphere = Sphere3D(center = Vec3(x = px, y = 0.0, z = pz), radius = 8.5),
+      layerMask = 1
+    )
+    continuousWorld3dInsert(cw, obj)
+    i = i + 1
+
+  initWindow(1280, 720, "AIPL ex_212: Spatial Continuous 3D World (Frustum, Sphere & 3D Raycast)")
+  mut frame = 0
+  while not windowShouldClose():
+    let dynX = -105.0 + sin(float(frame) * 0.06) * 20.0
+    let _u3d = continuousWorld3dUpdateTransform(cw, 300, Transform3D(
+      position = Vec3(x = dynX, y = 0.0, z = 34.0),
+      rotation = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0),
+      scale = Vec3(x = 1.0, y = 1.0, z = 1.0)
+    ))
+
+    let yaw = stepCameraYawRad3D(frame)
+    let fovHalf = 0.50
+    let angL = yaw - fovHalf
+    let angR = yaw + fovHalf
+    let frust = Frustum3D(planes = [
+      Plane3D(normal = Vec3(x = 0.0, y = 0.0, z = 1.0), distance = -12.0, d = -12.0),
+      Plane3D(normal = Vec3(x = cos(angL), y = 0.0, z = -sin(angL)), distance = 0.0, d = 0.0),
+      Plane3D(normal = Vec3(x = -cos(angR), y = 0.0, z = sin(angR)), distance = 0.0, d = 0.0)
+    ])
+    let frustHits = continuousWorld3dQueryFrustum(cw, frust, 1)
+    let sphCenter = stepSphereQueryCenter3D(frame)
+    let sphHits = continuousWorld3dQuerySphere(cw, sphCenter, 42.0, 1)
+
+    let targetSlot = (frame / 13) % cw.objects.len()
+    let targetPos = cw.objects[targetSlot].transform.position
+    let wobbleX = sin(float(frame) * 0.14) * 4.5
+    let rayDir = Vec3(x = targetPos.x + wobbleX, y = 0.0, z = targetPos.z)
+    let ray = Ray3D(origin = Vec3(x = 0.0, y = 0.0, z = 0.0), dir = rayDir)
+    let rayHit = continuousWorld3dRaycast(cw, ray, 200.0, 1)
+
+    beginDrawing()
+    clearScreen(rgb(9, 13, 22))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_212: CONTINUOUS 3D SPATIAL WORLD (FRUSTUM CULLING, SPHERE & RAYCAST)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("frustumVisible=" + str(frustHits.len()) + "/" + str(cw.objects.len()) + " | sphereQueryHits=" + str(sphHits.len()) + " | rayHit=" + str(rayHit.isSome()) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    let camSx = 640.0
+    let camSy = 628.0
+    let scaleX = 3.2
+    let scaleZ = 4.2
+
+    // Draw X/Z world coordinate grid
+    mut gz = 20.0
+    while gz <= 110.0:
+      let gy = camSy - gz * scaleZ
+      drawLine(140.0, gy, 1140.0, gy, rgb(18, 26, 42), 1.0)
+      drawText("z=" + str(int(gz)), 92.0, gy - 7.0, 13.0, rgb(71, 85, 105))
+      gz = gz + 20.0
+
+    // Camera Frustum Cone (Top-Down X/Z View)
+    let farDist = 118.0
+    let nearDist = 16.0
+    let lxFar = camSx + sin(angL) * farDist * scaleX
+    let lyFar = camSy - cos(angL) * farDist * scaleZ
+    let rxFar = camSx + sin(angR) * farDist * scaleX
+    let ryFar = camSy - cos(angR) * farDist * scaleZ
+    let lxNear = camSx + sin(angL) * nearDist * scaleX
+    let lyNear = camSy - cos(angL) * nearDist * scaleZ
+    let rxNear = camSx + sin(angR) * nearDist * scaleX
+    let ryNear = camSy - cos(angR) * nearDist * scaleZ
+
+    drawLine(camSx, camSy, lxFar, lyFar, rgb(250, 204, 21), 2.5)
+    drawLine(camSx, camSy, rxFar, ryFar, rgb(250, 204, 21), 2.5)
+    drawLine(lxFar, lyFar, rxFar, ryFar, rgb(250, 204, 21), 1.8)
+    drawLine(lxNear, lyNear, rxNear, ryNear, rgb(250, 204, 21), 1.5)
+    drawCircle(camSx, camSy, 9.0, rgb(250, 204, 21))
+    drawText("3D Camera Origin (0,0,0) | Frustum Cone", camSx - 140.0, camSy + 18.0, 15.0, rgb(250, 204, 21))
+
+    // 3D Sphere Query Range
+    let sqx = camSx + sphCenter.x * scaleX
+    let sqy = camSy - sphCenter.z * scaleZ
+    drawCircleOutline(sqx, sqy, 42.0 * scaleX, 2.2, rgb(52, 211, 153))
+    drawCircle(sqx, sqy, 5.5, rgb(52, 211, 153))
+
+    let hitId = if rayHit.isSome(): rayHit.unwrap().objectId else: -1
+
+    mut k = 0
+    while k < cw.objects.len():
+      let ob: SpatialObject3D = cw.objects[k]
+      let sx = camSx + ob.transform.position.x * scaleX
+      let sy = camSy - ob.transform.position.z * scaleZ
+      let inFrust = hasId3D(frustHits, ob.id)
+      let inSph = hasId3D(sphHits, ob.id)
+      let isRay = ob.id == hitId
+
+      if inSph:
+        drawLine(sqx, sqy, sx, sy, rgb(52, 211, 153), 1.6)
+
+      let rPx = ob.boundingSphere.radius * scaleX
+      drawRectOutline(sx - rPx, sy - rPx, rPx * 2.0, rPx * 2.0, 1.2, if inFrust: rgb(125, 211, 252) else: rgb(45, 55, 72))
+      let fillCol = if isRay: rgb(180, 83, 9) else: (if inSph: rgb(6, 95, 70) else: (if inFrust: rgb(30, 64, 175) else: rgb(22, 28, 42)))
+      let rimCol = if isRay: rgb(250, 204, 21) else: (if inSph: rgb(52, 211, 153) else: (if inFrust: rgb(56, 189, 248) else: rgb(71, 85, 105)))
+      drawCircle(sx, sy, rPx, fillCol)
+      drawCircleOutline(sx, sy, rPx, 2.2, rimCol)
+      drawText("#" + str(ob.id), sx - 18.0, sy - 7.0, 14.0, if inFrust: rgb(248, 250, 252) else: rgb(148, 163, 184))
+      drawText(if inFrust: "VIS" else: "CULL", sx - 15.0, sy + rPx + 4.0, 12.0, if inFrust: rgb(125, 211, 252) else: rgb(100, 116, 139))
+      k = k + 1
+
+    // Draw 3D Raycast & Hit Normal
+    if rayHit.isSome():
+      let rh: SpatialRayHit3D = rayHit.unwrap()
+      let hx = camSx + rh.point.x * scaleX
+      let hy = camSy - rh.point.z * scaleZ
+      drawLine(camSx, camSy, hx, hy, rgb(244, 63, 94), 3.0)
+      drawCircle(hx, hy, 6.5, rgb(244, 63, 94))
+      let nx = hx + rh.normal.x * 38.0
+      let ny = hy - rh.normal.z * 38.0
+      drawLine(hx, hy, nx, ny, rgb(251, 113, 133), 2.5)
+      drawRect(880.0, 650.0, 368.0, 36.0, rgb(18, 28, 48))
+      drawRectOutline(880.0, 650.0, 368.0, 36.0, 1.5, rgb(244, 63, 94))
+      drawText("3D Raycast Hit: #" + str(rh.objectId) + " dist=" + str(int(rh.distance)), 896.0, 661.0, 15.0, rgb(254, 205, 211))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

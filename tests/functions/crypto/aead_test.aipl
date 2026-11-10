@@ -1,0 +1,161 @@
+module tests.functions.crypto.aead_test
+
+import * from "std/crypto/aead"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { hmacSha256, constantTimeEqual } from "std/crypto/hmac"
+import { sha256 } from "std/crypto/hash"
+
+pub fn test_aead_rotl32_1(): int:
+  let arg_x = 1
+  let edge_x = 0
+  let arg_n = 4
+  let edge_n = 1
+  let resNom = rotl32(arg_x, arg_n)
+  let resEdge = rotl32(edge_x, edge_n)
+  assertEqInt(resNom, 16, "rotl32 nominal resNom == 16")
+  assertEqInt(resEdge, 0, "rotl32 boundary resEdge == 0")
+  ret 0
+
+pub fn test_aead_chachaQuarterRound_2(): int:
+  mut s = [286331153, 16909060, 2609737539, 19088743]
+  chachaQuarterRound(s, 0, 1, 2, 3)
+  assertEqInt(s[0], 3928658676, "chachaQuarterRound word a == 0xea2a92f4")
+  assertEqInt(s[1], 3407673550, "chachaQuarterRound word b == 0xcb1cf8ce")
+  assertEqInt(s[2], 1166100270, "chachaQuarterRound word c == 0x4581472e")
+  assertEqInt(s[3], 1484899515, "chachaQuarterRound word d == 0x5881c4bb")
+  ret 0
+
+pub fn test_aead_readLe32Pad_3(): int:
+  let arg_b = [65, 73, 80, 76]
+  let edge_b = [65]
+  let arg_offset = 1
+  let edge_offset = 0
+  let resNom = readLe32Pad(arg_b, arg_offset)
+  let resEdge = readLe32Pad(edge_b, edge_offset)
+  assertEqInt(resNom, 5001289, "readLe32Pad nominal resNom == 5001289")
+  assertEqInt(resEdge, 65, "readLe32Pad boundary resEdge == 65")
+  ret 0
+
+pub fn test_aead_chacha20Block_4(): int:
+  let arg_key = [65, 73, 80, 76]
+  let edge_key = [65]
+  let arg_counter = 4
+  let edge_counter = 1
+  let arg_nonce = [65, 73, 80, 76]
+  let edge_nonce = [65]
+  let resNom = chacha20Block(arg_key, arg_counter, arg_nonce)
+  let resEdge = chacha20Block(edge_key, edge_counter, edge_nonce)
+  assertEqInt(resNom.len(), 64, "chacha20Block nominal resNom.len() == 64")
+  assertEqInt(resEdge.len(), 64, "chacha20Block boundary resEdge.len() == 64")
+  ret 0
+
+pub fn test_aead_chacha20Xor_5(): int:
+  let arg_key = [65, 73, 80, 76]
+  let edge_key = [65]
+  let arg_startCounter = 4
+  let edge_startCounter = 1
+  let arg_nonce = [65, 73, 80, 76]
+  let edge_nonce = [65]
+  let arg_input = [65, 73, 80, 76]
+  let edge_input = [65]
+  let resNom = chacha20Xor(arg_key, arg_startCounter, arg_nonce, arg_input)
+  let resEdge = chacha20Xor(edge_key, edge_startCounter, edge_nonce, edge_input)
+  assertEqInt(resNom.len(), 4, "chacha20Xor nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "chacha20Xor boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_aead_computeAeadTag_6(): int:
+  let arg_domain = "test"
+  let edge_domain = "a"
+  let arg_key = [65, 73, 80, 76]
+  let edge_key = [65]
+  let arg_nonce = [65, 73, 80, 76]
+  let edge_nonce = [65]
+  let arg_ciphertext = [65, 73, 80, 76]
+  let edge_ciphertext = [65]
+  let arg_aad = [65, 73, 80, 76]
+  let edge_aad = [65]
+  let resNom = computeAeadTag(arg_domain, arg_key, arg_nonce, arg_ciphertext, arg_aad)
+  let resEdge = computeAeadTag(edge_domain, edge_key, edge_nonce, edge_ciphertext, edge_aad)
+  assertEqInt(resNom.len(), 16, "computeAeadTag nominal resNom.len() == 16")
+  assertEqInt(resEdge.len(), 16, "computeAeadTag boundary resEdge.len() == 16")
+  ret 0
+
+pub fn test_aead_chacha20Poly1305Encrypt_7(): int:
+  let arg_key = [65, 73, 80, 76]
+  let edge_key = [65]
+  let arg_nonce = [65, 73, 80, 76]
+  let edge_nonce = [65]
+  let arg_plaintext = [65, 73, 80, 76]
+  let edge_plaintext = [65]
+  let arg_aad = [65, 73, 80, 76]
+  let edge_aad = [65]
+  let resNom = chacha20Poly1305Encrypt(arg_key, arg_nonce, arg_plaintext, arg_aad)
+  let resEdge = chacha20Poly1305Encrypt(edge_key, edge_nonce, edge_plaintext, edge_aad)
+  assertEqInt(resNom.ciphertext.len(), 4, "chacha20Poly1305Encrypt nominal resNom.ciphertext.len() == 4")
+  assertEqInt(resEdge.ciphertext.len(), 1, "chacha20Poly1305Encrypt boundary resEdge.ciphertext.len() == 1")
+  ret 0
+
+pub fn test_aead_chacha20Poly1305Decrypt_8(): int:
+  let key = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+  let nonce = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  let plaintext = [65, 73, 80, 76]
+  let aad = [10, 20]
+  let cipher = chacha20Poly1305Encrypt(key, nonce, plaintext, aad)
+  let decRes = chacha20Poly1305Decrypt(key, nonce, cipher, aad)
+  assert(decRes.isOk() == true, "chacha20Poly1305Decrypt valid ciphertext isOk")
+  let decrypted = decRes.unwrap()
+  assertEqInt(decrypted.len(), 4, "chacha20Poly1305Decrypt plaintext len matches")
+  assertEqInt(decrypted[0], 65, "decrypted byte 0 == 65")
+  assertEqInt(decrypted[1], 73, "decrypted byte 1 == 73")
+  assertEqInt(decrypted[2], 80, "decrypted byte 2 == 80")
+  assertEqInt(decrypted[3], 76, "decrypted byte 3 == 76")
+  let badCipher = AeadCiphertext(ciphertext = cipher.ciphertext, tag = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  let badRes = chacha20Poly1305Decrypt(key, nonce, badCipher, aad)
+  assert(badRes.isOk() == false, "chacha20Poly1305Decrypt tampered tag rejected")
+  ret 0
+
+pub fn test_aead_aes256GcmEncrypt_9(): int:
+  let arg_key = [65, 73, 80, 76]
+  let edge_key = [65]
+  let arg_nonce = [65, 73, 80, 76]
+  let edge_nonce = [65]
+  let arg_plaintext = [65, 73, 80, 76]
+  let edge_plaintext = [65]
+  let arg_aad = [65, 73, 80, 76]
+  let edge_aad = [65]
+  let resNom = aes256GcmEncrypt(arg_key, arg_nonce, arg_plaintext, arg_aad)
+  let resEdge = aes256GcmEncrypt(edge_key, edge_nonce, edge_plaintext, edge_aad)
+  assertEqInt(resNom.ciphertext.len(), 4, "aes256GcmEncrypt nominal resNom.ciphertext.len() == 4")
+  assertEqInt(resEdge.ciphertext.len(), 1, "aes256GcmEncrypt boundary resEdge.ciphertext.len() == 1")
+  ret 0
+
+pub fn test_aead_aes256GcmDecrypt_10(): int:
+  let key = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+  let nonce = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  let plaintext = [65, 73, 80, 76]
+  let aad = [10, 20]
+  let cipher = aes256GcmEncrypt(key, nonce, plaintext, aad)
+  let decRes = aes256GcmDecrypt(key, nonce, cipher, aad)
+  assert(decRes.isOk() == true, "aes256GcmDecrypt valid ciphertext isOk")
+  let decrypted = decRes.unwrap()
+  assertEqInt(decrypted.len(), 4, "aes256GcmDecrypt plaintext len matches")
+  assertEqInt(decrypted[0], 65, "decrypted byte 0 == 65")
+  assertEqInt(decrypted[1], 73, "decrypted byte 1 == 73")
+  assertEqInt(decrypted[2], 80, "decrypted byte 2 == 80")
+  assertEqInt(decrypted[3], 76, "decrypted byte 3 == 76")
+  let badCipher = AeadCiphertext(ciphertext = cipher.ciphertext, tag = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  let badRes = aes256GcmDecrypt(key, nonce, badCipher, aad)
+  assert(badRes.isOk() == false, "aes256GcmDecrypt tampered tag rejected")
+  ret 0
+
+pub fn test_aead_zeroize_11(): int:
+  mut b = bytesFromArray([65, 73, 80, 76])
+  zeroize(b)
+  assertEqInt(b.len(), 4, "zeroize length preserved")
+  assertEqInt(b[0], 0, "zeroize byte 0 == 0")
+  assertEqInt(b[1], 0, "zeroize byte 1 == 0")
+  assertEqInt(b[2], 0, "zeroize byte 2 == 0")
+  assertEqInt(b[3], 0, "zeroize byte 3 == 0")
+  ret 0

@@ -1,0 +1,196 @@
+module Ex237ProcgenPoissonDiscBlueNoiseWindow
+
+import {
+  PoissonDiscConfig2D, poissonDiscSample2D, poissonDiscSample3D
+} from "../std/procgen/poisson_disc"
+import { Rect2D } from "../std/math/geom2d"
+import { AABB3D } from "../std/math/geom3d"
+import { Vec2, Vec3 } from "../std/math/vec_math"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+import { sqrt } from "../std/math/trig"
+
+pub struct PoissonScene(bounds2d: Rect2D, bounds3d: AABB3D, samples2d: [Vec2], samples3d: [Vec3], minDistance: float, seed: int, activeProbeIdx: int)
+
+pub fn createPoissonScene(): PoissonScene:
+  let b2 = Rect2D(x = 0.0, y = 0.0, w = 480.0, h = 480.0, width = 480.0, height = 480.0)
+  let pCfg = PoissonDiscConfig2D(bounds = b2, minDistance = 58.0, maxCandidates = 15, seed = 54321)
+  let s2 = poissonDiscSample2D(pCfg)
+  let b3 = AABB3D(min = Vec3(x = 0.0, y = 0.0, z = 0.0), max = Vec3(x = 260.0, y = 260.0, z = 260.0))
+  let s3 = poissonDiscSample3D(b3, 74.0, 12, 111)
+  ret PoissonScene(
+    bounds2d = b2,
+    bounds3d = b3,
+    samples2d = s2,
+    samples3d = s3,
+    minDistance = 58.0,
+    seed = 54321,
+    activeProbeIdx = 0
+  )
+
+pub fn stepScene(mut scene: PoissonScene, frame: int, dt: float): void:
+  let nextSeed = 54321 + (frame + 1) * 97
+  let nextMinD = 54.0 + float((frame * 3) % 26)
+  let pCfg = PoissonDiscConfig2D(bounds = scene.bounds2d, minDistance = nextMinD, maxCandidates = 15, seed = nextSeed)
+  scene.samples2d = poissonDiscSample2D(pCfg)
+  scene.samples3d = poissonDiscSample3D(scene.bounds3d, nextMinD + 18.0, 12, nextSeed)
+  scene.minDistance = nextMinD
+  scene.seed = nextSeed
+  if scene.samples2d.len() > 0:
+    scene.activeProbeIdx = (frame + 1) % scene.samples2d.len()
+  else:
+    scene.activeProbeIdx = 0
+
+pub fn auditProcgenPoissonDiscBlueNoise(): int:
+  let pCfg = PoissonDiscConfig2D(
+    bounds = Rect2D(x = 0.0, y = 0.0, w = 100.0, h = 100.0, width = 100.0, height = 100.0),
+    minDistance = 15.0,
+    maxCandidates = 20,
+    seed = 54321
+  )
+  let samples2d = poissonDiscSample2D(pCfg)
+  let box3 = AABB3D(min = Vec3(x = 0.0, y = 0.0, z = 0.0), max = Vec3(x = 50.0, y = 50.0, z = 50.0))
+  let samples3d = poissonDiscSample3D(box3, 15.0, 15, 111)
+  ret samples2d.len() + samples3d.len()
+
+pub fn main(): int:
+  let audit = auditProcgenPoissonDiscBlueNoise()
+  println("EX_237_PROCGEN_POISSON_AUDIT=" + str(audit))
+
+  mut scene = createPoissonScene()
+
+  initWindow(1280, 720, "AIPL ex_237: Bridson 2D/3D Poisson-Disc Blue Noise Sampling")
+  mut frame = 0
+  while not windowShouldClose():
+    if frame % 8 == 0:
+      stepScene(scene, frame / 8, 1.0)
+    else:
+      if scene.samples2d.len() > 0:
+        scene.activeProbeIdx = (scene.activeProbeIdx + 1) % scene.samples2d.len()
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_237: BRIDSON 2D & 3D POISSON-DISC BLUE NOISE SAMPLING", 36.0, 24.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Seed=" + str(scene.seed) + " | 2D Samples=" + str(scene.samples2d.len()) + " (r=" + str(int(scene.minDistance)) + "px, cell=r/sqrt(2)) | 3D Samples=" + str(scene.samples3d.len()), 36.0, 52.0, 15.0, rgb(148, 163, 184))
+
+    drawRect(44.0, 88.0, 560.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(44.0, 88.0, 560.0, 594.0, 2.0, rgb(56, 189, 248))
+    drawText("2D BRIDSON GRID (c = r/sqrt(2)), EXCLUSION DISCS & [r, 2r] ANNULUS", 64.0, 104.0, 14.0, rgb(125, 211, 252))
+
+    let ox2 = 84.0
+    let oy2 = 146.0
+    drawRect(ox2, oy2, 480.0, 480.0, rgb(11, 17, 30))
+    drawRectOutline(ox2, oy2, 480.0, 480.0, 1.0, rgb(30, 58, 138))
+
+    let cellSz = scene.minDistance * 0.70710678
+    mut gx = cellSz
+    while gx < 480.0:
+      drawLine(ox2 + gx, oy2, ox2 + gx, oy2 + 480.0, 1.0, rgb(20, 32, 54))
+      gx = gx + cellSz
+    mut gy = cellSz
+    while gy < 480.0:
+      drawLine(ox2, oy2 + gy, ox2 + 480.0, oy2 + gy, 1.0, rgb(20, 32, 54))
+      gy = gy + cellSz
+
+    let halfR = scene.minDistance * 0.5
+    let maxLinkSq = (scene.minDistance * 1.55) * (scene.minDistance * 1.55)
+    mut i = 0
+    while i < scene.samples2d.len():
+      let pi: Vec2 = scene.samples2d[i]
+      mut j = i + 1
+      while j < scene.samples2d.len():
+        let pj: Vec2 = scene.samples2d[j]
+        let dx = pi.x - pj.x
+        let dy = pi.y - pj.y
+        if dx * dx + dy * dy <= maxLinkSq:
+          drawLine(ox2 + pi.x, oy2 + pi.y, ox2 + pj.x, oy2 + pj.y, 1.0, rgb(30, 64, 124))
+        j = j + 1
+      i = i + 1
+
+    if scene.samples2d.len() > 0:
+      let pAct: Vec2 = scene.samples2d[scene.activeProbeIdx % scene.samples2d.len()]
+      let ax = ox2 + pAct.x
+      let ay = oy2 + pAct.y
+      drawCircleOutline(ax, ay, scene.minDistance, 2.0, rgb(245, 158, 11))
+      drawCircleOutline(ax, ay, scene.minDistance * 2.0, 1.5, rgb(217, 119, 6))
+      drawCircle(ax, ay, 8.0, rgb(251, 191, 36))
+
+    mut idx = 0
+    while idx < scene.samples2d.len():
+      let pt: Vec2 = scene.samples2d[idx]
+      let sx = ox2 + pt.x
+      let sy = oy2 + pt.y
+      drawCircleOutline(sx, sy, halfR, 1.0, rgb(37, 99, 235))
+      drawCircle(sx, sy, 4.5, rgb(56, 189, 248))
+      idx = idx + 1
+
+    drawText("Gold rings: Active sample [r, 2r] candidate annulus | Blue circles: r/2 packing radius", 64.0, 646.0, 13.0, rgb(148, 163, 184))
+
+    drawRect(632.0, 88.0, 604.0, 412.0, rgb(17, 24, 39))
+    drawRectOutline(632.0, 88.0, 604.0, 412.0, 2.0, rgb(16, 185, 129))
+    drawText("3D POISSON-DISC VOLUME SAMPLES (ISOMETRIC CUBE + DEPTH STEMS)", 654.0, 104.0, 14.0, rgb(110, 231, 183))
+
+    let bx0 = 735.0
+    let by0 = 195.0
+    let bw3 = 260.0
+    let zSkewX = 0.42
+    let zSkewY = -0.28
+    drawRectOutline(bx0, by0, bw3, bw3, 1.0, rgb(6, 95, 70))
+    let backX = bx0 + bw3 * zSkewX
+    let backY = by0 + bw3 * zSkewY
+    drawRectOutline(backX, backY, bw3, bw3, 1.0, rgb(4, 120, 87))
+    drawLine(bx0, by0, backX, backY, 1.0, rgb(16, 185, 129))
+    drawLine(bx0 + bw3, by0, backX + bw3, backY, 1.0, rgb(16, 185, 129))
+    drawLine(bx0, by0 + bw3, backX, backY + bw3, 1.0, rgb(16, 185, 129))
+    drawLine(bx0 + bw3, by0 + bw3, backX + bw3, backY + bw3, 1.0, rgb(16, 185, 129))
+
+    mut idx3 = 0
+    while idx3 < scene.samples3d.len():
+      let p3: Vec3 = scene.samples3d[idx3]
+      let sx3 = bx0 + p3.x + p3.z * zSkewX
+      let sy3 = by0 + p3.y + p3.z * zSkewY
+      let floorY3 = by0 + bw3 + p3.z * zSkewY
+      let shade = 110 + int((p3.z / 260.0) * 135.0)
+      drawLine(sx3, sy3, sx3, floorY3, 1.0, rgb(15, 82, 62))
+      drawCircle(sx3, floorY3, 2.5, rgb(20, 110, 82))
+      let rad3 = 4.5 + (260.0 - p3.z) * 0.015
+      drawCircleOutline(sx3, sy3, 18.0, 1.0, rgb(6, 95, 70))
+      drawCircle(sx3, sy3, rad3, rgb(52, shade, 165))
+      idx3 = idx3 + 1
+
+    drawRect(632.0, 514.0, 604.0, 168.0, rgb(17, 24, 39))
+    drawRectOutline(632.0, 514.0, 604.0, 168.0, 2.0, rgb(245, 158, 11))
+    drawText("BLUE-NOISE RADIAL PAIRWISE DISTANCE HISTOGRAM (ZERO PAIRS FOR d < r)", 654.0, 530.0, 14.0, rgb(253, 224, 71))
+
+    mut bin = 0
+    while bin < 10:
+      let dLo = float(bin) * 0.3 * scene.minDistance
+      let dHi = float(bin + 1) * 0.3 * scene.minDistance
+      mut count = 0
+      mut a = 0
+      while a < scene.samples2d.len():
+        let pa: Vec2 = scene.samples2d[a]
+        mut b = a + 1
+        while b < scene.samples2d.len():
+          let pb: Vec2 = scene.samples2d[b]
+          let dist = sqrt((pa.x - pb.x) * (pa.x - pb.x) + (pa.y - pb.y) * (pa.y - pb.y))
+          if dist >= dLo and dist < dHi:
+            count = count + 1
+          b = b + 1
+        a = a + 1
+      let bx = 660.0 + float(bin) * 56.0
+      let barH = if count * 2 > 82: 82.0 else: float(count * 2)
+      let barCol = if bin < 3: rgb(239, 68, 68) else: (if bin == 3 or bin == 4: rgb(56, 189, 248) else: rgb(16, 185, 129))
+      drawRect(bx, 642.0 - barH, 42.0, barH, barCol)
+      drawRectOutline(bx, 560.0, 42.0, 82.0, 1.0, rgb(51, 65, 85))
+      let label = if bin < 3: "<r" else: str(bin * 3) + "d"
+      drawText(label, bx + 6.0, 648.0, 12.0, rgb(148, 163, 184))
+      bin = bin + 1
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

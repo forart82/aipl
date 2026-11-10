@@ -1,0 +1,73 @@
+module Ex240AiGoapPlannerAndUtilityAiWindowTest
+
+import {
+  GoapWorldState, GoapAction, GoapPlanner, goapPlannerNew,
+  goapAddAction, goapPlanAStar, goapHasGoalSatisfied,
+  goapHeuristicDistance, utilityResponseCurveLogistic,
+  utilityLinear, utilityQuadratic, utilityExponential,
+  utilityGaussian, utilitySelectBest
+} from "../../std/ai/goap"
+import {
+  GoapScene, createGoapScene, stepScene, auditAiGoapAndUtility
+} from "../../examples/ex_240_ai_goap_planner_and_utility_ai_window"
+
+pub fn test_ai_goap_planner_and_utility_ai(): void:
+  mut planner = goapPlannerNew()
+  let actChop = GoapAction(
+    name = "ChopTree",
+    cost = 2.0,
+    preconditionMask = 1,
+    preconditionCareMask = 1,
+    effectSetMask = 2,
+    effectClearMask = 0
+  )
+  let actGetAxe = GoapAction(
+    name = "PickupAxe",
+    cost = 1.0,
+    preconditionMask = 0,
+    preconditionCareMask = 0,
+    effectSetMask = 1,
+    effectClearMask = 0
+  )
+  goapAddAction(planner, actChop)
+  goapAddAction(planner, actGetAxe)
+
+  let curState = GoapWorldState(stateMask = 0, careMask = 3)
+  let goalState = GoapWorldState(stateMask = 2, careMask = 2)
+  assert(not goapHasGoalSatisfied(curState, goalState), "goapHasGoalSatisfied initially false")
+  assert(goapHeuristicDistance(curState, goalState) == 1, "goapHeuristicDistance == 1")
+  let planOpt = goapPlanAStar(planner, curState, goalState)
+  assert(planOpt.isSome(), "GOAP planner resolves action sequence")
+  let plan = planOpt.unwrap()
+  assert(plan.len() == 2, "plan consists of 2 actions")
+  assert(utilityLinear(5.0, 0.0, 10.0) == 0.5 and utilitySelectBest([0.2, 0.9, 0.4]) == 1, "Utility curves and selection")
+
+  mut scene: GoapScene = createGoapScene()
+  let len0 = scene.activePlan.len()
+  let u0 = scene.cursorUtility
+  assert(len0 == 3, "Initial GOAP plan has 3 steps")
+  stepScene(scene, 0, 0.04)
+  let len1 = scene.activePlan.len()
+  let u1 = scene.cursorUtility
+  assert(len1 < len0 and u1 != u0, "t=0 -> t=1 executes first GOAP action and updates utility score")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.04)
+    f = f + 1
+  let u20 = scene.cursorUtility
+  let mask20 = scene.currentState.stateMask
+  assert(u20 != u1 and scene.bestActionIdx >= 0, "t=1 -> t=20 progresses GOAP execution and utility evaluation")
+
+  while f <= 100:
+    stepScene(scene, f, 0.04)
+    f = f + 1
+  assert(scene.cursorUtility != u20 and (scene.currentState.stateMask != mask20 or scene.activePlan.len() >= 0), "t=20 -> t=100 continues cyclic GOAP planning and utility curve scanning")
+
+  let audit = auditAiGoapAndUtility()
+  assert(audit == 32, "GOAP planner and Utility AI audit")
+
+pub fn main(): int:
+  test_ai_goap_planner_and_utility_ai()
+  println("PASS: ex_240_ai_goap_planner_and_utility_ai_window_test")
+  ret 0

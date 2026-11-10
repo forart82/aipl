@@ -1,0 +1,212 @@
+// Step 20 Automated Verification Test Suite
+// Verifies: aipl help, aipl docs, aipl examples CLI commands and subcommands
+module tests.functions.os.cli_help_docs_and_examples_explorer_test
+
+import * from "std/os/process"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+fn getAiplBin(): str:
+  if fileExists("./bin/aipl"):
+    ret "./bin/aipl"
+  if fileExists("../../../bin/aipl"):
+    ret "../../../bin/aipl"
+  ret "aipl"
+
+pub fn test_aipl_help_default(): int:
+  let bin = getAiplBin()
+  let res = runCommand(bin, ["help"])
+  assert(res.isOk(), "aipl help execution succeeded")
+  let out = res.unwrap()
+  assertEqInt(out.status, 0, "aipl help exit code is 0")
+  assert(out.contains("AI AGENT QUICK-START & KNOWLEDGE LIBRARY:"), "help contains quick-start header")
+  assert(out.contains("aipl help quickstart"), "help contains quickstart topic")
+  assert(out.contains("aipl help syntax"), "help contains syntax topic")
+  assert(out.contains("aipl help builtins"), "help contains builtins topic")
+  assert(out.contains("aipl help std"), "help contains std topic")
+  assert(out.contains("aipl help errors"), "help contains errors topic")
+  ret 0
+
+pub fn test_aipl_help_topics(): int:
+  let bin = getAiplBin()
+  let resQ = runCommand(bin, ["help", "quickstart"])
+  assert(resQ.isOk(), "aipl help quickstart ran")
+  let outQ = resQ.unwrap()
+  assertEqInt(outQ.status, 0, "help quickstart status 0")
+  assert(outQ.contains("60-Second AI & Developer Quickstart"), "quickstart content verified")
+
+  let resS = runCommand(bin, ["help", "syntax"])
+  assert(resS.isOk(), "aipl help syntax ran")
+  let outS = resS.unwrap()
+  assertEqInt(outS.status, 0, "help syntax status 0")
+  assert(outS.contains("Lexical & AST Grammar Reference"), "syntax content verified")
+
+  let resB = runCommand(bin, ["help", "builtins"])
+  assert(resB.isOk(), "aipl help builtins ran")
+  let outB = resB.unwrap()
+  assertEqInt(outB.status, 0, "help builtins status 0")
+  assert(outB.contains("Core Built-in Functions"), "builtins content verified")
+
+  let resM = runCommand(bin, ["help", "std/math"])
+  assert(resM.isOk(), "aipl help std/math ran")
+  let outM = resM.unwrap()
+  assertEqInt(outM.status, 0, "help std/math status 0")
+  assert(outM.contains("std/math"), "help std/math content verified")
+
+  let resE = runCommand(bin, ["help", "errors"])
+  assert(resE.isOk(), "aipl help errors ran")
+  let outE = resE.unwrap()
+  assertEqInt(outE.status, 0, "help errors status 0")
+  assert(outE.contains("Compiler Diagnostics"), "errors content verified")
+  ret 0
+
+pub fn test_aipl_help_symbol_lookup(): int:
+  let bin = getAiplBin()
+  let resV = runCommand(bin, ["help", "Vec2"])
+  assert(resV.isOk(), "aipl help Vec2 ran")
+  let outV = resV.unwrap()
+  assertEqInt(outV.status, 0, "help Vec2 status 0")
+  assert(outV.contains("pub struct Vec2"), "help Vec2 finds struct definition")
+  assert(outV.contains("std/math/vec_math"), "help Vec2 finds std/math/vec_math")
+  assert(not outV.contains("std/ai/pathfind"), "help Vec2 does not falsely report std/ai/pathfind")
+
+  let resC = runCommand(bin, ["help", "chacha20"])
+  assert(resC.isOk(), "aipl help chacha20 ran")
+  let outC = resC.unwrap()
+  assertEqInt(outC.status, 0, "help chacha20 status 0")
+  assert(outC.contains("chacha20Poly1305Encrypt"), "help chacha20 finds exact function")
+  assert(outC.contains("std/crypto/aead"), "help chacha20 finds std/crypto/aead")
+  ret 0
+
+pub fn test_aipl_docs_search(): int:
+  let bin = getAiplBin()
+  let res = runCommand(bin, ["docs", "search", "chacha20"])
+  assert(res.isOk(), "aipl docs search chacha20 ran")
+  let out = res.unwrap()
+  assertEqInt(out.status, 0, "docs search status 0")
+  assert(out.contains("chacha20"), "docs search matches chacha20")
+
+  let resJson = runCommand(bin, ["docs", "search", "--json", "chacha20"])
+  assert(resJson.isOk(), "aipl docs search --json ran")
+  let outJson = resJson.unwrap()
+  assertEqInt(outJson.status, 0, "docs search json status 0")
+  assert(outJson.contains("\"query\":\"chacha20\""), "docs search json contains query field")
+
+  let resSort = runCommand(bin, ["docs", "search", "sortStringsNatural"])
+  assert(resSort.isOk(), "aipl docs search sortStringsNatural ran")
+  let outSort = resSort.unwrap()
+  assertEqInt(outSort.status, 0, "docs search sortStringsNatural status 0")
+  assert(outSort.contains("std/collections/dyn_vec"), "docs search finds std/collections/dyn_vec")
+  assert(outSort.contains("ex_007"), "docs search finds example ex_007 demonstrating sortStringsNatural")
+
+  let resMulti = runCommand(bin, ["docs", "search", "matrix", "rotation"])
+  assert(resMulti.isOk(), "aipl docs search matrix rotation ran")
+  let outMulti = resMulti.unwrap()
+  assertEqInt(outMulti.status, 0, "docs search multi status 0")
+  assert(outMulti.contains("rotation"), "docs search multi-word finds rotation")
+
+  let resDijkstra = runCommand(bin, ["docs", "search", "Dijkstra"])
+  assert(resDijkstra.isOk(), "aipl docs search Dijkstra ran")
+  let outDijkstra = resDijkstra.unwrap()
+  assertEqInt(outDijkstra.status, 0, "docs search Dijkstra status 0")
+  assert(outDijkstra.contains("std/ai/pathfind"), "docs search Dijkstra finds pathfind")
+  assert(outDijkstra.contains("cookbook.md"), "docs search Dijkstra finds cookbook recipe")
+  ret 0
+
+pub fn test_aipl_docs_routing(): int:
+  let bin = getAiplBin()
+  let resIdx = runCommand(bin, ["docs", "index"])
+  assert(resIdx.isOk(), "aipl docs index ran")
+  let outIdx = resIdx.unwrap()
+  assertEqInt(outIdx.status, 0, "docs index status 0")
+  assert(outIdx.contains("Documentation") or outIdx.contains("AIPL"), "docs index contains header")
+
+  let resTut = runCommand(bin, ["docs", "tutorial", "1"])
+  assert(resTut.isOk(), "aipl docs tutorial 1 ran")
+  let outTut = resTut.unwrap()
+  assertEqInt(outTut.status, 0, "docs tutorial 1 status 0")
+  assert(outTut.contains("Chapter 01") or outTut.contains("Getting Started"), "docs tutorial 1 content verified")
+
+  let resMath = runCommand(bin, ["docs", "std/math"])
+  assert(resMath.isOk(), "aipl docs std/math ran")
+  let outMath = resMath.unwrap()
+  assertEqInt(outMath.status, 0, "docs std/math status 0")
+  assert(outMath.contains("Standard Library Domain: std/math"), "docs std/math header verified")
+  assert(outMath.contains("std/math/vec_math"), "docs std/math lists vec_math")
+  ret 0
+
+pub fn test_aipl_docs_html(): int:
+  let bin = getAiplBin()
+  let res = runCommand(bin, ["docs", "html", "-o", "/tmp/test_docs.html"])
+  assert(res.isOk(), "aipl docs html ran")
+  let out = res.unwrap()
+  assertEqInt(out.status, 0, "docs html status 0")
+  assert(out.contains("/tmp/test_docs.html"), "docs html path verified")
+  assert(out.contains("portal"), "docs html portal message verified")
+  ret 0
+
+pub fn test_aipl_examples_list(): int:
+  let bin = getAiplBin()
+  let resAll = runCommand(bin, ["examples", "list", "--all"])
+  assert(resAll.isOk(), "aipl examples list --all ran")
+  let outAll = resAll.unwrap()
+  assertEqInt(outAll.status, 0, "examples list --all status 0")
+  assert(outAll.contains("ex_001"), "examples list --all contains ex_001")
+  assert(outAll.contains("ex_250"), "examples list --all contains ex_250")
+
+  let resWin = runCommand(bin, ["examples", "list", "--window"])
+  assert(resWin.isOk(), "aipl examples list --window ran")
+  let outWin = resWin.unwrap()
+  assertEqInt(outWin.status, 0, "examples list --window status 0")
+  assert(outWin.contains("132"), "examples list --window count verified")
+
+  let resCli = runCommand(bin, ["examples", "list", "--cli"])
+  assert(resCli.isOk(), "aipl examples list --cli ran")
+  let outCli = resCli.unwrap()
+  assertEqInt(outCli.status, 0, "examples list --cli status 0")
+  assert(outCli.contains("118"), "examples list --cli count verified")
+  ret 0
+
+pub fn test_aipl_examples_show_and_search(): int:
+  let bin = getAiplBin()
+  let resSearch = runCommand(bin, ["examples", "search", "chacha20"])
+  assert(resSearch.isOk(), "aipl examples search chacha20 ran")
+  let outSearch = resSearch.unwrap()
+  assertEqInt(outSearch.status, 0, "examples search status 0")
+  assert(outSearch.contains("ex_090"), "examples search found ex_090")
+
+  let resSearchDyn = runCommand(bin, ["examples", "search", "dyn_vec"])
+  assert(resSearchDyn.isOk(), "aipl examples search dyn_vec ran")
+  let outSearchDyn = resSearchDyn.unwrap()
+  assertEqInt(outSearchDyn.status, 0, "examples search dyn_vec status 0")
+  assert(outSearchDyn.contains("ex_007"), "examples search dyn_vec finds ex_007")
+
+  let resShow = runCommand(bin, ["examples", "show", "001"])
+  assert(resShow.isOk(), "aipl examples show 001 ran")
+  let outShow = resShow.unwrap()
+  assertEqInt(outShow.status, 0, "examples show 001 status 0")
+  assert(outShow.contains("hello_world"), "examples show found ex_001 source")
+
+  let resTwin = runCommand(bin, ["examples", "show", "001", "--test"])
+  assert(resTwin.isOk(), "aipl examples show 001 --test ran")
+  let outTwin = resTwin.unwrap()
+  assertEqInt(outTwin.status, 0, "examples show --test status 0")
+  assert(outTwin.contains("test"), "examples show --test found twin test source")
+
+  let resTest = runCommand(bin, ["examples", "test", "7"])
+  assert(resTest.isOk(), "aipl examples test 7 ran")
+  let outTest = resTest.unwrap()
+  assertEqInt(outTest.status, 0, "examples test 7 status 0")
+  assert(outTest.contains("PASS: ex_007"), "examples test 7 passed")
+  ret 0
+
+pub fn main(): int:
+  test_aipl_help_default()
+  test_aipl_help_topics()
+  test_aipl_help_symbol_lookup()
+  test_aipl_docs_search()
+  test_aipl_docs_routing()
+  test_aipl_docs_html()
+  test_aipl_examples_list()
+  test_aipl_examples_show_and_search()
+  println("PASS: tests/functions/os/cli_help_docs_and_examples_explorer_test.aipl")
+  ret 0

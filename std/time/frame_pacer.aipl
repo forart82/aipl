@@ -1,0 +1,118 @@
+// ============================================================================
+// Module: std/time/frame_pacer (FramePacerMod)
+// Layer 1 (Core Primitives & Math) — Fixed-Timestep Accumulator & Frame Governor
+// ============================================================================
+module FramePacerMod
+
+import {
+  Duration,
+  durationZero,
+  durationFromNanos,
+  NANOS_PER_SECOND,
+  NANOS_PER_MILLI
+} from "./duration"
+import { Instant, instantNow, sleepMs } from "./instant"
+
+pub struct FixedTimestepAccumulator:
+  targetDt: Duration
+  maxSubSteps: int
+  accumulator: Duration
+  lastTime: Instant
+
+pub struct FrameRateGovernor:
+  targetFps: int
+  targetFrameDuration: Duration
+  lastFrameTime: Instant
+  currentFps: float
+
+pub fn fixedTimestepAccumulatorNew(targetHertz: int = 60, maxSubSteps: int = 5): FixedTimestepAccumulator:
+  mut hz = targetHertz
+  if hz < 1:
+    hz = 60
+  mut maxSteps = maxSubSteps
+  if maxSteps < 1:
+    maxSteps = 5
+  let dtNs = NANOS_PER_SECOND / hz
+  ret FixedTimestepAccumulator(
+    targetDt = durationFromNanos(dtNs),
+    maxSubSteps = maxSteps,
+    accumulator = durationZero(),
+    lastTime = instantNow()
+  )
+
+pub fn (mut self: FixedTimestepAccumulator) advance(currentTime: Instant): int:
+  let frameDelta = currentTime.durationSince(self.lastTime)
+  self.lastTime = currentTime
+  let dtNs = self.targetDt.toNanos()
+  if dtNs <= 0:
+    ret 0
+  mut totalAccNs = self.accumulator.toNanos() + frameDelta.toNanos()
+  let maxAllowedNs = dtNs * self.maxSubSteps
+  mut steps = totalAccNs / dtNs
+  if steps > self.maxSubSteps:
+    steps = self.maxSubSteps
+    totalAccNs = maxAllowedNs
+  let remNs = totalAccNs - (steps * dtNs)
+  self.accumulator = durationFromNanos(if remNs >= 0: remNs else: 0)
+  ret steps
+
+pub fn (self: FixedTimestepAccumulator) alpha(): float:
+  let dtNs = self.targetDt.toNanos()
+  if dtNs <= 0:
+    ret 0.0
+  let accNs = self.accumulator.toNanos()
+  if accNs <= 0:
+    ret 0.0
+  if accNs >= dtNs:
+    ret 1.0
+  ret float(accNs) / float(dtNs)
+
+pub fn (self: FixedTimestepAccumulator) stepSeconds(): float:
+  ret self.targetDt.toSecondsFloat()
+
+pub fn (mut self: FixedTimestepAccumulator) reset(now: Instant): void:
+  self.accumulator = durationZero()
+  self.lastTime = now
+
+pub fn frameRateGovernorNew(targetFps: int = 60): FrameRateGovernor:
+  mut fps = targetFps
+  if fps < 1:
+    fps = 60
+  let frameNs = NANOS_PER_SECOND / fps
+  ret FrameRateGovernor(
+    targetFps = fps,
+    targetFrameDuration = durationFromNanos(frameNs),
+    lastFrameTime = instantNow(),
+    currentFps = float(fps)
+  )
+
+pub fn (mut self: FrameRateGovernor) beginFrame(): void:
+  self.lastFrameTime = instantNow()
+
+pub fn (mut self: FrameRateGovernor) endFrameAndSleep(): Duration:
+  let now = instantNow()
+  let workDur = now.durationSince(self.lastFrameTime)
+  let targetNs = self.targetFrameDuration.toNanos()
+  let workNs = workDur.toNanos()
+  if workNs < targetNs:
+    let sleepNs = targetNs - workNs
+    let sleepMillis = sleepNs / NANOS_PER_MILLI
+    if sleepMillis > 0:
+      sleepMs(sleepMillis)
+    let afterSleep = instantNow()
+    let totalNs = afterSleep.durationSince(self.lastFrameTime).toNanos()
+    if totalNs > 0:
+      self.currentFps = 1000000000.0 / float(totalNs)
+    self.lastFrameTime = afterSleep
+    ret durationFromNanos(sleepNs)
+  if workNs > 0:
+    self.currentFps = 1000000000.0 / float(workNs)
+  self.lastFrameTime = now
+  ret durationZero()
+
+pub fn (mut self: FrameRateGovernor) setTargetFps(targetFps: int): void:
+  mut fps = targetFps
+  if fps < 1:
+    fps = 60
+  self.targetFps = fps
+  self.targetFrameDuration = durationFromNanos(NANOS_PER_SECOND / fps)

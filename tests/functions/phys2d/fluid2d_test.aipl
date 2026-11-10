@@ -1,0 +1,50 @@
+module tests.functions.phys2d.fluid2d_test
+
+import * from "std/phys2d/fluid2d"
+import { maxFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_fluid2d_sphFluidWorldNew_1(): int:
+  let arg_smoothingRadius = 2.0
+  let edge_smoothingRadius = 1.0
+  let arg_restDensity = 1.0
+  let edge_restDensity = 0.5
+  let arg_stiffness = 1.0
+  let edge_stiffness = 0.5
+  let arg_viscosity = 1.0
+  let edge_viscosity = 0.5
+  let resNom = sphFluidWorldNew(arg_smoothingRadius, arg_restDensity, arg_stiffness, arg_viscosity)
+  let resEdge = sphFluidWorldNew(edge_smoothingRadius, edge_restDensity, edge_stiffness, edge_viscosity)
+  assertEqInt(resNom.particles.len(), 0, "sphFluidWorldNew nominal resNom.particles.len() == 0")
+  assertEqInt(resEdge.particles.len(), 0, "sphFluidWorldNew boundary resEdge.particles.len() == 0")
+  ret 0
+
+pub fn test_fluid2d_sphFluidStep_2(): int:
+  let arg_world = SphFluidWorld2D(particles = [], smoothingRadius = 2.0, restDensity = 1.0, gasStiffness = 1.0, viscosity = 1.0)
+  let edge_world = SphFluidWorld2D(particles = [], smoothingRadius = 1.0, restDensity = 0.5, gasStiffness = 0.5, viscosity = 0.5)
+  let arg_gravity = Vec2(x = 1.0, y = 1.0)
+  let edge_gravity = Vec2(x = 0.5, y = 0.5)
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  sphFluidStep(arg_world, arg_gravity, arg_dt)
+  sphFluidStep(edge_world, edge_gravity, edge_dt)
+  assertEqInt(arg_world.particles.len(), 0, "sphFluidStep nominal arg_world.particles.len() == 0")
+  assertEqInt(edge_world.particles.len(), 0, "sphFluidStep boundary edge_world.particles.len() == 0")
+  ret 0
+
+pub fn test_fluid2d_cellularSandStep_3(): int:
+  let arg_grid = CellularSandGrid2D(width = 4, height = 4, cells = [])
+  let edge_grid = CellularSandGrid2D(width = 4, height = 4, cells = [])
+  let resNom = cellularSandStep(arg_grid)
+  let resEdge = cellularSandStep(edge_grid)
+  assertEqInt(resNom, 0, "cellularSandStep nominal resNom == 0")
+  assertEqInt(resEdge, 0, "cellularSandStep boundary resEdge == 0")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_fluid2d_sphFluidWorldNew_1(), 0, "test_fluid2d_sphFluidWorldNew_1")
+  assertEqInt(test_fluid2d_sphFluidStep_2(), 0, "test_fluid2d_sphFluidStep_2")
+  assertEqInt(test_fluid2d_cellularSandStep_3(), 0, "test_fluid2d_cellularSandStep_3")
+  ret 0

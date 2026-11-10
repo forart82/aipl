@@ -1,0 +1,62 @@
+// ============================================================================
+// Step 4.6: Exhaustive Per-Function Unit Tests for std/alloc/ring_alloc.aipl (6)
+// Target: tests/functions/alloc/ring_alloc_test.aipl
+// ============================================================================
+module RingAllocTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  RingBufferAllocator,
+  ringAllocNew,
+  ringAvailable,
+  ringAlloc,
+  ringFreeOldest,
+  ringReset,
+  ringDestroy
+} from "../../../std/alloc/ring_alloc.aipl"
+
+pub fn test_ring_alloc_lifecycle(): int:
+  mut ring = ringAllocNew(256)
+  assert(ring.baseAddr > 0, "baseAddr > 0")
+  assertEqInt(ring.capacity, 256, "capacity 256")
+  assertEqInt(ringAvailable(ring), 256, "initial available 256")
+
+  let a1 = ringAlloc(ring, 100)
+  assert(a1 > 0, "alloc 100 bytes")
+  assertEqInt(ringAvailable(ring), 156, "available after 100 is 156")
+
+  let a2 = ringAlloc(ring, 100)
+  assert(a2 > 0, "alloc another 100 bytes")
+  assertEqInt(ringAvailable(ring), 56, "available after 200 is 56")
+
+  // Over-allocation when insufficient space
+  let a3 = ringAlloc(ring, 100)
+  assertEqInt(a3, 0, "alloc 100 bytes on 56 available returns 0")
+
+  // Free oldest 100 bytes
+  ringFreeOldest(ring, 100)
+  assertEqInt(ringAvailable(ring), 156, "available after freeOldest is 156")
+
+  // Now allocate 80 bytes (wraps around circular buffer)
+  let a4 = ringAlloc(ring, 80)
+  assert(a4 > 0, "alloc after freeOldest succeeds with wrap-around")
+
+  ringReset(ring)
+  assertEqInt(ringAvailable(ring), 256, "available after reset is 256")
+  assertEqInt(ring.head, 0, "head 0 after reset")
+  assertEqInt(ring.tail, 0, "tail 0 after reset")
+
+  ringDestroy(ring)
+  assertEqInt(ring.baseAddr, 0, "baseAddr 0 after destroy")
+  assertEqInt(ring.capacity, 0, "capacity 0 after destroy")
+  assertEqInt(ringAvailable(ring), 0, "available 0 after destroy")
+  ret 0
+
+pub fn main(): int:
+  test_ring_alloc_lifecycle()
+  println("PASS: ring_alloc_test")
+  ret 0

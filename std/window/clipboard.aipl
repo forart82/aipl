@@ -1,0 +1,44 @@
+module WindowClipboard
+
+// ============================================================================
+// std/window/clipboard.aipl — System Clipboard Read/Write & MIME Payloads
+// ============================================================================
+
+pub const CLIPBOARD_MIME_TEXT: int = 0
+pub const CLIPBOARD_MIME_HTML: int = 1
+pub const CLIPBOARD_MIME_IMAGE: int = 2
+
+pub struct ClipboardItem(mimeType: int, data: [int], text: str)
+
+pub struct ClipboardState(items: Map[int, ClipboardItem], changeCount: int)
+
+pub fn createClipboardState(): ClipboardState:
+  mut m: Map[int, ClipboardItem] = Map.new()
+  ret ClipboardState(items = m, changeCount = 0)
+
+pub fn setClipboardText(state: ClipboardState, text: str): ClipboardState:
+  mut m = state.items
+  mut bytes: [int] = []
+  mut i = 0
+  while i < text.len:
+    bytes.push(text.charCodeAt(i))
+    i += 1
+  let item = ClipboardItem(mimeType = CLIPBOARD_MIME_TEXT, data = bytes, text = text)
+  m.set(CLIPBOARD_MIME_TEXT, item)
+  ret ClipboardState(items = m, changeCount = state.changeCount + 1)
+
+pub fn getClipboardText(state: ClipboardState): Option[str]:
+  if state.items.containsKey(CLIPBOARD_MIME_TEXT):
+    let item = state.items.get(CLIPBOARD_MIME_TEXT).unwrap()
+    ret Some(item.text)
+  ret None
+
+pub fn hasClipboardText(state: ClipboardState): bool:
+  if state.items.containsKey(CLIPBOARD_MIME_TEXT):
+    let item = state.items.get(CLIPBOARD_MIME_TEXT).unwrap()
+    ret item.text.len > 0
+  ret false
+
+pub fn clearClipboard(state: ClipboardState): ClipboardState:
+  mut m: Map[int, ClipboardItem] = Map.new()
+  ret ClipboardState(items = m, changeCount = state.changeCount + 1)

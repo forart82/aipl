@@ -1,0 +1,98 @@
+/// # Module: `std/phys3d/collider3d` (`Collider3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 3D geometric colliders (Sphere, Box/OBB, Capsule, Cylinder, ConvexHull, TriMesh)
+/// with physical friction/restitution materials and world-space AABB calculation.
+module Collider3DMod
+
+import { maxFloat } from "std/math/consts"
+import { Vec3 } from "std/math/vec_math"
+import { Quat } from "std/math/quat"
+import { AABB3D } from "std/math/geom3d"
+import { Transform3D } from "std/spatial/continuous_world3d"
+
+pub enum ColliderShapeType3D:
+  Sphere
+  Box
+  Capsule
+  Cylinder
+  ConvexHull
+  TriMesh
+
+pub struct PhysicsMaterial3D(restitution: float, staticFriction: float, dynamicFriction: float, density: float)
+
+pub struct Collider3D(shapeType: ColliderShapeType3D, localTransform: Transform3D, sphereRadius: float, boxHalfExtents: Vec3, capsuleRadius: float, capsuleHeight: float, cylinderRadius: float, cylinderHeight: float, convexVertices: [Vec3], material: PhysicsMaterial3D, isSensor: bool, collisionLayer: int, collisionMask: int)
+
+fn identityTransform3D(): Transform3D:
+  ret Transform3D(
+    position = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    rotation = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0),
+    scale = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  )
+
+pub fn sphereColliderNew(radius: float, material: PhysicsMaterial3D): Collider3D:
+  mut emptyV: [Vec3] = []
+  ret Collider3D(
+    shapeType = ColliderShapeType3D.Sphere,
+    localTransform = identityTransform3D(),
+    sphereRadius = radius,
+    boxHalfExtents = Vec3(x = radius, y = radius, z = radius),
+    capsuleRadius = 0.0,
+    capsuleHeight = 0.0,
+    cylinderRadius = 0.0,
+    cylinderHeight = 0.0,
+    convexVertices = emptyV,
+    material = material,
+    isSensor = false,
+    collisionLayer = 1,
+    collisionMask = -1
+  )
+
+pub fn boxCollider3dNew(halfExtents: Vec3, material: PhysicsMaterial3D): Collider3D:
+  mut emptyV: [Vec3] = []
+  ret Collider3D(
+    shapeType = ColliderShapeType3D.Box,
+    localTransform = identityTransform3D(),
+    sphereRadius = 0.0,
+    boxHalfExtents = halfExtents,
+    capsuleRadius = 0.0,
+    capsuleHeight = 0.0,
+    cylinderRadius = 0.0,
+    cylinderHeight = 0.0,
+    convexVertices = emptyV,
+    material = material,
+    isSensor = false,
+    collisionLayer = 1,
+    collisionMask = -1
+  )
+
+pub fn capsuleCollider3dNew(radius: float, height: float, material: PhysicsMaterial3D): Collider3D:
+  mut emptyV: [Vec3] = []
+  let hy = height * 0.5 + radius
+  ret Collider3D(
+    shapeType = ColliderShapeType3D.Capsule,
+    localTransform = identityTransform3D(),
+    sphereRadius = radius,
+    boxHalfExtents = Vec3(x = radius, y = hy, z = radius),
+    capsuleRadius = radius,
+    capsuleHeight = height,
+    cylinderRadius = 0.0,
+    cylinderHeight = 0.0,
+    convexVertices = emptyV,
+    material = material,
+    isSensor = false,
+    collisionLayer = 1,
+    collisionMask = -1
+  )
+
+pub fn collider3dComputeAABB(collider: Collider3D, bodyTransform: Transform3D): AABB3D:
+  let lt: Transform3D = collider.localTransform
+  let cPos: Vec3 = bodyTransform.position.add(lt.position)
+  if collider.shapeType == ColliderShapeType3D.Sphere:
+    let r = collider.sphereRadius
+    let rv = Vec3(x = r, y = r, z = r)
+    ret AABB3D(min = cPos.sub(rv), max = cPos.add(rv))
+  let he: Vec3 = collider.boxHalfExtents
+  let maxE = maxFloat(he.x, maxFloat(he.y, he.z))
+  let ev = if bodyTransform.rotation.w == 1.0: he else: Vec3(x = maxE, y = maxE, z = maxE)
+  ret AABB3D(min = cPos.sub(ev), max = cPos.add(ev))

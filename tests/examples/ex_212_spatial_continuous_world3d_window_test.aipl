@@ -1,0 +1,61 @@
+module Ex212SpatialContinuousWorld3dWindowTest
+
+import {
+  buildSpatialContinuous3dAudit, stepCameraYawRad3D, stepSphereQueryCenter3D
+} from "../../examples/ex_212_spatial_continuous_world3d_window"
+import { Vec3 } from "../../std/math/vec_math"
+import { Quat } from "../../std/math/quat"
+import { AABB3D, Sphere3D, Plane3D, Ray3D, Frustum3D } from "../../std/math/geom3d"
+import {
+  Transform3D, SpatialObject3D, continuousWorld3dNew,
+  continuousWorld3dInsert, continuousWorld3dUpdateTransform,
+  continuousWorld3dQuerySphere, continuousWorld3dQueryFrustum,
+  continuousWorld3dRaycast
+} from "../../std/spatial/continuous_world3d"
+
+pub fn test_spatial_continuous_world3d(): void:
+  let wb = AABB3D(min = Vec3(x = -100.0, y = -100.0, z = -100.0), max = Vec3(x = 100.0, y = 100.0, z = 100.0))
+  mut cw = continuousWorld3dNew(wb)
+  let t3 = Transform3D(
+    position = Vec3(x = 0.0, y = 0.0, z = 20.0),
+    rotation = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0),
+    scale = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  )
+  let obj = SpatialObject3D(
+    id = 301,
+    transform = t3,
+    boundingBox = AABB3D(min = Vec3(x = -2.0, y = -2.0, z = 18.0), max = Vec3(x = 2.0, y = 2.0, z = 22.0)),
+    boundingSphere = Sphere3D(center = Vec3(x = 0.0, y = 0.0, z = 20.0), radius = 2.0),
+    layerMask = 1
+  )
+  continuousWorld3dInsert(cw, obj)
+
+  let sphHits = continuousWorld3dQuerySphere(cw, Vec3(x = 0.0, y = 0.0, z = 19.0), 5.0, 1)
+  assert(sphHits.len() == 1 and sphHits[0] == 301, "continuousWorld3dQuerySphere finds 301")
+
+  let frust = Frustum3D(planes = [Plane3D(normal = Vec3(x = 0.0, y = 0.0, z = 1.0), distance = 0.0, d = 0.0)])
+  let frustHits = continuousWorld3dQueryFrustum(cw, frust, 1)
+  assert(frustHits.len() == 1, "continuousWorld3dQueryFrustum finds 301")
+
+  let ray = Ray3D(origin = Vec3(x = 0.0, y = 0.0, z = 0.0), dir = Vec3(x = 0.0, y = 0.0, z = 1.0))
+  let hit = continuousWorld3dRaycast(cw, ray, 100.0, 1)
+  assert(hit.isSome(), "continuousWorld3dRaycast intersects 301")
+  assert(continuousWorld3dUpdateTransform(cw, 301, t3), "continuousWorld3dUpdateTransform updates transform")
+  assert(buildSpatialContinuous3dAudit() == 304, "buildSpatialContinuous3dAudit returns 301 + 1 + 1 + 1 == 304")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let y0 = stepCameraYawRad3D(0)
+  let y1 = stepCameraYawRad3D(1)
+  let y20 = stepCameraYawRad3D(20)
+  let y100 = stepCameraYawRad3D(100)
+  assert(y0 != y1 and y1 != y20 and y20 != y100, "camera yaw advances across t=0,1,20,100")
+
+  let c0 = stepSphereQueryCenter3D(0)
+  let c20 = stepSphereQueryCenter3D(20)
+  let c100 = stepSphereQueryCenter3D(100)
+  assert(c0.x != c20.x and c20.x != c100.x, "3D sphere query center sweeps across t=0,20,100")
+
+pub fn main(): int:
+  test_spatial_continuous_world3d()
+  println("PASS: ex_212_spatial_continuous_world3d_window_test")
+  ret 0

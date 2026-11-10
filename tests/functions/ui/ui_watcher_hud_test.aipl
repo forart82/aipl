@@ -1,0 +1,49 @@
+// Test suite for std/ui/ui_watcher_hud.aipl (step_22.5)
+module tests.functions.ui.ui_watcher_hud_test
+
+import * from "std/ui/ui_watcher_hud"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_ui_watcher_hud_createWatcherHudState(): int:
+  let hud = createWatcherHudState(60, 48)
+  assertEqInt(hud.fps, 60, "fps == 60")
+  assertEqInt(hud.pillHitboxDp, 48, "pillHitboxDp == 48")
+  assert(hud.hasError == false, "no initial error")
+  assertEqStr(hud.errorCode, "", "empty initial errorCode")
+  let smallDp = createWatcherHudState(120, 24)
+  assertEqInt(smallDp.pillHitboxDp, 48, "24dp clamped up to 48dp Fitts minimum")
+  let zeroDp = createWatcherHudState(30, 0)
+  assertEqInt(zeroDp.pillHitboxDp, 48, "0dp clamped up to 48dp Fitts minimum")
+  let largeDp = createWatcherHudState(60, 72)
+  assertEqInt(largeDp.pillHitboxDp, 72, "large 72dp preserved")
+  ret 0
+
+pub fn test_ui_watcher_hud_renderWatcherOverlayPill(): int:
+  assertEqStr(renderWatcherOverlayPill(60, 3, false, "", 0), "LIVE 60 FPS | #3", "healthy live pill")
+  assertEqStr(renderWatcherOverlayPill(60, 3, true, "E1001", 14), "ERR E1001 L14 | #3", "error pill with code and line")
+  assertEqStr(renderWatcherOverlayPill(0, 0, true, "", 1), "ERR E1001 L1 | #0", "default E1001 when errorCode empty")
+  assertEqStr(renderWatcherOverlayPill(0, 0, false, "", 0), "LIVE 0 FPS | #0", "boundary 0 FPS and #0 reloads")
+  assertEqStr(renderWatcherOverlayPill(120, 9, true, "E2004", 42), "ERR E2004 L42 | #9", "type error E2004 pill")
+  ret 0
+
+pub fn test_ui_watcher_hud_renderWatcherDiagnosticToast(): int:
+  assertEqStr(renderWatcherDiagnosticToast("E1001", 14, 5, "Unexpected token"), "[SYNTAX:E1001] L14:C5 - Unexpected token", "E1xx syntax toast")
+  assertEqStr(renderWatcherDiagnosticToast("E2004", 28, 12, "Type mismatch int vs str"), "[TYPE:E2004] L28:C12 - Type mismatch int vs str", "E2xx type toast")
+  assertEqStr(renderWatcherDiagnosticToast("E3002", 9, 3, "Precondition req failed"), "[CONTRACT:E3002] L9:C3 - Precondition req failed", "E3xx contract toast")
+  assertEqStr(renderWatcherDiagnosticToast("", 0, 0, ""), "", "empty errorCode produces empty toast")
+  assertEqStr(renderWatcherDiagnosticToast("   ", 0, 0, ""), "", "whitespace errorCode produces empty toast")
+  assertEqStr(renderWatcherDiagnosticToast("E9999", 1, 1, "unknown"), "[DIAG:E9999] L1:C1 - unknown", "non-E1/E2/E3 code uses DIAG category")
+  ret 0
+
+pub fn test_ui_watcher_hud_toggleWatcherFileDrawer(): int:
+  let (open1, idx1) = toggleWatcherFileDrawer(false, 2, 5)
+  assert(open1 == true, "drawer opened")
+  assertEqInt(idx1, 2, "valid selectedIdx 2 preserved")
+  let (open2, idx2) = toggleWatcherFileDrawer(open1, 99, 5)
+  assert(open2 == false, "drawer closed on second toggle")
+  assertEqInt(idx2, 4, "out-of-range index clamped to fileCount - 1 (4)")
+  let (_, idxEmpty) = toggleWatcherFileDrawer(false, 0, 0)
+  assertEqInt(idxEmpty, -1, "empty file list returns -1")
+  let (_, idxNeg) = toggleWatcherFileDrawer(false, -10, 3)
+  assertEqInt(idxNeg, 0, "negative index clamped to 0")
+  ret 0

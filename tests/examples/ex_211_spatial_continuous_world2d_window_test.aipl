@@ -1,0 +1,59 @@
+module Ex211SpatialContinuousWorld2dWindowTest
+
+import {
+  buildSpatialContinuous2dAudit, stepSensorPosition2D, stepRaycastOriginY2D
+} from "../../examples/ex_211_spatial_continuous_world2d_window"
+import { Vec2 } from "../../std/math/vec_math"
+import { Rect2D } from "../../std/math/geom2d"
+import {
+  SpatialObject2D, continuousWorld2dNew, continuousWorld2dInsert,
+  continuousWorld2dQueryRadius, continuousWorld2dQueryAABB,
+  continuousWorld2dRaycast, continuousWorld2dUpdate
+} from "../../std/spatial/continuous_world2d"
+
+pub fn test_spatial_continuous_world2d(): void:
+  mut cw = continuousWorld2dNew(Rect2D(x = 0.0, y = 0.0, w = 1000.0, h = 1000.0), 64.0)
+  let obj1 = SpatialObject2D(
+    id = 101,
+    position = Vec2(x = 50.0, y = 50.0),
+    radius = 10.0,
+    layerMask = 1,
+    bounds = Rect2D(x = 40.0, y = 40.0, w = 20.0, h = 20.0)
+  )
+  let obj2 = SpatialObject2D(
+    id = 102,
+    position = Vec2(x = 500.0, y = 500.0),
+    radius = 10.0,
+    layerMask = 1,
+    bounds = Rect2D(x = 490.0, y = 490.0, w = 20.0, h = 20.0)
+  )
+  continuousWorld2dInsert(cw, obj1)
+  continuousWorld2dInsert(cw, obj2)
+
+  let nearIds = continuousWorld2dQueryRadius(cw, Vec2(x = 55.0, y = 55.0), 25.0, 1)
+  assert(nearIds.len() == 1 and nearIds[0] == 101, "continuousWorld2dQueryRadius finds entity 101")
+
+  let boxIds = continuousWorld2dQueryAABB(cw, Rect2D(x = 0.0, y = 0.0, w = 100.0, h = 100.0), 1)
+  assert(boxIds.len() == 1 and boxIds[0] == 101, "continuousWorld2dQueryAABB finds entity 101")
+
+  let hit = continuousWorld2dRaycast(cw, Vec2(x = 0.0, y = 50.0), Vec2(x = 1.0, y = 0.0), 200.0, 1)
+  assert(hit.isSome(), "continuousWorld2dRaycast intersects entity 101")
+  assert(continuousWorld2dUpdate(cw, 101, Vec2(x = 200.0, y = 200.0)), "continuousWorld2dUpdate moves entity")
+  assert(buildSpatialContinuous2dAudit() == 204, "buildSpatialContinuous2dAudit returns 101 + 101 + 1 + 1 == 204")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let s0 = stepSensorPosition2D(0)
+  let s1 = stepSensorPosition2D(1)
+  let s20 = stepSensorPosition2D(20)
+  let s100 = stepSensorPosition2D(100)
+  assert(s0.x != s1.x and s1.x != s20.x and s20.x != s100.x, "sensor x advances across t=0,1,20,100")
+
+  let ry0 = stepRaycastOriginY2D(0)
+  let ry20 = stepRaycastOriginY2D(20)
+  let ry100 = stepRaycastOriginY2D(100)
+  assert(ry0 != ry20 and ry20 != ry100, "raycast origin Y sweeps across t=0,20,100")
+
+pub fn main(): int:
+  test_spatial_continuous_world2d()
+  println("PASS: ex_211_spatial_continuous_world2d_window_test")
+  ret 0

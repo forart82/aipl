@@ -1,0 +1,53 @@
+module Ex182Gfx3dDecal3dProjectedSplatterWindowTest
+
+import {
+  buildDecal3dSutherlandHodgmanAudit, stepDecalInputTriangle
+} from "../../examples/ex_182_gfx3d_decal3d_projected_splatter_window"
+import { Vec3 } from "../../std/math/vec_math"
+import { Quat } from "../../std/math/quat"
+import {
+  createDecalProjector, clipTriangleAgainstBoxPlanes
+} from "../../std/gfx3d/decal3d"
+
+pub fn test_gfx3d_decal3d_projected_splatter(): void:
+  let proj = createDecalProjector(
+    Vec3(x = 0.0, y = 0.0, z = 0.0),
+    Quat.identity(),
+    Vec3(x = 1.0, y = 1.0, z = 1.0),
+    42
+  )
+  assert(proj.textureId == 42, "Decal projector textureId == 42")
+
+  let insideTri = [
+    Vec3(x = -0.5, y = -0.5, z = 0.0),
+    Vec3(x =  0.5, y = -0.5, z = 0.0),
+    Vec3(x =  0.0, y =  0.5, z = 0.0)
+  ]
+  let clippedIn = clipTriangleAgainstBoxPlanes(insideTri, proj.extents)
+  assert(clippedIn.len() == 3, "Fully inside triangle retains 3 vertices")
+
+  let straddlingTri = [
+    Vec3(x = -0.5, y = -0.5, z = 0.0),
+    Vec3(x =  1.8, y = -0.5, z = 0.0),
+    Vec3(x =  0.0, y =  0.5, z = 0.0)
+  ]
+  let clippedStraddle = clipTriangleAgainstBoxPlanes(straddlingTri, proj.extents)
+  assert(clippedStraddle.len() >= 4, "Triangle straddling +X plane clips into quad (>=4 vertices)")
+  assert(buildDecal3dSutherlandHodgmanAudit() == 45 + clippedStraddle.len(), "buildDecal3dSutherlandHodgmanAudit matches 42 + 3 + clippedStraddle.len()")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let t0 = stepDecalInputTriangle(0)
+  let t1 = stepDecalInputTriangle(1)
+  let t20 = stepDecalInputTriangle(20)
+  let t100 = stepDecalInputTriangle(100)
+  assert(t0[1].x != t1[1].x, "Straddling triangle tip advances from t=0 to t=1")
+  assert(t1[1].x != t20[1].x, "Straddling triangle tip advances from t=1 to t=20")
+  assert(t20[1].x != t100[1].x, "Straddling triangle tip advances from t=20 to t=100 without freezing")
+
+  let c100 = clipTriangleAgainstBoxPlanes(t100, proj.extents)
+  assert(c100.len() >= 3, "Clipped polygon at t=100 remains valid")
+
+pub fn main(): int:
+  test_gfx3d_decal3d_projected_splatter()
+  println("PASS: ex_182_gfx3d_decal3d_projected_splatter_window_test")
+  ret 0

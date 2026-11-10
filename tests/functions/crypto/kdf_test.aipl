@@ -1,0 +1,83 @@
+module tests.functions.crypto.kdf_test
+
+import * from "std/crypto/kdf"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { hmacSha256, hmacSha512, constantTimeEqual } from "std/crypto/hmac"
+import { sha256, blake3 } from "std/crypto/hash"
+
+pub fn test_kdf_hkdfExtract_1(): int:
+  let arg_salt = [65, 73, 80, 76]
+  let edge_salt = [65]
+  let arg_ikm = [65, 73, 80, 76]
+  let edge_ikm = [65]
+  let resNom = hkdfExtract(arg_salt, arg_ikm)
+  let resEdge = hkdfExtract(edge_salt, edge_ikm)
+  assertEqInt(resNom.len(), 32, "hkdfExtract nominal resNom.len() == 32")
+  assertEqInt(resEdge.len(), 32, "hkdfExtract boundary resEdge.len() == 32")
+  ret 0
+
+pub fn test_kdf_hkdfExpand_2(): int:
+  let arg_prk = [65, 73, 80, 76]
+  let edge_prk = [65]
+  let arg_info = [65, 73, 80, 76]
+  let edge_info = [65]
+  let arg_outLen = 4
+  let edge_outLen = 1
+  let resNom = hkdfExpand(arg_prk, arg_info, arg_outLen)
+  let resEdge = hkdfExpand(edge_prk, edge_info, edge_outLen)
+  assertEqInt(resNom.len(), 4, "hkdfExpand nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "hkdfExpand boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_kdf_hkdfSha256_3(): int:
+  let arg_salt = [65, 73, 80, 76]
+  let edge_salt = [65]
+  let arg_ikm = [65, 73, 80, 76]
+  let edge_ikm = [65]
+  let arg_info = [65, 73, 80, 76]
+  let edge_info = [65]
+  let arg_outLen = 4
+  let edge_outLen = 1
+  let resNom = hkdfSha256(arg_salt, arg_ikm, arg_info, arg_outLen)
+  let resEdge = hkdfSha256(edge_salt, edge_ikm, edge_info, edge_outLen)
+  assertEqInt(resNom.len(), 4, "hkdfSha256 nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "hkdfSha256 boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_kdf_pbkdf2HmacSha256_4(): int:
+  let arg_password = [65, 73, 80, 76]
+  let edge_password = [65]
+  let arg_salt = [65, 73, 80, 76]
+  let edge_salt = [65]
+  let arg_iterations = 4
+  let edge_iterations = 1
+  let arg_outLen = 4
+  let edge_outLen = 1
+  let resNom = pbkdf2HmacSha256(arg_password, arg_salt, arg_iterations, arg_outLen)
+  let resEdge = pbkdf2HmacSha256(edge_password, edge_salt, edge_iterations, edge_outLen)
+  assertEqInt(resNom.len(), 4, "pbkdf2HmacSha256 nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "pbkdf2HmacSha256 boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_kdf_argon2idHash_5(): int:
+  let arg_password = [65, 73, 80, 76]
+  let edge_password = [65]
+  let arg_params = Argon2Params(timeCost = 4, memoryCostKiB = 4, parallelism = 4, keyLen = 4, salt = [65, 73, 80, 76])
+  let edge_params = Argon2Params(timeCost = 1, memoryCostKiB = 1, parallelism = 1, keyLen = 1, salt = [65])
+  let resNom = argon2idHash(arg_password, arg_params)
+  let resEdge = argon2idHash(edge_password, edge_params)
+  assertEqInt(resNom.len(), 4, "argon2idHash nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "argon2idHash boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_kdf_argon2idVerify_6(): int:
+  let arg_password = bytesFromArray([65, 73, 80, 76])
+  let arg_params = Argon2Params(timeCost = 4, memoryCostKiB = 4, parallelism = 4, keyLen = 4, salt = bytesFromArray([65, 73, 80, 76]))
+  let resHash = argon2idHash(arg_password, arg_params)
+  let resValid = argon2idVerify(arg_password, resHash, arg_params)
+  assert(resValid == true, "argon2idVerify matching password/hash returns true")
+  let wrongPass = bytesFromArray([66, 66])
+  let resInvalid = argon2idVerify(wrongPass, resHash, arg_params)
+  assert(resInvalid == false, "argon2idVerify wrong password returns false")
+  ret 0

@@ -1,0 +1,120 @@
+module InputMouse
+
+// ============================================================================
+// std/input/mouse.aipl — Pointer Coordinates, Deltas, Buttons & Scroll Wheel
+// ============================================================================
+
+pub const MOUSE_BUTTON_LEFT: int = 1
+pub const MOUSE_BUTTON_RIGHT: int = 2
+pub const MOUSE_BUTTON_MIDDLE: int = 4
+pub const MOUSE_BUTTON_X1: int = 8
+pub const MOUSE_BUTTON_X2: int = 16
+
+pub struct MouseButtonState(isDown: bool, justPressed: bool, justReleased: bool)
+
+pub struct MouseState(x: float, y: float, deltaX: float, deltaY: float, scrollDeltaX: float, scrollDeltaY: float, buttonMask: int, buttons: Map[int, MouseButtonState])
+
+pub fn createMouseState(): MouseState:
+  mut b: Map[int, MouseButtonState] = Map.new()
+  ret MouseState(
+    x = 0.0,
+    y = 0.0,
+    deltaX = 0.0,
+    deltaY = 0.0,
+    scrollDeltaX = 0.0,
+    scrollDeltaY = 0.0,
+    buttonMask = 0,
+    buttons = b
+  )
+
+pub fn isMouseButtonDown(state: MouseState, button: int): bool:
+  if (state.buttonMask & button) != 0:
+    ret true
+  if state.buttons.containsKey(button):
+    ret state.buttons.get(button).unwrap().isDown
+  ret false
+
+pub fn isMouseButtonJustPressed(state: MouseState, button: int): bool:
+  if state.buttons.containsKey(button):
+    ret state.buttons.get(button).unwrap().justPressed
+  ret false
+
+pub fn isMouseButtonJustReleased(state: MouseState, button: int): bool:
+  if state.buttons.containsKey(button):
+    ret state.buttons.get(button).unwrap().justReleased
+  ret false
+
+pub fn getMousePosition(state: MouseState): (float, float):
+  ret (state.x, state.y)
+
+pub fn getMouseDelta(state: MouseState): (float, float):
+  ret (state.deltaX, state.deltaY)
+
+pub fn getScrollDelta(state: MouseState): (float, float):
+  ret (state.scrollDeltaX, state.scrollDeltaY)
+
+pub fn updateMousePosition(state: MouseState, newX: float, newY: float): MouseState:
+  let dx = state.deltaX + (newX - state.x)
+  let dy = state.deltaY + (newY - state.y)
+  ret MouseState(
+    x = newX,
+    y = newY,
+    deltaX = dx,
+    deltaY = dy,
+    scrollDeltaX = state.scrollDeltaX,
+    scrollDeltaY = state.scrollDeltaY,
+    buttonMask = state.buttonMask,
+    buttons = state.buttons
+  )
+
+pub fn updateMouseButton(state: MouseState, button: int, isDown: bool): MouseState:
+  mut b = state.buttons
+  mut prevDown = (state.buttonMask & button) != 0
+  if b.containsKey(button):
+    prevDown = b.get(button).unwrap().isDown
+  let jp = isDown and not prevDown
+  let jr = (not isDown) and prevDown
+  b.set(button, MouseButtonState(isDown = isDown, justPressed = jp, justReleased = jr))
+  let nextMask = if isDown: (state.buttonMask | button) else: (state.buttonMask & (~button))
+  ret MouseState(
+    x = state.x,
+    y = state.y,
+    deltaX = state.deltaX,
+    deltaY = state.deltaY,
+    scrollDeltaX = state.scrollDeltaX,
+    scrollDeltaY = state.scrollDeltaY,
+    buttonMask = nextMask,
+    buttons = b
+  )
+
+pub fn updateMouseScroll(state: MouseState, scrollX: float, scrollY: float): MouseState:
+  ret MouseState(
+    x = state.x,
+    y = state.y,
+    deltaX = state.deltaX,
+    deltaY = state.deltaY,
+    scrollDeltaX = state.scrollDeltaX + scrollX,
+    scrollDeltaY = state.scrollDeltaY + scrollY,
+    buttonMask = state.buttonMask,
+    buttons = state.buttons
+  )
+
+pub fn flushMouseFrame(state: MouseState): MouseState:
+  mut b = state.buttons
+  let ks = b.keys()
+  mut i = 0
+  while i < ks.len:
+    let k = ks[i]
+    let cur = b.get(k).unwrap()
+    b.set(k, MouseButtonState(isDown = cur.isDown, justPressed = false, justReleased = false))
+    i += 1
+  ret MouseState(
+    x = state.x,
+    y = state.y,
+    deltaX = 0.0,
+    deltaY = 0.0,
+    scrollDeltaX = 0.0,
+    scrollDeltaY = 0.0,
+    buttonMask = state.buttonMask,
+    buttons = b
+  )

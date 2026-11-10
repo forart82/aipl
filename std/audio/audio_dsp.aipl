@@ -1,0 +1,475 @@
+module AudioDspMod
+
+// ============================================================================
+// std/audio/audio_dsp.aipl — Biquad Filters, Schroeder Reverb & Compressor
+// ============================================================================
+
+import { absFloat, clampFloat, maxFloat, maxInt, floor } from "../math/consts"
+import { sin, tan, sqrt, pow, expFloat } from "../math/trig"
+
+pub const BIQUAD_LOWPASS: int = 0
+pub const BIQUAD_HIGHPASS: int = 1
+pub const BIQUAD_BANDPASS: int = 2
+pub const BIQUAD_NOTCH: int = 3
+pub const BIQUAD_PEAKING: int = 4
+
+pub struct BiquadFilter(filterType: int, b0: float, b1: float, b2: float, a1: float, a2: float, x1: float, x2: float, y1: float, y2: float)
+
+pub struct SchroederReverb(combDelays: [int], allpassDelays: [int], combBuffers: [[float]], allpassBuffers: [[float]], feedback: float, wetDry: float)
+
+pub struct CompressorConfig(thresholdDb: float, ratio: float, attackMs: float, releaseMs: float, makeupGainDb: float)
+
+pub fn createBiquadLowPass(sampleRate: float, cutoffHz: float, q: float = 0.7071): BiquadFilter:
+  let sr = if sampleRate > 0.0: sampleRate else: 44100.0
+  let fc = if cutoffHz > 1.0: cutoffHz else: 500.0
+  let safeQ = if q > 0.01: q else: 0.7071
+  let w0 = 2.0 * 3.141592653589793 * (fc / sr)
+  let cosW0 = cos(w0)
+  let sinW0 = sin(w0)
+  let alpha = sinW0 / (2.0 * safeQ)
+  let a0 = 1.0 + alpha
+  let b0 = ((1.0 - cosW0) * 0.5) / a0
+  let b1 = (1.0 - cosW0) / a0
+  let b2 = ((1.0 - cosW0) * 0.5) / a0
+  let a1 = (-2.0 * cosW0) / a0
+  let a2 = (1.0 - alpha) / a0
+  ret BiquadFilter(
+    filterType = BIQUAD_LOWPASS,
+    b0 = b0,
+    b1 = b1,
+    b2 = b2,
+    a1 = a1,
+    a2 = a2,
+    x1 = 0.0,
+    x2 = 0.0,
+    y1 = 0.0,
+    y2 = 0.0
+  )
+
+pub fn createBiquadHighPass(sampleRate: float, cutoffHz: float, q: float = 0.7071): BiquadFilter:
+  let sr = if sampleRate > 0.0: sampleRate else: 44100.0
+  let fc = if cutoffHz > 1.0: cutoffHz else: 500.0
+  let safeQ = if q > 0.01: q else: 0.7071
+  let w0 = 2.0 * 3.141592653589793 * (fc / sr)
+  let cosW0 = cos(w0)
+  let sinW0 = sin(w0)
+  let alpha = sinW0 / (2.0 * safeQ)
+  let a0 = 1.0 + alpha
+  let b0 = ((1.0 + cosW0) * 0.5) / a0
+  let b1 = (-(1.0 + cosW0)) / a0
+  let b2 = ((1.0 + cosW0) * 0.5) / a0
+  let a1 = (-2.0 * cosW0) / a0
+  let a2 = (1.0 - alpha) / a0
+  ret BiquadFilter(
+    filterType = BIQUAD_HIGHPASS,
+    b0 = b0,
+    b1 = b1,
+    b2 = b2,
+    a1 = a1,
+    a2 = a2,
+    x1 = 0.0,
+    x2 = 0.0,
+    y1 = 0.0,
+    y2 = 0.0
+  )
+
+pub fn processBiquadSample(filter: BiquadFilter, sample: float): (BiquadFilter, float):
+  let out = filter.b0 * sample + filter.b1 * filter.x1 + filter.b2 * filter.x2 - filter.a1 * filter.y1 - filter.a2 * filter.y2
+  let nextFilter = BiquadFilter(
+    filterType = filter.filterType,
+    b0 = filter.b0,
+    b1 = filter.b1,
+    b2 = filter.b2,
+    a1 = filter.a1,
+    a2 = filter.a2,
+    x1 = sample,
+    x2 = filter.x1,
+    y1 = out,
+    y2 = filter.y1
+  )
+  ret (nextFilter, out)
+
+pub fn createSchroederReverb(sampleRate: int, roomSize: float, damp: float): SchroederReverb:
+  let sr = if sampleRate > 8000: sampleRate else: 44100
+  let scale = float(sr) / 44100.0
+  let baseCombs = [1116, 1188, 1277, 1356]
+  let baseAllpass = [225, 556]
+  mut combDelays: [int] = []
+  mut cBufs: [[float]] = []
+  mut i = 0
+  while i < baseCombs.len:
+    mut dLen = int(float(baseCombs[i]) * scale)
+    if dLen < 16:
+      dLen = 16
+    combDelays.push(dLen)
+    mut cb: [float] = []
+    mut k = 0
+    while k < dLen:
+      cb.push(0.0)
+      k += 1
+    cBufs.push(cb)
+    i += 1
+  mut allpassDelays: [int] = []
+  mut aBufs: [[float]] = []
+  mut j = 0
+  while j < baseAllpass.len:
+    mut aLen = int(float(baseAllpass[j]) * scale)
+    if aLen < 8:
+      aLen = 8
+    allpassDelays.push(aLen)
+    mut ab: [float] = []
+    mut k2 = 0
+    while k2 < aLen:
+      ab.push(0.0)
+      k2 += 1
+    aBufs.push(ab)
+    j += 1
+  let baseFb = if roomSize > 0.0 and roomSize < 0.98: roomSize else: 0.7
+  let clampDamp = if damp >= 0.0 and damp <= 0.95: damp else: 0.2
+  let fb = baseFb * (1.0 - clampDamp * 0.25)
+  ret SchroederReverb(
+    combDelays = combDelays,
+    allpassDelays = allpassDelays,
+    combBuffers = cBufs,
+    allpassBuffers = aBufs,
+    feedback = fb,
+    wetDry = 0.3
+  )
+
+pub fn processReverbBlock(reverb: SchroederReverb, samples: [float]): (SchroederReverb, [float]):
+  mut out: [float] = []
+  mut cBufs = reverb.combBuffers
+  mut aBufs = reverb.allpassBuffers
+  mut prev = 0.0
+  mut i = 0
+  while i < samples.len:
+    let dry = samples[i]
+    mut combSum = 0.0
+    mut ci = 0
+    while ci < cBufs.len:
+      mut cb = cBufs[ci]
+      if cb.len > 0:
+        let idx = i % cb.len
+        let delayed = cb[idx]
+        cb[idx] = dry + delayed * reverb.feedback
+        cBufs[ci] = cb
+        combSum = combSum + delayed
+      ci += 1
+    mut wet = (combSum * 0.25) + dry * (1.0 - reverb.feedback) + prev * reverb.feedback
+    mut ai = 0
+    while ai < aBufs.len:
+      mut ab = aBufs[ai]
+      if ab.len > 0:
+        let aIdx = i % ab.len
+        let bufOut = ab[aIdx]
+        let apGain = 0.5
+        ab[aIdx] = wet + bufOut * apGain
+        aBufs[ai] = ab
+        wet = bufOut - wet * apGain
+      ai += 1
+    prev = wet
+    out.push(dry * (1.0 - reverb.wetDry) + wet * reverb.wetDry)
+    i += 1
+  let nextRev = SchroederReverb(
+    combDelays = reverb.combDelays,
+    allpassDelays = reverb.allpassDelays,
+    combBuffers = cBufs,
+    allpassBuffers = aBufs,
+    feedback = reverb.feedback,
+    wetDry = reverb.wetDry
+  )
+  ret (nextRev, out)
+
+fn absFloatDsp(v: float): float:
+  if v < 0.0:
+    ret -v
+  ret v
+
+pub fn applyDynamicCompression(samples: [float], config: CompressorConfig, sampleRate: float): [float]:
+  let sr = if sampleRate > 1000.0: sampleRate else: 44100.0
+  let threshLinear = exp(config.thresholdDb * 0.11512925464970229)
+  let makeupLinear = exp(config.makeupGainDb * 0.11512925464970229)
+  let safeRatio = if config.ratio > 1.0: config.ratio else: 1.0
+  let atkSamples = if config.attackMs > 0.1: (config.attackMs * 0.001 * sr) else: 1.0
+  let relSamples = if config.releaseMs > 0.1: (config.releaseMs * 0.001 * sr) else: 1.0
+  let atkCoeff = exp(-1.0 / atkSamples)
+  let relCoeff = exp(-1.0 / relSamples)
+  mut env = 0.0
+  mut out: [float] = []
+  mut i = 0
+  while i < samples.len:
+    let s = samples[i]
+    let mag = absFloatDsp(s)
+    if mag > env:
+      env = atkCoeff * env + (1.0 - atkCoeff) * mag
+    else:
+      env = relCoeff * env + (1.0 - relCoeff) * mag
+    let refLevel = if mag > env: mag else: env
+    mut gain = 1.0
+    if refLevel > threshLinear and refLevel > 0.00001:
+      let over = refLevel - threshLinear
+      let compressedMag = threshLinear + over / safeRatio
+      gain = compressedMag / refLevel
+    out.push(s * gain * makeupLinear)
+    i += 1
+  ret out
+
+pub struct CytomicSvf(ic1eq: float, ic2eq: float, a1: float, a2: float, a3: float, k: float)
+
+pub fn pcmApplyEcho(samples: [int], delaySamples: int, decay: float): [int]:
+  let n = samples.len
+  mut out: [int] = []
+  mut i = 0
+  while i < n:
+    mut s = float(samples[i])
+    if delaySamples > 0 and i >= delaySamples:
+      s += float(out[i - delaySamples]) * decay
+    mut iv = int(s)
+    if iv > 32767:
+      iv = 32767
+    elif iv < -32768:
+      iv = -32768
+    out.push(iv)
+    i += 1
+  ret out
+
+pub fn pcmLowPassFilter(samples: [int], alpha: float): [int]:
+  let n = samples.len
+  mut out: [int] = []
+  mut i = 0
+  while i < n:
+    mut s = float(samples[i])
+    if i > 0:
+      let prevOut = float(out[i - 1])
+      s = prevOut + alpha * (s - prevOut)
+    mut iv = int(s)
+    if iv > 32767:
+      iv = 32767
+    elif iv < -32768:
+      iv = -32768
+    out.push(iv)
+    i += 1
+  ret out
+
+pub fn pcmComputeRms(samples: [int]): float:
+  let n = samples.len
+  if n == 0:
+    ret 0.0
+  mut sumSq = 0.0
+  mut i = 0
+  while i < n:
+    let s = float(samples[i])
+    sumSq += s * s
+    i += 1
+  ret sqrt(sumSq / float(n))
+
+pub fn svfNew(cutoffHz: float, q: float, sampleRate: int): CytomicSvf:
+  let sr = float(if sampleRate > 0: sampleRate else: 44100)
+  let fc = clampFloat(cutoffHz, 20.0, sr * 0.48)
+  let resQ = maxFloat(0.5, q)
+  let g = tan(3.141592653589793 * fc / sr)
+  let k = 1.0 / resQ
+  let a1 = 1.0 / (1.0 + g * (g + k))
+  let a2 = g * a1
+  let a3 = g * a2
+  ret CytomicSvf(ic1eq = 0.0, ic2eq = 0.0, a1 = a1, a2 = a2, a3 = a3, k = k)
+
+pub fn fxApplySvf(samples: [float], filterMode: str, cutoffHz: float, q: float, sampleRate: int): [float]:
+  let svf = svfNew(cutoffHz, q, sampleRate)
+  mut ic1eq = svf.ic1eq
+  mut ic2eq = svf.ic2eq
+  mut out: [float] = []
+  let n = samples.len
+  mut i = 0
+  while i < n:
+    let v0 = samples[i]
+    let v3 = v0 - ic2eq
+    let v1 = svf.a1 * ic1eq + svf.a2 * v3
+    let v2 = ic2eq + svf.a2 * ic1eq + svf.a3 * v3
+    ic1eq = 2.0 * v1 - ic1eq
+    ic2eq = 2.0 * v2 - ic2eq
+    mut y = v2
+    if filterMode == "bandpass":
+      y = v1
+    elif filterMode == "highpass":
+      y = v0 - svf.k * v1 - v2
+    elif filterMode == "notch":
+      y = v0 - svf.k * v1
+    out.push(clampFloat(y, -1.0, 1.0))
+    i += 1
+  ret out
+
+pub fn fxApplyPhaser(samples: [float], lfoRateHz: float, depth: float, feedback: float, mix: float, sampleRate: int): [float]:
+  let sr = float(if sampleRate > 0: sampleRate else: 44100)
+  let rateHz = maxFloat(0.05, lfoRateHz)
+  let dep = clampFloat(depth, 0.0, 1.0)
+  let fb = clampFloat(feedback, -0.85, 0.85)
+  let wet = clampFloat(mix, 0.0, 1.0)
+  mut ap: [float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  mut fbSample = 0.0
+  mut out: [float] = []
+  let n = samples.len
+  mut i = 0
+  while i < n:
+    let t = float(i) / sr
+    let lfo = 0.5 + 0.5 * sin(6.283185307179586 * rateHz * t)
+    let sweepHz = 300.0 + 2100.0 * lfo * dep
+    let g = tan(3.141592653589793 * sweepHz / sr)
+    let a = (1.0 - g) / (1.0 + g)
+    mut y = samples[i] + fbSample * fb
+    mut s = 0
+    while s < 6:
+      let prev = ap[s]
+      let nextY = -a * y + prev
+      ap[s] = y + a * nextY
+      y = nextY
+      s += 1
+    fbSample = y
+    let mixed = samples[i] * (1.0 - wet) + y * wet
+    out.push(clampFloat(mixed, -1.0, 1.0))
+    i += 1
+  ret out
+
+pub fn fxApplyModulatedDelay(samples: [float], baseDelayMs: float, modDepthMs: float, modRateHz: float, feedback: float, mix: float, sampleRate: int): [float]:
+  let sr = float(if sampleRate > 0: sampleRate else: 44100)
+  let maxDelaySamples = maxInt(64, int(((baseDelayMs + modDepthMs + 10.0) * sr) / 1000.0))
+  mut ring: [float] = []
+  mut r = 0
+  while r < maxDelaySamples:
+    ring.push(0.0)
+    r += 1
+  let fb = clampFloat(feedback, -0.92, 0.92)
+  let wet = clampFloat(mix, 0.0, 1.0)
+  mut writeIdx = 0
+  mut out: [float] = []
+  let n = samples.len
+  mut i = 0
+  while i < n:
+    let t = float(i) / sr
+    let curDelayMs = maxFloat(0.2, baseDelayMs + modDepthMs * sin(6.283185307179586 * modRateHz * t))
+    let delaySamp = clampFloat((curDelayMs * sr) / 1000.0, 1.0, float(maxDelaySamples - 2))
+    let readPos = float(writeIdx) - delaySamp
+    let wrappedPos = if readPos < 0.0: readPos + float(maxDelaySamples) else: readPos
+    let idx0 = int(floor(wrappedPos)) % maxDelaySamples
+    let idx1 = (idx0 + 1) % maxDelaySamples
+    let frac = wrappedPos - floor(wrappedPos)
+    let delayed = ring[idx0] * (1.0 - frac) + ring[idx1] * frac
+    let x = samples[i]
+    ring[writeIdx] = clampFloat(x + delayed * fb, -1.0, 1.0)
+    writeIdx = (writeIdx + 1) % maxDelaySamples
+    out.push(clampFloat(x * (1.0 - wet) + delayed * wet, -1.0, 1.0))
+    i += 1
+  ret out
+
+pub fn fxApplyFreeverb(samples: [float], roomSize: float, damping: float, wetMix: float): [float]:
+  let feedback = 0.70 + clampFloat(roomSize, 0.0, 1.0) * 0.26
+  let damp = clampFloat(damping, 0.0, 0.95)
+  let wet = clampFloat(wetMix, 0.0, 1.0)
+  let cLens = [1116, 1188, 1277, 1356]
+  mut cBuf0: [float] = []
+  mut cBuf1: [float] = []
+  mut cBuf2: [float] = []
+  mut cBuf3: [float] = []
+  mut k = 0
+  while k < 1360:
+    cBuf0.push(0.0)
+    cBuf1.push(0.0)
+    cBuf2.push(0.0)
+    cBuf3.push(0.0)
+    k += 1
+  mut cIdx0 = 0
+  mut cIdx1 = 0
+  mut cIdx2 = 0
+  mut cIdx3 = 0
+  mut f0 = 0.0
+  mut f1 = 0.0
+  mut f2 = 0.0
+  mut f3 = 0.0
+  mut out: [float] = []
+  let n = samples.len
+  mut i = 0
+  while i < n:
+    let x = samples[i]
+    let o0 = cBuf0[cIdx0]
+    f0 = o0 * (1.0 - damp) + f0 * damp
+    cBuf0[cIdx0] = x + f0 * feedback
+    cIdx0 = (cIdx0 + 1) % cLens[0]
+    let o1 = cBuf1[cIdx1]
+    f1 = o1 * (1.0 - damp) + f1 * damp
+    cBuf1[cIdx1] = x + f1 * feedback
+    cIdx1 = (cIdx1 + 1) % cLens[1]
+    let o2 = cBuf2[cIdx2]
+    f2 = o2 * (1.0 - damp) + f2 * damp
+    cBuf2[cIdx2] = x + f2 * feedback
+    cIdx2 = (cIdx2 + 1) % cLens[2]
+    let o3 = cBuf3[cIdx3]
+    f3 = o3 * (1.0 - damp) + f3 * damp
+    cBuf3[cIdx3] = x + f3 * feedback
+    cIdx3 = (cIdx3 + 1) % cLens[3]
+    let rev = (o0 + o1 + o2 + o3) * 0.25
+    out.push(clampFloat(x * (1.0 - wet) + rev * wet, -1.0, 1.0))
+    i += 1
+  ret out
+
+pub fn fxApplyCompressor(samples: [float], thresholdLin: float, ratio: float, attackMs: float, releaseMs: float, makeupGain: float, sampleRate: int): [float]:
+  let sr = float(if sampleRate > 0: sampleRate else: 44100)
+  let thresh = clampFloat(thresholdLin, 0.01, 1.0)
+  let rat = maxFloat(1.0, ratio)
+  let attCoeff = expFloat(-1000.0 / (maxFloat(0.1, attackMs) * sr))
+  let relCoeff = expFloat(-1000.0 / (maxFloat(1.0, releaseMs) * sr))
+  let makeup = maxFloat(0.1, makeupGain)
+  mut env = 0.0
+  mut out: [float] = []
+  let n = samples.len
+  mut i = 0
+  while i < n:
+    let x = samples[i]
+    let absX = absFloat(x)
+    if absX > env:
+      env = attCoeff * env + (1.0 - attCoeff) * absX
+    else:
+      env = relCoeff * env + (1.0 - relCoeff) * absX
+    mut gain = 1.0
+    if env > thresh:
+      let over = env / thresh
+      gain = pow(over, (1.0 / rat) - 1.0)
+    out.push(clampFloat(x * gain * makeup, -1.0, 1.0))
+    i += 1
+  ret out
+
+pub fn pcmApplyEchoFloat(samples: [float], delaySamples: int, decay: float): [float]:
+  let n = samples.len
+  mut out: [float] = []
+  mut i = 0
+  while i < n:
+    mut s = samples[i]
+    if delaySamples > 0 and i >= delaySamples:
+      s += out[i - delaySamples] * decay
+    out.push(clampFloat(s, -1.0, 1.0))
+    i += 1
+  ret out
+
+pub fn pcmLowPassFilterFloat(samples: [float], alpha: float): [float]:
+  let n = samples.len
+  mut out: [float] = []
+  mut i = 0
+  while i < n:
+    mut s = samples[i]
+    if i > 0:
+      let prevOut = out[i - 1]
+      s = prevOut + alpha * (s - prevOut)
+    out.push(clampFloat(s, -1.0, 1.0))
+    i += 1
+  ret out
+
+pub fn pcmComputeRmsFloat(samples: [float]): float:
+  let n = samples.len
+  if n == 0:
+    ret 0.0
+  mut sumSq = 0.0
+  mut i = 0
+  while i < n:
+    let s = samples[i]
+    sumSq = sumSq + s * s
+    i += 1
+  ret sqrt(sumSq / float(n))

@@ -1,0 +1,60 @@
+module Ex250MechanicsFullCapstoneApplicationWindowTest
+
+import { ledgerGetBalance } from "../../std/mechanics/mechanics_mod"
+import { CapstoneScene, initScene, stepScene, computeSoftPityDropRatePermille, migrateSaveSchemaVersion, auditMechanicsFullCapstoneApplication } from "../../examples/ex_250_mechanics_full_capstone_application_window"
+
+fn test_mechanics_full_capstone_application(): void:
+  assert(computeSoftPityDropRatePermille(10, 10) == 610, "computeSoftPityDropRatePermille(10, 10) == 610")
+  assert(migrateSaveSchemaVersion(1, 3) == 3, "migrateSaveSchemaVersion(1, 3) == 3")
+
+  mut scene = initScene()
+  let pwr0 = scene.totalPower
+  let occ0 = scene.occupiedCount
+  let gold0 = scene.guildGold
+  scene = stepScene(scene, 1, 0.1)
+  let pwr1 = scene.totalPower
+  let occ1 = scene.occupiedCount
+  let gold1 = scene.guildGold
+  assert(pwr1 > pwr0, "t=0 -> t=1 attribute modifier pipeline power increases")
+  assert(occ1 > occ0, "t=0 -> t=1 spatial matrix relic vault adds shard")
+  assert(gold1 > gold0 and ledgerGetBalance(scene.ledger, "guild_bank") == gold1, "t=0 -> t=1 guild bank ledger balance grows")
+
+  mut f = 2
+  while f <= 20:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  let pwr20 = scene.totalPower
+  let gold20 = scene.guildGold
+  assert(pwr20 > pwr1, "t=1 -> t=20 attribute pipeline power continues growing")
+  assert(scene.occupiedCount > occ1, "t=1 -> t=20 spatial matrix fills additional cells")
+  assert(gold20 > gold1, "t=1 -> t=20 guild bank ledger accumulates gold")
+  assert(scene.ascendUnlocked, "t=20 objective DAG unlocks ascend_citadel")
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  mut sawMatrixCraftCycle = false
+  mut sawObjectiveLocked = false
+  while f <= 100:
+    let prevOcc = scene.occupiedCount
+    scene = stepScene(scene, f, 0.1)
+    if scene.occupiedCount < prevOcc:
+      sawMatrixCraftCycle = true
+    if not scene.ascendUnlocked:
+      sawObjectiveLocked = true
+    f = f + 1
+  assert(sawMatrixCraftCycle, "t=20 -> t=100 spatial matrix auto-crafts/clears shards when full so placements continue")
+  assert(sawObjectiveLocked, "t=20 -> t=100 objective prerequisite DAG cycles between locked and unlocked campaign stages")
+  assert(scene.totalPower > pwr20 and scene.guildGold > gold20, "t=20 -> t=100 power and guild ledger continue advancing")
+  assert(scene.stepCount == 100, "scene tracks 100 steps")
+
+  while f <= 300:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  assert(scene.totalPower <= 1200.0 and scene.guildGold > 0 and scene.guildGold <= 5000, "bounded power and expedition reserve sink keep capstone metrics bounded over long runs")
+
+  let audit = auditMechanicsFullCapstoneApplication()
+  assert(audit == 833, "Full mechanics capstone application audit")
+
+pub fn main(): int:
+  test_mechanics_full_capstone_application()
+  println("PASS: ex_250_mechanics_full_capstone_application_window_test")
+  ret 0

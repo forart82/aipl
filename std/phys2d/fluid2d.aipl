@@ -1,0 +1,129 @@
+/// # Module: `std/phys2d/fluid2d` (`Fluid2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Smoothed Particle Hydrodynamics (SPH) 2D fluid solver and cellular automata
+/// granular falling sand simulation.
+module Fluid2DMod
+
+import { maxFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+
+pub struct SphParticle2D(position: Vec2, velocity: Vec2, force: Vec2, density: float, pressure: float)
+
+pub struct SphFluidWorld2D(particles: [SphParticle2D], smoothingRadius: float, restDensity: float, gasStiffness: float, viscosity: float)
+
+pub struct CellularSandGrid2D(width: int, height: int, cells: [int])
+
+pub fn sphFluidWorldNew(smoothingRadius: float, restDensity: float, stiffness: float, viscosity: float): SphFluidWorld2D:
+  mut pts: [SphParticle2D] = []
+  ret SphFluidWorld2D(
+    particles = pts,
+    smoothingRadius = smoothingRadius,
+    restDensity = restDensity,
+    gasStiffness = stiffness,
+    viscosity = viscosity
+  )
+
+pub fn sphFluidStep(mut world: SphFluidWorld2D, gravity: Vec2, dt: float): void:
+  mut pts = world.particles
+  let n = pts.len
+  let h = if world.smoothingRadius > 0.0001: world.smoothingRadius else: 1.0
+  let h2 = h * h
+
+  mut i = 0
+  while i < n:
+    let pi: SphParticle2D = pts[i]
+    mut dens = 0.0
+    mut j = 0
+    while j < n:
+      let pj: SphParticle2D = pts[j]
+      let dx = pj.position.x - pi.position.x
+      let dy = pj.position.y - pi.position.y
+      let r2 = dx * dx + dy * dy
+      if r2 < h2:
+        let q = 1.0 - r2 / h2
+        dens = dens + q * q * q
+      j = j + 1
+    let dVal = maxFloat(dens, 0.0001)
+    let press = world.gasStiffness * (dVal - world.restDensity)
+    pts[i] = SphParticle2D(
+      position = pi.position,
+      velocity = pi.velocity,
+      force = Vec2(x = 0.0, y = 0.0),
+      density = dVal,
+      pressure = press
+    )
+    i = i + 1
+
+  mut a = 0
+  while a < n:
+    let pa: SphParticle2D = pts[a]
+    mut fx = gravity.x * pa.density
+    mut fy = gravity.y * pa.density
+    mut b = 0
+    while b < n:
+      if a != b:
+        let pb: SphParticle2D = pts[b]
+        let dx = pb.position.x - pa.position.x
+        let dy = pb.position.y - pa.position.y
+        let r2 = dx * dx + dy * dy
+        if r2 > 0.000001 and r2 < h2:
+          let r = sqrt(r2)
+          let q = 1.0 - r / h
+          let pTerm = (pa.pressure + pb.pressure) / (2.0 * pb.density) * q * q
+          fx = fx - (dx / r) * pTerm
+          fy = fy - (dy / r) * pTerm
+          let vxDiff = (pb.velocity.x - pa.velocity.x) * (world.viscosity * q / pb.density)
+          let vyDiff = (pb.velocity.y - pa.velocity.y) * (world.viscosity * q / pb.density)
+          fx = fx + vxDiff
+          fy = fy + vyDiff
+      b = b + 1
+
+    let nvx = pa.velocity.x + (fx / pa.density) * dt
+    let nvy = pa.velocity.y + (fy / pa.density) * dt
+    let npx = pa.position.x + nvx * dt
+    let npy = pa.position.y + nvy * dt
+    pts[a] = SphParticle2D(
+      position = Vec2(x = npx, y = npy),
+      velocity = Vec2(x = nvx, y = nvy),
+      force = Vec2(x = fx, y = fy),
+      density = pa.density,
+      pressure = pa.pressure
+    )
+    a = a + 1
+
+  world.particles = pts
+
+pub fn cellularSandStep(mut grid: CellularSandGrid2D): int:
+  let w = grid.width
+  let h = grid.height
+  mut cells = grid.cells
+  mut moved = 0
+
+  mut r = h - 2
+  while r >= 0:
+    mut c = 0
+    while c < w:
+      let idx = r * w + c
+      if cells[idx] == 1:
+        let belowIdx = (r + 1) * w + c
+        if cells[belowIdx] == 0:
+          cells[belowIdx] = 1
+          cells[idx] = 0
+          moved = moved + 1
+        else:
+          if c > 0 and cells[(r + 1) * w + (c - 1)] == 0:
+            cells[(r + 1) * w + (c - 1)] = 1
+            cells[idx] = 0
+            moved = moved + 1
+          else:
+            if c + 1 < w and cells[(r + 1) * w + (c + 1)] == 0:
+              cells[(r + 1) * w + (c + 1)] = 1
+              cells[idx] = 0
+              moved = moved + 1
+      c = c + 1
+    r = r - 1
+
+  grid.cells = cells
+  ret moved

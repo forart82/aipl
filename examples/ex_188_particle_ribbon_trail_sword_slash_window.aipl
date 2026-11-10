@@ -1,0 +1,118 @@
+module Ex188ParticleRibbonTrailSwordSlashWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import { ColorRgba8 } from "../std/gfx/color"
+import {
+  RibbonTrail, createRibbonTrail, pushRibbonPosition, updateRibbonTrail,
+  generateRibbonQuadStrip, ribbonTrailLength
+} from "../std/particle/ribbon_trail"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn buildParticleRibbonTrailAudit(): int:
+  mut trail = createRibbonTrail(32, 1.0, 1.0)
+  trail = pushRibbonPosition(trail, Vec3(x = 0.0, y = 0.0, z = 0.0), 4.0)
+  trail = pushRibbonPosition(trail, Vec3(x = 0.0, y = 0.0, z = 6.0), 4.0)
+  trail = pushRibbonPosition(trail, Vec3(x = 0.0, y = 0.0, z = 12.0), 4.0)
+  let nCount = trail.nodes.len()
+  let arcLen = int(ribbonTrailLength(trail))
+  let cyan = ColorRgba8(r = 56, g = 189, b = 248, a = 255)
+  let stripVerts = generateRibbonQuadStrip(trail, Vec3(x = 0.0, y = 10.0, z = 6.0), cyan)
+  let expired = updateRibbonTrail(trail, 1.5)
+  ret nCount + arcLen + stripVerts.len() + expired.nodes.len()
+
+pub fn stepSwordSlashTrail(trail: RibbonTrail, frame: int, dt: float): RibbonTrail:
+  let aged = updateRibbonTrail(trail, dt)
+  let ang = -1.2 + float(frame) * 0.14
+  let rad = 140.0 + sin(float(frame) * 0.09) * 24.0
+  let sx = 340.0 + cos(ang) * rad
+  let sy = 310.0 + sin(ang) * (rad * 0.88)
+  let dynW = 24.0 + cos(float(frame) * 0.17) * 8.0
+  ret pushRibbonPosition(aged, Vec3(x = sx, y = sy, z = 0.0), dynW)
+
+pub fn main(): int:
+  mut trail = createRibbonTrail(14, 0.24, 2.0)
+  mut idx: int = 0
+  while idx < 12:
+    trail = stepSwordSlashTrail(trail, idx, 0.016)
+    idx = idx + 1
+
+  let cyan = ColorRgba8(r = 56, g = 189, b = 248, a = 255)
+  let audit = buildParticleRibbonTrailAudit()
+
+  initWindow(1280, 720, "AIPL ex_188: Camera-Facing Sword Slash Ribbon Trail Quad Strip")
+  mut frame: int = 0
+  while not windowShouldClose():
+    trail = stepSwordSlashTrail(trail, 12 + frame, 0.016)
+    let stripVerts = generateRibbonQuadStrip(trail, Vec3(x = 340.0, y = 310.0, z = 500.0), cyan)
+    let totalArc = ribbonTrailLength(trail)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawText("EX_188: CAMERA-FACING SWORD SLASH RIBBON TRAIL QUAD STRIP", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/particle/ribbon_trail: pushRibbonPosition | generateRibbonQuadStrip | ribbonTrailLength | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Sword Slash Arc & Extruded Camera-Facing Ribbon Quad Strip
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("CAMERA-FACING QUAD STRIP EXTRUSION (Side = Tangent x ViewDir)", 60.0, 118.0, 15.0, rgb(125, 211, 252))
+
+    // Draw quad strip cross-ribs, diagonals, and left/right rails from stripVerts (2*N vertices)
+    mut n: int = 0
+    while n + 1 < trail.nodes.len() and (n + 1) * 2 + 1 < stripVerts.len():
+      let vL0 = stripVerts[n * 2].pos
+      let vR0 = stripVerts[n * 2 + 1].pos
+      let vL1 = stripVerts[(n + 1) * 2].pos
+      let vR1 = stripVerts[(n + 1) * 2 + 1].pos
+      drawLine(vL0.x, vL0.y, vR1.x, vR1.y, rgb(30, 64, 175), 1.5)
+      drawLine(vL0.x, vL0.y, vL1.x, vL1.y, rgb(56, 189, 248), 3.0)
+      drawLine(vR0.x, vR0.y, vR1.x, vR1.y, rgb(168, 85, 247), 3.0)
+      drawLine(vL0.x, vL0.y, vR0.x, vR0.y, rgb(250, 204, 21), 2.0)
+      drawCircle(trail.nodes[n].position.x, trail.nodes[n].position.y, 4.0, rgb(248, 250, 252))
+      n = n + 1
+
+    // Draw active sword blade from central hilt pivot (340, 310) to latest tip node
+    if trail.nodes.len() > 0:
+      let tip = trail.nodes[trail.nodes.len() - 1].position
+      drawCircle(340.0, 310.0, 8.0, rgb(250, 204, 21))
+      drawLine(340.0, 310.0, tip.x, tip.y, rgb(248, 250, 252), 4.0)
+      drawCircle(tip.x, tip.y, 6.5, rgb(56, 189, 248))
+
+    drawText("White Blade = Active Sword Sweep | Cyan/Purple Rails = Extruded Quad Strip", 60.0, 476.0, 13.0, rgb(148, 163, 184))
+
+    // Right Panel: Ribbon Node Age Taper & UV Parameterization Diagram
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(250, 204, 21))
+    drawText("RIBBON WIDTH TAPER & NORMALIZED UV STRIP MAPPING", 680.0, 118.0, 16.0, rgb(253, 224, 71))
+
+    mut s: int = 0
+    while s < trail.nodes.len() and s < 10:
+      let node = trail.nodes[s]
+      let ratio = 1.0 - (node.ageSec / trail.lifetimeSec)
+      let clampedRatio = if ratio > 0.08: ratio else: 0.08
+      let barH = clampedRatio * (node.width * 5.2)
+      let bx = 700.0 + float(s) * 48.0
+      let by = 290.0 - barH * 0.5
+      drawRect(bx, by, 40.0, barH, rgb(14 + s * 18, 165 - s * 12, 233))
+      drawRectOutline(bx, by, 40.0, barH, 1.5, rgb(248, 250, 252))
+      drawText("u." + str(s), bx + 6.0, 404.0, 13.0, rgb(203, 213, 225))
+      s = s + 1
+
+    drawText("Tail (u=0.0, Oldest Node) -> Sword Tip Head (u=1.0, Newest Node)", 700.0, 450.0, 14.0, rgb(134, 239, 172))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("RIBBON TRAIL MESH TELEMETRY (Frame " + str(frame) + ")", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Active Trail Nodes: " + str(trail.nodes.len()) + " | Generated Strip Vertices: " + str(stripVerts.len()) + " (2 per node)", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Total Slash Arc Length: " + str(int(totalArc)) + " px | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

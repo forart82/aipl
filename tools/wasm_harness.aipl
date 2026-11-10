@@ -1,0 +1,183 @@
+module AiplWasmHarness
+
+import { fileExists, readBytes, readFile } from "std/fs"
+import { userArgs, execCommand } from "std/os"
+
+// ============================================================================
+// AIPL Self-Hosted WebAssembly Binary Inspector & Browser Host Validator (v0.8.0)
+// Usage:
+//   ./tools/wasm_harness_bin [<file.wasm> | --audit-all]
+// ============================================================================
+
+pub struct WasmBinarySummary:
+  path: str
+  byteSize: int
+  validMagic: bool
+  version: int
+  sectionCount: int
+  hasMemorySection: bool
+  hasExportSection: bool
+  hasCodeSection: bool
+  hasDataSection: bool
+
+pub fn decodeUleb128At(raw: bytes, offset: int): [int]:
+  mut result = 0
+  mut shift = 0
+  mut pos = offset
+  let n = raw.len()
+  while pos < n and shift < 35:
+    let b = raw[pos] & 255
+    pos += 1
+    result = result | ((b & 127) << shift)
+    if (b & 128) == 0:
+      ret [result, pos]
+    shift += 7
+  ret [result, pos]
+
+pub fn inspectWasmBinary(path: str): WasmBinarySummary:
+  if not fileExists(path):
+    ret WasmBinarySummary(
+      path = path,
+      byteSize = 0,
+      validMagic = false,
+      version = 0,
+      sectionCount = 0,
+      hasMemorySection = false,
+      hasExportSection = false,
+      hasCodeSection = false,
+      hasDataSection = false
+    )
+  let bRes = readBytes(path)
+  if bRes.isErr():
+    ret WasmBinarySummary(
+      path = path,
+      byteSize = 0,
+      validMagic = false,
+      version = 0,
+      sectionCount = 0,
+      hasMemorySection = false,
+      hasExportSection = false,
+      hasCodeSection = false,
+      hasDataSection = false
+    )
+  let raw = bRes.unwrap()
+  let n = raw.len()
+  if n < 8:
+    ret WasmBinarySummary(
+      path = path,
+      byteSize = n,
+      validMagic = false,
+      version = 0,
+      sectionCount = 0,
+      hasMemorySection = false,
+      hasExportSection = false,
+      hasCodeSection = false,
+      hasDataSection = false
+    )
+  let validMagic = (raw[0] == 0x00 and raw[1] == 0x61 and raw[2] == 0x73 and raw[3] == 0x6D)
+  let ver = (raw[4] & 255) | ((raw[5] & 255) << 8) | ((raw[6] & 255) << 16) | ((raw[7] & 255) << 24)
+  mut pos = 8
+  mut secCount = 0
+  mut hasMem = false
+  mut hasExp = false
+  mut hasCode = false
+  mut hasData = false
+  while pos < n:
+    let secId = raw[pos] & 255
+    pos += 1
+    let dec = decodeUleb128At(raw, pos)
+    let secLen = dec[0]
+    let nextPos = dec[1]
+    // Truncated/corrupt section header or a length running past EOF: stop without counting it
+    if secId > 13 or secLen < 0 or nextPos + secLen > n:
+      break
+    if secId == 5:
+      hasMem = true
+    elif secId == 7:
+      hasExp = true
+    elif secId == 10:
+      hasCode = true
+    elif secId == 11:
+      hasData = true
+    secCount += 1
+    pos = nextPos + secLen
+
+  ret WasmBinarySummary(
+    path = path,
+    byteSize = n,
+    validMagic = validMagic,
+    version = ver,
+    sectionCount = secCount,
+    hasMemorySection = hasMem,
+    hasExportSection = hasExp,
+    hasCodeSection = hasCode,
+    hasDataSection = hasData
+  )
+
+pub fn auditAllPocsWasm(): int:
+  let apps = [
+    "crm",
+    "markdown",
+    "paint",
+    "notepad",
+    "survival_horror",
+    "tactical_fps",
+    "fantasy_rts",
+    "powdergame",
+    "dark_arpg"
+  ]
+  println("[AIPL WasmHarness v0.8.0] Auditing 9 POC WebAssembly & HTML5 Targets:")
+  mut passCount = 0
+  mut ai = 0
+  while ai < apps.len:
+    let app = apps[ai]
+    let wasmPath = "examples/" + app + "/" + app + ".wasm"
+    let htmlPath = "examples/" + app + "/" + app + ".html"
+    let wasmHtmlPath = "examples/" + app + "/" + app + "_wasm.html"
+    let info = inspectWasmBinary(wasmPath)
+    let hasHtml = fileExists(htmlPath)
+    let hasWasmHtml = fileExists(wasmHtmlPath)
+    let ok = info.validMagic and info.version == 1 and info.hasExportSection and info.hasCodeSection and hasHtml
+    if ok:
+      passCount += 1
+    let statusTag = if ok: "PASS" else: "WARN"
+    println("  [" + statusTag + "] " + app + " | wasm=" + str(info.byteSize) + "B (sections=" + str(info.sectionCount) + ") | html=" + str(hasHtml) + " | wasm_html=" + str(hasWasmHtml))
+    ai += 1
+  println("[AIPL WasmHarness v0.8.0] Summary: " + str(passCount) + "/" + str(apps.len) + " POC WebAssembly bundles verified.")
+  ret if passCount == apps.len: 0 else: 1
+
+pub fn main(): int:
+  let args = userArgs()
+  mut targetFile = ""
+  mut runVm = false
+  mut i = 0
+  while i < args.len:
+    let a = args[i]
+    if a == "--run":
+      runVm = true
+    elif a == "--audit-all":
+      targetFile = ""
+    elif not a.startsWith("-") and targetFile == "":
+      targetFile = a
+    i += 1
+
+  if targetFile == "":
+    ret auditAllPocsWasm()
+
+  let info = inspectWasmBinary(targetFile)
+  println("[AIPL WasmHarness] File='" + info.path + "' size=" + str(info.byteSize) + "B validMagic=" + str(info.validMagic) + " v=" + str(info.version) + " sections=" + str(info.sectionCount) + " [mem=" + str(info.hasMemorySection) + ", exp=" + str(info.hasExportSection) + ", code=" + str(info.hasCodeSection) + ", data=" + str(info.hasDataSection) + "]")
+  if not info.validMagic or info.version != 1:
+    ret 1
+  if runVm:
+    // --wait: stay attached so the module's stdout and exit status are returned (no verbose banners mixed in)
+    let r = execCommand("./bin/aipl", ["run", "--wait", targetFile])
+    if r.isErr():
+      println("[AIPL WasmHarness] run failed: " + r.unwrapErr())
+      ret 1
+    let out = r.unwrap()
+    print(out.stdout)
+    if out.status != 0:
+      if out.stderr.len > 0:
+        print(out.stderr)
+      ret out.status
+  ret 0

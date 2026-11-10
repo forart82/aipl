@@ -1,0 +1,128 @@
+/// # Module: `std/crypto/csprng` (`CryptoCsprng`)
+///
+/// ## Purpose & Domain Scope
+/// Cryptographically secure pseudo-random number generation (CSPRNG),
+/// RFC 4122 UUID v4, RFC 9562 time-ordered UUID v7, and Crockford Base32 ULIDs.
+module CryptoCsprng
+
+import { hexEncode, hexDecode } from "../encoding/hex.aipl"
+
+pub struct CsprngStream:
+  seed: bytes
+  counter: int
+
+pub struct Uuid:
+  bytes16: bytes
+
+pub fn csprngRandomBytes(count: int): bytes:
+  if count <= 0:
+    ret bytesNew(0)
+  ret aipl_rt_randomBytes(count)
+
+pub fn csprngRandomInt(min: int, max: int): int:
+  if max <= min:
+    ret min
+  let span = max - min + 1
+  let b = csprngRandomBytes(8)
+  mut acc = 0
+  mut i = 0
+  while i < 7:
+    acc = (acc << 8) | (b[i] & 255)
+    i = i + 1
+  if acc < 0:
+    acc = -acc
+  ret min + (acc % span)
+
+pub fn csprngRandomFloat(): float:
+  let b = csprngRandomBytes(7)
+  mut acc = 0
+  mut i = 0
+  while i < 6:
+    acc = (acc << 8) | (b[i] & 255)
+    i = i + 1
+  let denom = 281474976710656.0
+  ret float(acc) / denom
+
+fn formatUuidBytes(b: bytes): str:
+  let h = hexEncode(b)
+  ret h.slice(0, 8) + "-" + h.slice(8, 12) + "-" + h.slice(12, 16) + "-" + h.slice(16, 20) + "-" + h.slice(20, 32)
+
+pub fn uuidNil(): str:
+  ret "00000000-0000-0000-0000-000000000000"
+
+pub fn uuidV4(): str:
+  mut b = csprngRandomBytes(16)
+  b.set(6, (b[6] & 15) | 64)
+  b.set(8, (b[8] & 63) | 128)
+  ret formatUuidBytes(b)
+
+pub fn uuidV7(timestampMs: int = 0): str:
+  mut ts = timestampMs
+  if ts <= 0:
+    ts = aipl_rt_nowUnixMs()
+  mut b = csprngRandomBytes(16)
+  b.set(0, (ts >> 40) & 255)
+  b.set(1, (ts >> 32) & 255)
+  b.set(2, (ts >> 24) & 255)
+  b.set(3, (ts >> 16) & 255)
+  b.set(4, (ts >> 8) & 255)
+  b.set(5, ts & 255)
+  b.set(6, (b[6] & 15) | 112)
+  b.set(8, (b[8] & 63) | 128)
+  ret formatUuidBytes(b)
+
+fn isHexCharCode(code: int): bool:
+  ret (code >= 48 and code <= 57) or (code >= 65 and code <= 70) or (code >= 97 and code <= 102)
+
+pub fn isValidUuid(s: str): bool:
+  if s.len() != 36:
+    ret false
+  let raw = s.toBytes()
+  mut i = 0
+  while i < 36:
+    let c = 255 & raw[i]
+    if i == 8 or i == 13 or i == 18 or i == 23:
+      if c != 45:
+        ret false
+    else:
+      if not isHexCharCode(c):
+        ret false
+    i = i + 1
+  ret true
+
+pub fn parseUuid(s: str): Result[Uuid, str]:
+  if not isValidUuid(s):
+    ret Err("parseUuid: invalid UUID format")
+  let compact = s.slice(0, 8) + s.slice(9, 13) + s.slice(14, 18) + s.slice(19, 23) + s.slice(24, 36)
+  match hexDecode(compact):
+    Ok(b) => ret Ok(Uuid(bytes16: b))
+    Err(e) => ret Err(e)
+
+pub fn (self: Uuid) toString(): str:
+  ret formatUuidBytes(self.bytes16)
+
+pub fn ulidGenerate(timestampMs: int = 0): str:
+  let alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+  mut ts = timestampMs
+  if ts <= 0:
+    ts = aipl_rt_nowUnixMs()
+  mut timeChars: [str] = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
+  mut rem = ts
+  mut idx = 9
+  while idx >= 0:
+    let d = rem & 31
+    timeChars[idx] = alphabet.slice(d, d + 1)
+    rem = rem >> 5
+    idx = idx - 1
+  mut out = ""
+  mut i = 0
+  while i < 10:
+    out = out + timeChars[i]
+    i = i + 1
+  let rnd = csprngRandomBytes(16)
+  i = 0
+  while i < 16:
+    let d = 31 & rnd[i]
+    out = out + alphabet.slice(d, d + 1)
+    i = i + 1
+  ret out

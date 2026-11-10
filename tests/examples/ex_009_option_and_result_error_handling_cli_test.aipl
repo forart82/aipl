@@ -1,0 +1,45 @@
+// ============================================================================
+// Twin Test Suite 009: Option[T], Result[T, E] & Postfix '?' Propagation CLI
+// Verifies examples/ex_009_option_and_result_error_handling_cli.aipl
+// ============================================================================
+module Ex009OptionAndResultErrorHandlingCliTest
+
+import {
+  ValidationOutcome,
+  lookupPortInTable,
+  validatePortRange,
+  computeEndpointScore,
+  buildValidationOutcome
+} from "../../examples/ex_009_option_and_result_error_handling_cli.aipl"
+
+pub fn test_option_lookup_and_is_some(): int:
+  let found = lookupPortInTable("http")
+  assert(found.isSome() == true and found.unwrap() == 8080, "http resolves to Some(8080)")
+  let missing = lookupPortInTable("unknown_svc")
+  assert(missing.isNone() == true and missing.unwrapOr(3000) == 3000, "unknown resolves to None with fallback 3000")
+  ret 0
+
+pub fn test_result_validation_and_propagation(): int:
+  let okPort = validatePortRange(8080)
+  assert(okPort.isOk() == true and okPort.unwrap() == 8080, "8080 is valid non-privileged port")
+  let privPort = validatePortRange(80)
+  assert(privPort.isErr() == true and privPort.unwrapErr() == "ERR:PRIVILEGED_PORT", "80 is privileged")
+  let chainOk = computeEndpointScore("http", 2)
+  assert(chainOk.isOk() == true and chainOk.unwrap() == 16160, "postfix ? propagates Ok(8080 * 2)")
+  let chainErr = computeEndpointScore("ssh", 2)
+  assert(chainErr.isErr() == true and chainErr.unwrapErr() == "ERR:PRIVILEGED_PORT", "ssh port 22 fails validation via ?")
+  ret 0
+
+pub fn test_build_validation_outcome(): int:
+  let outOk = buildValidationOutcome("https", 1)
+  assert(outOk.resolvedPort == 8443 and outOk.score == 8443 and outOk.statusTag == "RES:OK", "https outcome OK")
+  let outErr = buildValidationOutcome("ssh", 1)
+  assert(outErr.resolvedPort == 22 and outErr.score == -1 and outErr.statusTag == "ERR:PRIVILEGED_PORT", "ssh outcome ERR")
+  ret 0
+
+pub fn main(): int:
+  test_option_lookup_and_is_some()
+  test_result_validation_and_propagation()
+  test_build_validation_outcome()
+  println("PASS: ex_009_option_and_result_error_handling_cli_test")
+  ret 0

@@ -1,0 +1,61 @@
+// ============================================================================
+// Step 4.4: Exhaustive Per-Function Unit Tests for std/alloc/page_alloc.aipl (7)
+// Target: tests/functions/alloc/page_alloc_test.aipl
+// ============================================================================
+module PageAllocTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  PAGE_PROT_NONE,
+  PAGE_PROT_READ,
+  PAGE_PROT_WRITE,
+  PAGE_PROT_EXEC,
+  DEFAULT_SYSTEM_PAGE_SIZE,
+  VirtualPageAllocator,
+  systemPageSize,
+  pageAllocatorNew,
+  pageAlloc,
+  pageFree,
+  pageProtect,
+  pageAlignUp,
+  pageCountForBytes
+} from "../../../std/alloc/page_alloc.aipl"
+
+pub fn test_page_alloc_math_and_lifecycle(): int:
+  assertEqInt(systemPageSize(), 4096, "systemPageSize == 4096")
+  assertEqInt(DEFAULT_SYSTEM_PAGE_SIZE, 4096, "DEFAULT_SYSTEM_PAGE_SIZE == 4096")
+
+  // Math helpers
+  assertEqInt(pageAlignUp(0), 0, "pageAlignUp 0 is 0")
+  assertEqInt(pageAlignUp(1), 4096, "pageAlignUp 1 is 4096")
+  assertEqInt(pageAlignUp(4096), 4096, "pageAlignUp 4096 is 4096")
+  assertEqInt(pageAlignUp(4097), 8192, "pageAlignUp 4097 is 8192")
+
+  assertEqInt(pageCountForBytes(0), 0, "pageCountForBytes 0 is 0")
+  assertEqInt(pageCountForBytes(1), 1, "pageCountForBytes 1 is 1")
+  assertEqInt(pageCountForBytes(4096), 1, "pageCountForBytes 4096 is 1")
+  assertEqInt(pageCountForBytes(4097), 2, "pageCountForBytes 4097 is 2")
+
+  // Struct & allocations
+  let vpa = pageAllocatorNew()
+  assertEqInt(vpa.pageSize, 4096, "vpa pageSize is 4096")
+
+  let addr = pageAlloc(4)
+  assert(addr > 0, "pageAlloc 4 pages returns valid address")
+
+  assert(pageProtect(addr, 4, PAGE_PROT_READ | PAGE_PROT_WRITE) == true, "pageProtect returns true")
+  assert(pageProtect(0, 4, PAGE_PROT_READ) == false, "pageProtect invalid addr returns false")
+
+  assert(pageFree(addr, 4) == true, "pageFree returns true")
+  assert(pageFree(0, 4) == false, "pageFree null addr returns false")
+  assert(pageFree(addr, 0) == false, "pageFree 0 pages returns false")
+  ret 0
+
+pub fn main(): int:
+  test_page_alloc_math_and_lifecycle()
+  println("PASS: page_alloc_test")
+  ret 0

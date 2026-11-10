@@ -1,0 +1,192 @@
+module Ex225Phys3dColliderGjkEpaManifoldWindow
+
+import {
+  PhysicsMaterial3D, Collider3D, sphereColliderNew,
+  boxCollider3dNew, capsuleCollider3dNew, collider3dComputeAABB
+} from "../std/phys3d/collider3d"
+import {
+  ContactPoint3D, ContactManifold3D, testSphereSphere3D,
+  testSphereBox3D, testGjkEpa3D, contactManifold3dCache
+} from "../std/phys3d/narrowphase3d"
+import { Transform3D } from "../std/spatial/continuous_world3d"
+import { Vec3 } from "../std/math/vec_math"
+import { Quat } from "../std/math/quat"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct GjkEpaScene(sphereColA: Collider3D, sphereColB: Collider3D, boxColA: Collider3D, boxColB: Collider3D, transformA: Transform3D, transformB: Transform3D, cachedManifold: ContactManifold3D, spherePenetration: float, sphereBoxPenetration: float, gjkPenetration: float, offsetX: float, velX: float)
+
+pub fn createGjkEpaScene(): GjkEpaScene:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  let mat = PhysicsMaterial3D(restitution = 0.2, staticFriction = 0.5, dynamicFriction = 0.4, density = 1.0)
+  let sA = sphereColliderNew(5.0, mat)
+  let sB = sphereColliderNew(5.0, mat)
+  let cA = boxCollider3dNew(Vec3(x = 5.0, y = 5.0, z = 5.0), mat)
+  let cB = boxCollider3dNew(Vec3(x = 5.0, y = 5.0, z = 5.0), mat)
+  let tA = Transform3D(position = Vec3(x = 0.0, y = 0.0, z = 0.0), rotation = idRot, scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let tB = Transform3D(position = Vec3(x = 8.0, y = 0.0, z = 0.0), rotation = idRot, scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let mInit = testSphereSphere3D(tA.position, sA.sphereRadius, tB.position, sB.sphereRadius).unwrap()
+  ret GjkEpaScene(
+    sphereColA = sA,
+    sphereColB = sB,
+    boxColA = cA,
+    boxColB = cB,
+    transformA = tA,
+    transformB = tB,
+    cachedManifold = mInit,
+    spherePenetration = 2.0,
+    sphereBoxPenetration = 1.0,
+    gjkPenetration = 2.0,
+    offsetX = 8.0,
+    velX = -2.0
+  )
+
+pub fn stepScene(mut scene: GjkEpaScene, frame: int, dt: float): void:
+  mut nx = scene.offsetX + scene.velX * dt
+  mut vx = scene.velX
+  if nx < 6.2:
+    nx = 6.2
+    vx = 2.0
+  if nx > 9.4:
+    nx = 9.4
+    vx = -2.0
+  scene.offsetX = nx
+  scene.velX = vx
+
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  let tA = scene.transformA
+  let tB = Transform3D(position = Vec3(x = nx, y = 0.0, z = 0.0), rotation = idRot, scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  scene.transformB = tB
+  let aabbB = collider3dComputeAABB(scene.boxColB, tB)
+
+  let mSS = testSphereSphere3D(tA.position, scene.sphereColA.sphereRadius, tB.position, scene.sphereColB.sphereRadius)
+  if mSS.isSome():
+    let manSS: ContactManifold3D = mSS.unwrap()
+    let cpSS: ContactPoint3D = manSS.points[0]
+    scene.spherePenetration = cpSS.penetration
+    mut cached = scene.cachedManifold
+    contactManifold3dCache(cached, manSS)
+    scene.cachedManifold = cached
+
+  let mSB = testSphereBox3D(Vec3(x = nx - 2.2, y = 0.0, z = 0.0), 2.5, tA.position, idRot, scene.boxColA.boxHalfExtents)
+  if mSB.isSome():
+    let manSB: ContactManifold3D = mSB.unwrap()
+    let cpSB: ContactPoint3D = manSB.points[0]
+    scene.sphereBoxPenetration = cpSB.penetration
+
+  let mGjk = testGjkEpa3D(scene.boxColA, tA, scene.boxColB, tB)
+  if mGjk.isSome() and aabbB.max.x > 0.0:
+    let manGjk: ContactManifold3D = mGjk.unwrap()
+    let cpGjk: ContactPoint3D = manGjk.points[0]
+    scene.gjkPenetration = cpGjk.penetration
+
+pub fn auditPhys3dColliderGjkEpaManifold(): int:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  let mSS = testSphereSphere3D(Vec3(x = 0.0, y = 0.0, z = 0.0), 5.0, Vec3(x = 8.0, y = 0.0, z = 0.0), 5.0)
+  mut man1: ContactManifold3D = mSS.unwrap()
+  let cp0: ContactPoint3D = man1.points[0]
+  let mSB = testSphereBox3D(Vec3(x = 6.0, y = 0.0, z = 0.0), 2.0, Vec3(x = 0.0, y = 0.0, z = 0.0), idRot, Vec3(x = 5.0, y = 5.0, z = 5.0))
+  let man2: ContactManifold3D = mSB.unwrap()
+  contactManifold3dCache(man1, man2)
+  let mat = PhysicsMaterial3D(restitution = 0.2, staticFriction = 0.5, dynamicFriction = 0.4, density = 1.0)
+  let cA = boxCollider3dNew(Vec3(x = 5.0, y = 5.0, z = 5.0), mat)
+  let cB = boxCollider3dNew(Vec3(x = 5.0, y = 5.0, z = 5.0), mat)
+  let capC = capsuleCollider3dNew(2.0, 6.0, mat)
+  let tA = Transform3D(position = Vec3(x = 0.0, y = 0.0, z = 0.0), rotation = idRot, scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let tB = Transform3D(position = Vec3(x = 8.0, y = 0.0, z = 0.0), rotation = idRot, scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let mGjk = testGjkEpa3D(cA, tA, cB, tB)
+  mut hits = 0
+  if mSS.isSome():
+    hits = hits + 1
+  if mSB.isSome():
+    hits = hits + 1
+  if mGjk.isSome() and capC.capsuleHeight > 0.0:
+    hits = hits + 1
+  ret int(cp0.penetration) * 10 + hits
+
+fn drawCube3D(x: float, y: float, w: float, fillCol: int, edgeCol: int): void:
+  let dx = 22.0
+  let dy = -16.0
+  drawRect(x + dx, y + dy, w, w, fillCol)
+  drawRectOutline(x + dx, y + dy, w, w, 1.5, edgeCol)
+  drawRect(x, y, w, w, fillCol)
+  drawRectOutline(x, y, w, w, 2.0, edgeCol)
+  drawLine(x, y, x + dx, y + dy, edgeCol, 1.5)
+  drawLine(x + w, y, x + w + dx, y + dy, edgeCol, 1.5)
+  drawLine(x, y + w, x + dx, y + w + dy, edgeCol, 1.5)
+  drawLine(x + w, y + w, x + w + dx, y + w + dy, edgeCol, 1.5)
+
+pub fn main(): int:
+  let audit = auditPhys3dColliderGjkEpaManifold()
+  println("EX_225_PHYS3D_GJK_EPA_AUDIT=" + str(audit))
+
+  mut scene = createGjkEpaScene()
+
+  initWindow(1280, 720, "AIPL ex_225: 3D Colliders, GJK/EPA & Contact Manifolds")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.05)
+
+    let rS = scene.sphereColA.sphereRadius * 13.0
+    let sepPx = scene.transformB.position.x * 13.0
+    let boxW = scene.boxColA.boxHalfExtents.x * 22.0
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_225: 3D NARROWPHASE COLLIDERS, GJK/EPA & CONTACT MANIFOLD CACHE", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Sphere-Sphere Pen=" + str(int(scene.spherePenetration * 100.0)) + "cm | Sphere-Box Pen=" + str(int(scene.sphereBoxPenetration * 100.0)) + "cm | GJK/EPA Pen=" + str(int(scene.gjkPenetration * 100.0)) + "cm", 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    // Panel 1: 3D Sphere-Sphere Manifold
+    drawRect(40.0, 110.0, 380.0, 566.0, rgb(17, 24, 39))
+    drawRectOutline(40.0, 110.0, 380.0, 566.0, 2.0, rgb(56, 189, 248))
+    drawText("1. testSphereSphere3D()", 64.0, 132.0, 16.0, rgb(125, 211, 252))
+    drawCircle(172.0, 350.0, rS, rgb(14, 116, 144))
+    drawCircleOutline(172.0, 350.0, rS, 2.0, rgb(103, 232, 249))
+    drawLine(172.0 - rS, 350.0, 172.0 + rS, 350.0, rgb(34, 211, 238), 1.0)
+    drawCircle(172.0 + sepPx, 350.0, rS, rgb(29, 78, 216))
+    drawCircleOutline(172.0 + sepPx, 350.0, rS, 2.0, rgb(147, 197, 253))
+    drawLine(172.0 + sepPx - rS, 350.0, 172.0 + sepPx + rS, 350.0, rgb(96, 165, 250), 1.0)
+    let ssContactX = 172.0 + sepPx * 0.5
+    drawLine(ssContactX, 350.0, ssContactX + scene.spherePenetration * 24.0, 350.0, rgb(239, 68, 68), 3.5)
+    drawCircle(ssContactX, 350.0, 6.5, rgb(250, 204, 21))
+    drawText("Contact Point + Normal N=(1,0,0)", 64.0, 520.0, 14.0, rgb(148, 163, 184))
+    drawText("Penetration = " + str(int(scene.spherePenetration * 100.0)) + " cm", 64.0, 550.0, 16.0, rgb(103, 232, 249))
+    drawText("Warm-Start Cache Active: " + str(scene.cachedManifold.isColliding), 64.0, 580.0, 14.0, rgb(52, 211, 153))
+
+    // Panel 2: 3D Sphere-OBB Box Manifold
+    drawRect(450.0, 110.0, 380.0, 566.0, rgb(17, 24, 39))
+    drawRectOutline(450.0, 110.0, 380.0, 566.0, 2.0, rgb(16, 185, 129))
+    drawText("2. testSphereBox3D()", 474.0, 132.0, 16.0, rgb(110, 231, 183))
+    drawCube3D(505.0, 295.0, boxW, rgb(6, 95, 70), rgb(52, 211, 153))
+    let sbCenterX = 570.0 + sepPx * 0.82
+    drawCircle(sbCenterX, 350.0, 44.0, rgb(217, 119, 6))
+    drawCircleOutline(sbCenterX, 350.0, 44.0, 2.0, rgb(253, 224, 71))
+    let sbContactX = 505.0 + boxW
+    drawLine(sbContactX, 350.0, sbContactX + scene.sphereBoxPenetration * 24.0, 350.0, rgb(239, 68, 68), 3.5)
+    drawCircle(sbContactX, 350.0, 6.5, rgb(250, 204, 21))
+    drawText("Clamped Local Box Closest Point", 474.0, 520.0, 14.0, rgb(148, 163, 184))
+    drawText("Penetration = " + str(int(scene.sphereBoxPenetration * 100.0)) + " cm", 474.0, 550.0, 16.0, rgb(110, 231, 183))
+    drawText("Sphere R=2.5m vs Box 5x5x5m", 474.0, 580.0, 14.0, rgb(253, 224, 71))
+
+    // Panel 3: 3D GJK / EPA Convex Box-Box Manifold
+    drawRect(860.0, 110.0, 380.0, 566.0, rgb(17, 24, 39))
+    drawRectOutline(860.0, 110.0, 380.0, 566.0, 2.0, rgb(168, 85, 247))
+    drawText("3. testGjkEpa3D() + EPA Depth", 884.0, 132.0, 16.0, rgb(216, 180, 254))
+    drawCube3D(905.0, 285.0, boxW, rgb(88, 28, 135), rgb(192, 132, 252))
+    drawCube3D(905.0 + sepPx, 305.0, boxW, rgb(131, 24, 67), rgb(244, 114, 182))
+    let gjkContactX = 905.0 + sepPx
+    drawLine(gjkContactX, 355.0, gjkContactX + scene.gjkPenetration * 24.0, 355.0, rgb(239, 68, 68), 3.5)
+    drawCircle(gjkContactX, 355.0, 6.5, rgb(250, 204, 21))
+    drawText("Minkowski Difference EPA Vector", 884.0, 520.0, 14.0, rgb(148, 163, 184))
+    drawText("EPA Penetration = " + str(int(scene.gjkPenetration * 100.0)) + " cm", 884.0, 550.0, 16.0, rgb(216, 180, 254))
+    drawText("Separation X = " + str(int(scene.offsetX * 10.0)) + " dm", 884.0, 580.0, 14.0, rgb(244, 114, 182))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

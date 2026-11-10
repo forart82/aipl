@@ -1,0 +1,236 @@
+// ============================================================================
+// Module: std/encoding/ini_dotenv
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// INI section configuration and .env environment file parsers.
+// ============================================================================
+module EncodingIniDotEnv
+
+pub struct IniDocument:
+  sections: [(str, [(str, str)])]
+
+pub struct DotEnvMap:
+  entries: [(str, str)]
+
+fn stripIniInlineComment(line: str): str:
+  mut inQuote = false
+  mut i = 0
+  while i < line.len:
+    let c = line.charCodeAt(i)
+    if c == 34 or c == 39:
+      inQuote = not inQuote
+    elif (c == 59 or c == 35) and not inQuote:
+      ret line.slice(0, i).trim()
+    i = i + 1
+  ret line.trim()
+
+fn unquoteIniVal(v: str): str:
+  let t = v.trim()
+  if (t.startsWith("\"") and t.endsWith("\"") and t.len >= 2) or (t.startsWith("'") and t.endsWith("'") and t.len >= 2):
+    ret t.slice(1, t.len - 1)
+  ret t
+
+pub fn parseIni(text: str): Result[IniDocument, str]:
+  let lines = text.split("\n")
+  mut secNames: [str] = []
+  mut secLists: [[(str, str)]] = []
+  mut curSecIdx = -1
+  mut i = 0
+  while i < lines.len:
+    let clean = stripIniInlineComment(lines[i])
+    if clean.len > 0:
+      if clean.startsWith("[") and clean.endsWith("]"):
+        let sName = clean.slice(1, clean.len - 1).trim()
+        mut foundIdx = -1
+        mut si = 0
+        while si < secNames.len:
+          if secNames[si] == sName:
+            foundIdx = si
+            break
+          si = si + 1
+        if foundIdx < 0:
+          secNames.push(sName)
+          mut emptyPairs: [(str, str)] = []
+          secLists.push(emptyPairs)
+          curSecIdx = secNames.len - 1
+        else:
+          curSecIdx = foundIdx
+      else:
+        let eqIdx = clean.indexOf("=")
+        if eqIdx < 0:
+          ret Err("parseIni: missing '=' on line " + str(i + 1))
+        if curSecIdx < 0:
+          secNames.push("")
+          mut emptyPairs: [(str, str)] = []
+          secLists.push(emptyPairs)
+          curSecIdx = 0
+        let k = clean.slice(0, eqIdx).trim()
+        let v = unquoteIniVal(clean.slice(eqIdx + 1, clean.len))
+        mut list = secLists[curSecIdx]
+        list.push((k, v))
+        secLists[curSecIdx] = list
+    i = i + 1
+  mut sections: [(str, [(str, str)])] = []
+  mut si = 0
+  while si < secNames.len:
+    sections.push((secNames[si], secLists[si]))
+    si = si + 1
+  ret Ok(IniDocument(sections = sections))
+
+pub fn (self: IniDocument) get(section: str, key: str): Option[str]:
+  mut i = 0
+  while i < self.sections.len:
+    let secPair = self.sections[i]
+    if secPair[0] == section:
+      let kvList = secPair[1]
+      mut j = 0
+      while j < kvList.len:
+        let kv = kvList[j]
+        if kv[0] == key:
+          ret Some(kv[1])
+        j = j + 1
+    i = i + 1
+  ret None
+
+pub fn serializeIni(doc: IniDocument): str:
+  mut lines: [str] = []
+  mut i = 0
+  while i < doc.sections.len:
+    let secPair = doc.sections[i]
+    let secName = secPair[0]
+    let kvList = secPair[1]
+    if secName.len > 0:
+      lines.push("[" + secName + "]")
+    mut j = 0
+    while j < kvList.len:
+      let kv = kvList[j]
+      lines.push(kv[0] + " = " + kv[1])
+      j = j + 1
+    if i + 1 < doc.sections.len:
+      lines.push("")
+    i = i + 1
+  ret lines.join("\n")
+
+pub fn parseDotEnv(text: str): DotEnvMap:
+  let lines = text.split("\n")
+  mut entries: [(str, str)] = []
+  mut i = 0
+  while i < lines.len:
+    mut line = lines[i].trim()
+    if line.len > 0 and not line.startsWith("#"):
+      if line.startsWith("export "):
+        line = line.slice(7, line.len).trim()
+      let eqIdx = line.indexOf("=")
+      if eqIdx > 0:
+        let k = line.slice(0, eqIdx).trim()
+        let v = unquoteIniVal(line.slice(eqIdx + 1, line.len))
+        entries.push((k, v))
+    i = i + 1
+  ret DotEnvMap(entries = entries)
+
+pub fn (self: DotEnvMap) get(key: str, fallback: str = ""): str:
+  mut i = 0
+  while i < self.entries.len:
+    let pair = self.entries[i]
+    if pair[0] == key:
+      ret pair[1]
+    i = i + 1
+  ret fallback
+
+pub fn (self: DotEnvMap) containsKey(key: str): bool:
+  mut i = 0
+  while i < self.entries.len:
+    let pair = self.entries[i]
+    if pair[0] == key:
+      ret true
+    i = i + 1
+  ret false
+
+pub fn fastIniGetValue(iniText: str, section: str, key: str, defaultVal: str): str:
+  let docRes = parseIni(iniText)
+  if docRes.isErr():
+    ret defaultVal
+  let valOpt = docRes.unwrap().get(section, key)
+  if valOpt.isNone():
+    ret defaultVal
+  ret valOpt.unwrap()
+
+pub fn parseDotenv(text: str): Map[str, str]:
+  let dm = parseDotEnv(text)
+  mut m: Map[str, str] = mapNew()
+  mut i = 0
+  while i < dm.entries.len:
+    let pair = dm.entries[i]
+    m.set(pair[0], pair[1])
+    i = i + 1
+  ret m
+
+pub fn loadDotEnv(text: str): Map[str, str]:
+  ret parseDotenv(text)
+
+pub fn loadDotenv(text: str): Map[str, str]:
+  ret parseDotenv(text)
+
+pub fn validateDotEnvSchema(envMap: Map[str, str], requiredKeys: [str]): Result[bool, [str]]:
+  mut missing: [str] = []
+  mut i = 0
+  while i < requiredKeys.len:
+    let k = requiredKeys[i]
+    if not envMap.containsKey(k):
+      missing.push(k)
+    i = i + 1
+  if missing.len > 0:
+    ret Err(missing)
+  ret Ok(true)
+
+pub fn validateSchema(envMap: Map[str, str], requiredKeys: [str]): Result[bool, [str]]:
+  ret validateDotEnvSchema(envMap, requiredKeys)
+
+pub fn parseIniSection(src: str, section: str): Map[str, str]:
+  mut m: Map[str, str] = mapNew()
+  let docRes = parseIni(src)
+  if docRes.isErr():
+    ret m
+  let doc = docRes.unwrap()
+  mut i = 0
+  while i < doc.sections.len:
+    let secPair = doc.sections[i]
+    if secPair[0] == section:
+      let kvList = secPair[1]
+      mut j = 0
+      while j < kvList.len:
+        let kv = kvList[j]
+        m.set(kv[0], kv[1])
+        j = j + 1
+    i = i + 1
+  ret m
+
+pub fn parseIniSections(src: str): [str]:
+  mut out: [str] = []
+  let docRes = parseIni(src)
+  if docRes.isErr():
+    ret out
+  let doc = docRes.unwrap()
+  mut i = 0
+  while i < doc.sections.len:
+    let secName = doc.sections[i][0]
+    if secName.len > 0:
+      out.push(secName)
+    i = i + 1
+  ret out
+
+pub fn getIniValue(src: str, section: str, key: str, defaultVal: str): str:
+  ret fastIniGetValue(src, section, key, defaultVal)
+
+pub fn toIni(section: str, m: Map[str, str]): str:
+  mut lines: [str] = []
+  if section.len > 0:
+    lines.push("[" + section + "]")
+  let ks = m.keys()
+  mut i = 0
+  while i < ks.len:
+    let k = ks[i]
+    let vOpt = m.get(k)
+    if vOpt.isSome():
+      lines.push(k + " = " + vOpt.unwrap())
+    i = i + 1
+  ret lines.join("\n")

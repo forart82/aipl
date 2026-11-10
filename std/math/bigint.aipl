@@ -1,0 +1,320 @@
+/// # Module: `std/math/bigint` (`MathBigInt`)
+///
+/// ## Purpose & Domain Scope
+/// Arbitrary-precision integers (`BigInt`) with little-endian base-10^9 limbs
+/// and exact multi-limb addition, subtraction, multiplication, comparison, and decimal formatting.
+module MathBigInt
+
+pub const BIGINT_BASE: int = 1000000000
+
+pub struct BigInt:
+  sign: int
+  digits: [int]
+
+fn normalizeLimbs(limbs: [int]): [int]:
+  mut n = limbs.len
+  while n > 1 and limbs[n - 1] == 0:
+    n -= 1
+  if n == 0:
+    ret [0]
+  mut out: [int] = []
+  mut i = 0
+  while i < n:
+    out.push(limbs[i])
+    i += 1
+  ret out
+
+fn isZeroLimbs(limbs: [int]): bool:
+  ret limbs.len == 0 or (limbs.len == 1 and limbs[0] == 0)
+
+fn cmpAbsLimbs(a: [int], b: [int]): int:
+  let na = a.len
+  let nb = b.len
+  if na != nb:
+    ret if na < nb: -1 else: 1
+  mut i = na - 1
+  while i >= 0:
+    if a[i] != b[i]:
+      ret if a[i] < b[i]: -1 else: 1
+    i -= 1
+  ret 0
+
+fn addAbsLimbs(a: [int], b: [int]): [int]:
+  let maxLen = if a.len > b.len: a.len else: b.len
+  mut out: [int] = []
+  mut carry = 0
+  mut i = 0
+  while i < maxLen or carry > 0:
+    let av = if i < a.len: a[i] else: 0
+    let bv = if i < b.len: b[i] else: 0
+    let sum = av + bv + carry
+    out.push(sum % BIGINT_BASE)
+    carry = sum / BIGINT_BASE
+    i += 1
+  ret normalizeLimbs(out)
+
+fn subAbsLimbs(a: [int], b: [int]): [int]:
+  // Assumes |a| >= |b|
+  mut out: [int] = []
+  mut borrow = 0
+  mut i = 0
+  while i < a.len:
+    let av = a[i]
+    let bv = if i < b.len: b[i] else: 0
+    mut diff = av - bv - borrow
+    if diff < 0:
+      diff += BIGINT_BASE
+      borrow = 1
+    else:
+      borrow = 0
+    out.push(diff)
+    i += 1
+  ret normalizeLimbs(out)
+
+fn mulAbsLimbs(a: [int], b: [int]): [int]:
+  if isZeroLimbs(a) or isZeroLimbs(b):
+    ret [0]
+  let totalLen = a.len + b.len
+  mut res: [int] = []
+  mut k = 0
+  while k < totalLen:
+    res.push(0)
+    k += 1
+  mut i = 0
+  while i < a.len:
+    mut carry = 0
+    let ai = a[i]
+    mut j = 0
+    while j < b.len:
+      let cur = res[i + j] + (ai * b[j]) + carry
+      res[i + j] = cur % BIGINT_BASE
+      carry = cur / BIGINT_BASE
+      j += 1
+    if carry > 0:
+      res[i + b.len] = res[i + b.len] + carry
+    i += 1
+  ret normalizeLimbs(res)
+
+pub fn bigIntFromInt(val: int): BigInt:
+  if val == 0:
+    ret BigInt(sign = 0, digits = [0])
+  let sign = if val < 0: -1 else: 1
+  mut v = if val < 0: -val else: val
+  mut limbs: [int] = []
+  while v > 0:
+    limbs.push(v % BIGINT_BASE)
+    v = v / BIGINT_BASE
+  ret BigInt(sign = sign, digits = limbs)
+
+pub fn bigIntFromString(strVal: str): BigInt:
+  let clean = strVal.trim()
+  if clean.len == 0 or clean == "0" or clean == "-0" or clean == "+0":
+    ret bigIntFromInt(0)
+  mut sign = 1
+  mut startIdx = 0
+  if clean.startsWith("-"):
+    sign = -1
+    startIdx = 1
+  else:
+    if clean.startsWith("+"):
+      startIdx = 1
+
+  mut digitsOnly = ""
+  mut idx = startIdx
+  while idx < clean.len:
+    let c = clean.charCodeAt(idx)
+    if c >= 48 and c <= 57:
+      digitsOnly = digitsOnly + clean.slice(idx, idx + 1)
+    idx += 1
+
+  if digitsOnly.len == 0:
+    ret bigIntFromInt(0)
+
+  mut limbs: [int] = []
+  mut endPos = digitsOnly.len
+  while endPos > 0:
+    let chunkStart = if endPos >= 9: endPos - 9 else: 0
+    mut chunkVal = 0
+    mut k = chunkStart
+    while k < endPos:
+      chunkVal = chunkVal * 10 + (digitsOnly.charCodeAt(k) - 48)
+      k += 1
+    limbs.push(chunkVal)
+    endPos = chunkStart
+
+  let norm = normalizeLimbs(limbs)
+  if isZeroLimbs(norm):
+    ret BigInt(sign = 0, digits = [0])
+  ret BigInt(sign = sign, digits = norm)
+
+pub fn (self: BigInt) toInt64(): int:
+  if self.sign == 0 or self.digits.len == 0:
+    ret 0
+  mut acc = 0
+  mut i = self.digits.len - 1
+  while i >= 0:
+    acc = acc * BIGINT_BASE + self.digits[i]
+    i -= 1
+  ret self.sign * acc
+
+fn padLimb9(val: int): str:
+  let s = str(val)
+  mut pad = ""
+  mut k = s.len
+  while k < 9:
+    pad = pad + "0"
+    k += 1
+  ret pad + s
+
+pub fn (self: BigInt) toString(): str:
+  let norm = normalizeLimbs(self.digits)
+  if self.sign == 0 or isZeroLimbs(norm):
+    ret "0"
+  mut out = if self.sign < 0: "-" else: ""
+  let topIdx = norm.len - 1
+  out = out + str(norm[topIdx])
+  mut i = topIdx - 1
+  while i >= 0:
+    out = out + padLimb9(norm[i])
+    i -= 1
+  ret out
+
+pub fn (self: BigInt) cmp(other: BigInt): int:
+  let sA = if isZeroLimbs(self.digits): 0 else: self.sign
+  let sB = if isZeroLimbs(other.digits): 0 else: other.sign
+  if sA != sB:
+    ret if sA < sB: -1 else: 1
+  if sA == 0:
+    ret 0
+  let absCmp = cmpAbsLimbs(normalizeLimbs(self.digits), normalizeLimbs(other.digits))
+  ret if sA > 0: absCmp else: -absCmp
+
+pub fn (self: BigInt) add(other: BigInt): BigInt:
+  let sA = if isZeroLimbs(self.digits): 0 else: self.sign
+  let sB = if isZeroLimbs(other.digits): 0 else: other.sign
+  if sA == 0:
+    ret other
+  if sB == 0:
+    ret self
+  let da = normalizeLimbs(self.digits)
+  let db = normalizeLimbs(other.digits)
+  if sA == sB:
+    ret BigInt(sign = sA, digits = addAbsLimbs(da, db))
+  let cmpVal = cmpAbsLimbs(da, db)
+  if cmpVal == 0:
+    ret BigInt(sign = 0, digits = [0])
+  if cmpVal > 0:
+    ret BigInt(sign = sA, digits = subAbsLimbs(da, db))
+  ret BigInt(sign = sB, digits = subAbsLimbs(db, da))
+
+pub fn (self: BigInt) sub(other: BigInt): BigInt:
+  let negOther = BigInt(sign = -other.sign, digits = other.digits)
+  ret self.add(negOther)
+
+pub fn (self: BigInt) mul(other: BigInt): BigInt:
+  let sA = if isZeroLimbs(self.digits): 0 else: self.sign
+  let sB = if isZeroLimbs(other.digits): 0 else: other.sign
+  if sA == 0 or sB == 0:
+    ret BigInt(sign = 0, digits = [0])
+  let prod = mulAbsLimbs(normalizeLimbs(self.digits), normalizeLimbs(other.digits))
+  if isZeroLimbs(prod):
+    ret BigInt(sign = 0, digits = [0])
+  ret BigInt(sign = sA * sB, digits = prod)
+
+fn mulLimbScalar(a: [int], scalar: int): [int]:
+  if scalar <= 0 or isZeroLimbs(a):
+    ret [0]
+  mut res: [int] = []
+  mut carry = 0
+  mut i = 0
+  while i < a.len:
+    let prod = a[i] * scalar + carry
+    res.push(prod % BIGINT_BASE)
+    carry = prod / BIGINT_BASE
+    i += 1
+  while carry > 0:
+    res.push(carry % BIGINT_BASE)
+    carry = carry / BIGINT_BASE
+  ret normalizeLimbs(res)
+
+fn shiftLimbAndAdd(rem: [int], limb: int): [int]:
+  if isZeroLimbs(rem):
+    ret [limb]
+  mut out: [int] = [limb]
+  mut i = 0
+  while i < rem.len:
+    out.push(rem[i])
+    i += 1
+  ret normalizeLimbs(out)
+
+fn divModAbsLimbs(a: [int], b: [int], returnRem: bool): [int]:
+  let da = normalizeLimbs(a)
+  let db = normalizeLimbs(b)
+  if isZeroLimbs(db):
+    ret [0]
+  let cmp0 = cmpAbsLimbs(da, db)
+  if cmp0 < 0:
+    ret if returnRem: da else: [0]
+  if cmp0 == 0:
+    ret if returnRem: [0] else: [1]
+
+  mut qRev: [int] = []
+  mut rem: [int] = [0]
+  mut i = da.len - 1
+  while i >= 0:
+    rem = shiftLimbAndAdd(rem, da[i])
+    if cmpAbsLimbs(rem, db) < 0:
+      qRev.push(0)
+    else:
+      mut lo = 1
+      mut hi = BIGINT_BASE - 1
+      mut best = 0
+      while lo <= hi:
+        let mid = (lo + hi) / 2
+        let prod = mulLimbScalar(db, mid)
+        if cmpAbsLimbs(prod, rem) <= 0:
+          best = mid
+          lo = mid + 1
+        else:
+          hi = mid - 1
+      qRev.push(best)
+      if best > 0:
+        let subProd = mulLimbScalar(db, best)
+        rem = subAbsLimbs(rem, subProd)
+    i -= 1
+
+  if returnRem:
+    ret normalizeLimbs(rem)
+
+  mut qLimbs: [int] = []
+  mut k = qRev.len - 1
+  while k >= 0:
+    qLimbs.push(qRev[k])
+    k -= 1
+  ret normalizeLimbs(qLimbs)
+
+pub fn (self: BigInt) div(other: BigInt): BigInt:
+  let sA = if isZeroLimbs(self.digits): 0 else: self.sign
+  let sB = if isZeroLimbs(other.digits): 0 else: other.sign
+  if sA == 0 or sB == 0:
+    ret BigInt(sign = 0, digits = [0])
+  let qLimbs = divModAbsLimbs(self.digits, other.digits, false)
+  if isZeroLimbs(qLimbs):
+    ret BigInt(sign = 0, digits = [0])
+  ret BigInt(sign = sA * sB, digits = qLimbs)
+
+pub fn (self: BigInt) mod(other: BigInt): BigInt:
+  let sA = if isZeroLimbs(self.digits): 0 else: self.sign
+  let sB = if isZeroLimbs(other.digits): 0 else: other.sign
+  if sA == 0 or sB == 0:
+    ret BigInt(sign = 0, digits = [0])
+  let rLimbs = divModAbsLimbs(self.digits, other.digits, true)
+  if isZeroLimbs(rLimbs):
+    ret BigInt(sign = 0, digits = [0])
+  ret BigInt(sign = sA, digits = rLimbs)
+
+pub fn bigIntDiv(a: BigInt, b: BigInt): BigInt:
+  ret a.div(b)
+
+pub fn bigIntMod(a: BigInt, b: BigInt): BigInt:
+  ret a.mod(b)

@@ -1,0 +1,31 @@
+// ============================================================================
+// Twin Test Suite 136: Keyboard Piano Synthesizer & Shortcut Transitions (WINDOW)
+// Verifies examples/ex_136_input_keyboard_piano_and_shortcuts_window.aipl
+// ============================================================================
+module Ex136InputKeyboardPianoAndShortcutsWindowTest
+
+import {
+  verifyKeyboardStateTransitionsAndModifiers,
+  computePianoKeyMidiNote,
+  describeKeyboardEdgeState,
+  renderFrameStep
+} from "../../examples/ex_136_input_keyboard_piano_and_shortcuts_window.aipl"
+
+pub fn test_input_keyboard_piano_and_shortcuts_window(): int:
+  assert(verifyKeyboardStateTransitionsAndModifiers() == 1, "pushKeyboardEvent, pushTextInput, flushKeyFrame, and modifier checks pass")
+  assert(computePianoKeyMidiNote(4, 7) == 67, "octave 4 base(60) + semitone 7 == MIDI 67 (G4)")
+  assert(describeKeyboardEdgeState(1) == "KBD:JUST_PRESSED_RISING_EDGE", "rising edge key state label")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  let f100 = renderFrameStep(100, 0.016)
+  assert(f0 == 60, "frame 0 plays rising-edge MIDI note 60 (C4)")
+  assert(f1 == 160, "frame 1 transitions to sustained hold (100 + MIDI 60) via flushKeyFrame")
+  assert(f20 > f1, "frame 20 advances arpeggiated MIDI note via KeyboardState")
+  assert(f100 > f20, "frame 100 reaches upper octave MIDI note (C5)")
+  ret 0
+
+pub fn main(): int:
+  test_input_keyboard_piano_and_shortcuts_window()
+  println("PASS: ex_136_input_keyboard_piano_and_shortcuts_window_test")
+  ret 0

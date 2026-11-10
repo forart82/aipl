@@ -1,0 +1,41 @@
+module tests.functions.ecs.ecs_schedule_test
+
+import * from "std/ecs/ecs_schedule"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_ecs_schedule_systemsConflict_1(): int:
+  let arg_a = SystemDescriptor(systemId = 4, stage = 2, readComponentMask = 4, writeComponentMask = 4, priority = 1)
+  let edge_a = SystemDescriptor(systemId = 1, stage = 0, readComponentMask = 1, writeComponentMask = 1, priority = 0)
+  let arg_b = SystemDescriptor(systemId = 4, stage = 2, readComponentMask = 4, writeComponentMask = 4, priority = 1)
+  let edge_b = SystemDescriptor(systemId = 1, stage = 0, readComponentMask = 1, writeComponentMask = 1, priority = 0)
+  let resNom = systemsConflict(arg_a, arg_b)
+  let resEdge = systemsConflict(edge_a, edge_b)
+  assert(resNom == true, "systemsConflict nominal resNom == true")
+  assert(resEdge == true, "systemsConflict boundary resEdge == true")
+  ret 0
+
+pub fn test_ecs_schedule_sortSystemsByPriority_2(): int:
+  let arg_systems = [SystemDescriptor(systemId = 4, stage = 2, readComponentMask = 4, writeComponentMask = 4, priority = 1)]
+  let edge_systems = []
+  let arg_stage = 2
+  let edge_stage = 0
+  let resNom = sortSystemsByPriority(arg_systems, arg_stage)
+  let resEdge = sortSystemsByPriority(edge_systems, edge_stage)
+  assertEqInt(resNom.len(), 1, "sortSystemsByPriority nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "sortSystemsByPriority boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ecs_schedule_buildParallelBatches_3(): int:
+  let arg_sortedSystems = [SystemDescriptor(systemId = 4, stage = 2, readComponentMask = 4, writeComponentMask = 4, priority = 1)]
+  let edge_sortedSystems = []
+  let resNom = buildParallelBatches(arg_sortedSystems)
+  let resEdge = buildParallelBatches(edge_sortedSystems)
+  assertEqInt(resNom.len(), 1, "buildParallelBatches nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 0, "buildParallelBatches boundary resEdge.len() == 0")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_ecs_schedule_systemsConflict_1(), 0, "test_ecs_schedule_systemsConflict_1")
+  assertEqInt(test_ecs_schedule_sortSystemsByPriority_2(), 0, "test_ecs_schedule_sortSystemsByPriority_2")
+  assertEqInt(test_ecs_schedule_buildParallelBatches_3(), 0, "test_ecs_schedule_buildParallelBatches_3")
+  ret 0

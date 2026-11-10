@@ -1,0 +1,35 @@
+// ============================================================================
+// Twin Test Suite 251: Desktop System Monitor Dashboard (WINDOW - X11 MIT-SHM)
+// Verifies examples/ex_251_desktop_system_monitor_dashboard_window.aipl
+// ============================================================================
+module Ex251DesktopSystemMonitorDashboardWindowTest
+
+import {
+  computeCpuLoadPermille,
+  computeMemoryUsedMb,
+  describeDesktopWindowBackend,
+  renderFrameStep
+} from "../../examples/ex_251_desktop_system_monitor_dashboard_window.aipl"
+import { getWindowMode, setWindowMode } from "../../std/gfx2d/shape2d.aipl"
+
+pub fn test_desktop_system_monitor_dashboard_window(): int:
+  assert(describeDesktopWindowBackend() == "DESKTOP_UI:x11:MIT_SHM_SOFTWARE", "x11 desktop window mode backend label")
+  assert(getWindowMode() == "x11", "window mode set to x11")
+  let c0 = computeCpuLoadPermille(0, 0)
+  let c1 = computeCpuLoadPermille(3, 10)
+  assert(c0 >= 50 and c0 <= 980, "cpu load in valid permille bounds")
+  assert(c0 != c1, "cpu load varies across cores and frames")
+  let m0 = computeMemoryUsedMb(32768, 0)
+  assert(m0 > 10000 and m0 < 32000, "memory used in valid bounds")
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  let f20 = renderFrameStep(20, 0.016)
+  assert(f0 > 15000, "frame 0 renders telemetry metrics")
+  assert(f0 != f1, "frame 0 and frame 1 telemetry differ")
+  assert(f1 != f20, "frame 1 and frame 20 telemetry differ")
+  ret 0
+
+pub fn main(): int:
+  test_desktop_system_monitor_dashboard_window()
+  println("PASS: ex_251_desktop_system_monitor_dashboard_window_test")
+  ret 0

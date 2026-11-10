@@ -1,0 +1,163 @@
+module Ex219Phys2dJointPendulumAndBridgeWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import {
+  BodyType2D, RigidBody2D, rigidBody2dNew, rigidBody2dApplyLinearImpulse,
+  rigidBody2dIntegrateVelocity, rigidBody2dIntegratePosition
+} from "../std/phys2d/rigid_body2d"
+import {
+  JointType2D, Joint2D, distanceJointNew, springJointNew, revoluteJointNew,
+  jointSolveVelocity, jointSolvePosition
+} from "../std/phys2d/joint2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepBridgeLoadPlankIdx(frame: int): int:
+  let cyc = (frame / 9) % 12
+  let idx = if cyc < 7: 1 + cyc else: 13 - cyc
+  ret idx
+
+pub fn buildPhys2dJointAudit(): int:
+  mut ba = rigidBody2dNew(0, BodyType2D.Dynamic, Vec2(x = 0.0, y = 0.0), 0.0)
+  mut bb = rigidBody2dNew(1, BodyType2D.Dynamic, Vec2(x = 20.0, y = 0.0), 0.0)
+  let dj = distanceJointNew(0, 1, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 10.0)
+  let sj = springJointNew(0, 1, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 10.0, 20.0, 1.0)
+  let rj = revoluteJointNew(0, 1, Vec2(x = 5.0, y = 0.0))
+  jointSolveVelocity(sj, ba, bb, 0.1)
+  jointSolvePosition(dj, ba, bb)
+  let okRev = if rj.jointType == JointType2D.Revolute: 1 else: 0
+  ret int(dj.targetDistance) + int(sj.springStiffness) + okRev
+
+pub fn main(): int:
+  let auditScore = buildPhys2dJointAudit()
+
+  // Double Pendulum RigidBodies & DistanceJoint2Ds
+  mut pivotBody = rigidBody2dNew(0, BodyType2D.Static, Vec2(x = 240.0, y = 190.0), 0.0)
+  mut bob1 = rigidBody2dNew(1, BodyType2D.Dynamic, Vec2(x = 332.0, y = 258.0), 0.0)
+  mut bob2 = rigidBody2dNew(2, BodyType2D.Dynamic, Vec2(x = 424.0, y = 326.0), 0.0)
+  let dj1 = distanceJointNew(0, 1, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 115.0)
+  let dj2 = distanceJointNew(1, 2, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 115.0)
+  let rjPivot = revoluteJointNew(0, 1, pivotBody.position)
+
+  // Suspension Bridge RigidBodies (0 = Left Pylon, 1..7 = Dynamic Planks, 8 = Right Pylon)
+  mut bridgeBodies: [RigidBody2D] = []
+  mut bi = 0
+  while bi < 9:
+    let bType = if bi == 0 or bi == 8: BodyType2D.Static else: BodyType2D.Dynamic
+    let bx = 560.0 + float(bi) * 74.0
+    bridgeBodies.push(rigidBody2dNew(10 + bi, bType, Vec2(x = bx, y = 330.0), 0.0))
+    bi = bi + 1
+
+  mut bridgeSprings: [Joint2D] = []
+  mut si = 0
+  while si < 8:
+    bridgeSprings.push(springJointNew(10 + si, 11 + si, Vec2(x = 0.0, y = 0.0), Vec2(x = 0.0, y = 0.0), 71.0, 52.0, 3.2))
+    si = si + 1
+
+  initWindow(1280, 720, "AIPL ex_219: Phys2D Distance, Spring & Revolute Joint Pendulum & Bridge")
+  mut frame = 0
+  while not windowShouldClose():
+    // Periodic tangential energy boost every 90 frames so pendulum never damps out
+    if frame % 90 == 0 and frame > 0:
+      rigidBody2dApplyLinearImpulse(bob2, Vec2(x = 95.0, y = -40.0))
+
+    // Step Double Pendulum Dynamics & Baumgarte Positional Stabilization
+    rigidBody2dIntegrateVelocity(bob1, Vec2(x = 0.0, y = 260.0), 0.016)
+    rigidBody2dIntegrateVelocity(bob2, Vec2(x = 0.0, y = 260.0), 0.016)
+    jointSolveVelocity(dj1, pivotBody, bob1, 0.016)
+    jointSolveVelocity(dj2, bob1, bob2, 0.016)
+    rigidBody2dIntegratePosition(bob1, 0.016)
+    rigidBody2dIntegratePosition(bob2, 0.016)
+    mut bIter = 0
+    while bIter < 5:
+      jointSolvePosition(dj1, pivotBody, bob1)
+      jointSolvePosition(dj2, bob1, bob2)
+      bIter = bIter + 1
+
+    // Apply moving payload weight across the suspension bridge planks
+    let loadPlankIdx = stepBridgeLoadPlankIdx(frame)
+    rigidBody2dApplyLinearImpulse(bridgeBodies[loadPlankIdx], Vec2(x = 0.0, y = 2.6))
+
+    // Step Suspension Bridge Planks & SpringJoint2Ds
+    mut pIdx = 1
+    while pIdx <= 7:
+      rigidBody2dIntegrateVelocity(bridgeBodies[pIdx], Vec2(x = 0.0, y = 78.0), 0.016)
+      pIdx = pIdx + 1
+    mut jIdx = 0
+    while jIdx < bridgeSprings.len():
+      jointSolveVelocity(bridgeSprings[jIdx], bridgeBodies[jIdx], bridgeBodies[jIdx + 1], 0.016)
+      jIdx = jIdx + 1
+    mut pPosIdx = 1
+    while pPosIdx <= 7:
+      rigidBody2dIntegratePosition(bridgeBodies[pPosIdx], 0.016)
+      pPosIdx = pPosIdx + 1
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_219: PHYS2D CONSTRAINTS - DISTANCE PENDULUM & SUSPENSION BRIDGE", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("pendulumLen=" + str(int(dj1.targetDistance)) + " | bridgeStiff=" + str(int(bridgeSprings[0].springStiffness)) + " | loadPlank=#" + str(loadPlankIdx) + " | revAnchorX=" + str(int(rjPivot.localAnchorA.x)) + " | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Left Double Pendulum Panel
+    drawRect(44.0, 112.0, 456.0, 576.0, rgb(14, 20, 36))
+    drawRectOutline(44.0, 112.0, 456.0, 576.0, 1.5, rgb(51, 65, 85))
+    drawText("DistanceJoint2D + RevoluteJoint2D Double Pendulum", 64.0, 130.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(pivotBody.position.x - 45.0, pivotBody.position.y - 16.0, 90.0, 16.0, rgb(71, 85, 105))
+    drawLine(pivotBody.position.x, pivotBody.position.y, bob1.position.x, bob1.position.y, rgb(56, 189, 248), 3.5)
+    drawLine(bob1.position.x, bob1.position.y, bob2.position.x, bob2.position.y, rgb(52, 211, 153), 3.5)
+    drawLine(bob2.position.x, bob2.position.y, bob2.position.x + bob2.linearVelocity.x * 0.14, bob2.position.y + bob2.linearVelocity.y * 0.14, rgb(250, 204, 21), 2.5)
+    drawCircle(pivotBody.position.x, pivotBody.position.y, 10.0, rgb(250, 204, 21))
+    drawCircle(bob1.position.x, bob1.position.y, 22.0, rgb(30, 58, 138))
+    drawCircleOutline(bob1.position.x, bob1.position.y, 22.0, 2.5, rgb(56, 189, 248))
+    drawText("Bob #1", bob1.position.x - 22.0, bob1.position.y - 6.0, 13.0, rgb(248, 250, 252))
+
+    drawCircle(bob2.position.x, bob2.position.y, 26.0, rgb(5, 150, 105))
+    drawCircleOutline(bob2.position.x, bob2.position.y, 26.0, 2.5, rgb(167, 243, 208))
+    drawText("Bob #2", bob2.position.x - 22.0, bob2.position.y - 6.0, 13.0, rgb(248, 250, 252))
+    drawText("Baumgarte Positional Stabilization (5 iters/frame)", 64.0, 650.0, 14.0, rgb(148, 163, 184))
+
+    // Right Catenary Suspension Bridge Panel
+    drawRect(520.0, 112.0, 728.0, 576.0, rgb(14, 20, 36))
+    drawRectOutline(520.0, 112.0, 728.0, 576.0, 1.5, rgb(51, 65, 85))
+    drawText("SpringJoint2D Suspension Bridge + Moving Payload Roller", 544.0, 130.0, 16.0, rgb(110, 231, 183))
+
+    let leftPylon: RigidBody2D = bridgeBodies[0]
+    let rightPylon: RigidBody2D = bridgeBodies[8]
+    drawRect(leftPylon.position.x - 16.0, 250.0, 32.0, 340.0, rgb(71, 85, 105))
+    drawRectOutline(leftPylon.position.x - 16.0, 250.0, 32.0, 340.0, 2.0, rgb(148, 163, 184))
+    drawRect(rightPylon.position.x - 16.0, 250.0, 32.0, 340.0, rgb(71, 85, 105))
+    drawRectOutline(rightPylon.position.x - 16.0, 250.0, 32.0, 340.0, 2.0, rgb(148, 163, 184))
+
+    mut k = 0
+    while k < 8:
+      let bA: RigidBody2D = bridgeBodies[k]
+      let bB: RigidBody2D = bridgeBodies[k + 1]
+      drawLine(bA.position.x, bA.position.y, bB.position.x, bB.position.y, rgb(52, 211, 153), 2.5)
+      k = k + 1
+
+    mut p = 1
+    while p <= 7:
+      let plank: RigidBody2D = bridgeBodies[p]
+      let isLoaded = p == loadPlankIdx
+      drawRect(plank.position.x - 30.0, plank.position.y - 9.0, 60.0, 18.0, if isLoaded: rgb(234, 88, 12) else: rgb(180, 83, 9))
+      drawRectOutline(plank.position.x - 30.0, plank.position.y - 9.0, 60.0, 18.0, 2.0, if isLoaded: rgb(250, 204, 21) else: rgb(253, 224, 71))
+      drawCircle(plank.position.x, plank.position.y, 4.5, rgb(56, 189, 248))
+      if isLoaded:
+        drawCircle(plank.position.x, plank.position.y - 24.0, 14.0, rgb(250, 204, 21))
+        drawCircleOutline(plank.position.x, plank.position.y - 24.0, 14.0, 2.0, rgb(248, 250, 252))
+        drawText("LOAD", plank.position.x - 18.0, plank.position.y - 50.0, 13.0, rgb(250, 204, 21))
+      p = p + 1
+    drawText("Hooke's Law + Velocity Damping across 8 Coupled SpringJoint2D Links", 544.0, 650.0, 14.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

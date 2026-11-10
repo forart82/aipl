@@ -1,0 +1,56 @@
+module tests.functions.compress.apk_zip_writer_test
+
+import * from "std/compress/apk_zip_writer"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_apk_zip_writer_createApkArchiveBuilder(): int:
+  let b = createApkArchiveBuilder(65536)
+  assertEqInt(b.currentOffset, 65536, "starts at template offset 65536")
+  assertEqInt(b.entryCount, 0, "entryCount == 0")
+  assertEqInt(b.dosTimestamp, 0, "deterministic DOS timestamp == 0")
+  assertEqInt(b.entries.len(), 0, "entries list empty")
+  let bZero = createApkArchiveBuilder(0)
+  assertEqInt(bZero.currentOffset, 0, "0 offset initialized")
+  ret 0
+
+pub fn test_apk_zip_writer_apkAlignUncompressed4Byte(): int:
+  let (pad1, off1) = apkAlignUncompressed4Byte(45, "resources.arsc")
+  assertEqInt(pad1, 3, "45 + 3 == 48 (4-byte aligned)")
+  assertEqInt(off1 % 4, 0, "off1 divisible by 4")
+  let (padAligned, offAligned) = apkAlignUncompressed4Byte(48, "assets/main.aiplb")
+  assertEqInt(padAligned, 0, "already 4-byte aligned needs 0 pad")
+  assertEqInt(offAligned, 48, "offset stays 48")
+  let (padSo, offSo) = apkAlignUncompressed4Byte(1000, "lib/arm64-v8a/libaipl_runner.so")
+  assertEqInt(padSo, 3096, "1000 + 3096 == 4096 page aligned for .so")
+  assertEqInt(offSo, 4096, "native .so aligned to 4096 page")
+  ret 0
+
+pub fn test_apk_zip_writer_apkInjectAssetEntry(): int:
+  let (dataStart, nextOff, c) = apkInjectAssetEntry(100, "assets/main.aiplb", "AIPLAPK1")
+  assertEqInt(dataStart, 148, "100 + 30 + 17 = 147 -> +1 pad = 148 (4-byte aligned)")
+  assertEqInt(dataStart % 4, 0, "dataStart is 4-byte aligned")
+  assertEqInt(nextOff, 156, "148 + 8 payload bytes == 156")
+  assertEqInt(c, 3444315923, "crc32('AIPLAPK1') == 3444315923")
+  let (eStart, eNext, eCrc) = apkInjectAssetEntry(100, "", "AIPLAPK1")
+  assertEqInt(eStart, 100, "empty entryName rejected")
+  assertEqInt(eCrc, 0, "empty entryName crc == 0")
+  ret 0
+
+pub fn test_apk_zip_writer_finalizeApkCentralDirectory(): int:
+  let entries: [str] = ["AndroidManifest.xml", "assets/main.aiplb"]
+  let (cdSize, eocdOff, totalSize) = finalizeApkCentralDirectory(4096, entries)
+  assertEqInt(cdSize, 128, "(46+19) + (46+17) == 65 + 63 == 128 bytes")
+  assertEqInt(eocdOff, 4224, "4096 + 128 == 4224")
+  assertEqInt(totalSize, 4246, "4224 + 22 EOCD == 4246")
+  let (emptyCd, emptyEocd, emptyTotal) = finalizeApkCentralDirectory(0, [])
+  assertEqInt(emptyCd, 0, "0 entries -> 0 cdSize")
+  assertEqInt(emptyTotal, 22, "22-byte EOCD only")
+  ret 0
+
+pub fn main(): int:
+  test_apk_zip_writer_createApkArchiveBuilder()
+  test_apk_zip_writer_apkAlignUncompressed4Byte()
+  test_apk_zip_writer_apkInjectAssetEntry()
+  test_apk_zip_writer_finalizeApkCentralDirectory()
+  println("PASS: tests/functions/compress/apk_zip_writer_test.aipl")
+  ret 0

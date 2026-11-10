@@ -1,0 +1,374 @@
+/// # Module: `std/math/prob_stats` (`ProbStats`)
+///
+/// ## Purpose & Domain Scope
+/// Statistical distributions, weighted discrete sampling, Box-Muller Gaussian transform,
+/// Poisson generator, summary statistics, and 1D Kalman filter.
+module ProbStats
+
+import { TAU, clampFloat, floor } from "std/math/consts"
+import { sqrt, cos, lnFloat, expFloat } from "std/math/trig"
+
+pub struct CurveKnot:
+  x: float
+  y: float
+
+pub struct SummaryStats:
+  count: int
+  mean: float
+  variance: float = 0.0
+  stdDev: float = 0.0
+  minVal: float
+  maxVal: float
+  median: float = 0.0
+  p95: float = 0.0
+  p99: float = 0.0
+
+pub struct HdrHistogram:
+  bucketCount: int = 0
+  counts: [int] = []
+  totalCount: int = 0
+  minVal: float = 1000000000.0
+  maxVal: float = -1000000000.0
+  count: int = 0
+  sum: float = 0.0
+  values: [float] = []
+
+pub struct KalmanFilter1D:
+  estimate: float
+  errorCov: float
+  processNoise: float
+  measurementNoise: float
+
+pub fn sampleWeightedIndex(weights: [int], roll: int): int:
+  if weights.len == 0:
+    ret -1
+  mut total = 0
+  mut i = 0
+  while i < weights.len:
+    let w = if weights[i] > 0: weights[i] else: 0
+    total += w
+    i += 1
+  if total <= 0:
+    ret 0
+  let target = if roll >= 0: (roll % total) else: ((-roll) % total)
+  mut accum = 0
+  mut j = 0
+  while j < weights.len:
+    let w = if weights[j] > 0: weights[j] else: 0
+    accum += w
+    if target < accum:
+      ret j
+    j += 1
+  ret weights.len - 1
+
+pub fn gaussianSample(mean: float, stdDev: float, u1: float, u2: float): float:
+  let safeU1 = if u1 <= 1e-9: 1e-9 else: (if u1 >= 1.0: 0.999999 else: u1)
+  let mag = stdDev * sqrt(-2.0 * lnFloat(safeU1))
+  let z0 = mag * cos(TAU * u2)
+  ret mean + z0
+
+pub fn poissonSample(lambda: float, u: float): int:
+  if lambda <= 0.0 or u <= 0.0:
+    ret 0
+  let clampedU = if u >= 0.999999: 0.999999 else: u
+  mut p = expFloat(-lambda)
+  mut s = p
+  mut k = 0
+  while clampedU > s and k < 1000:
+    k += 1
+    p = p * lambda / float(k)
+    s += p
+  ret k
+
+pub fn computeMean(values: [float]): float:
+  if values.len == 0:
+    ret 0.0
+  mut sum = 0.0
+  mut i = 0
+  while i < values.len:
+    sum += values[i]
+    i += 1
+  ret sum / float(values.len)
+
+pub fn computeVariance(values: [float]): float:
+  if values.len == 0:
+    ret 0.0
+  let mean = computeMean(values)
+  mut sumSq = 0.0
+  mut i = 0
+  while i < values.len:
+    let diff = values[i] - mean
+    sumSq += diff * diff
+    i += 1
+  ret sumSq / float(values.len)
+
+pub fn computeStdDev(values: [float]): float:
+  ret sqrt(computeVariance(values))
+
+pub fn computeSummaryStats(values: [float]): SummaryStats:
+  if values.len == 0:
+    ret SummaryStats(count = 0, mean = 0.0, variance = 0.0, stdDev = 0.0, minVal = 0.0, maxVal = 0.0)
+  let mean = computeMean(values)
+  let variance = computeVariance(values)
+  mut minV = values[0]
+  mut maxV = values[0]
+  mut i = 1
+  while i < values.len:
+    if values[i] < minV:
+      minV = values[i]
+    if values[i] > maxV:
+      maxV = values[i]
+    i += 1
+  ret SummaryStats(
+    count = values.len,
+    mean = mean,
+    variance = variance,
+    stdDev = sqrt(variance),
+    minVal = minV,
+    maxVal = maxV
+  )
+
+pub fn kalman1DNew(initialEstimate: float, initialError: float, processNoise: float, measurementNoise: float): KalmanFilter1D:
+  ret KalmanFilter1D(
+    estimate = initialEstimate,
+    errorCov = initialError,
+    processNoise = processNoise,
+    measurementNoise = measurementNoise
+  )
+
+pub fn kalman1DUpdate(kf: KalmanFilter1D, measurement: float): KalmanFilter1D:
+  let predErr = kf.errorCov + kf.processNoise
+  let gain = predErr / (predErr + kf.measurementNoise)
+  let nextEst = kf.estimate + gain * (measurement - kf.estimate)
+  let nextErr = (1.0 - gain) * predErr
+  ret KalmanFilter1D(
+    estimate = nextEst,
+    errorCov = nextErr,
+    processNoise = kf.processNoise,
+    measurementNoise = kf.measurementNoise
+  )
+
+pub fn statsMean(vals: [float]): float:
+  ret computeMean(vals)
+
+pub fn statsPercentile(sortedVals: [float], p: float): float:
+  let n = sortedVals.len
+  if n == 0:
+    ret 0.0
+  if n == 1:
+    ret sortedVals[0]
+  let clampedP = clampFloat(p, 0.0, 100.0)
+  let rank = (clampedP / 100.0) * float(n - 1)
+  let low = int(floor(rank))
+  let high = if low + 1 < n: low + 1 else: low
+  if low == high:
+    ret sortedVals[low]
+  let weight = rank - float(low)
+  ret sortedVals[low] * (1.0 - weight) + sortedVals[high] * weight
+
+pub fn percentile(sortedValues: [float], p: float): float:
+  ret statsPercentile(sortedValues, p)
+
+pub fn summaryStats(vals: [float]): SummaryStats:
+  let n = vals.len
+  if n == 0:
+    ret SummaryStats(count = 0, mean = 0.0, variance = 0.0, stdDev = 0.0, minVal = 0.0, maxVal = 0.0, median = 0.0, p95 = 0.0, p99 = 0.0)
+  mut src: [float] = []
+  mut dst: [float] = []
+  mut i = 0
+  while i < n:
+    src.push(vals[i])
+    dst.push(vals[i])
+    i += 1
+  mut width = 1
+  while width < n:
+    mut left = 0
+    while left < n:
+      mut mid = left + width
+      if mid > n:
+        mid = n
+      mut right = left + 2 * width
+      if right > n:
+        right = n
+      mut a = left
+      mut b = mid
+      mut k = left
+      while a < mid and b < right:
+        if src[a] <= src[b]:
+          dst[k] = src[a]
+          a += 1
+        else:
+          dst[k] = src[b]
+          b += 1
+        k += 1
+      while a < mid:
+        dst[k] = src[a]
+        a += 1
+        k += 1
+      while b < right:
+        dst[k] = src[b]
+        b += 1
+        k += 1
+      left = left + 2 * width
+    let tmp = src
+    src = dst
+    dst = tmp
+    width = width * 2
+  let meanVal = statsMean(src)
+  let varVal = computeVariance(src)
+  let medVal = statsPercentile(src, 50.0)
+  let p95Val = statsPercentile(src, 95.0)
+  let p99Val = statsPercentile(src, 99.0)
+  ret SummaryStats(
+    count = n,
+    mean = meanVal,
+    variance = varVal,
+    stdDev = sqrt(varVal),
+    minVal = src[0],
+    maxVal = src[n - 1],
+    median = medVal,
+    p95 = p95Val,
+    p99 = p99Val
+  )
+
+pub fn hdrHistogramNew(): HdrHistogram:
+  ret HdrHistogram(
+    bucketCount = 0,
+    counts = [],
+    totalCount = 0,
+    minVal = 1000000000.0,
+    maxVal = -1000000000.0,
+    count = 0,
+    sum = 0.0,
+    values = []
+  )
+
+pub fn hdrRecord(mut h: HdrHistogram, v: float): HdrHistogram:
+  h.values.push(v)
+  h.count += 1
+  h.totalCount += 1
+  h.sum += v
+  if v < h.minVal:
+    h.minVal = v
+  if v > h.maxVal:
+    h.maxVal = v
+  ret h
+
+pub fn hdrMean(h: HdrHistogram): float:
+  if h.count == 0:
+    ret 0.0
+  ret h.sum / float(h.count)
+
+pub fn evalPiecewiseLinearCurve(x: float, knotsX: [float], knotsY: [float]): float:
+  let n = if knotsX.len < knotsY.len: knotsX.len else: knotsY.len
+  if n == 0:
+    ret 0.0
+  if n == 1 or x <= knotsX[0]:
+    ret knotsY[0]
+  if x >= knotsX[n - 1]:
+    ret knotsY[n - 1]
+  mut i = 0
+  while i < n - 1:
+    let x0 = knotsX[i]
+    let x1 = knotsX[i + 1]
+    if x >= x0 and x <= x1:
+      let span = x1 - x0
+      if span <= 0.000001:
+        ret knotsY[i + 1]
+      let t = (x - x0) / span
+      ret knotsY[i] + (knotsY[i + 1] - knotsY[i]) * t
+    i += 1
+  ret knotsY[n - 1]
+
+pub fn evalTieredMarginalRate(amount: float, thresholds: [float], rates: [float]): float:
+  if amount <= 0.0:
+    ret 0.0
+  let n = if thresholds.len < rates.len: thresholds.len else: rates.len
+  if n == 0:
+    ret 0.0
+  mut total = 0.0
+  mut i = 0
+  while i < n:
+    let low = thresholds[i]
+    if amount > low:
+      let high = if i + 1 < n: thresholds[i + 1] else: amount
+      let sliceAmt = (if amount < high: amount else: high) - low
+      if sliceAmt > 0.0:
+        total += sliceAmt * rates[i]
+    i += 1
+  ret total
+
+pub fn movingAverage(values: [float], windowSize: int): [float]:
+  mut out: [float] = []
+  let w = if windowSize > 1: windowSize else: 1
+  mut i = 0
+  while i < values.len:
+    mut start = i - w + 1
+    if start < 0:
+      start = 0
+    mut sum = 0.0
+    mut j = start
+    while j <= i:
+      sum += values[j]
+      j += 1
+    out.push(sum / float(i - start + 1))
+    i += 1
+  ret out
+
+pub fn exponentialMovingAverage(values: [float], alpha: float): [float]:
+  mut out: [float] = []
+  if values.len == 0:
+    ret out
+  let a = clampFloat(alpha, 0.0, 1.0)
+  mut ema = values[0]
+  out.push(ema)
+  mut i = 1
+  while i < values.len:
+    ema = a * values[i] + (1.0 - a) * ema
+    out.push(ema)
+    i += 1
+  ret out
+
+pub fn commComputeTieredAcceleratorPayout(attainmentPct: int, baseCommission: int, tier1MultPct: int, tier2MultPct: int): int:
+  if attainmentPct <= 0 or baseCommission <= 0:
+    ret 0
+  let tier0Cap = if attainmentPct < 100: attainmentPct else: 100
+  let tier1Slice = if attainmentPct > 100: (if attainmentPct < 150: attainmentPct - 100 else: 50) else: 0
+  let tier2Slice = if attainmentPct > 150: attainmentPct - 150 else: 0
+  let p0 = (baseCommission * tier0Cap) / 100
+  let p1 = (baseCommission * tier1Slice * tier1MultPct) / 10000
+  let p2 = (baseCommission * tier2Slice * tier2MultPct) / 10000
+  ret p0 + p1 + p2
+
+pub fn computeCovariance(xs: [float], ys: [float]): float:
+  let n = if xs.len < ys.len: xs.len else: ys.len
+  if n == 0:
+    ret 0.0
+  let mx = computeMean(xs)
+  let my = computeMean(ys)
+  mut sum = 0.0
+  mut i = 0
+  while i < n:
+    sum += (xs[i] - mx) * (ys[i] - my)
+    i += 1
+  ret sum / float(n)
+
+pub fn computeCorrelation(xs: [float], ys: [float]): float:
+  let sx = computeStdDev(xs)
+  let sy = computeStdDev(ys)
+  let denom = sx * sy
+  if denom <= 1e-12:
+    ret 0.0
+  ret computeCovariance(xs, ys) / denom
+
+pub fn linearRegressionSlope(xs: [float], ys: [float]): float:
+  let vx = computeVariance(xs)
+  if vx <= 1e-12:
+    ret 0.0
+  ret computeCovariance(xs, ys) / vx
+
+pub fn linearRegressionIntercept(xs: [float], ys: [float]): float:
+  let mx = computeMean(xs)
+  let my = computeMean(ys)
+  let m = linearRegressionSlope(xs, ys)
+  ret my - m * mx

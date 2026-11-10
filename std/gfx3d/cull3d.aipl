@@ -1,0 +1,68 @@
+/// # Module: `std/gfx3d/cull3d` (`Cull3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 3D frustum-AABB and frustum-sphere intersection testing, plus conservative
+/// 2D screen-space AABB projection for Hierarchical Z-buffer (Hi-Z) occlusion culling.
+module Cull3DMod
+
+import { EPSILON, minFloat, maxFloat, clampFloat } from "std/math/consts"
+import { Vec3 } from "std/math/vec_math"
+import { Mat4 } from "std/math/mat"
+import { Rect } from "std/math/geom2d"
+import { AABB3D, Frustum3D } from "std/math/geom3d"
+
+pub fn testFrustumAabb(frustum: Frustum3D, aabb: AABB3D): bool:
+  mut i = 0
+  while i < frustum.planes.len:
+    let pl = frustum.planes[i]
+    let px = if pl.normal.x >= 0.0: aabb.max.x else: aabb.min.x
+    let py = if pl.normal.y >= 0.0: aabb.max.y else: aabb.min.y
+    let pz = if pl.normal.z >= 0.0: aabb.max.z else: aabb.min.z
+    let dist = pl.normal.x * px + pl.normal.y * py + pl.normal.z * pz + pl.distance
+    if dist < 0.0:
+      ret false
+    i = i + 1
+  ret true
+
+pub fn testFrustumSphere(frustum: Frustum3D, center: Vec3, radius: float): bool:
+  mut i = 0
+  while i < frustum.planes.len:
+    let pl = frustum.planes[i]
+    let dist = pl.normal.x * center.x + pl.normal.y * center.y + pl.normal.z * center.z + pl.distance
+    if dist < -radius:
+      ret false
+    i = i + 1
+  ret true
+
+pub fn projectAabbToScreenRect(aabb: AABB3D, viewProj: Mat4, screenW: float, screenH: float): Rect:
+  mut minSX = screenW
+  mut minSY = screenH
+  mut maxSX = 0.0
+  mut maxSY = 0.0
+  mut anyFront = false
+
+  mut c = 0
+  while c < 8:
+    let cx = if (c % 2) == 1: aabb.max.x else: aabb.min.x
+    let cy = if ((c / 2) % 2) == 1: aabb.max.y else: aabb.min.y
+    let cz = if ((c / 4) % 2) == 1: aabb.max.z else: aabb.min.z
+
+    let clipX = cx * viewProj.m00 + cy * viewProj.m10 + cz * viewProj.m20 + viewProj.m30
+    let clipY = cx * viewProj.m01 + cy * viewProj.m11 + cz * viewProj.m21 + viewProj.m31
+    let clipW = cx * viewProj.m03 + cy * viewProj.m13 + cz * viewProj.m23 + viewProj.m33
+
+    if clipW > EPSILON:
+      anyFront = true
+      let ndcX = clipX / clipW
+      let ndcY = clipY / clipW
+      let sx = clampFloat((ndcX * 0.5 + 0.5) * screenW, 0.0, screenW)
+      let sy = clampFloat((0.5 - ndcY * 0.5) * screenH, 0.0, screenH)
+      minSX = minFloat(minSX, sx)
+      minSY = minFloat(minSY, sy)
+      maxSX = maxFloat(maxSX, sx)
+      maxSY = maxFloat(maxSY, sy)
+    c = c + 1
+
+  if not anyFront:
+    ret Rect(x = 0.0, y = 0.0, w = 0.0, h = 0.0)
+  ret Rect(x = minSX, y = minSY, w = maxFloat(0.0, maxSX - minSX), h = maxFloat(0.0, maxSY - minSY))

@@ -1,0 +1,241 @@
+// ============================================================================
+// Module: std/collections/dyn_vec (DynVec)
+// Layer 1 (Core Primitives & Math) — Contiguous Growable Dynamic Vector & Slices
+// ============================================================================
+module DynVecMod
+
+pub struct DynVec[T]:
+  items: [T]
+  capacity: int
+
+pub struct ArraySlice[T]:
+  items: [T]
+  start: int
+  end: int
+
+pub fn dynVecNew[T](): DynVec[T]:
+  let empty: [T] = []
+  ret DynVec(items = empty, capacity = 16)
+
+pub fn dynVecWithCapacity[T](capacity: int): DynVec[T]:
+  mut cap = capacity
+  if cap < 1:
+    cap = 1
+  let empty: [T] = []
+  ret DynVec(items = empty, capacity = cap)
+
+pub fn (self: DynVec[T]) len(): int:
+  ret self.items.len
+
+pub fn (self: DynVec[T]) cap(): int:
+  ret self.capacity
+
+pub fn (self: DynVec[T]) isEmpty(): bool:
+  ret self.items.len == 0
+
+pub fn (mut self: DynVec[T]) push(val: T): void:
+  if self.items.len >= self.capacity:
+    if self.capacity < 1:
+      self.capacity = 16
+    else:
+      self.capacity = self.capacity * 2
+  self.items.push(val)
+
+pub fn (mut self: DynVec[T]) pop(): Option[T]:
+  if self.items.len == 0:
+    ret None
+  let v = self.items.pop()
+  ret Some(v)
+
+pub fn (self: DynVec[T]) get(index: int): Option[T]:
+  if index < 0 or index >= self.items.len:
+    ret None
+  ret Some(self.items[index])
+
+pub fn (mut self: DynVec[T]) set(index: int, val: T): bool:
+  if index < 0 or index >= self.items.len:
+    ret false
+  self.items[index] = val
+  ret true
+
+pub fn (mut self: DynVec[T]) insert(index: int, val: T): bool:
+  if index < 0 or index > self.items.len:
+    ret false
+  if index == self.items.len:
+    self.push(val)
+    ret true
+  mut next: [T] = []
+  for i in 0..self.items.len:
+    if i == index:
+      next.push(val)
+    next.push(self.items[i])
+  self.items = next
+  if self.items.len > self.capacity:
+    self.capacity = self.capacity * 2
+  ret true
+
+pub fn (mut self: DynVec[T]) remove(index: int): Option[T]:
+  if index < 0 or index >= self.items.len:
+    ret None
+  let removed = self.items[index]
+  mut next: [T] = []
+  for i in 0..self.items.len:
+    if i != index:
+      next.push(self.items[i])
+  self.items = next
+  ret Some(removed)
+
+pub fn (mut self: DynVec[T]) swapRemove(index: int): Option[T]:
+  let n = self.items.len
+  if index < 0 or index >= n:
+    ret None
+  let removed = self.items[index]
+  let lastVal = self.items.pop()
+  if index < n - 1:
+    self.items[index] = lastVal
+  ret Some(removed)
+
+pub fn (mut self: DynVec[T]) clear(): void:
+  let empty: [T] = []
+  self.items = empty
+
+pub fn (mut self: DynVec[T]) reserve(additional: int): void:
+  let needed = self.items.len + additional
+  while self.capacity < needed:
+    if self.capacity < 1:
+      self.capacity = 16
+    else:
+      self.capacity = self.capacity * 2
+
+pub fn (self: DynVec[T]) first(): Option[T]:
+  if self.items.len == 0:
+    ret None
+  ret Some(self.items[0])
+
+pub fn (self: DynVec[T]) last(): Option[T]:
+  if self.items.len == 0:
+    ret None
+  ret Some(self.items[self.items.len - 1])
+
+pub fn (self: DynVec[T]) toArray(): [T]:
+  mut out: [T] = []
+  for i in 0..self.items.len:
+    out.push(self.items[i])
+  ret out
+
+pub fn (mut self: DynVec[T]) reverse(): void:
+  mut lo = 0
+  mut hi = self.items.len - 1
+  while lo < hi:
+    let tmp = self.items[lo]
+    self.items[lo] = self.items[hi]
+    self.items[hi] = tmp
+    lo = lo + 1
+    hi = hi - 1
+
+pub fn (self: DynVec[T]) asSlice(start: int, end: int): ArraySlice[T]:
+  mut s = start
+  mut e = end
+  if s < 0:
+    s = 0
+  if e > self.items.len:
+    e = self.items.len
+  if s > e:
+    s = e
+  ret ArraySlice(items = self.items, start = s, end = e)
+
+pub fn (self: ArraySlice[T]) len(): int:
+  ret self.end - self.start
+
+pub fn (self: ArraySlice[T]) isEmpty(): bool:
+  ret self.end <= self.start
+
+pub fn (self: ArraySlice[T]) get(index: int): Option[T]:
+  let realIdx = self.start + index
+  if index < 0 or realIdx >= self.end or realIdx >= self.items.len:
+    ret None
+  ret Some(self.items[realIdx])
+
+pub fn (self: ArraySlice[T]) toArray(): [T]:
+  mut out: [T] = []
+  for i in self.start..self.end:
+    out.push(self.items[i])
+  ret out
+
+pub fn sortInts(arr: [int]): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < arr.len:
+    out.push(arr[i])
+    i = i + 1
+  mut a = 1
+  while a < out.len:
+    let key = out[a]
+    mut b = a - 1
+    while b >= 0 and out[b] > key:
+      out[b + 1] = out[b]
+      b = b - 1
+    out[b + 1] = key
+    a = a + 1
+  ret out
+
+pub fn sortStrings(arr: [str]): [str]:
+  mut out: [str] = []
+  mut i = 0
+  while i < arr.len:
+    out.push(arr[i])
+    i = i + 1
+  mut a = 1
+  while a < out.len:
+    let key = out[a]
+    mut b = a - 1
+    while b >= 0 and out[b] > key:
+      out[b + 1] = out[b]
+      b = b - 1
+    out[b + 1] = key
+    a = a + 1
+  ret out
+
+fn isDigitCodeSort(c: int): bool:
+  ret c >= 48 and c <= 57
+
+fn naturalLess(a: str, b: str): bool:
+  mut ia = 0
+  mut ib = 0
+  while ia < a.len and ib < b.len:
+    let ca = a.charCodeAt(ia)
+    let cb = b.charCodeAt(ib)
+    if isDigitCodeSort(ca) and isDigitCodeSort(cb):
+      mut va = 0
+      while ia < a.len and isDigitCodeSort(a.charCodeAt(ia)):
+        va = va * 10 + (a.charCodeAt(ia) - 48)
+        ia = ia + 1
+      mut vb = 0
+      while ib < b.len and isDigitCodeSort(b.charCodeAt(ib)):
+        vb = vb * 10 + (b.charCodeAt(ib) - 48)
+        ib = ib + 1
+      if va != vb:
+        ret va < vb
+    else:
+      if ca != cb:
+        ret ca < cb
+      ia = ia + 1
+      ib = ib + 1
+  ret a.len < b.len
+
+pub fn sortStringsNatural(arr: [str]): [str]:
+  mut out: [str] = []
+  mut i = 0
+  while i < arr.len:
+    out.push(arr[i])
+    i = i + 1
+  mut a = 1
+  while a < out.len:
+    let key = out[a]
+    mut b = a - 1
+    while b >= 0 and naturalLess(key, out[b]):
+      out[b + 1] = out[b]
+      b = b - 1
+    out[b + 1] = key
+    a = a + 1
+  ret out

@@ -1,0 +1,53 @@
+module Ex227Phys3dQuery3dRaycastPickerWindowTest
+
+import { RayHit3D, raycast3dSphere, raycast3dBox, sphereCast3D } from "../../std/phys3d/phys_query3d"
+import { PhysicsMaterial3D, boxCollider3dNew } from "../../std/phys3d/collider3d"
+import { Ray3D } from "../../std/math/geom3d"
+import { Vec3 } from "../../std/math/vec_math"
+import { Quat } from "../../std/math/quat"
+import {
+  RaycastPicker3dScene, createRaycastPicker3dScene, stepScene, auditPhys3dRaycastPicker
+} from "../../examples/ex_227_phys3d_query_3d_raycast_picker_window"
+
+pub fn test_phys3d_query_raycast_picker(): void:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  let ray = Ray3D(origin = Vec3(x = 0.0, y = 0.0, z = -20.0), dir = Vec3(x = 0.0, y = 0.0, z = 1.0), direction = Vec3(x = 0.0, y = 0.0, z = 1.0), maxDistance = 100.0)
+  let hSph = raycast3dSphere(ray, Vec3(x = 0.0, y = 0.0, z = 0.0), 5.0)
+  assert(hSph.isSome(), "raycast3dSphere hit")
+  let hs: RayHit3D = hSph.unwrap()
+  assert(hs.point.z == -5.0, "Sphere hit z == -5.0")
+
+  let hBox = raycast3dBox(ray, Vec3(x = 0.0, y = 0.0, z = 0.0), idRot, Vec3(x = 4.0, y = 4.0, z = 4.0))
+  assert(hBox.isSome(), "raycast3dBox hit")
+
+  let mat = PhysicsMaterial3D(restitution = 0.2, staticFriction = 0.5, dynamicFriction = 0.4, density = 1.0)
+  let cA = boxCollider3dNew(Vec3(x = 5.0, y = 5.0, z = 5.0), mat)
+  let hSweep = sphereCast3D(ray, 1.0, [cA])
+  assert(hSweep.isSome(), "sphereCast3D hit")
+
+  mut scene: RaycastPicker3dScene = createRaycastPicker3dScene()
+  let d0 = scene.sphereHitDist
+  stepScene(scene, 0, 0.1)
+  let d1 = scene.sphereHitDist
+  assert(d1 != d0, "t=0 -> t=1 updates 3D sphere raycast hit distance")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let d20 = scene.sphereHitDist
+  assert(d20 != d1 and scene.sweepHitDist > 0.0, "t=1 -> t=20 sweeps 3D raycast & sphereCast")
+
+  while f <= 100:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let d100 = scene.sphereHitDist
+  assert(d100 != d20 and scene.boxHitDist > 0.0, "t=20 -> t=100 continues oscillating 3D raycast picker")
+
+  let audit = auditPhys3dRaycastPicker()
+  assert(audit == 18, "3D raycast picker audit")
+
+pub fn main(): int:
+  test_phys3d_query_raycast_picker()
+  println("PASS: ex_227_phys3d_query_3d_raycast_picker_window_test")
+  ret 0

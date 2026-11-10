@@ -1,0 +1,205 @@
+/// # Module: `std/mechanics/attribute_pipeline` (`AttributePipelineMod`)
+///
+/// ## Purpose & Domain Scope
+/// Staged attribute modifier pipelines (FlatAdd, PercentAdd, FinalMultiply),
+/// periodic status effect tickers, cooldown reduction, and resource scaling.
+module AttributePipelineMod
+
+import { clampFloat, maxFloat, minFloat, minInt, maxInt } from "std/math/consts"
+
+pub enum ModifierStage:
+  FlatAdd
+  PercentAdd
+  FinalMultiply
+
+pub struct StatModifier(id: int, statTag: str, stage: ModifierStage, value: float, durationRemaining: float, isPermanent: bool)
+
+pub struct AttributePool(current: float, baseMax: float, regenRatePerSec: float)
+
+pub struct StatusEffectTicker(effectTag: str, tickInterval: float, tickTimer: float, totalDuration: float, valuePerTick: float)
+
+pub fn evalStatModifierStack(baseValue: float, modifiers: [StatModifier]): float:
+  mut sumFlat = 0.0
+  mut sumPct = 0.0
+  mut prodMult = 1.0
+  mut i = 0
+  while i < modifiers.len:
+    let m: StatModifier = modifiers[i]
+    if m.stage == ModifierStage.FlatAdd:
+      sumFlat = sumFlat + m.value
+    else:
+      if m.stage == ModifierStage.PercentAdd:
+        sumPct = sumPct + m.value
+      else:
+        if m.stage == ModifierStage.FinalMultiply:
+          prodMult = prodMult * m.value
+    i = i + 1
+  ret ((baseValue + sumFlat) * (1.0 + sumPct)) * prodMult
+
+pub fn computeFractionalCurrentHpDamage(currentHp: float, fraction: float): float:
+  let f = clampFloat(fraction, 0.0, 1.0)
+  ret maxFloat(0.0, currentHp) * f
+
+pub fn computeDamageOverTimeTick(baseDps: float, dt: float): float:
+  ret maxFloat(0.0, baseDps) * maxFloat(0.0, dt)
+
+pub fn computeCooldownWithReduction(baseCooldown: float, cdrPercent: float): float:
+  let clampedPct = clampFloat(cdrPercent, 0.0, 80.0)
+  let factor = 1.0 - (clampedPct / 100.0)
+  ret maxFloat(0.05, baseCooldown * factor)
+
+pub fn computeLinearScaledCost(baseCost: int, scaleLevel: int, growthFactor: float): int:
+  if scaleLevel <= 0:
+    ret baseCost
+  let scaled = float(baseCost) * (1.0 + float(scaleLevel) * growthFactor)
+  ret int(scaled + 0.5)
+
+pub fn attributePoolNew(baseMax: float, regenRatePerSec: float = 0.0): AttributePool:
+  let m = maxFloat(1.0, baseMax)
+  ret AttributePool(current = m, baseMax = m, regenRatePerSec = regenRatePerSec)
+
+pub fn attributePoolStepRegen(pool: AttributePool, dt: float): AttributePool:
+  let nextVal = clampFloat(pool.current + pool.regenRatePerSec * maxFloat(0.0, dt), 0.0, pool.baseMax)
+  ret AttributePool(current = nextVal, baseMax = pool.baseMax, regenRatePerSec = pool.regenRatePerSec)
+
+pub fn attributePoolSpend(pool: AttributePool, cost: float): (AttributePool, bool):
+  if cost < 0.0 or pool.current < cost:
+    ret (pool, false)
+  ret (AttributePool(current = pool.current - cost, baseMax = pool.baseMax, regenRatePerSec = pool.regenRatePerSec), true)
+
+pub fn attributePoolRestore(pool: AttributePool, amount: float): AttributePool:
+  let nextVal = minFloat(pool.baseMax, pool.current + maxFloat(0.0, amount))
+  ret AttributePool(current = nextVal, baseMax = pool.baseMax, regenRatePerSec = pool.regenRatePerSec)
+
+pub fn attributePoolRatio(pool: AttributePool): float:
+  if pool.baseMax <= 0.0:
+    ret 0.0
+  ret clampFloat(pool.current / pool.baseMax, 0.0, 1.0)
+
+pub fn statusEffectTickerNew(effectTag: str, tickInterval: float, totalDuration: float, valuePerTick: float): StatusEffectTicker:
+  ret StatusEffectTicker(
+    effectTag = effectTag,
+    tickInterval = maxFloat(0.05, tickInterval),
+    tickTimer = 0.0,
+    totalDuration = maxFloat(0.0, totalDuration),
+    valuePerTick = valuePerTick
+  )
+
+pub fn statusEffectTickerStep(ticker: StatusEffectTicker, dt: float): (StatusEffectTicker, int, float):
+  let stepDt = maxFloat(0.0, dt)
+  let nextDur = maxFloat(0.0, ticker.totalDuration - stepDt)
+  mut acc = ticker.tickTimer + stepDt
+  mut ticks = 0
+  while acc >= ticker.tickInterval:
+    acc = acc - ticker.tickInterval
+    ticks = ticks + 1
+  let nextTicker = StatusEffectTicker(
+    effectTag = ticker.effectTag,
+    tickInterval = ticker.tickInterval,
+    tickTimer = acc,
+    totalDuration = nextDur,
+    valuePerTick = ticker.valuePerTick
+  )
+  ret (nextTicker, ticks, float(ticks) * ticker.valuePerTick)
+
+pub fn statusEffectIsExpired(ticker: StatusEffectTicker): bool:
+  ret ticker.totalDuration <= 0.0
+
+pub fn stepStatModifierDurations(modifiers: [StatModifier], dt: float): [StatModifier]:
+  mut active: [StatModifier] = []
+  mut i = 0
+  while i < modifiers.len:
+    let m = modifiers[i]
+    if m.isPermanent:
+      active.push(m)
+    else:
+      let rem = m.durationRemaining - dt
+      if rem > 0.0:
+        active.push(StatModifier(
+          id = m.id,
+          statTag = m.statTag,
+          stage = m.stage,
+          value = m.value,
+          durationRemaining = rem,
+          isPermanent = false
+        ))
+    i = i + 1
+  ret active
+
+pub fn filterStatModifiersByTag(modifiers: [StatModifier], statTag: str): [StatModifier]:
+  mut out: [StatModifier] = []
+  mut i = 0
+  while i < modifiers.len:
+    if modifiers[i].statTag == statTag:
+      out.push(modifiers[i])
+    i = i + 1
+  ret out
+
+pub fn computeArmorMitigationRatio(armorRating: float, halfMitigationConstant: float = 100.0): float:
+  let a = maxFloat(0.0, armorRating)
+  let k = maxFloat(1.0, halfMitigationConstant)
+  ret a / (a + k)
+
+pub fn applyMitigatedDamage(rawDamage: float, armorRating: float, flatBlock: float = 0.0): float:
+  let afterBlock = maxFloat(0.0, rawDamage - maxFloat(0.0, flatBlock))
+  let mit = computeArmorMitigationRatio(armorRating, 100.0)
+  ret afterBlock * (1.0 - mit)
+
+pub fn computeCriticalStrikeMultiplier(baseDamage: float, isCrit: bool, critBonusRatio: float = 1.0): float:
+  let d = maxFloat(0.0, baseDamage)
+  if not isCrit:
+    ret d
+  ret d * (1.0 + maxFloat(0.0, critBonusRatio))
+
+pub fn computeDiminishingReturns(rawBonus: float, softCap: float): float:
+  let b = maxFloat(0.0, rawBonus)
+  let c = maxFloat(1.0, softCap)
+  ret (b * c) / (b + c)
+
+pub fn computeExponentialLevelXp(level: int, baseXp: int, growthRate: float = 0.25): int:
+  if level <= 1:
+    ret maxInt(0, baseXp)
+  mut xp = float(maxInt(1, baseXp))
+  let mult = 1.0 + maxFloat(0.0, growthRate)
+  mut lv = 1
+  while lv < level:
+    xp = xp * mult
+    lv = lv + 1
+  ret int(xp + 0.5)
+
+pub fn computeAttributeSoftCap(val: float, capThreshold: float, postCapEfficiency: float = 0.5): float:
+  if val <= capThreshold:
+    ret val
+  let excess = val - capThreshold
+  ret capThreshold + excess * clampFloat(postCapEfficiency, 0.0, 1.0)
+
+pub fn rollWeightedIndex(weights: [int], rollVal: int): int:
+  mut total = 0
+  mut i = 0
+  while i < weights.len:
+    total = total + maxInt(0, weights[i])
+    i = i + 1
+  if total <= 0:
+    ret 0
+  let target = (if rollVal >= 0: rollVal else: -rollVal) % total
+  mut acc = 0
+  mut idx = 0
+  while idx < weights.len:
+    acc = acc + maxInt(0, weights[idx])
+    if target < acc:
+      ret idx
+    idx = idx + 1
+  ret maxInt(0, weights.len - 1)
+
+pub fn rollAttributeRange(minValue: int, maxValue: int, rollRatio: float): int:
+  let lo = minInt(minValue, maxValue)
+  let hi = maxInt(minValue, maxValue)
+  let span = float(hi - lo)
+  let r = clampFloat(rollRatio, 0.0, 1.0)
+  ret lo + int(span * r + 0.5)
+
+pub fn rollItemAffixBonus(baseStat: int, tier: int, qualityMult: float): int:
+  let b = maxInt(0, baseStat)
+  let t = maxInt(1, tier)
+  let q = maxFloat(1.0, qualityMult)
+  ret int(float(b + t * 5) * q + 0.5)

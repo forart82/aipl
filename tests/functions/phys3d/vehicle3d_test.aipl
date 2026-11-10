@@ -1,0 +1,79 @@
+module tests.functions.phys3d.vehicle3d_test
+
+import * from "std/phys3d/vehicle3d"
+import { maxFloat } from "std/math/consts"
+import { Vec3 } from "std/math/vec_math"
+import { Quat } from "std/math/quat"
+import { RigidBody3D, rigidBody3dApplyForceAtPoint, rigidBody3dNew, BodyType3D } from "std/phys3d/rigid_body3d"
+import { PhysWorldSettings3D, PhysicsWorld3D } from "std/phys3d/phys_world3d"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_vehicle3d_raycastVehicleNew_1(): int:
+  let arg_chassisBodyId = 4
+  let edge_chassisBodyId = 1
+  let resNom = raycastVehicleNew(arg_chassisBodyId)
+  let resEdge = raycastVehicleNew(edge_chassisBodyId)
+  assertEqInt(resNom.chassisBodyId, 4, "raycastVehicleNew nominal resNom.chassisBodyId == 4")
+  assertEqInt(resEdge.chassisBodyId, 1, "raycastVehicleNew boundary resEdge.chassisBodyId == 1")
+  ret 0
+
+pub fn test_vehicle3d_vehicleAddWheel_2(): int:
+  let arg_vehicle = RaycastVehicle3D(chassisBodyId = 4, wheels = [])
+  let edge_vehicle = RaycastVehicle3D(chassisBodyId = 1, wheels = [])
+  let arg_wheel = RaycastWheel3D(connectionPoint = Vec3(x = 1.0, y = 1.0, z = 1.0), direction = Vec3(x = 1.0, y = 1.0, z = 1.0), axle = Vec3(x = 1.0, y = 1.0, z = 1.0), suspensionRestLength = 2.0, currentSuspensionLength = 2.0, springStiffness = 1.0, dampingCompression = 1.0, dampingRelaxation = 1.0, wheelRadius = 2.0, steeringAngle = 1.0, driveTorque = 1.0, brakeTorque = 1.0, isGrounded = true, contactPoint = Vec3(x = 1.0, y = 1.0, z = 1.0), contactNormal = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let edge_wheel = RaycastWheel3D(connectionPoint = Vec3(x = 0.5, y = 0.5, z = 0.5), direction = Vec3(x = 0.5, y = 0.5, z = 0.5), axle = Vec3(x = 0.5, y = 0.5, z = 0.5), suspensionRestLength = 1.0, currentSuspensionLength = 1.0, springStiffness = 0.5, dampingCompression = 0.5, dampingRelaxation = 0.5, wheelRadius = 1.0, steeringAngle = 0.5, driveTorque = 0.5, brakeTorque = 0.5, isGrounded = false, contactPoint = Vec3(x = 0.5, y = 0.5, z = 0.5), contactNormal = Vec3(x = 0.5, y = 0.5, z = 0.5))
+  let resNom = vehicleAddWheel(arg_vehicle, arg_wheel)
+  let resEdge = vehicleAddWheel(edge_vehicle, edge_wheel)
+  assertEqInt(resNom, 0, "vehicleAddWheel nominal resNom == 0")
+  assertEqInt(resEdge, 0, "vehicleAddWheel boundary resEdge == 0")
+  ret 0
+
+pub fn test_vehicle3d_vehicleStepSimulation_3(): int:
+  let body = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 1.0, z = 0.0), Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0))
+  let settings = PhysWorldSettings3D(gravity = Vec3(x = 0.0, y = -9.8, z = 0.0), iterations = 4, subSteps = 1, sleepLinearThresholdSq = 0.01, sleepAngularThresholdSq = 0.01)
+  mut world = PhysicsWorld3D(settings = settings, bodies = [body], colliders = [], colliderBodyIds = [], joints = [])
+  mut veh = raycastVehicleNew(0)
+  let groundWheel = RaycastWheel3D(
+    connectionPoint = Vec3(x = 0.5, y = -0.2, z = 0.5),
+    direction = Vec3(x = 0.0, y = -1.0, z = 0.0),
+    axle = Vec3(x = 1.0, y = 0.0, z = 0.0),
+    suspensionRestLength = 1.0,
+    currentSuspensionLength = 1.0,
+    springStiffness = 50.0,
+    dampingCompression = 5.0,
+    dampingRelaxation = 5.0,
+    wheelRadius = 0.3,
+    steeringAngle = 0.0,
+    driveTorque = 10.0,
+    brakeTorque = 0.0,
+    isGrounded = false,
+    contactPoint = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    contactNormal = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  )
+  vehicleAddWheel(veh, groundWheel)
+  vehicleStepSimulation(veh, world, 0.016)
+  assertEqInt(veh.wheels.len, 1, "veh has 1 wheel")
+  let updatedWheel: RaycastWheel3D = veh.wheels[0]
+  assert(updatedWheel.isGrounded == true, "ground wheel is grounded")
+  assertApproxEq(updatedWheel.currentSuspensionLength, 0.5, 0.001, "suspension compressed to 0.5")
+
+  // Airborne vehicle test
+  let highBody = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 10.0, z = 0.0), Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0))
+  mut highWorld = PhysicsWorld3D(settings = settings, bodies = [highBody], colliders = [], colliderBodyIds = [], joints = [])
+  mut airVeh = raycastVehicleNew(0)
+  vehicleAddWheel(airVeh, groundWheel)
+  vehicleStepSimulation(airVeh, highWorld, 0.016)
+  let airWheel: RaycastWheel3D = airVeh.wheels[0]
+  assert(airWheel.isGrounded == false, "airborne wheel is not grounded")
+  assertApproxEq(airWheel.currentSuspensionLength, 1.0, 0.001, "airborne suspension at rest length 1.0")
+
+  // Empty world boundary test (should not crash)
+  let emptyWorld = PhysicsWorld3D(settings = settings, bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  vehicleStepSimulation(veh, emptyWorld, 0.016)
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_vehicle3d_raycastVehicleNew_1(), 0, "test_vehicle3d_raycastVehicleNew_1")
+  assertEqInt(test_vehicle3d_vehicleAddWheel_2(), 0, "test_vehicle3d_vehicleAddWheel_2")
+  assertEqInt(test_vehicle3d_vehicleStepSimulation_3(), 0, "test_vehicle3d_vehicleStepSimulation_3")
+  ret 0

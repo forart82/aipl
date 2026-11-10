@@ -1,0 +1,158 @@
+module Ex234ProcgenWfcTileSynthesizerWindow
+
+import {
+  WfcPattern, WfcSolver2D, wfcSolver2dNew,
+  wfcAddPattern, wfcStep, wfcSolve
+} from "../std/procgen/wfc_solver"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct WfcScene(solver: WfcSolver2D, collapsedCount: int, waveCount: int)
+
+fn buildFreshWfcSolver(): WfcSolver2D:
+  mut solver = wfcSolver2dNew(8, 8, 3)
+  let pat0 = WfcPattern(id = 0, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  let pat1 = WfcPattern(id = 1, weight = 1.0, compatibleNeighbors = [[0, 1, 2], [0, 1, 2], [0, 1, 2], [0, 1, 2]])
+  let pat2 = WfcPattern(id = 2, weight = 1.0, compatibleNeighbors = [[1, 2], [1, 2], [1, 2], [1, 2]])
+  wfcAddPattern(solver, pat0)
+  wfcAddPattern(solver, pat1)
+  wfcAddPattern(solver, pat2)
+  ret solver
+
+pub fn createWfcScene(): WfcScene:
+  ret WfcScene(solver = buildFreshWfcSolver(), collapsedCount = 0, waveCount = 1)
+
+pub fn stepScene(mut scene: WfcScene, frame: int, dt: float): void:
+  mut solver = scene.solver
+  if solver.isSolved:
+    solver = buildFreshWfcSolver()
+    scene.waveCount = scene.waveCount + 1
+
+  let ok = wfcStep(solver, 98765 + frame * 37 + scene.waveCount * 101)
+  if not ok and (not solver.isSolved):
+    let _ = wfcSolve(solver, 8, 98765 + frame)
+
+  mut count = 0
+  mut i = 0
+  while i < solver.collapsedGrid.len():
+    if solver.collapsedGrid[i] >= 0:
+      count = count + 1
+    i = i + 1
+  scene.solver = solver
+  scene.collapsedCount = count
+
+pub fn auditProcgenWfcTileSynthesizer(): int:
+  mut solver = wfcSolver2dNew(6, 6, 3)
+  let pat0 = WfcPattern(id = 0, weight = 1.0, compatibleNeighbors = [[0, 1], [0, 1], [0, 1], [0, 1]])
+  let pat1 = WfcPattern(id = 1, weight = 1.0, compatibleNeighbors = [[0, 1, 2], [0, 1, 2], [0, 1, 2], [0, 1, 2]])
+  let pat2 = WfcPattern(id = 2, weight = 1.0, compatibleNeighbors = [[1, 2], [1, 2], [1, 2], [1, 2]])
+  wfcAddPattern(solver, pat0)
+  wfcAddPattern(solver, pat1)
+  wfcAddPattern(solver, pat2)
+  let ok = wfcSolve(solver, 5, 12345)
+  mut s = 0
+  if ok and solver.isSolved:
+    s = 1
+  ret solver.collapsedGrid.len() + s
+
+pub fn main(): int:
+  let audit = auditProcgenWfcTileSynthesizer()
+  println("EX_234_PROCGEN_WFC_AUDIT=" + str(audit))
+
+  mut scene = createWfcScene()
+
+  initWindow(1280, 720, "AIPL ex_234: Wave Function Collapse (WFC) 2D Tile Synthesizer")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.05)
+    let solver: WfcSolver2D = scene.solver
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_234: WAVE FUNCTION COLLAPSE (WFC) 2D TILE CONSTRAINT SYNTHESIZER", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Wave=#" + str(scene.waveCount) + " | Collapsed=" + str(scene.collapsedCount) + "/64 | Patterns=" + str(solver.patterns.len()) + " | Solved=" + str(solver.isSolved), 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(50.0, 108.0, 560.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(50.0, 108.0, 560.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("COLLAPSED WFC BIOME GRID (8x8) & SUPERPOSITION MASKS", 78.0, 132.0, 16.0, rgb(125, 211, 252))
+
+    mut seaCnt = 0
+    mut coastCnt = 0
+    mut forestCnt = 0
+
+    mut ty = 0
+    while ty < 8:
+      mut tx = 0
+      while tx < 8:
+        let idx = ty * 8 + tx
+        let tid = solver.collapsedGrid[idx]
+        let mask = solver.waveMasks[idx]
+        let rx = 96.0 + float(tx * 58)
+        let ry = 170.0 + float(ty * 58)
+        mut col = rgb(24, 33, 50)
+        if tid == 0:
+          col = rgb(14, 165, 233)
+          seaCnt = seaCnt + 1
+        if tid == 1:
+          col = rgb(245, 158, 11)
+          coastCnt = coastCnt + 1
+        if tid == 2:
+          col = rgb(16, 185, 129)
+          forestCnt = forestCnt + 1
+        drawRect(rx, ry, 52.0, 52.0, col)
+        drawRectOutline(rx, ry, 52.0, 52.0, 1.0, rgb(148, 163, 184))
+        if tid >= 0:
+          drawText(str(tid), rx + 21.0, ry + 18.0, 16.0, rgb(255, 255, 255))
+        else:
+          // Superposition candidate dots from solver.waveMasks
+          if (mask & 1) != 0:
+            drawCircle(rx + 14.0, ry + 26.0, 5.0, rgb(56, 189, 248))
+          if (mask & 2) != 0:
+            drawCircle(rx + 26.0, ry + 26.0, 5.0, rgb(250, 204, 21))
+          if (mask & 4) != 0:
+            drawCircle(rx + 38.0, ry + 26.0, 5.0, rgb(52, 211, 153))
+        tx = tx + 1
+      ty = ty + 1
+
+    drawText("Uncollapsed cells show valid neighbor candidates (Blue/Yellow/Green dots)", 78.0, 650.0, 13.0, rgb(148, 163, 184))
+
+    drawRect(640.0, 108.0, 590.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(640.0, 108.0, 590.0, 576.0, 2.0, rgb(245, 158, 11))
+    drawText("WFC ADJACENCY RULES & WAVE SYNTHESIS TELEMETRY", 670.0, 132.0, 16.0, rgb(253, 224, 71))
+
+    drawRect(674.0, 176.0, 68.0, 68.0, rgb(14, 165, 233))
+    drawRectOutline(674.0, 176.0, 68.0, 68.0, 2.0, rgb(186, 230, 253))
+    drawText("0", 702.0, 200.0, 20.0, rgb(255, 255, 255))
+    drawText("Pattern 0: Deep Sea (Allowed Neighbors: {0, 1})", 764.0, 192.0, 16.0, rgb(226, 232, 240))
+    drawText("Collapsed Count: " + str(seaCnt) + " tiles", 764.0, 218.0, 14.0, rgb(56, 189, 248))
+
+    drawRect(674.0, 268.0, 68.0, 68.0, rgb(245, 158, 11))
+    drawRectOutline(674.0, 268.0, 68.0, 68.0, 2.0, rgb(254, 240, 138))
+    drawText("1", 702.0, 292.0, 20.0, rgb(255, 255, 255))
+    drawText("Pattern 1: Sandy Coast (Allowed Neighbors: {0, 1, 2})", 764.0, 284.0, 16.0, rgb(226, 232, 240))
+    drawText("Collapsed Count: " + str(coastCnt) + " tiles", 764.0, 310.0, 14.0, rgb(250, 204, 21))
+
+    drawRect(674.0, 360.0, 68.0, 68.0, rgb(16, 185, 129))
+    drawRectOutline(674.0, 360.0, 68.0, 68.0, 2.0, rgb(167, 243, 208))
+    drawText("2", 702.0, 384.0, 20.0, rgb(255, 255, 255))
+    drawText("Pattern 2: Emerald Forest (Allowed Neighbors: {1, 2})", 764.0, 376.0, 16.0, rgb(226, 232, 240))
+    drawText("Collapsed Count: " + str(forestCnt) + " tiles", 764.0, 402.0, 14.0, rgb(52, 211, 153))
+
+    // Wave Collapse Progress Bar
+    drawText("Wave #" + str(scene.waveCount) + " Collapse Progress: " + str(scene.collapsedCount) + " / 64 cells", 674.0, 468.0, 16.0, rgb(241, 245, 249))
+    drawRect(674.0, 498.0, 512.0, 32.0, rgb(30, 41, 59))
+    drawRectOutline(674.0, 498.0, 512.0, 32.0, 2.0, rgb(100, 116, 139))
+    drawRect(676.0, 500.0, float(scene.collapsedCount * 8), 28.0, rgb(56, 189, 248))
+
+    drawText("Constraint Invariant: Deep Sea (0) NEVER touches Forest (2) directly;", 674.0, 566.0, 14.0, rgb(148, 163, 184))
+    drawText("Sandy Coast (1) is automatically synthesized along every shoreline!", 674.0, 590.0, 14.0, rgb(250, 204, 21))
+    drawText("Auto-starts a fresh WFC wave with a new seed as soon as 64/64 cells solve.", 674.0, 622.0, 14.0, rgb(52, 211, 153))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

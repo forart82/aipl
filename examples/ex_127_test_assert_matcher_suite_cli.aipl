@@ -1,0 +1,56 @@
+// ============================================================================
+// Canonical Example 127: Rich Assertion Matchers & Diff Formatter (CLI)
+// Target Profile: CLI | Standard Library Module: std/test
+// ============================================================================
+module Ex127TestAssertMatcherSuiteCli
+
+import {
+  testAssert,
+  assertEq,
+  assertNe,
+  testAssertApproxEq,
+  assertContains,
+  assertStartsWith,
+  assertEndsWith,
+  assertPanics,
+  formatDiffLines,
+  renderDiffText
+} from "../std/test/test_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyAssertionMatcherSuiteAndDiffs(): int:
+  assert(testAssert(true, "testAssert passes"), "testAssert")
+  assert(assertEq(42, 42, "integer equality"), "assertEq")
+  assert(assertNe(42, 99, "integer inequality"), "assertNe")
+  assert(testAssertApproxEq(3.1415926, 3.1415920, 0.00001, "float approx"), "testAssertApproxEq")
+  assert(assertContains("The quick brown fox", "brown fox", "substring"), "assertContains")
+  assert(assertStartsWith("AIPL Compiler", "AIPL", "prefix"), "assertStartsWith")
+  assert(assertEndsWith("AIPL Compiler", "Compiler", "suffix"), "assertEndsWith")
+  assert(assertPanics("index out of bounds", "out of bounds"), "assertPanics")
+
+  let m1 = "Line A\nLine B\nLine C"
+  let m2 = "Line A\nLine MODIFIED\nLine C"
+  let diffs = formatDiffLines(m1, m2)
+  let rendered = renderDiffText(diffs)
+  assert(rendered.contains("+ ") and rendered.contains("- "), "diff text rendered")
+  ret diffs.len()
+
+pub fn computeMatcherPassRatioPermille(passed: int, total: int): int:
+  let t = maxInt(1, total)
+  let p = clampInt(passed, 0, t)
+  ret (p * 1000) / t
+
+pub fn describeAssertionOutcome(failureCount: int): str:
+  let f = maxInt(0, failureCount)
+  if f == 0:
+    ret "ASSERT:ALL_MATCHERS_GREEN"
+  ret "ASSERT:FAILURES_" + str(f)
+
+pub fn main(): int:
+  let diffLines = verifyAssertionMatcherSuiteAndDiffs()
+  let ratio = computeMatcherPassRatioPermille(8, 8)
+  let tag = describeAssertionOutcome(0)
+  assert(diffLines >= 3, "diff lines generated")
+  assert(ratio == 1000, "1000 permille pass ratio")
+  println(tag + " | diffLines=" + str(diffLines) + " | ratio=" + str(ratio))
+  ret 0

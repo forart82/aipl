@@ -1,0 +1,119 @@
+// ============================================================================
+// Example 042: Real-Time FFT Bar Spectrum & Waterfall Spectrogram Window
+// Demonstrates: Complex64, .mag(), and fftRadix2 from std/math/complex_fft,
+//               synthesizing a multi-tone cosine waveform and rendering both
+//               a 16-bin FFT magnitude bar analyzer and a 2D waterfall
+//               spectrogram heatmap in a 1280x720 window.
+// ============================================================================
+module Ex042MathFftWaterfallSpectrogramWindow
+
+import { clampInt } from "../std/prelude"
+import { TAU } from "../std/math/consts"
+import { cos } from "../std/math/trig"
+import { Complex64, fftRadix2 } from "../std/math/complex_fft"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct SpectrogramWindowState:
+  fftSize: int
+  activeRow: int
+  peakBin2Milli: int
+
+pub fn computeCosineWaveFftPeakMagMilli(harmonicBin: int): int:
+  mut sig: [Complex64] = []
+  for n in 0..16:
+    let phase = (TAU * float(harmonicBin * n)) / 16.0
+    sig.push(Complex64.new(cos(phase), 0.0))
+  fftRadix2(sig, false)
+  let mag = sig[harmonicBin].mag()
+  ret int(mag * 1000.0 + 0.5)
+
+pub fn describeWaterfallPaletteMode(paletteId: int): str:
+  if paletteId == 0:
+    ret "SPECTROGRAM:INFERNO_WATERFALL_16BIN"
+  ret "SPECTROGRAM:VIRIDIS_LOG_DB"
+
+pub fn buildSpectrogramWindowState(frameIdx: int): SpectrogramWindowState:
+  ret SpectrogramWindowState(
+    fftSize = 16,
+    activeRow = frameIdx % 11,
+    peakBin2Milli = computeCosineWaveFftPeakMagMilli(2)
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildSpectrogramWindowState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.peakBin2Milli + frameIndex + dtPad
+
+pub fn renderSpectrogramWindowScene(frameIdx: int): void:
+  let st = buildSpectrogramWindowState(frameIdx)
+  mut bins: [Complex64] = []
+  let modHarmonic = 1 + (frameIdx % 7)
+  let ampMod = 0.55 + 0.35 * cos(float(frameIdx) * 0.11)
+  for n in 0..16:
+    let ph1 = (TAU * 2.0 * float(n)) / 16.0
+    let ph2 = (TAU * float(modHarmonic * n)) / 16.0
+    let sample = cos(ph1) + ampMod * cos(ph2)
+    bins.push(Complex64.new(sample, 0.0))
+  fftRadix2(bins, false)
+
+  clearScreen(rgb(10, 14, 22))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 44))
+  drawText("AIPL ex_042: 16-Point Radix-2 FFT Magnitude Spectrum & Waterfall Spectrogram", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Left Panel: Live 16-Bin FFT Magnitude Bar Analyzer
+  drawRect(40.0, 88.0, 580.0, 560.0, rgb(16, 23, 38))
+  drawRectOutline(40.0, 88.0, 580.0, 560.0, 2.0, rgb(56, 189, 248))
+  drawText("Instantaneous FFT Magnitude Spectrum |X[k]|", 64.0, 112.0, 18.0, rgb(191, 219, 254))
+
+  for k in 0..16:
+    let mag = bins[k].mag()
+    let barH = mag * 38.0
+    let bx = 64.0 + float(k * 34)
+    let by = 600.0 - barH
+    let rCol = clampInt(60 + int(mag * 22.0), 60, 255)
+    let gCol = clampInt(190 - k * 6, 60, 230)
+    drawRect(bx, by, 26.0, barH + 4.0, rgb(rCol, gCol, 248))
+
+  // Right Panel: 16x12 Waterfall Spectrogram Heatmap
+  drawRect(656.0, 88.0, 584.0, 560.0, rgb(16, 23, 38))
+  drawRectOutline(656.0, 88.0, 584.0, 560.0, 2.0, rgb(250, 204, 21))
+  drawText("Waterfall Spectrogram History (Time x Frequency)", 680.0, 112.0, 18.0, rgb(250, 204, 21))
+
+  for row in 0..12:
+    let histHarm = 1 + ((frameIdx + row) % 7)
+    for col in 0..16:
+      let cellX = 680.0 + float(col * 33)
+      let cellY = 152.0 + float(row * 34)
+      let binMag = bins[col].mag()
+      let isPeak = binMag > 1.5 or col == histHarm or col == (16 - histHarm)
+      let heatR = if isPeak: clampInt(160 + int(binMag * 12.0) + row * 4, 160, 255) else: 24 + row * 6
+      let heatG = if isPeak: 115 + (row * 5) % 80 else: 34 + col * 4
+      let heatB = if isPeak: 22 else: 68 + row * 8
+      drawRect(cellX, cellY, 29.0, 30.0, rgb(heatR, heatG, heatB))
+
+  drawLine(676.0, 152.0 + float(st.activeRow * 34), 1212.0, 152.0 + float(st.activeRow * 34), rgb(56, 189, 248), 2.0)
+  drawText("Palette: " + describeWaterfallPaletteMode(0), 680.0, 578.0, 15.0, rgb(167, 243, 208))
+  drawText("Bin[2] Peak: " + str(st.peakBin2Milli) + " mV | Active Row: " + str(st.activeRow) + " | Frame: " + str(frameIdx), 680.0, 606.0, 15.0, rgb(191, 219, 254))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_042 - FFT Spectrum & Waterfall Spectrogram")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderSpectrogramWindowScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

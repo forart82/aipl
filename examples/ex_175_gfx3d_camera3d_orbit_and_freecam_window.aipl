@@ -1,0 +1,147 @@
+module Ex175Gfx3dCamera3dOrbitAndFreecamWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import {
+  OrbitController3D, createPerspectiveCamera3D, createOrthographicCamera3D,
+  computeViewMatrix, computeProjectionMatrix, updateOrbitController
+} from "../std/gfx3d/camera3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepOrbitControllerFrame(ctrl: OrbitController3D, frame: int): OrbitController3D:
+  let dPitch = 0.016 * cos(float(frame) * 0.083)
+  let dZoom = 0.09 * cos(float(frame) * 0.113)
+  ret updateOrbitController(ctrl, 0.039, dPitch, dZoom)
+
+pub fn buildCamera3dOrbitAudit(): int:
+  let target = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  let ctrl = OrbitController3D(
+    target = target,
+    yawRad = 0.0,
+    pitchRad = 0.2,
+    distance = 12.0,
+    minDistance = 3.0,
+    maxDistance = 40.0,
+    minPitchRad = -1.2,
+    maxPitchRad = 1.2
+  )
+  let next = updateOrbitController(ctrl, 0.5, 2.0, -25.0)
+  ret int(next.yawRad * 100.0) + int(next.pitchRad * 100.0) + int(next.distance * 10.0)
+
+pub fn main(): int:
+  let target = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  let perspCam = createPerspectiveCamera3D(Vec3(x = 0.0, y = 5.0, z = 12.0), target, 60.0, 16.0 / 9.0, 0.1, 1000.0)
+  let orthoCam = createOrthographicCamera3D(Vec3(x = 0.0, y = 5.0, z = 12.0), target, 20.0, 10.0, 0.1, 500.0)
+  let projM = computeProjectionMatrix(perspCam)
+  let orthoProj = computeProjectionMatrix(orthoCam)
+  mut ctrl = OrbitController3D(
+    target = target,
+    yawRad = 0.0,
+    pitchRad = 0.35,
+    distance = 12.0,
+    minDistance = 3.0,
+    maxDistance = 40.0,
+    minPitchRad = -1.2,
+    maxPitchRad = 1.2
+  )
+  let audit = buildCamera3dOrbitAudit()
+
+  initWindow(1280, 720, "AIPL ex_175: 3D Camera Spherical Orbit Rig & View/Projection Matrices")
+  mut frame: int = 0
+  while not windowShouldClose():
+    ctrl = stepOrbitControllerFrame(ctrl, frame)
+    let cosP = cos(ctrl.pitchRad)
+    let eyePos = Vec3(
+      x = cos(ctrl.yawRad) * cosP * ctrl.distance,
+      y = sin(ctrl.pitchRad) * ctrl.distance,
+      z = sin(ctrl.yawRad) * cosP * ctrl.distance
+    )
+    let dynPerspCam = createPerspectiveCamera3D(eyePos, target, 60.0, 16.0 / 9.0, 0.1, 1000.0)
+    let viewM = computeViewMatrix(dynPerspCam)
+    let orbitRadiusPx = ctrl.distance * cosP * 9.2
+    let camX = 340.0 + cos(ctrl.yawRad) * orbitRadiusPx
+    let camZ = 304.0 + sin(ctrl.yawRad) * orbitRadiusPx
+
+    // Camera Forward & Half-FOV rays in top-down XZ plane
+    let fwdAngle = ctrl.yawRad + 3.14159265
+    let halfFov = 0.5235988
+    let leftAngle = fwdAngle - halfFov
+    let rightAngle = fwdAngle + halfFov
+    let farLen = 140.0
+    let nearLen = 28.0
+    let nearLx = camX + cos(leftAngle) * nearLen
+    let nearLz = camZ + sin(leftAngle) * nearLen
+    let nearRx = camX + cos(rightAngle) * nearLen
+    let nearRz = camZ + sin(rightAngle) * nearLen
+    let farLx = camX + cos(leftAngle) * farLen
+    let farLz = camZ + sin(leftAngle) * farLen
+    let farRx = camX + cos(rightAngle) * farLen
+    let farRz = camZ + sin(rightAngle) * farLen
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_175: 3D SPHERICAL ORBIT CAMERA RIG & VIEW / PROJECTION MATRICES", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/camera3d: createPerspectiveCamera3D | updateOrbitController | computeViewMatrix | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Top-Down Spherical Orbit Trajectory & FOV Frustum Cone
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("SPHERICAL ORBIT RIG (Yaw=" + str(ctrl.yawRad) + ", Pitch=" + str(ctrl.pitchRad) + ")", 60.0, 118.0, 15.0, rgb(125, 211, 252))
+
+    // Reference orbit rings
+    drawCircleOutline(340.0, 304.0, 130.0, 1.0, rgb(30, 41, 59))
+    drawCircleOutline(340.0, 304.0, orbitRadiusPx, 1.5, rgb(51, 65, 85))
+    drawCircleOutline(340.0, 304.0, 38.0, 1.0, rgb(30, 41, 59))
+
+    // Perspective Frustum Cone from Eye toward Target
+    drawLine(camX, camZ, farLx, farLz, rgb(34, 197, 94), 1.8)
+    drawLine(camX, camZ, farRx, farRz, rgb(34, 197, 94), 1.8)
+    drawLine(nearLx, nearLz, nearRx, nearRz, rgb(134, 239, 172), 2.0)
+    drawLine(farLx, farLz, farRx, farRz, rgb(34, 197, 94), 2.0)
+
+    // LookAt optical axis + Right vector
+    drawLine(camX, camZ, 340.0, 304.0, rgb(56, 189, 248), 2.5)
+    let rightX = camX + cos(fwdAngle + 1.5707963) * 26.0
+    let rightZ = camZ + sin(fwdAngle + 1.5707963) * 26.0
+    drawLine(camX, camZ, rightX, rightZ, rgb(250, 204, 21), 2.5)
+
+    drawCircle(340.0, 304.0, 9.0, rgb(250, 204, 21))
+    drawText("Target (0,0,0)", 295.0, 318.0, 13.0, rgb(253, 224, 71))
+
+    drawCircle(camX, camZ, 9.0, rgb(244, 63, 94))
+    drawText("Eye (y=" + str(int(eyePos.y * 10.0)) + "dm)", camX + 12.0, camZ - 6.0, 12.0, rgb(253, 164, 175))
+    drawText("GREEN = 60 deg Perspective Frustum | CYAN = LookAt Fwd | GOLD = Right Basis", 58.0, 474.0, 13.0, rgb(148, 163, 184))
+
+    // Right Panel: Perspective vs Orthographic 4x4 Matrix Comparison
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(168, 85, 247))
+    drawText("4x4 VIEW & PROJECTION MATRIX INSPECTOR", 680.0, 118.0, 17.0, rgb(216, 180, 254))
+
+    drawRect(685.0, 160.0, 530.0, 105.0, rgb(30, 41, 59))
+    drawText("LookAt View Matrix (Right / Up / Forward Basis):", 705.0, 180.0, 15.0, rgb(56, 189, 248))
+    drawText("m00=" + str(viewM.m00) + " | m11=" + str(viewM.m11) + " | m22=" + str(viewM.m22), 705.0, 212.0, 14.0, rgb(226, 232, 240))
+
+    drawRect(685.0, 280.0, 530.0, 105.0, rgb(30, 41, 59))
+    drawText("Perspective Projection Matrix (FOV=60 deg, 16:9, [0.1..1000]):", 705.0, 300.0, 15.0, rgb(34, 197, 94))
+    drawText("m00=" + str(projM.m00) + " | m11=" + str(projM.m11) + " | m22=" + str(projM.m22), 705.0, 332.0, 14.0, rgb(226, 232, 240))
+
+    drawRect(685.0, 400.0, 530.0, 85.0, rgb(30, 41, 59))
+    drawText("Orthographic Projection Matrix (20x10 Box, Parallel Rays):", 705.0, 418.0, 15.0, rgb(250, 204, 21))
+    drawText("m00=" + str(orthoProj.m00) + " | m11=" + str(orthoProj.m11) + " | m22=" + str(orthoProj.m22), 705.0, 448.0, 14.0, rgb(226, 232, 240))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("ORBIT CONTROLLER CLAMP & SAFETY INVARIANTS", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Pitch Clamp: [-1.20 .. +1.20] rad (Prevents Gimbal Flip at Poles) | Distance Clamp: [3.0 .. 40.0] m", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Current Orbit Distance: " + str(ctrl.distance) + " m | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

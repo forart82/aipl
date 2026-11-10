@@ -1,0 +1,143 @@
+/// # Module: `std/rt/rt_array` (`RtArray`)
+///
+/// ## Purpose & Domain Scope
+/// Self-hosted runtime dynamic array growth kernel and geometric reallocation engine.
+module RtArray
+
+import { ptrAlloc, ptrFree, ptrReadI64, ptrWriteI64, ptrCopy, ptrMemcpy } from "std/rt/rt_ptr"
+
+pub struct RtArrayHeader:
+  dataPtr: int
+  length: int
+  capacity: int
+  elementSize: int
+
+pub struct RtArray:
+  data: int
+  len: int
+  cap: int
+  dataPtr: int
+  length: int
+  capacity: int
+  elementSize: int
+
+pub fn rtArrayNew(initialCapacity: int = 8, elemSize: int = 8): RtArray:
+  let realCap = if initialCapacity > 0: initialCapacity else: 8
+  let es = if elemSize > 0: elemSize else: 8
+  let byteSize = realCap * es
+  let ptr = ptrAlloc(byteSize)
+  ret RtArray(
+    data = ptr,
+    len = 0,
+    cap = realCap,
+    dataPtr = ptr,
+    length = 0,
+    capacity = realCap,
+    elementSize = es
+  )
+
+pub fn rtArrayReserve(mut arr: RtArray, minCap: int): void:
+  if arr.cap >= minCap:
+    ret
+  mut newCap = if arr.cap > 0: arr.cap * 2 else: 8
+  if newCap < minCap:
+    newCap = minCap
+  let es = if arr.elementSize > 0: arr.elementSize else: 8
+  let newByteSize = newCap * es
+  let newPtr = ptrAlloc(newByteSize)
+  if newPtr != 0:
+    if arr.len > 0 and arr.data != 0:
+      ptrCopy(newPtr, arr.data, arr.len * es)
+    if arr.data != 0:
+      ptrFree(arr.data)
+    arr.data = newPtr
+    arr.dataPtr = newPtr
+    arr.cap = newCap
+    arr.capacity = newCap
+  ret
+
+pub fn rtArrayEnsureCap(mut arr: RtArray, requiredCap: int): void:
+  rtArrayReserve(arr, requiredCap)
+  ret
+
+pub fn rtArrayPush(mut arr: RtArray, val: int): int:
+  if arr.len >= arr.cap:
+    rtArrayReserve(arr, arr.len + 1)
+  let idx = arr.len
+  if arr.data != 0 and arr.len < arr.cap:
+    ptrWriteI64(arr.data, arr.len * 8, val)
+    arr.len += 1
+    arr.length = arr.len
+  ret idx
+
+pub fn rtArrayGet(arr: RtArray, index: int): int:
+  if index < 0 or index >= arr.len or arr.data == 0:
+    ret 0
+  ret ptrReadI64(arr.data, index * 8)
+
+pub fn rtArraySet(mut arr: RtArray, index: int, val: int): bool:
+  if index < 0 or index >= arr.len or arr.data == 0:
+    ret false
+  ptrWriteI64(arr.data, index * 8, val)
+  ret true
+
+pub fn rtArrayPop(mut arr: RtArray): int:
+  if arr.len <= 0 or arr.data == 0:
+    ret 0
+  arr.len -= 1
+  arr.length = arr.len
+  ret ptrReadI64(arr.data, arr.len * 8)
+
+pub fn rtArrayLen(arr: RtArray): int:
+  ret arr.len
+
+pub fn rtArrayClear(mut arr: RtArray): void:
+  arr.len = 0
+  arr.length = 0
+  ret
+
+pub fn rtArrayFree(mut arr: RtArray): void:
+  if arr.data != 0:
+    ptrFree(arr.data)
+    arr.data = 0
+    arr.dataPtr = 0
+  arr.len = 0
+  arr.length = 0
+  arr.cap = 0
+  arr.capacity = 0
+  ret
+
+pub fn rtArrayHeaderNew(elemSize: int, initialCap: int): RtArrayHeader:
+  let es = if elemSize > 0: elemSize else: 8
+  let cap = if initialCap > 0: initialCap else: 8
+  let ptr = ptrAlloc(cap * es)
+  ret RtArrayHeader(dataPtr = ptr, length = 0, capacity = cap, elementSize = es)
+
+pub fn rtArrayHeaderEnsureCap(mut hdr: RtArrayHeader, requiredCap: int): void:
+  if hdr.capacity >= requiredCap:
+    ret
+  mut newCap = if hdr.capacity > 0: hdr.capacity + (hdr.capacity / 2) + 4 else: 8
+  if newCap < requiredCap:
+    newCap = requiredCap
+  let newPtr = ptrAlloc(newCap * hdr.elementSize)
+  if newPtr != 0:
+    if hdr.length > 0 and hdr.dataPtr != 0:
+      ptrMemcpy(newPtr, 0, hdr.dataPtr, 0, hdr.length * hdr.elementSize)
+    if hdr.dataPtr != 0:
+      ptrFree(hdr.dataPtr)
+    hdr.dataPtr = newPtr
+    hdr.capacity = newCap
+  ret
+
+pub fn rtArrayHeaderAddrAt(hdr: RtArrayHeader, index: int): int:
+  if index < 0 or index >= hdr.length or hdr.dataPtr == 0:
+    ret 0
+  ret hdr.dataPtr + (index * hdr.elementSize)
+
+pub fn rtArrayHeaderFree(mut hdr: RtArrayHeader): void:
+  if hdr.dataPtr != 0:
+    ptrFree(hdr.dataPtr)
+    hdr.dataPtr = 0
+  hdr.length = 0
+  hdr.capacity = 0
+  ret

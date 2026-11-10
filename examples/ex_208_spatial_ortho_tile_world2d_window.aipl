@@ -1,0 +1,121 @@
+module Ex208SpatialOrthoTileWorld2dWindow
+
+import { Vec2, IVec2 } from "../std/math/vec_math"
+import {
+  OrthoTileCell2D, orthoTileWorldNew, orthoTileGet, orthoTileSet,
+  orthoCellToWorldCenter, orthoNeighbors4,
+  orthoLineOfSightBresenham, orthoFloodFill, orthoRaycastCells
+} from "../std/spatial/ortho_tile_world2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb, rgba
+} from "../std/gfx2d/shape2d"
+
+pub fn stepOrthoTargetRow(frame: int): int:
+  ret (frame / 7) % 10
+
+pub fn stepOrthoSubScanT(frame: int): float:
+  ret float((frame * 5) % 41) / 41.0
+
+pub fn buildSpatialOrthoTileAudit(): int:
+  mut world = orthoTileWorldNew(10, 10, 32.0, 1)
+  let wall = OrthoTileCell2D(tileId = 9, solid = true, elevation = 0.0, flags = 0, userData = 0)
+  orthoTileSet(world, 0, 2, 0, wall)
+  let cPos: Vec2 = orthoCellToWorldCenter(world, 3, 4)
+  let n4 = orthoNeighbors4(world, 0, 0)
+  let losClear = if orthoLineOfSightBresenham(world, 0, 0, 1, 5, 1): 1 else: 0
+  let painted = orthoFloodFill(world, 0, 0, 0, 0, 5)
+  ret int(cPos.x) + int(cPos.y) + n4.len() + losClear + painted
+
+pub fn main(): int:
+  let auditScore = buildSpatialOrthoTileAudit()
+
+  mut world = orthoTileWorldNew(16, 10, 48.0, 1)
+  let wall = OrthoTileCell2D(tileId = 9, solid = true, elevation = 1.0, flags = 1, userData = 0)
+  mut wy = 2
+  while wy <= 7:
+    if wy != 4:
+      orthoTileSet(world, 0, 6, wy, wall)
+      orthoTileSet(world, 0, 11, wy, wall)
+    wy = wy + 1
+  let floodedCount = orthoFloodFill(world, 0, 0, 0, 0, 5)
+  let losOpen = orthoLineOfSightBresenham(world, 0, 2, 1, 14, 1)
+
+  initWindow(1280, 720, "AIPL ex_208: Spatial Orthogonal 2D Tile World, Bresenham LOS & Flood-Fill")
+  mut frame = 0
+  while not windowShouldClose():
+    let targetY = stepOrthoTargetRow(frame)
+    let subT = stepOrthoSubScanT(frame)
+    let losDynamic = orthoLineOfSightBresenham(world, 0, 2, 4, 14, targetY)
+    let targetN4 = orthoNeighbors4(world, 14, targetY)
+    let pStartBlk = orthoCellToWorldCenter(world, 2, 4)
+    let pEndBlk = orthoCellToWorldCenter(world, 14, targetY)
+    let ddaCells = orthoRaycastCells(world, 0, pStartBlk, Vec2(x = pEndBlk.x - pStartBlk.x, y = pEndBlk.y - pStartBlk.y), 580.0)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_208: ORTHOGONAL 2D TILE WORLD (BRESENHAM LOS, DDA & FLOOD-FILL)", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("grid=16x10 | flooded=" + str(floodedCount) + " | ddaSteps=" + str(ddaCells.len()) + " | losTarget(14," + str(targetY) + ")=" + str(losDynamic) + " (n4=" + str(targetN4.len()) + ") | audit=" + str(auditScore), 52.0, 66.0, 15.0, rgb(125, 211, 252))
+
+    let ox = 256.0
+    let oy = 140.0
+    mut y = 0
+    while y < 10:
+      mut x = 0
+      while x < 16:
+        let cellOpt = orthoTileGet(world, 0, x, y)
+        let c: OrthoTileCell2D = cellOpt.unwrap()
+        let sx = ox + float(x) * 48.0
+        let sy = oy + float(y) * 48.0
+        let col = if c.solid: rgb(239, 68, 68) else: (if c.tileId == 5 and (x + y) % 2 == 0: rgb(18, 34, 54) else: rgb(24, 34, 52))
+        drawRect(sx, sy, 46.0, 46.0, col)
+        drawRectOutline(sx, sy, 46.0, 46.0, 1.0, rgb(51, 65, 85))
+        x = x + 1
+      y = y + 1
+
+    // Highlight DDA raycast cells
+    mut dIdx = 0
+    while dIdx < ddaCells.len():
+      let dc: IVec2 = ddaCells[dIdx]
+      let dsx = ox + float(dc.x) * 48.0
+      let dsy = oy + float(dc.y) * 48.0
+      drawRect(dsx + 4.0, dsy + 4.0, 38.0, 38.0, if losDynamic: rgba(56, 189, 248, 70) else: rgba(248, 113, 113, 70))
+      dIdx = dIdx + 1
+
+    // Highlight 4-way neighbors of target cell (14, targetY)
+    mut nIdx = 0
+    while nIdx < targetN4.len():
+      let nb: IVec2 = targetN4[nIdx]
+      let nsx = ox + float(nb.x) * 48.0
+      let nsy = oy + float(nb.y) * 48.0
+      drawRectOutline(nsx + 2.0, nsy + 2.0, 42.0, 42.0, 2.0, rgb(250, 204, 21))
+      nIdx = nIdx + 1
+
+    // Draw clear LOS ray on row 1 and dynamic sweeping LOS ray from (2,4) to (14,targetY)
+    let pStartOpen = orthoCellToWorldCenter(world, 2, 1)
+    let pEndOpen = orthoCellToWorldCenter(world, 14, 1)
+    drawLine(ox + pStartOpen.x, oy + pStartOpen.y, ox + pEndOpen.x, oy + pEndOpen.y, rgb(52, 211, 153), 3.5)
+    drawCircle(ox + pStartOpen.x, oy + pStartOpen.y, 7.0, rgb(52, 211, 153))
+    drawCircle(ox + pEndOpen.x, oy + pEndOpen.y, 7.0, rgb(52, 211, 153))
+
+    let dynRayCol = if losDynamic: rgb(56, 189, 248) else: rgb(248, 113, 113)
+    drawLine(ox + pStartBlk.x, oy + pStartBlk.y, ox + pEndBlk.x, oy + pEndBlk.y, dynRayCol, 3.0)
+    drawCircle(ox + pStartBlk.x, oy + pStartBlk.y, 7.0, rgb(250, 204, 21))
+    drawCircle(ox + pEndBlk.x, oy + pEndBlk.y, 7.0, dynRayCol)
+
+    // Animated pulse traveling along the active LOS ray
+    let pulseX = ox + pStartBlk.x + (pEndBlk.x - pStartBlk.x) * subT
+    let pulseY = oy + pStartBlk.y + (pEndBlk.y - pStartBlk.y) * subT
+    drawCircle(pulseX, pulseY, 5.5, rgb(250, 204, 21))
+    drawCircleOutline(pulseX, pulseY, 9.0, 1.5, dynRayCol)
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

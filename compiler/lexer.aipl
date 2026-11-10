@@ -1,0 +1,1270 @@
+module CompilerLexer
+
+import { Span, Token, makeSpan, makeToken } from "./ast.aipl"
+
+// ============================================================================
+// Step 15.1: Self-Hosted AIPL Lexer & Indentation Tracker
+// ============================================================================
+
+pub fn isAlphaChar(code: int): bool:
+  ret (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or code == 95 or code >= 128
+
+pub fn isDigitChar(code: int): bool:
+  ret code >= 48 and code <= 57
+
+pub fn isHexDigitChar(code: int): bool:
+  ret isDigitChar(code) or (code >= 65 and code <= 70) or (code >= 97 and code <= 102)
+
+pub fn hexDigitVal(code: int): int:
+  if code >= 48 and code <= 57:
+    ret code - 48
+  elif code >= 65 and code <= 70:
+    ret code - 55
+  elif code >= 97 and code <= 102:
+    ret code - 87
+  ret -1
+
+pub fn isAlnumChar(code: int): bool:
+  ret isAlphaChar(code) or isDigitChar(code)
+
+pub fn classifyKeyword(word: str): str:
+  if word == "module":
+    ret "KW_MODULE"
+  elif word == "import":
+    ret "KW_IMPORT"
+  elif word == "from":
+    ret "KW_FROM"
+  elif word == "as":
+    ret "KW_AS"
+  elif word == "pub":
+    ret "KW_PUB"
+  elif word == "fn":
+    ret "KW_FN"
+  elif word == "struct":
+    ret "KW_STRUCT"
+  elif word == "enum":
+    ret "KW_ENUM"
+  elif word == "type":
+    ret "KW_TYPE"
+  elif word == "let":
+    ret "KW_LET"
+  elif word == "mut":
+    ret "KW_MUT"
+  elif word == "const":
+    ret "KW_CONST"
+  elif word == "if":
+    ret "KW_IF"
+  elif word == "elif":
+    ret "KW_ELIF"
+  elif word == "else":
+    ret "KW_ELSE"
+  elif word == "while":
+    ret "KW_WHILE"
+  elif word == "for":
+    ret "KW_FOR"
+  elif word == "in":
+    ret "KW_IN"
+  elif word == "match":
+    ret "KW_MATCH"
+  elif word == "ret" or word == "return":
+    ret "KW_RET"
+  elif word == "break":
+    ret "KW_BREAK"
+  elif word == "continue":
+    ret "KW_CONTINUE"
+  elif word == "pass":
+    ret "KW_PASS"
+  elif word == "is":
+    ret "KW_IS"
+  elif word == "discard":
+    ret "KW_DISCARD"
+  elif word == "do":
+    ret "KW_DO"
+  elif word == "and":
+    ret "KW_AND"
+  elif word == "or":
+    ret "KW_OR"
+  elif word == "not":
+    ret "KW_NOT"
+  elif word == "true" or word == "false":
+    ret "BOOL"
+  elif word == "nil":
+    ret "NIL"
+  elif word == "requires" or word == "require":
+    ret "KW_REQUIRES"
+  elif word == "ensures" or word == "ensure":
+    ret "KW_ENSURES"
+  elif word == "extern":
+    ret "KW_EXTERN"
+  elif word == "with":
+    ret "KW_WITH"
+  ret "IDENT"
+
+pub fn encodeUtf8(cp: int): str:
+  if cp <= 0:
+    ret "\\0"
+  elif cp < 128:
+    ret chr(cp)
+  elif cp < 2048:
+    let b1 = 192 + (cp / 64)
+    let b2 = 128 + (cp % 64)
+    ret chr(b1) + chr(b2)
+  elif cp >= 55296 and cp <= 57343:
+    ret encodeUtf8(65533)
+  elif cp < 65536:
+    let b1 = 224 + (cp / 4096)
+    let b2 = 128 + ((cp / 64) % 64)
+    let b3 = 128 + (cp % 64)
+    ret chr(b1) + chr(b2) + chr(b3)
+  elif cp <= 1114111:
+    let b1 = 240 + (cp / 262144)
+    let b2 = 128 + ((cp / 4096) % 64)
+    let b3 = 128 + ((cp / 64) % 64)
+    let b4 = 128 + (cp % 64)
+    ret chr(b1) + chr(b2) + chr(b3) + chr(b4)
+  ret ""
+
+pub fn stripMultilineIndent(raw: str): str:
+  mut text = raw
+  if text.len >= 2 and text.slice(0, 2) == "\r\n":
+    text = text.slice(2, text.len)
+  elif text.len >= 1 and text.slice(0, 1) == "\n":
+    text = text.slice(1, text.len)
+
+  mut lines = text.split("\n")
+  if lines.len == 0:
+    ret ""
+
+  mut closingIndent = 0
+  let lastIdx = lines.len - 1
+  let lastLine = lines[lastIdx]
+  mut lastIsWs = true
+  mut wsCount = 0
+  mut chk = 0
+  while chk < lastLine.len:
+    let c = lastLine.charCodeAt(chk)
+    if c == 32 or c == 9:
+      wsCount += 1
+    elif c == 13:
+      chk += 1
+      continue
+    else:
+      lastIsWs = false
+      break
+    chk += 1
+
+  if lastIsWs:
+    closingIndent = wsCount
+    lines.pop()
+
+  if lines.len == 0:
+    ret ""
+
+  if closingIndent > 0:
+    mut minIndent = closingIndent
+    mut i = 0
+    while i < lines.len:
+      let l = lines[i]
+      mut ws = 0
+      while ws < l.len and (l.charCodeAt(ws) == 32 or l.charCodeAt(ws) == 9):
+        ws += 1
+      if ws < l.len:
+        if ws < minIndent:
+          minIndent = ws
+      i += 1
+
+    if minIndent > 0:
+      mut outLines: [str] = []
+      mut j = 0
+      while j < lines.len:
+        let l = lines[j]
+        mut cut = 0
+        while cut < minIndent and cut < l.len and (l.charCodeAt(cut) == 32 or l.charCodeAt(cut) == 9):
+          cut += 1
+        outLines.push(l.slice(cut, l.len))
+        j += 1
+      ret outLines.join("\n")
+
+  ret lines.join("\n")
+
+pub fn isInterpExpr(source: str, pos: int, n: int, isMultiline: bool): bool:
+  mut k = pos + 1
+  while k < n and (source.charCodeAt(k) == 32 or source.charCodeAt(k) == 9):
+    k += 1
+  if k >= n:
+    ret false
+  let firstChar = source.charCodeAt(k)
+  if firstChar == 125:
+    ret false
+  if not isMultiline and (firstChar == 10 or firstChar == 13 or firstChar == 34):
+    ret false
+  if firstChar == 59:
+    ret false
+
+  mut depth = 1
+  mut inSingle = false
+  mut inDouble = false
+  mut inEscapedDouble = false
+  mut foundClose = false
+  mut onlyQuantifierChars = (firstChar >= 48 and firstChar <= 57)
+
+  while k < n:
+    let ch = source.charCodeAt(k)
+
+    if inEscapedDouble:
+      onlyQuantifierChars = false
+      if ch == 92 and k + 1 < n:
+        if source.charCodeAt(k + 1) == 34:
+          inEscapedDouble = false
+        k += 2
+        continue
+      if not isMultiline and (ch == 10 or ch == 13 or ch == 34):
+        ret false
+      k += 1
+      continue
+
+    if inSingle:
+      onlyQuantifierChars = false
+      if ch == 92 and k + 1 < n:
+        k += 2
+        continue
+      if ch == 39:
+        inSingle = false
+        k += 1
+        continue
+      if not isMultiline and (ch == 10 or ch == 13):
+        ret false
+      k += 1
+      continue
+
+    if inDouble:
+      onlyQuantifierChars = false
+      if ch == 92 and k + 1 < n:
+        k += 2
+        continue
+      if ch == 34:
+        inDouble = false
+        k += 1
+        continue
+      if not isMultiline and (ch == 10 or ch == 13):
+        ret false
+      k += 1
+      continue
+
+    if ch == 92 and k + 1 < n:
+      onlyQuantifierChars = false
+      if source.charCodeAt(k + 1) == 34:
+        inEscapedDouble = true
+      k += 2
+      continue
+
+    if ch == 39:
+      onlyQuantifierChars = false
+      inSingle = true
+      k += 1
+      continue
+
+    if ch == 34:
+      onlyQuantifierChars = false
+      if not isMultiline:
+        ret false
+      else:
+        if k + 2 < n and source.charCodeAt(k + 1) == 34 and source.charCodeAt(k + 2) == 34:
+          ret false
+        inDouble = true
+        k += 1
+        continue
+
+    if not isMultiline and (ch == 10 or ch == 13):
+      ret false
+
+    if ch == 59:
+      ret false
+
+    if ch == 123:
+      onlyQuantifierChars = false
+      depth += 1
+      k += 1
+      continue
+
+    if ch == 125:
+      depth -= 1
+      if depth == 0:
+        foundClose = true
+        break
+      k += 1
+      continue
+
+    if onlyQuantifierChars:
+      if not ((ch >= 48 and ch <= 57) or ch == 44 or ch == 32 or ch == 9):
+        onlyQuantifierChars = false
+
+    if ch >= 240 and k + 4 <= n:
+      k += 4
+      continue
+    if ch >= 224 and k + 3 <= n:
+      k += 3
+      continue
+    if ch >= 192 and k + 2 <= n:
+      k += 2
+      continue
+
+    k += 1
+
+  if foundClose and onlyQuantifierChars:
+    ret false
+  ret foundClose
+
+pub fn normalizeSnippetIndentation(rawSource: str): str:
+  let rawLines = rawSource.split("\n")
+  if rawLines.len <= 1:
+    ret rawSource
+
+  mut allCommon = 999999
+  mut hasNonEmpty = false
+  mut i = 0
+  while i < rawLines.len:
+    let line = rawLines[i]
+    mut col = 0
+    while col < line.len and (line.charCodeAt(col) == 32 or line.charCodeAt(col) == 9):
+      col += 1
+    if col < line.len:
+      hasNonEmpty = true
+      if col < allCommon:
+        allCommon = col
+    i += 1
+
+  if hasNonEmpty and allCommon > 0 and allCommon < 999999:
+    mut outLines: [str] = []
+    mut j = 0
+    while j < rawLines.len:
+      let line = rawLines[j]
+      mut col = 0
+      while col < allCommon and col < line.len and (line.charCodeAt(col) == 32 or line.charCodeAt(col) == 9):
+        col += 1
+      outLines.push(line.slice(col, line.len))
+      j += 1
+    ret outLines.join("\n")
+
+  let line0 = rawLines[0].trim()
+  if line0.len > 0 and not line0.endsWith(":") and not line0.endsWith("{"):
+    mut subCommon = 999999
+    mut hasSubNonEmpty = false
+    mut k = 1
+    while k < rawLines.len:
+      let line = rawLines[k]
+      mut col = 0
+      while col < line.len and (line.charCodeAt(col) == 32 or line.charCodeAt(col) == 9):
+        col += 1
+      if col < line.len:
+        hasSubNonEmpty = true
+        if col < subCommon:
+          subCommon = col
+      k += 1
+
+    if hasSubNonEmpty and subCommon > 0 and subCommon < 999999:
+      mut outLines: [str] = []
+      outLines.push(rawLines[0])
+      mut m = 1
+      while m < rawLines.len:
+        let line = rawLines[m]
+        mut col = 0
+        while col < subCommon and col < line.len and (line.charCodeAt(col) == 32 or line.charCodeAt(col) == 9):
+          col += 1
+        outLines.push(line.slice(col, line.len))
+        m += 1
+      ret outLines.join("\n")
+
+  ret rawSource
+
+pub fn isFloorDivAt(source: str, pos: int, n: int, tokens: [Token], bracketDepth: int): bool:
+  if tokens.len == 0 or pos + 2 >= n:
+    ret false
+  if source.charCodeAt(pos + 2) == 47:
+    ret false
+  let prev = tokens[tokens.len - 1]
+  if prev.kind != "INT" and prev.kind != "FLOAT" and prev.kind != "IDENT" and prev.kind != ")" and prev.kind != "]":
+    ret false
+  mut spi = prev.span.end
+  while spi < pos:
+    let sc = source.charCodeAt(spi)
+    if sc != 32 and sc != 9:
+      ret false
+    spi += 1
+  mut rhsStart = pos + 2
+  while rhsStart < n and (source.charCodeAt(rhsStart) == 32 or source.charCodeAt(rhsStart) == 9):
+    rhsStart += 1
+  if rhsStart >= n:
+    ret false
+  let rc = source.charCodeAt(rhsStart)
+  if rc == 48 and rhsStart + 1 < n and isAlnumChar(source.charCodeAt(rhsStart + 1)):
+    ret false
+  let isRhsStartOk = isDigitChar(rc) or rc == 40 or rc == 45 or (rc >= 97 and rc <= 122) or rc == 95 or (rc >= 65 and rc <= 90 and (rhsStart + 1 >= n or not (source.charCodeAt(rhsStart + 1) >= 97 and source.charCodeAt(rhsStart + 1) <= 122)))
+  if not isRhsStartOk:
+    ret false
+
+  // Float literal followed by // is always an inline comment
+  if prev.kind == "FLOAT":
+    ret false
+
+  mut lineStart = pos
+  while lineStart > 0 and source.charCodeAt(lineStart - 1) != 10 and source.charCodeAt(lineStart - 1) != 13:
+    lineStart -= 1
+  let prefix = source.slice(lineStart, pos).trim()
+  if bracketDepth == 0 and (prefix.contains("wasmPush") or prefix.contains("bitStreamWrite")):
+    ret false
+  let isHeaderLine = prefix.startsWith("if ") or prefix.startsWith("elif ") or prefix.startsWith("else if ") or prefix.startsWith("while ") or prefix.startsWith("for ") or prefix.startsWith("match ")
+  let hasExprContext = bracketDepth > 0 or prefix.contains("=") or prefix.startsWith("ret ") or prefix.startsWith("return ") or isHeaderLine or prefix.startsWith("assert(")
+  if not hasExprContext:
+    ret false
+
+  mut lineEnd = rhsStart
+  mut scanDepth = 0
+  while lineEnd < n and source.charCodeAt(lineEnd) != 10 and source.charCodeAt(lineEnd) != 13:
+    let sc = source.charCodeAt(lineEnd)
+    if sc == 40 or sc == 91 or sc == 123:
+      scanDepth += 1
+    elif sc == 41 or sc == 93 or sc == 125:
+      if bracketDepth > 0 and scanDepth == 0:
+        break
+      if scanDepth > 0:
+        scanDepth -= 1
+    elif sc == 58 and scanDepth == 0 and (prefix.contains("if ") or prefix.contains("elif ") or prefix.contains("while ")):
+      break
+    lineEnd += 1
+  let rawRhs = source.slice(rhsStart, lineEnd).trim()
+  if rawRhs.contains("->"):
+    ret false
+  if bracketDepth == 0 and rawRhs.contains("\""):
+    ret false
+  mut cleanRhs = ""
+  mut ri = 0
+  mut inQuotes = false
+  while ri < rawRhs.len:
+    let rch = rawRhs.charCodeAt(ri)
+    if inQuotes:
+      if rch == 92 and ri + 1 < rawRhs.len:
+        ri += 2
+      else:
+        if rch == 34:
+          inQuotes = false
+        ri += 1
+    elif rch == 34:
+      inQuotes = true
+      cleanRhs = cleanRhs + "0"
+      ri += 1
+    else:
+      cleanRhs = cleanRhs + rawRhs.slice(ri, ri + 1)
+      ri += 1
+  mut rhs = cleanRhs.trim()
+  if rhs.contains("//"):
+    rhs = rhs.slice(0, rhs.indexOf("//")).trim()
+  if isHeaderLine and rhs.endsWith(":"):
+    rhs = rhs.slice(0, rhs.len - 1).trim()
+  rhs = rhs.replace(" and ", " & ").replace(" or ", " | ")
+  if rhs.len == 0:
+    ret false
+  if rhs.contains("i32.") or rhs.contains("i64.") or rhs.contains("f32.") or rhs.contains("f64.") or rhs.contains("local.") or rhs.contains("global.") or rhs.contains("e.g.") or rhs.contains("0b"):
+    ret false
+
+  if (rc >= 97 and rc <= 122) or (rc >= 65 and rc <= 90) or rc == 95:
+    mut idEnd = 0
+    while idEnd < rhs.len and isAlnumChar(rhs.charCodeAt(idEnd)):
+      idEnd += 1
+    let ident = rhs.slice(0, idEnd)
+    let isCall = idEnd < rhs.len and rhs.charCodeAt(idEnd) == 40
+    if not isCall:
+      let beforePos = source.slice(0, pos)
+      let fnIdx = beforePos.lastIndexOf("\nfn ")
+      let pubFnIdx = beforePos.lastIndexOf("\npub fn ")
+      mut scopeStart = 0
+      if fnIdx > scopeStart:
+        scopeStart = fnIdx
+      if pubFnIdx > scopeStart:
+        scopeStart = pubFnIdx
+      let fnScope = beforePos.slice(scopeStart, beforePos.len)
+      let inFnScope = fnScope.contains("let " + ident + " ") or fnScope.contains("let " + ident + ":") or fnScope.contains("let " + ident + "=") or fnScope.contains("mut " + ident + " ") or fnScope.contains("mut " + ident + ":") or fnScope.contains("mut " + ident + "=") or fnScope.contains("for " + ident + " ") or fnScope.contains("(" + ident + ":") or fnScope.contains(" " + ident + ":") or fnScope.contains("," + ident + ":")
+      let inGlobal = beforePos.contains("const " + ident + " ") or beforePos.contains("const " + ident + ":") or beforePos.contains("const " + ident + "=") or beforePos.contains("\nlet " + ident + " ") or beforePos.contains("\nlet " + ident + ":")
+      let inImport = beforePos.contains("import ") and (beforePos.contains(" " + ident + " ") or beforePos.contains(" " + ident + ",") or beforePos.contains("{" + ident) or beforePos.contains(ident + "}") or beforePos.contains("," + ident))
+      if not inFnScope and not inGlobal and not inImport:
+        ret false
+
+  // Ensure rhs contains only valid expression characters and no adjacent space-separated words
+  mut i = 0
+  mut innerParen = 0
+  mut prevWasAlnum = false
+  mut sawSpaceAfterAlnum = false
+  while i < rhs.len:
+    let ch = rhs.charCodeAt(i)
+    let isAlnum = isAlnumChar(ch)
+    if isAlnum:
+      if sawSpaceAfterAlnum:
+        ret false
+      prevWasAlnum = true
+    elif ch == 32 or ch == 9:
+      if prevWasAlnum:
+        sawSpaceAfterAlnum = true
+    elif ch == 43 or ch == 45 or ch == 42 or ch == 47 or ch == 37 or ch == 40 or ch == 41 or ch == 91 or ch == 93 or ch == 46 or ch == 44 or ch == 61 or ch == 60 or ch == 62 or ch == 33 or ch == 38 or ch == 124:
+      if ch == 40:
+        if sawSpaceAfterAlnum:
+          ret false
+        innerParen += 1
+      elif ch == 41:
+        innerParen -= 1
+      elif ch == 44:
+        if bracketDepth == 0 and innerParen <= 0:
+          ret false
+      elif ch == 61:
+        let isRelEq = (i + 1 < rhs.len and rhs.charCodeAt(i + 1) == 61) or (i > 0 and (rhs.charCodeAt(i - 1) == 61 or rhs.charCodeAt(i - 1) == 33 or rhs.charCodeAt(i - 1) == 60 or rhs.charCodeAt(i - 1) == 62))
+        if not isRelEq:
+          ret false
+      prevWasAlnum = false
+      sawSpaceAfterAlnum = false
+    else:
+      ret false
+    i += 1
+  ret true
+
+pub fn tokenizeAipl(rawSource: str, fileId: int): [Token]:
+  let source = normalizeSnippetIndentation(rawSource)
+  let n = source.len
+  mut tokens: [Token] = []
+  mut indentStack: [int] = [0]
+  mut bracketDepth = 0
+  mut pos = 0
+  mut line = 1
+  mut col = 1
+  mut atLineStart = true
+
+  while pos < n:
+    let c = source.charCodeAt(pos)
+
+    // 1. Handle leading indentation at line start when outside brackets
+    if atLineStart and bracketDepth > 0:
+      atLineStart = false
+    if atLineStart and bracketDepth == 0:
+      mut indentCols = 0
+      mut scanPos = pos
+      while scanPos < n:
+        let sc = source.charCodeAt(scanPos)
+        if sc == 32:
+          indentCols += 1
+          scanPos += 1
+        elif sc == 9:
+          indentCols += 2
+          scanPos += 1
+        else:
+          break
+
+      if scanPos >= n:
+        pos = scanPos
+        break
+
+      let nextCode = source.charCodeAt(scanPos)
+      let isSlashComment = nextCode == 47 and scanPos + 1 < n and source.charCodeAt(scanPos + 1) == 47
+      // Blank line or comment-only line does not alter indentation stack
+      if nextCode == 10 or nextCode == 13 or nextCode == 35 or isSlashComment:
+        pos = scanPos
+        col = 1 + indentCols
+        atLineStart = false
+        continue
+      else:
+        pos = scanPos
+        col = 1 + indentCols
+        atLineStart = false
+        let currentIndent = indentStack[indentStack.len - 1]
+        if indentCols > currentIndent:
+          indentStack.push(indentCols)
+          tokens.push(makeToken("INDENT", "", makeSpan(fileId, pos, pos, line, col)))
+        elif indentCols < currentIndent:
+          while indentStack.len > 1 and indentStack[indentStack.len - 1] > indentCols:
+            indentStack.pop()
+            tokens.push(makeToken("DEDENT", "", makeSpan(fileId, pos, pos, line, col)))
+        continue
+
+    // 2. Newlines
+    if c == 13:
+      pos += 1
+      if pos < n and source.charCodeAt(pos) == 10:
+        pos += 1
+      if bracketDepth == 0 and tokens.len > 0:
+        let lastKind = tokens[tokens.len - 1].kind
+        if lastKind != "NEWLINE" and lastKind != "INDENT":
+          tokens.push(makeToken("NEWLINE", "\n", makeSpan(fileId, pos - 1, pos, line, col)))
+      line += 1
+      col = 1
+      atLineStart = true
+      continue
+
+    if c == 10:
+      let nlStart = pos
+      pos += 1
+      if bracketDepth == 0 and tokens.len > 0:
+        let lastKind = tokens[tokens.len - 1].kind
+        if lastKind != "NEWLINE" and lastKind != "INDENT":
+          tokens.push(makeToken("NEWLINE", "\n", makeSpan(fileId, nlStart, pos, line, col)))
+      line += 1
+      col = 1
+      atLineStart = true
+      continue
+
+    // 3. Horizontal whitespace
+    if c == 32 or c == 9:
+      pos += 1
+      col += 1
+      continue
+
+    // 4. Floor division operator // vs Line comments (// ... or # ...)
+    if c == 47 and pos + 1 < n and source.charCodeAt(pos + 1) == 47 and isFloorDivAt(source, pos, n, tokens, bracketDepth):
+      tokens.push(makeToken("OP", "//", makeSpan(fileId, pos, pos + 2, line, col)))
+      pos += 2
+      col += 2
+      continue
+
+    if c == 35 or (c == 47 and pos + 1 < n and source.charCodeAt(pos + 1) == 47):
+      while pos < n and source.charCodeAt(pos) != 10 and source.charCodeAt(pos) != 13:
+        let sc = source.charCodeAt(pos)
+        if sc >= 240 and pos + 4 <= n:
+          pos += 4
+          col += 1
+        elif sc >= 224 and pos + 3 <= n:
+          pos += 3
+          col += 1
+        elif sc >= 192 and pos + 2 <= n:
+          pos += 2
+          col += 1
+        else:
+          pos += 1
+          col += 1
+      continue
+
+    // 5. Directives (@agent, @capabilities, etc.)
+    if c == 64:
+      let startPos = pos
+      let startCol = col
+      pos += 1
+      col += 1
+      while pos < n and isAlnumChar(source.charCodeAt(pos)):
+        let sc = source.charCodeAt(pos)
+        if sc >= 240 and pos + 4 <= n:
+          pos += 4
+          col += 1
+        elif sc >= 224 and pos + 3 <= n:
+          pos += 3
+          col += 1
+        elif sc >= 192 and pos + 2 <= n:
+          pos += 2
+          col += 1
+        else:
+          pos += 1
+          col += 1
+      let text = source.slice(startPos, pos)
+      mut kind = "DIRECTIVE"
+      if text == "@agent":
+        kind = "AT_AGENT"
+      elif text == "@capabilities":
+        kind = "AT_CAPABILITIES"
+      elif text == "@intrinsic":
+        kind = "AT_INTRINSIC"
+      tokens.push(makeToken(kind, text, makeSpan(fileId, startPos, pos, line, startCol)))
+      continue
+
+    // 6a. Raw multiline string literal r"""..."""
+    if c == 114 and pos + 3 < n and source.charCodeAt(pos + 1) == 34 and source.charCodeAt(pos + 2) == 34 and source.charCodeAt(pos + 3) == 34:
+      let startPos = pos
+      let startCol = col
+      let startLine = line
+      pos += 4
+      col += 4
+      mut rawParts: [str] = []
+      mut chunkStart = pos
+      while pos < n:
+        if pos + 2 < n and source.charCodeAt(pos) == 34 and source.charCodeAt(pos + 1) == 34 and source.charCodeAt(pos + 2) == 34:
+          if pos > chunkStart:
+            rawParts.push(source.slice(chunkStart, pos))
+          pos += 3
+          col += 3
+          break
+        let sc = source.charCodeAt(pos)
+        if sc == 13:
+          if pos > chunkStart:
+            rawParts.push(source.slice(chunkStart, pos))
+          pos += 1
+          if pos < n and source.charCodeAt(pos) == 10:
+            pos += 1
+          line += 1
+          col = 1
+          rawParts.push("\n")
+          chunkStart = pos
+          continue
+        if sc == 10:
+          if pos > chunkStart:
+            rawParts.push(source.slice(chunkStart, pos))
+          line += 1
+          col = 1
+          pos += 1
+          rawParts.push("\n")
+          chunkStart = pos
+          continue
+        if sc >= 240 and pos + 4 <= n:
+          pos += 4
+          col += 1
+        elif sc >= 224 and pos + 3 <= n:
+          pos += 3
+          col += 1
+        elif sc >= 192 and pos + 2 <= n:
+          pos += 2
+          col += 1
+        else:
+          pos += 1
+          col += 1
+      let stripped = stripMultilineIndent(rawParts.join(""))
+      tokens.push(makeToken("RAW_STRING", stripped, makeSpan(fileId, startPos, pos, startLine, startCol)))
+      continue
+
+    // 6b. Raw string literal r"..." or r#"..."#
+    if c == 114 and pos + 1 < n and (source.charCodeAt(pos + 1) == 34 or source.charCodeAt(pos + 1) == 35):
+      mut hashCount = 0
+      mut scanPos = pos + 1
+      while scanPos < n and source.charCodeAt(scanPos) == 35:
+        hashCount += 1
+        scanPos += 1
+      if scanPos < n and source.charCodeAt(scanPos) == 34:
+        let startPos = pos
+        let startCol = col
+        let startLine = line
+        pos = scanPos + 1
+        col = col + (pos - startPos)
+        let contentStart = pos
+        mut closed = false
+        while pos < n:
+          if source.charCodeAt(pos) == 34:
+            mut matchedHashes = 0
+            while matchedHashes < hashCount and pos + 1 + matchedHashes < n and source.charCodeAt(pos + 1 + matchedHashes) == 35:
+              matchedHashes += 1
+            if matchedHashes == hashCount:
+              closed = true
+              break
+          let sc = source.charCodeAt(pos)
+          if sc == 10:
+            line += 1
+            col = 1
+            pos += 1
+          else:
+            if sc >= 240 and pos + 4 <= n:
+              pos += 4
+              col += 1
+            elif sc >= 224 and pos + 3 <= n:
+              pos += 3
+              col += 1
+            elif sc >= 192 and pos + 2 <= n:
+              pos += 2
+              col += 1
+            else:
+              pos += 1
+              col += 1
+        let body = source.slice(contentStart, pos)
+        if closed:
+          pos += 1 + hashCount
+          col += 1 + hashCount
+        tokens.push(makeToken("RAW_STRING", body, makeSpan(fileId, startPos, pos, startLine, startCol)))
+        continue
+
+    // 6c. Triple-quoted string literal """..."""
+    if c == 34 and pos + 2 < n and source.charCodeAt(pos + 1) == 34 and source.charCodeAt(pos + 2) == 34:
+      let startPos = pos
+      let startCol = col
+      let startLine = line
+      pos += 3
+      col += 3
+      mut hasInterp = false
+      mut bufParts: [str] = []
+      mut chunkStart = pos
+      while pos < n:
+        if pos + 2 < n and source.charCodeAt(pos) == 34 and source.charCodeAt(pos + 1) == 34 and source.charCodeAt(pos + 2) == 34:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          pos += 3
+          col += 3
+          break
+        let sc = source.charCodeAt(pos)
+        if sc == 13:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          pos += 1
+          if pos < n and source.charCodeAt(pos) == 10:
+            pos += 1
+          line += 1
+          col = 1
+          bufParts.push("\n")
+          chunkStart = pos
+          continue
+        if sc == 10:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          line += 1
+          col = 1
+          pos += 1
+          bufParts.push("\n")
+          chunkStart = pos
+          continue
+        if sc == 92 and pos + 1 < n:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          let esc = source.charCodeAt(pos + 1)
+          if esc == 120 and pos + 3 < n:
+            let h1 = hexDigitVal(source.charCodeAt(pos + 2))
+            let h2 = hexDigitVal(source.charCodeAt(pos + 3))
+            if h1 >= 0 and h2 >= 0:
+              let val = h1 * 16 + h2
+              if val > 0:
+                bufParts.push(chr(val))
+              else:
+                bufParts.push("\\0")
+              pos += 4
+              col += 4
+              chunkStart = pos
+              continue
+          if esc == 117 and pos + 2 < n and source.charCodeAt(pos + 2) == 123:
+            mut uEnd = pos + 3
+            mut cp = 0
+            mut validU = true
+            while uEnd < n and source.charCodeAt(uEnd) != 125:
+              let uHex = hexDigitVal(source.charCodeAt(uEnd))
+              if uHex < 0:
+                validU = false
+                break
+              cp = cp * 16 + uHex
+              uEnd += 1
+            if validU and uEnd < n and source.charCodeAt(uEnd) == 125 and uEnd > pos + 3:
+              let adv = (uEnd + 1) - pos
+              bufParts.push(encodeUtf8(cp))
+              pos += adv
+              col += adv
+              chunkStart = pos
+              continue
+          if esc == 110:
+            bufParts.push("\n")
+          elif esc == 116:
+            bufParts.push("\t")
+          elif esc == 114:
+            bufParts.push("\r")
+          elif esc == 48:
+            bufParts.push("\\0")
+          elif esc == 101:
+            bufParts.push(chr(27))
+          elif esc == 98:
+            bufParts.push(chr(8))
+          elif esc == 102:
+            bufParts.push(chr(12))
+          elif esc == 39:
+            bufParts.push("'")
+          elif esc == 34:
+            bufParts.push("\"")
+          elif esc == 92:
+            bufParts.push("\\")
+          elif esc == 123:
+            bufParts.push("\\{")
+          elif esc == 125:
+            bufParts.push("\\}")
+          else:
+            bufParts.push(source.slice(pos, pos + 2))
+          pos += 2
+          col += 2
+          chunkStart = pos
+          continue
+        if sc == 123 and pos + 1 < n and source.charCodeAt(pos + 1) == 123:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          bufParts.push("\\{")
+          pos += 2
+          col += 2
+          chunkStart = pos
+          continue
+        if sc == 125 and pos + 1 < n and source.charCodeAt(pos + 1) == 125:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          bufParts.push("\\}")
+          pos += 2
+          col += 2
+          chunkStart = pos
+          continue
+        if sc == 123:
+          if not hasInterp:
+            if isInterpExpr(source, pos, n, true):
+              hasInterp = true
+          pos += 1
+          col += 1
+          continue
+        if sc >= 240 and pos + 4 <= n:
+          pos += 4
+          col += 1
+        elif sc >= 224 and pos + 3 <= n:
+          pos += 3
+          col += 1
+        elif sc >= 192 and pos + 2 <= n:
+          pos += 2
+          col += 1
+        else:
+          pos += 1
+          col += 1
+      mut strKind = "STRING"
+      if hasInterp:
+        strKind = "INTERP_STRING"
+      let stripped = stripMultilineIndent(bufParts.join(""))
+      tokens.push(makeToken(strKind, stripped, makeSpan(fileId, startPos, pos, startLine, startCol)))
+      continue
+
+    // 7. Standard / Interpolated string literal "..."
+    if c == 34:
+      let startPos = pos
+      let startCol = col
+      pos += 1
+      col += 1
+      mut hasInterp = false
+      mut bufParts: [str] = []
+      mut chunkStart = pos
+      while pos < n:
+        let sc = source.charCodeAt(pos)
+        if sc == 34:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          pos += 1
+          col += 1
+          break
+        if sc == 10 or sc == 13:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          break
+        if sc == 92 and pos + 1 < n:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          let esc = source.charCodeAt(pos + 1)
+          if esc == 120 and pos + 3 < n:
+            let h1 = hexDigitVal(source.charCodeAt(pos + 2))
+            let h2 = hexDigitVal(source.charCodeAt(pos + 3))
+            if h1 >= 0 and h2 >= 0:
+              let val = h1 * 16 + h2
+              if val > 0:
+                bufParts.push(chr(val))
+              else:
+                bufParts.push("\\0")
+              pos += 4
+              col += 4
+              chunkStart = pos
+              continue
+          if esc == 117 and pos + 2 < n and source.charCodeAt(pos + 2) == 123:
+            mut uEnd = pos + 3
+            mut cp = 0
+            mut validU = true
+            while uEnd < n and source.charCodeAt(uEnd) != 125:
+              let uHex = hexDigitVal(source.charCodeAt(uEnd))
+              if uHex < 0:
+                validU = false
+                break
+              cp = cp * 16 + uHex
+              uEnd += 1
+            if validU and uEnd < n and source.charCodeAt(uEnd) == 125 and uEnd > pos + 3:
+              let adv = (uEnd + 1) - pos
+              bufParts.push(encodeUtf8(cp))
+              pos += adv
+              col += adv
+              chunkStart = pos
+              continue
+          if esc == 110:
+            bufParts.push("\n")
+          elif esc == 116:
+            bufParts.push("\t")
+          elif esc == 114:
+            bufParts.push("\r")
+          elif esc == 48:
+            bufParts.push("\\0")
+          elif esc == 101:
+            bufParts.push(chr(27))
+          elif esc == 98:
+            bufParts.push(chr(8))
+          elif esc == 102:
+            bufParts.push(chr(12))
+          elif esc == 39:
+            bufParts.push("'")
+          elif esc == 34:
+            bufParts.push("\"")
+          elif esc == 92:
+            bufParts.push("\\")
+          elif esc == 123:
+            bufParts.push("\\{")
+          elif esc == 125:
+            bufParts.push("\\}")
+          else:
+            bufParts.push(source.slice(pos, pos + 2))
+          pos += 2
+          col += 2
+          chunkStart = pos
+          continue
+        if sc == 123 and pos + 1 < n and source.charCodeAt(pos + 1) == 123:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          bufParts.push("\\{")
+          pos += 2
+          col += 2
+          chunkStart = pos
+          continue
+        if sc == 125 and pos + 1 < n and source.charCodeAt(pos + 1) == 125:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          bufParts.push("\\}")
+          pos += 2
+          col += 2
+          chunkStart = pos
+          continue
+        if sc == 123:
+          if not hasInterp:
+            if isInterpExpr(source, pos, n, false):
+              hasInterp = true
+          pos += 1
+          col += 1
+          continue
+        if sc >= 240 and pos + 4 <= n:
+          pos += 4
+          col += 1
+        elif sc >= 224 and pos + 3 <= n:
+          pos += 3
+          col += 1
+        elif sc >= 192 and pos + 2 <= n:
+          pos += 2
+          col += 1
+        else:
+          pos += 1
+          col += 1
+      mut strKind = "STRING"
+      if hasInterp:
+        strKind = "INTERP_STRING"
+      tokens.push(makeToken(strKind, bufParts.join(""), makeSpan(fileId, startPos, pos, line, startCol)))
+      continue
+
+    // 7b. Single-quoted string / char literal '...'
+    if c == 39:
+      let startPos = pos
+      let startCol = col
+      let startLine = line
+      pos += 1
+      col += 1
+      mut bufParts: [str] = []
+      mut chunkStart = pos
+      while pos < n:
+        let sc = source.charCodeAt(pos)
+        if sc == 39:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          pos += 1
+          col += 1
+          break
+        if sc == 10:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          line += 1
+          col = 1
+          pos += 1
+          bufParts.push("\n")
+          chunkStart = pos
+          continue
+        if sc == 13:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          pos += 1
+          if pos < n and source.charCodeAt(pos) == 10:
+            pos += 1
+          line += 1
+          col = 1
+          bufParts.push("\n")
+          chunkStart = pos
+          continue
+        if sc == 92 and pos + 1 < n:
+          if pos > chunkStart:
+            bufParts.push(source.slice(chunkStart, pos))
+          let esc = source.charCodeAt(pos + 1)
+          if esc == 120 and pos + 3 < n:
+            let h1 = hexDigitVal(source.charCodeAt(pos + 2))
+            let h2 = hexDigitVal(source.charCodeAt(pos + 3))
+            if h1 >= 0 and h2 >= 0:
+              let val = h1 * 16 + h2
+              if val > 0:
+                bufParts.push(chr(val))
+              else:
+                bufParts.push("\\0")
+              pos += 4
+              col += 4
+              chunkStart = pos
+              continue
+          if esc == 117 and pos + 2 < n and source.charCodeAt(pos + 2) == 123:
+            mut uEnd = pos + 3
+            mut cp = 0
+            mut validU = true
+            while uEnd < n and source.charCodeAt(uEnd) != 125:
+              let uHex = hexDigitVal(source.charCodeAt(uEnd))
+              if uHex < 0:
+                validU = false
+                break
+              cp = cp * 16 + uHex
+              uEnd += 1
+            if validU and uEnd < n and source.charCodeAt(uEnd) == 125 and uEnd > pos + 3:
+              let adv = (uEnd + 1) - pos
+              bufParts.push(encodeUtf8(cp))
+              pos += adv
+              col += adv
+              chunkStart = pos
+              continue
+          if esc == 110:
+            bufParts.push("\n")
+          elif esc == 116:
+            bufParts.push("\t")
+          elif esc == 114:
+            bufParts.push("\r")
+          elif esc == 48:
+            bufParts.push("\\0")
+          elif esc == 101:
+            bufParts.push(chr(27))
+          elif esc == 98:
+            bufParts.push(chr(8))
+          elif esc == 102:
+            bufParts.push(chr(12))
+          elif esc == 39:
+            bufParts.push("'")
+          elif esc == 34:
+            bufParts.push("\"")
+          elif esc == 92:
+            bufParts.push("\\")
+          else:
+            bufParts.push(source.slice(pos, pos + 2))
+          pos += 2
+          col += 2
+          chunkStart = pos
+          continue
+        if sc >= 240 and pos + 4 <= n:
+          pos += 4
+          col += 1
+        elif sc >= 224 and pos + 3 <= n:
+          pos += 3
+          col += 1
+        elif sc >= 192 and pos + 2 <= n:
+          pos += 2
+          col += 1
+        else:
+          pos += 1
+          col += 1
+      tokens.push(makeToken("STRING", bufParts.join(""), makeSpan(fileId, startPos, pos, startLine, startCol)))
+      continue
+
+    // 8. Numeric literals (hex 0x..., binary 0b..., float, int)
+    if isDigitChar(c):
+      let startPos = pos
+      let startCol = col
+      mut isFloat = false
+      if c == 48 and pos + 1 < n and (source.charCodeAt(pos + 1) == 120 or source.charCodeAt(pos + 1) == 88):
+        pos += 2
+        col += 2
+        while pos < n and (isHexDigitChar(source.charCodeAt(pos)) or source.charCodeAt(pos) == 95):
+          pos += 1
+          col += 1
+      elif c == 48 and pos + 1 < n and (source.charCodeAt(pos + 1) == 98 or source.charCodeAt(pos + 1) == 66):
+        pos += 2
+        col += 2
+        while pos < n and (source.charCodeAt(pos) == 48 or source.charCodeAt(pos) == 49 or source.charCodeAt(pos) == 95):
+          pos += 1
+          col += 1
+      else:
+        while pos < n and (isDigitChar(source.charCodeAt(pos)) or source.charCodeAt(pos) == 95):
+          pos += 1
+          col += 1
+        if pos + 1 < n and source.charCodeAt(pos) == 46 and isDigitChar(source.charCodeAt(pos + 1)):
+          isFloat = true
+          pos += 1
+          col += 1
+          while pos < n and (isDigitChar(source.charCodeAt(pos)) or source.charCodeAt(pos) == 95):
+            pos += 1
+            col += 1
+        if pos < n and (source.charCodeAt(pos) == 101 or source.charCodeAt(pos) == 69):
+          let hasExp = (pos + 1 < n and isDigitChar(source.charCodeAt(pos + 1))) or (pos + 2 < n and (source.charCodeAt(pos + 1) == 43 or source.charCodeAt(pos + 1) == 45) and isDigitChar(source.charCodeAt(pos + 2)))
+          if hasExp:
+            isFloat = true
+            pos += 1
+            col += 1
+            if pos < n and (source.charCodeAt(pos) == 43 or source.charCodeAt(pos) == 45):
+              pos += 1
+              col += 1
+            while pos < n and (isDigitChar(source.charCodeAt(pos)) or source.charCodeAt(pos) == 95):
+              pos += 1
+              col += 1
+      let numLex = source.slice(startPos, pos)
+      mut numKind = "INT"
+      if isFloat:
+        numKind = "FLOAT"
+      tokens.push(makeToken(numKind, numLex, makeSpan(fileId, startPos, pos, line, startCol)))
+      continue
+
+    // 9. Identifiers & keywords
+    if isAlphaChar(c):
+      let startPos = pos
+      let startCol = col
+      while pos < n and isAlnumChar(source.charCodeAt(pos)):
+        let sc = source.charCodeAt(pos)
+        if sc >= 240 and pos + 4 <= n:
+          pos += 4
+          col += 1
+        elif sc >= 224 and pos + 3 <= n:
+          pos += 3
+          col += 1
+        elif sc >= 192 and pos + 2 <= n:
+          pos += 2
+          col += 1
+        else:
+          pos += 1
+          col += 1
+      let word = source.slice(startPos, pos)
+      let kwKind = classifyKeyword(word)
+      tokens.push(makeToken(kwKind, word, makeSpan(fileId, startPos, pos, line, startCol)))
+      continue
+
+    // 10. Multi-character operators (3-char and 2-char)
+    let startPos = pos
+    let startCol = col
+    if pos + 3 <= n:
+      let tri = source.slice(pos, pos + 3)
+      if tri == "..=":
+        pos += 3
+        col += 3
+        tokens.push(makeToken("DOT_DOT_EQ", tri, makeSpan(fileId, startPos, pos, line, startCol)))
+        continue
+
+    if pos + 2 <= n:
+      let duo = source.slice(pos, pos + 2)
+      if duo == "==" or duo == "!=" or duo == "<=" or duo == ">=" or duo == "->" or duo == "=>" or duo == ".." or duo == "|>" or duo == "+=" or duo == "-=" or duo == "*=" or duo == "/=" or duo == "%=" or duo == "<<" or duo == ">>" or duo == "&&" or duo == "||" or duo == "::" or duo == "**" or duo == "%%" or duo == "??":
+        pos += 2
+        col += 2
+        tokens.push(makeToken("OP", duo, makeSpan(fileId, startPos, pos, line, startCol)))
+        continue
+
+    // 11. Single-character delimiters & operators
+    let single = source.slice(pos, pos + 1)
+    pos += 1
+    col += 1
+    if single == "(" or single == "[" or single == "{":
+      bracketDepth += 1
+      tokens.push(makeToken(single, single, makeSpan(fileId, startPos, pos, line, startCol)))
+    elif single == ")" or single == "]" or single == "}":
+      if bracketDepth > 0:
+        bracketDepth -= 1
+      tokens.push(makeToken(single, single, makeSpan(fileId, startPos, pos, line, startCol)))
+    elif single == ":" or single == "," or single == "." or single == "?" or single == ";":
+      tokens.push(makeToken(single, single, makeSpan(fileId, startPos, pos, line, startCol)))
+    else:
+      tokens.push(makeToken("OP", single, makeSpan(fileId, startPos, pos, line, startCol)))
+
+  // Flush trailing NEWLINE and remaining DEDENTs at EOF
+  if tokens.len > 0 and tokens[tokens.len - 1].kind != "NEWLINE":
+    tokens.push(makeToken("NEWLINE", "\n", makeSpan(fileId, n, n, line, col)))
+  while indentStack.len > 1:
+    indentStack.pop()
+    tokens.push(makeToken("DEDENT", "", makeSpan(fileId, n, n, line, col)))
+  tokens.push(makeToken("EOF", "", makeSpan(fileId, n, n, line, col)))
+  ret tokens

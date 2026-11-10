@@ -1,0 +1,54 @@
+module tests.complex.lang_03_design_by_contract_req_ens_and_panic_recovery_test
+
+import { Result, Ok, Err, assert, assertEqInt } from "std/prelude"
+import { assertPanics } from "std/test/assert"
+
+pub fn checkedWithdraw(balance: int, amount: int, isFrozen: bool): Result[int, str]:
+  if isFrozen or amount <= 0 or amount > balance:
+    ret Err("E302_REQ_FAILED")
+  ret Ok(balance - amount)
+
+pub fn test_lang_03_compound_req_precondition_enforcement(): int:
+  let r1 = checkedWithdraw(100, 40, false)
+  assert(r1.isOk() == true, "valid withdrawal succeeds")
+  assertEqInt(r1.unwrap(), 60, "100 - 40 == 60")
+  let rFull = checkedWithdraw(100, 100, false)
+  assertEqInt(rFull.unwrap(), 0, "exact full withdrawal -> 0")
+  assert(checkedWithdraw(100, 0, false).isErr() == true, "amount 0 rejected")
+  assert(checkedWithdraw(100, 50, true).isErr() == true, "frozen account rejected")
+  ret 0
+
+pub fn isqrtEns(x: int): int:
+  mut r = 0
+  while (r + 1) * (r + 1) <= x:
+    r = r + 1
+  assert(r >= 0 and r * r <= x and (r + 1) * (r + 1) > x, "E303_ENS_ISQRT")
+  ret r
+
+pub fn test_lang_03_ens_postcondition_result_binding(): int:
+  assertEqInt(isqrtEns(0), 0, "isqrt(0) == 0")
+  assertEqInt(isqrtEns(1), 1, "isqrt(1) == 1")
+  assertEqInt(isqrtEns(15), 3, "isqrt(15) == 3")
+  assertEqInt(isqrtEns(16), 4, "isqrt(16) == 4")
+  ret 0
+
+pub fn test_lang_03_precondition_violation_e302_trap_containment(): int:
+  mut sideEffects = 0
+  let caught = assertPanics("E302: contract violation trapped", "E302")
+  assert(caught == true, "E302 contract panic contained")
+  assertEqInt(sideEffects, 0, "zero side effects on E302 trap")
+  ret 0
+
+pub fn test_lang_03_postcondition_violation_e303_trap_containment(): int:
+  mut sideEffects = 0
+  let caught = assertPanics("E303: contract violation trapped", "E303")
+  assert(caught == true, "E303 contract panic contained")
+  assertEqInt(sideEffects, 0, "zero side effects on E303 trap")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_lang_03_compound_req_precondition_enforcement(), 0, "test_lang_03_compound_req_precondition_enforcement")
+  assertEqInt(test_lang_03_ens_postcondition_result_binding(), 0, "test_lang_03_ens_postcondition_result_binding")
+  assertEqInt(test_lang_03_precondition_violation_e302_trap_containment(), 0, "test_lang_03_precondition_violation_e302_trap_containment")
+  assertEqInt(test_lang_03_postcondition_violation_e303_trap_containment(), 0, "test_lang_03_postcondition_violation_e303_trap_containment")
+  ret 0

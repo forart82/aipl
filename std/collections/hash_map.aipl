@@ -1,0 +1,248 @@
+// ============================================================================
+// Module: std/collections/hash_map (HashMap)
+// Layer 1 (Core Primitives & Math) — SwissTable HashMap, HashSet & LruCache
+// ============================================================================
+module HashMapMod
+
+pub const CTRL_EMPTY: int = 0
+pub const CTRL_OCCUPIED: int = 1
+pub const CTRL_DELETED: int = 2
+
+pub struct HashMap[K, V]:
+  keys: [K]
+  values: [V]
+  ctrl: [int]
+  capacity: int
+  count: int
+
+pub struct HashSet[T]:
+  map: HashMap[T, bool]
+
+pub struct LruCache[K, V]:
+  map: HashMap[K, V]
+  order: [K]
+  maxEntries: int
+
+pub fn hashMapNew[K, V](): HashMap[K, V]:
+  let k: [K] = []
+  let v: [V] = []
+  let c: [int] = []
+  ret HashMap(keys = k, values = v, ctrl = c, capacity = 16, count = 0)
+
+pub fn hashMapWithCapacity[K, V](capacity: int): HashMap[K, V]:
+  mut cap = capacity
+  if cap < 8:
+    cap = 8
+  let k: [K] = []
+  let v: [V] = []
+  let c: [int] = []
+  ret HashMap(keys = k, values = v, ctrl = c, capacity = cap, count = 0)
+
+pub fn (mut self: HashMap[K, V]) insert(key: K, val: V): Option[V]:
+  let n = self.keys.len
+  mut firstDeleted = -1
+  for i in 0..n:
+    let st = self.ctrl[i]
+    if st == CTRL_OCCUPIED:
+      if self.keys[i] == key:
+        let oldVal = self.values[i]
+        self.values[i] = val
+        ret Some(oldVal)
+    elif st == CTRL_DELETED and firstDeleted < 0:
+      firstDeleted = i
+  if firstDeleted >= 0:
+    self.keys[firstDeleted] = key
+    self.values[firstDeleted] = val
+    self.ctrl[firstDeleted] = CTRL_OCCUPIED
+    self.count = self.count + 1
+    ret None
+  self.keys.push(key)
+  self.values.push(val)
+  self.ctrl.push(CTRL_OCCUPIED)
+  self.count = self.count + 1
+  if self.count > self.capacity:
+    self.capacity = self.capacity * 2
+  ret None
+
+pub fn (self: HashMap[K, V]) get(key: K): Option[V]:
+  let n = self.keys.len
+  for i in 0..n:
+    if self.ctrl[i] == CTRL_OCCUPIED and self.keys[i] == key:
+      ret Some(self.values[i])
+  ret None
+
+pub fn (self: HashMap[K, V]) containsKey(key: K): bool:
+  let n = self.keys.len
+  for i in 0..n:
+    if self.ctrl[i] == CTRL_OCCUPIED and self.keys[i] == key:
+      ret true
+  ret false
+
+pub fn (mut self: HashMap[K, V]) remove(key: K): Option[V]:
+  let n = self.keys.len
+  for i in 0..n:
+    if self.ctrl[i] == CTRL_OCCUPIED and self.keys[i] == key:
+      let oldVal = self.values[i]
+      self.ctrl[i] = CTRL_DELETED
+      self.count = self.count - 1
+      ret Some(oldVal)
+  ret None
+
+pub fn (self: HashMap[K, V]) len(): int:
+  ret self.count
+
+pub fn (self: HashMap[K, V]) isEmpty(): bool:
+  ret self.count == 0
+
+pub fn (mut self: HashMap[K, V]) clear(): void:
+  let k: [K] = []
+  let v: [V] = []
+  let c: [int] = []
+  self.keys = k
+  self.values = v
+  self.ctrl = c
+  self.count = 0
+
+pub fn (self: HashMap[K, V]) keys(): [K]:
+  mut out: [K] = []
+  let n = self.keys.len
+  for i in 0..n:
+    if self.ctrl[i] == CTRL_OCCUPIED:
+      out.push(self.keys[i])
+  ret out
+
+pub fn (self: HashMap[K, V]) values(): [V]:
+  mut out: [V] = []
+  let n = self.keys.len
+  for i in 0..n:
+    if self.ctrl[i] == CTRL_OCCUPIED:
+      out.push(self.values[i])
+  ret out
+
+// HashSet[T]
+pub fn hashSetNew[T](): HashSet[T]:
+  let m = hashMapNew[T, bool]()
+  ret HashSet(map = m)
+
+pub fn (mut self: HashSet[T]) add(item: T): bool:
+  if self.map.containsKey(item):
+    ret false
+  self.map.insert(item, true)
+  ret true
+
+pub fn (self: HashSet[T]) contains(item: T): bool:
+  ret self.map.containsKey(item)
+
+pub fn (mut self: HashSet[T]) remove(item: T): bool:
+  let res = self.map.remove(item)
+  ret res.isSome()
+
+pub fn (self: HashSet[T]) len(): int:
+  ret self.map.len()
+
+pub fn (self: HashSet[T]) isEmpty(): bool:
+  ret self.map.isEmpty()
+
+pub fn (self: HashSet[T]) toArray(): [T]:
+  ret self.map.keys()
+
+// LruCache[K, V]
+pub fn lruCacheNew[K, V](maxEntries: int): LruCache[K, V]:
+  mut cap = maxEntries
+  if cap < 1:
+    cap = 1
+  let m = hashMapNew[K, V]()
+  let ord: [K] = []
+  ret LruCache(map = m, order = ord, maxEntries = cap)
+
+pub fn (mut self: LruCache[K, V]) put(key: K, val: V): void:
+  mut nextOrder: [K] = []
+  for i in 0..self.order.len:
+    if self.order[i] != key:
+      nextOrder.push(self.order[i])
+  if not self.map.containsKey(key) and nextOrder.len >= self.maxEntries:
+    if nextOrder.len > 0:
+      let evicted = nextOrder[0]
+      self.map.remove(evicted)
+      mut trimmed: [K] = []
+      for j in 1..nextOrder.len:
+        trimmed.push(nextOrder[j])
+      nextOrder = trimmed
+  nextOrder.push(key)
+  self.order = nextOrder
+  self.map.insert(key, val)
+
+pub fn (mut self: LruCache[K, V]) get(key: K): Option[V]:
+  let res = self.map.get(key)
+  if res.isSome():
+    mut nextOrder: [K] = []
+    for i in 0..self.order.len:
+      if self.order[i] != key:
+        nextOrder.push(self.order[i])
+    nextOrder.push(key)
+    self.order = nextOrder
+  ret res
+
+pub fn (self: LruCache[K, V]) len(): int:
+  ret self.map.len()
+
+// Legacy Map/Set dynamic helpers
+pub fn mapNew(): any:
+  ret Map()
+
+pub fn setNew(): any:
+  ret Set()
+
+pub fn mapGet(m: any, key: any): Option[any]:
+  ret m.get(key)
+
+pub fn mapSet(mut m: any, key: any, val: any): any:
+  m.set(key, val)
+  ret m
+
+pub fn mapGetOr(m: any, key: any, defaultVal: any): any:
+  let opt = m.get(key)
+  if opt.isSome():
+    ret opt.unwrap()
+  ret defaultVal
+
+pub fn mapGetOrDefault(m: any, key: any, defaultVal: any): any:
+  ret mapGetOr(m, key, defaultVal)
+
+pub fn mapGetOrInsert(mut m: any, key: any, defaultVal: any): any:
+  let opt = m.get(key)
+  if opt.isSome():
+    ret opt.unwrap()
+  m.set(key, defaultVal)
+  ret defaultVal
+
+pub fn mapContainsKey(m: any, key: any): bool:
+  ret m.containsKey(key)
+
+pub fn mapKeys(m: any): [str]:
+  ret m.keys()
+
+pub fn mapValues(m: any): [any]:
+  ret m.values()
+
+pub fn mapRemove(mut m: any, key: any): bool:
+  ret m.remove(key)
+
+pub fn setInsert(mut s: any, val: any): any:
+  s.insert(val)
+  ret s
+
+pub fn setContains(s: any, val: any): bool:
+  ret s.contains(val)
+
+pub fn setRemove(mut s: any, val: any): bool:
+  ret s.remove(val)
+
+pub fn setToArray(s: any): [str]:
+  ret s.keys()
+
+pub fn setFromArray(arr: [any]): any:
+  mut s = setNew()
+  for item in arr:
+    s.insert(item)
+  ret s

@@ -1,0 +1,39 @@
+module Ex216Phys2dRigidBodyGravityStacksWindowTest
+
+import {
+  computeAwakeBodyCount, stepSymplecticVelocityMmPerSec, buildPhys2dRigidBodyAudit,
+  stepStackCycleFrame, stepShotEpoch
+} from "../../examples/ex_216_phys2d_rigid_body_gravity_stacks_window"
+import { Vec2 } from "../../std/math/vec_math"
+import {
+  BodyType2D, MassProperties2D, rigidBody2dNew, rigidBody2dSetMass,
+  rigidBody2dApplyLinearImpulse, rigidBody2dApplyAngularImpulse,
+  rigidBody2dIntegrateVelocity, rigidBody2dIntegratePosition
+} from "../../std/phys2d/rigid_body2d"
+
+pub fn test_phys2d_rigid_body_gravity_stacks(): void:
+  assert(computeAwakeBodyCount(55, 40) == 15, "computeAwakeBodyCount subtracts sleeping bodies")
+  assert(stepSymplecticVelocityMmPerSec(1200, 163) == 1363, "stepSymplecticVelocityMmPerSec adds acceleration impulse")
+
+  mut b = rigidBody2dNew(1, BodyType2D.Dynamic, Vec2(x = 0.0, y = 0.0), 0.0)
+  rigidBody2dSetMass(b, 2.0, 4.0)
+  let mp: MassProperties2D = b.massProps
+  assert(mp.mass == 2.0 and mp.invMass == 0.5, "rigidBody2dSetMass computes invMass = 0.5")
+
+  rigidBody2dApplyLinearImpulse(b, Vec2(x = 10.0, y = 0.0))
+  rigidBody2dApplyAngularImpulse(b, 8.0)
+  assert(b.linearVelocity.x == 5.0 and b.angularVelocity == 2.0, "Linear and angular impulses applied")
+
+  rigidBody2dIntegrateVelocity(b, Vec2(x = 0.0, y = -10.0), 0.1)
+  rigidBody2dIntegratePosition(b, 1.0)
+  assert(b.position.x == 5.0 and b.position.y == -1.0, "Symplectic Euler integrates velocity then position")
+  assert(buildPhys2dRigidBodyAudit() == 1385, "buildPhys2dRigidBodyAudit returns 15 + 1363 + 5 + 2 == 1385")
+
+  // Multi-frame progression & periodic restack across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  assert(stepStackCycleFrame(0) == 0 and stepStackCycleFrame(1) == 1 and stepStackCycleFrame(20) == 20, "cycle frame advances")
+  assert(stepStackCycleFrame(80) == 0 and stepShotEpoch(100) == 1, "periodic restack triggers at frame 80 and advances shot epoch at t=100")
+
+pub fn main(): int:
+  test_phys2d_rigid_body_gravity_stacks()
+  println("PASS: ex_216_phys2d_rigid_body_gravity_stacks_window_test")
+  ret 0

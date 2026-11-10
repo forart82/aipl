@@ -1,0 +1,67 @@
+module tests.functions.ecs.ecs_world_test
+
+import * from "std/ecs/ecs_world"
+import { EntityId, EntityPool, createEntityPool, allocateEntity, recycleEntity, isEntityAlive } from "std/ecs/entity"
+import { ArchetypeTable, createArchetypeTable, insertArchetypeRow, swapRemoveArchetypeRow } from "std/ecs/archetype"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_ecs_world_createEcsWorld_1(): int:
+  let resNom = createEcsWorld()
+  let resEdge = createEcsWorld()
+  assertEqInt(resNom.archetypes.len(), 1, "createEcsWorld nominal resNom.archetypes.len() == 1")
+  assertEqInt(resEdge.archetypes.len(), 1, "createEcsWorld boundary resEdge.archetypes.len() == 1")
+  ret 0
+
+pub fn test_ecs_world_spawnEntity_2(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let resNom = spawnEntity(arg_world)
+  let resEdge = spawnEntity(edge_world)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0.archetypes.len(), 0, "spawnEntity nominal n_t0.archetypes.len() == 0")
+  assertEqInt(e_t0.archetypes.len(), 0, "spawnEntity boundary e_t0.archetypes.len() == 0")
+  ret 0
+
+pub fn test_ecs_world_despawnEntity_3(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_entity = EntityId(index = 0, generation = 4)
+  let edge_entity = EntityId(index = 0, generation = 1)
+  let resNom = despawnEntity(arg_world, arg_entity)
+  let resEdge = despawnEntity(edge_world, edge_entity)
+  assertEqInt(resNom.archetypes.len(), 0, "despawnEntity nominal resNom.archetypes.len() == 0")
+  assertEqInt(resEdge.archetypes.len(), 0, "despawnEntity boundary resEdge.archetypes.len() == 0")
+  ret 0
+
+pub fn test_ecs_world_setWorldResource_4(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_resourceId = 1
+  let edge_resourceId = 0
+  let arg_value = 1.0
+  let edge_value = 0.5
+  let resNom = setWorldResource(arg_world, arg_resourceId, arg_value)
+  let resEdge = setWorldResource(edge_world, edge_resourceId, edge_value)
+  assertEqInt(resNom.archetypes.len(), 0, "setWorldResource nominal resNom.archetypes.len() == 0")
+  assertEqInt(resEdge.archetypes.len(), 0, "setWorldResource boundary resEdge.archetypes.len() == 0")
+  ret 0
+
+pub fn test_ecs_world_getWorldResource_5(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_resourceId = 1
+  let edge_resourceId = 0
+  let resNom = getWorldResource(arg_world, arg_resourceId)
+  let resEdge = getWorldResource(edge_world, edge_resourceId)
+  assert(resNom.isSome() == false, "getWorldResource nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "getWorldResource boundary resEdge.isSome() == false")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_ecs_world_createEcsWorld_1(), 0, "test_ecs_world_createEcsWorld_1")
+  assertEqInt(test_ecs_world_spawnEntity_2(), 0, "test_ecs_world_spawnEntity_2")
+  assertEqInt(test_ecs_world_despawnEntity_3(), 0, "test_ecs_world_despawnEntity_3")
+  assertEqInt(test_ecs_world_setWorldResource_4(), 0, "test_ecs_world_setWorldResource_4")
+  assertEqInt(test_ecs_world_getWorldResource_5(), 0, "test_ecs_world_getWorldResource_5")
+  ret 0

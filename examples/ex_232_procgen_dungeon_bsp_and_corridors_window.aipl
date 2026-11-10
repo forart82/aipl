@@ -1,0 +1,139 @@
+module Ex232ProcgenDungeonBspAndCorridorsWindow
+
+import {
+  DungeonRoom, DungeonCorridor, bspPartitionRooms,
+  delaunayTriangulateRooms, minimumSpanningTreeCorridors, carveDungeonGrid
+} from "../std/procgen/dungeon_graph"
+import { Rect2D } from "../std/math/geom2d"
+import { Vec2, IVec2 } from "../std/math/vec_math"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct DungeonScene(bounds: Rect2D, rooms: [DungeonRoom], edges: [IVec2], corridors: [DungeonCorridor], seed: int, carvedCellCount: int)
+
+pub fn createDungeonScene(): DungeonScene:
+  let bounds = Rect2D(x = 0.0, y = 0.0, w = 480.0, h = 480.0, width = 480.0, height = 480.0)
+  let rooms = bspPartitionRooms(bounds, 60.0, 3, 777)
+  let edges = delaunayTriangulateRooms(rooms)
+  let corridors = minimumSpanningTreeCorridors(rooms, edges, 0.15, 777)
+  let dGrid = carveDungeonGrid(rooms, corridors, 30, 30)
+  ret DungeonScene(
+    bounds = bounds,
+    rooms = rooms,
+    edges = edges,
+    corridors = corridors,
+    seed = 777,
+    carvedCellCount = dGrid.cells.len()
+  )
+
+pub fn stepScene(mut scene: DungeonScene, frame: int, dt: float): void:
+  let nextSeed = 777 + (frame + 1) * 31
+  let rooms = bspPartitionRooms(scene.bounds, 60.0, 3, nextSeed)
+  let edges = delaunayTriangulateRooms(rooms)
+  let corridors = minimumSpanningTreeCorridors(rooms, edges, 0.15, nextSeed)
+  let dGrid = carveDungeonGrid(rooms, corridors, 30, 30)
+  scene.rooms = rooms
+  scene.edges = edges
+  scene.corridors = corridors
+  scene.seed = nextSeed
+  scene.carvedCellCount = dGrid.cells.len()
+
+pub fn auditProcgenDungeonBsp(): int:
+  let bounds = Rect2D(x = 0.0, y = 0.0, w = 200.0, h = 200.0, width = 200.0, height = 200.0)
+  let rooms = bspPartitionRooms(bounds, 30.0, 3, 777)
+  let edges = delaunayTriangulateRooms(rooms)
+  let corridors = minimumSpanningTreeCorridors(rooms, edges, 0.1, 777)
+  let dGrid = carveDungeonGrid(rooms, corridors, 60, 60)
+  mut carved = 0
+  if dGrid.cells.len() == 3600:
+    carved = 1
+  ret rooms.len() * 10 + corridors.len() + carved
+
+pub fn main(): int:
+  let audit = auditProcgenDungeonBsp()
+  println("EX_232_PROCGEN_DUNGEON_AUDIT=" + str(audit))
+
+  mut scene = createDungeonScene()
+
+  initWindow(1280, 720, "AIPL ex_232: Procedural BSP Dungeon & Kruskal MST Corridors")
+  mut frame = 0
+  while not windowShouldClose():
+    if frame % 12 == 0:
+      stepScene(scene, frame, 0.1)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_232: BSP DUNGEON PARTITIONING, DELAUNAY GRAPH & MST CORRIDORS", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Seed=" + str(scene.seed) + " | BSP Rooms=" + str(scene.rooms.len()) + " | Delaunay Edges=" + str(scene.edges.len()) + " | MST Corridors=" + str(scene.corridors.len()), 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(50.0, 108.0, 1180.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(50.0, 108.0, 1180.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("BSP ROOM PARTITIONS, DELAUNAY CANDIDATE GRAPH & L-SHAPED MST CORRIDORS", 80.0, 130.0, 16.0, rgb(125, 211, 252))
+
+    // 1. Draw BSP Room Floor Interiors first
+    mut rIdx = 0
+    while rIdx < scene.rooms.len():
+      let rm: DungeonRoom = scene.rooms[rIdx]
+      let rx = 140.0 + rm.bounds.x * 2.0
+      let ry = 162.0 + rm.bounds.y * 0.96
+      let rw = rm.bounds.w * 1.82
+      let rh = rm.bounds.h * 0.86
+      drawRect(rx, ry, rw, rh, rgb(30, 58, 138))
+      drawRectOutline(rx, ry, rw, rh, 2.0, rgb(56, 189, 248))
+      rIdx = rIdx + 1
+
+    // 2. Draw Delaunay Candidate Graph Edges (Purple)
+    mut eIdx = 0
+    while eIdx < scene.edges.len():
+      let edge: IVec2 = scene.edges[eIdx]
+      if edge.x >= 0 and edge.x < scene.rooms.len() and edge.y >= 0 and edge.y < scene.rooms.len():
+        let rA: DungeonRoom = scene.rooms[edge.x]
+        let rB: DungeonRoom = scene.rooms[edge.y]
+        let ax = 140.0 + rA.center.x * 2.0
+        let ay = 162.0 + rA.center.y * 0.96
+        let bx = 140.0 + rB.center.x * 2.0
+        let by = 162.0 + rB.center.y * 0.96
+        drawLine(ax, ay, bx, by, rgb(126, 34, 206), 1.5)
+      eIdx = eIdx + 1
+
+    // 3. Draw L-Shaped Kruskal MST Corridors (Amber)
+    mut cIdx = 0
+    while cIdx < scene.corridors.len():
+      let corr: DungeonCorridor = scene.corridors[cIdx]
+      if corr.waypoints.len() >= 3:
+        let p0: Vec2 = corr.waypoints[0]
+        let p1: Vec2 = corr.waypoints[1]
+        let p2: Vec2 = corr.waypoints[2]
+        let x0 = 140.0 + p0.x * 2.0
+        let y0 = 162.0 + p0.y * 0.96
+        let x1 = 140.0 + p1.x * 2.0
+        let y1 = 162.0 + p1.y * 0.96
+        let x2 = 140.0 + p2.x * 2.0
+        let y2 = 162.0 + p2.y * 0.96
+        drawLine(x0, y0, x1, y1, rgb(245, 158, 11), 6.0)
+        drawLine(x1, y1, x2, y2, rgb(245, 158, 11), 6.0)
+        drawCircle(x1, y1, 5.0, rgb(250, 204, 21))
+      cIdx = cIdx + 1
+
+    // 4. Draw Room Center Nodes & Labels on top
+    mut lIdx = 0
+    while lIdx < scene.rooms.len():
+      let rm: DungeonRoom = scene.rooms[lIdx]
+      let rx = 140.0 + rm.bounds.x * 2.0
+      let ry = 162.0 + rm.bounds.y * 0.96
+      let cx = 140.0 + rm.center.x * 2.0
+      let cy = 162.0 + rm.center.y * 0.96
+      drawCircle(cx, cy, 7.0, rgb(52, 211, 153))
+      drawText("R" + str(rm.id), rx + 8.0, ry + 8.0, 14.0, rgb(241, 245, 249))
+      lIdx = lIdx + 1
+
+    drawText("Blue Boxes: BSP Rooms | Purple Lines: Delaunay Graph | Amber L-Paths: Kruskal MST Corridors | Green: Room Centroids", 80.0, 656.0, 14.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

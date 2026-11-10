@@ -1,0 +1,91 @@
+// ============================================================================
+// Step 21.6: Complex Scenario Test — Android NDK Touch Lifecycle
+// Target: tests/complex/android_01_ndk_touch_lifecycle_test.aipl
+// ============================================================================
+module tests.complex.android_01_ndk_touch_lifecycle_test
+
+import * from "std/input/touch"
+import * from "std/input/gesture"
+import {
+  assert,
+  assertEqInt,
+  assertApproxEq
+} from "std/prelude"
+
+pub fn validateAdr0034Metadata(adrNumber: int, status: str, coversNdkSurface: bool, coversTouchIsolation: bool): bool requires adrNumber >= 0 ensures result == (adrNumber == 34 and status == "Accepted" and coversNdkSurface and coversTouchIsolation):
+  ret adrNumber == 34 and status == "Accepted" and coversNdkSurface and coversTouchIsolation
+
+pub fn simulateAndroidNdkFrameStep(windowReady: bool, hasFocus: bool, joyVecX: float, joyVecY: float, posX: float, posY: float, speedPxPerFrame: float): (float, float, int) requires speedPxPerFrame >= 0.0 ensures result[2] == 0 or result[2] == 1:
+  if not windowReady or not hasFocus:
+    ret (posX, posY, 0)
+  let nx = posX + joyVecX * speedPxPerFrame
+  let ny = posY + joyVecY * speedPxPerFrame
+  ret (nx, ny, 1)
+
+pub fn runAndroid60FrameTouchLifecycleSimulation(totalFrames: int): (int, int, float) requires totalFrames >= 0 ensures result[0] >= 0 and result[1] == 0:
+  if totalFrames <= 0:
+    ret (0, 0, 0.0)
+  mut tr = createTouchTracker()
+  mut joy = createVirtualJoystick(150.0, 500.0, 80.0, 0.15)
+  tr = handleTouchDown(tr, 0, 150.0, 500.0, 1.0, 0)
+  joy = touchDownVirtualJoystick(joy, 0, 150.0, 500.0)
+  tr = handleTouchMove(tr, 0, 230.0, 500.0, 1.0, 4)
+  joy = touchMoveVirtualJoystick(joy, 0, 230.0, 500.0)
+  tr = handleTouchDown(tr, 1, 900.0, 500.0, 1.0, 8)
+  mut rendered = 0
+  mut playerX = 0.0
+  mut f = 0
+  while f < totalFrames:
+    playerX = playerX + joy.outputVectorX * 2.0
+    rendered = rendered + 1
+    f = f + 1
+  tr = handleTouchUp(tr, 0, 230.0, 500.0, 1000)
+  tr = handleTouchUp(tr, 1, 900.0, 500.0, 1000)
+  joy = touchUpVirtualJoystick(joy, 0)
+  ret (rendered, getActivePointerCount(tr), playerX)
+
+pub fn test_android_01_validateAdr0034Metadata(): int:
+  assert(validateAdr0034Metadata(34, "Accepted", true, true) == true, "ADR-0034 valid metadata")
+  assert(validateAdr0034Metadata(33, "Accepted", true, true) == false, "wrong ADR number rejected")
+  assert(validateAdr0034Metadata(34, "Draft", true, true) == false, "non-Accepted status rejected")
+  assert(validateAdr0034Metadata(34, "Accepted", false, true) == false, "missing NDK surface coverage rejected")
+  assert(validateAdr0034Metadata(34, "Accepted", true, false) == false, "missing touch isolation rejected")
+  assert(validateAdr0034Metadata(0, "", false, false) == false, "boundary 0 and empty status rejected")
+  ret 0
+
+pub fn test_android_01_simulateAndroidNdkFrameStep(): int:
+  let (x1, y1, rendered1) = simulateAndroidNdkFrameStep(true, true, 1.0, -0.5, 100.0, 200.0, 10.0)
+  assertEqInt(rendered1, 1, "active frame rendered == 1")
+  assertApproxEq(x1, 110.0, 0.001, "posX advanced by +10.0")
+  assertApproxEq(y1, 195.0, 0.001, "posY advanced by -5.0")
+  let (x2, y2, rendered2) = simulateAndroidNdkFrameStep(true, false, 1.0, 1.0, x1, y1, 10.0)
+  assertEqInt(rendered2, 0, "unfocused frame skipped == 0")
+  assertApproxEq(x2, 110.0, 0.001, "posX frozen while unfocused")
+  let (x3, y3, rendered3) = simulateAndroidNdkFrameStep(false, true, 1.0, 1.0, x1, y1, 10.0)
+  assertEqInt(rendered3, 0, "uninitialized window frame skipped == 0")
+  assertApproxEq(x3, 110.0, 0.001, "posX frozen while window not ready")
+  let (x4, y4, rendered4) = simulateAndroidNdkFrameStep(false, false, 1.0, 1.0, x1, y1, 10.0)
+  assertEqInt(rendered4, 0, "neither window nor focus frame skipped == 0")
+  assertApproxEq(x4, 110.0, 0.001, "posX frozen while neither ready")
+  let (x5, y5, rendered5) = simulateAndroidNdkFrameStep(true, true, 1.0, 1.0, x1, y1, 0.0)
+  assertEqInt(rendered5, 1, "zero speed frame rendered == 1")
+  assertApproxEq(x5, 110.0, 0.001, "posX unchanged at speed 0.0")
+  ret 0
+
+pub fn test_android_01_runAndroid60FrameTouchLifecycleSimulation(): int:
+  let (frames, remPtrs, finalX) = runAndroid60FrameTouchLifecycleSimulation(60)
+  assertEqInt(frames, 60, "60 frames rendered end-to-end")
+  assertEqInt(remPtrs, 0, "0 stuck pointers after 60-frame run")
+  assertApproxEq(finalX, 120.0, 0.001, "60 frames * 2.0 px/frame == 120.0")
+  let (zFrames, zPtrs, zX) = runAndroid60FrameTouchLifecycleSimulation(0)
+  assertEqInt(zFrames, 0, "boundary 0 frames -> 0")
+  assertEqInt(zPtrs, 0, "boundary 0 pointers -> 0")
+  assertApproxEq(zX, 0.0, 0.001, "boundary 0 displacement")
+  ret 0
+
+pub fn main(): int:
+  test_android_01_validateAdr0034Metadata()
+  test_android_01_simulateAndroidNdkFrameStep()
+  test_android_01_runAndroid60FrameTouchLifecycleSimulation()
+  println("PASS: tests/complex/android_01_ndk_touch_lifecycle_test.aipl")
+  ret 0

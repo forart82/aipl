@@ -1,0 +1,40 @@
+module Ex195UiDatagridOneMillionRowsWindowTest
+
+import {
+  buildUiDataGridAudit, stepDataGridScrollOffsetY
+} from "../../examples/ex_195_ui_datagrid_one_million_rows_window"
+import {
+  DataGridColumn, DataGridWidget, computeVirtualWindow, sortDataGridRows
+} from "../../std/ui/ui_datagrid"
+
+pub fn test_ui_datagrid_one_million_rows(): void:
+  let cols = [
+    DataGridColumn(id = "id", headerTitle = "Row ID", width = 120.0, isSortable = true),
+    DataGridColumn(id = "service", headerTitle = "Service", width = 280.0, isSortable = true)
+  ]
+  let grid = DataGridWidget(
+    columns = cols,
+    totalRowCount = 1000000,
+    rowHeight = 25.0,
+    scrollOffsetY = 500000.0,
+    viewportHeight = 400.0
+  )
+  let win = computeVirtualWindow(grid)
+  assert(win.firstVisibleRow == 20000, "First visible row at scrollOffsetY=500,000 is 20,000")
+  assert(win.lastVisibleRow - win.firstVisibleRow == 16, "Viewport renders 16 rows out of 1,000,000")
+
+  let sorted = sortDataGridRows("service", true, ["zeta-node", "alpha-core", "delta-gateway"])
+  assert(sorted[0] == "alpha-core" and sorted[2] == "zeta-node", "sortDataGridRows sorts ascending")
+  assert(buildUiDataGridAudit() == 20019, "buildUiDataGridAudit returns 20000 + 16 + 3 == 20019")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let s0 = stepDataGridScrollOffsetY(0)
+  let s1 = stepDataGridScrollOffsetY(1)
+  let s20 = stepDataGridScrollOffsetY(20)
+  let s100 = stepDataGridScrollOffsetY(100)
+  assert(s0 != s1 and s1 != s20 and s20 != s100, "DataGrid scrollOffsetY progresses across t=0, 1, 20, 100")
+
+pub fn main(): int:
+  test_ui_datagrid_one_million_rows()
+  println("PASS: ex_195_ui_datagrid_one_million_rows_window_test")
+  ret 0

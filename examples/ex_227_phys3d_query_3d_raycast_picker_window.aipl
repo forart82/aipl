@@ -1,0 +1,158 @@
+module Ex227Phys3dQuery3dRaycastPickerWindow
+
+import { RayHit3D, raycast3dSphere, raycast3dBox, sphereCast3D } from "../std/phys3d/phys_query3d"
+import { Collider3D, PhysicsMaterial3D, sphereColliderNew, boxCollider3dNew } from "../std/phys3d/collider3d"
+import { Ray3D } from "../std/math/geom3d"
+import { Vec3 } from "../std/math/vec_math"
+import { Quat } from "../std/math/quat"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct RaycastPicker3dScene(colliders: [Collider3D], rayY: float, velY: float, sphereHitDist: float, sphereHitZ: float, sphereHitNormY: float, sphereHitNormZ: float, boxHitDist: float, sweepHitDist: float)
+
+pub fn createRaycastPicker3dScene(): RaycastPicker3dScene:
+  let mat = PhysicsMaterial3D(restitution = 0.2, staticFriction = 0.5, dynamicFriction = 0.4, density = 1.0)
+  let cA = sphereColliderNew(5.0, mat)
+  ret RaycastPicker3dScene(
+    colliders = [cA],
+    rayY = -3.0,
+    velY = 3.0,
+    sphereHitDist = 15.0,
+    sphereHitZ = -5.0,
+    sphereHitNormY = -0.6,
+    sphereHitNormZ = -0.8,
+    boxHitDist = 16.0,
+    sweepHitDist = 14.0
+  )
+
+pub fn stepScene(mut scene: RaycastPicker3dScene, frame: int, dt: float): void:
+  mut ny = scene.rayY + scene.velY * dt
+  mut vy = scene.velY
+  if ny > 3.5:
+    ny = 3.5
+    vy = -3.0
+  if ny < -3.5:
+    ny = -3.5
+    vy = 3.0
+  scene.rayY = ny
+  scene.velY = vy
+
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  let ray = Ray3D(
+    origin = Vec3(x = 0.0, y = ny, z = -20.0),
+    dir = Vec3(x = 0.0, y = 0.0, z = 1.0),
+    direction = Vec3(x = 0.0, y = 0.0, z = 1.0),
+    maxDistance = 100.0
+  )
+
+  let hSph = raycast3dSphere(ray, Vec3(x = 0.0, y = 0.0, z = 0.0), 5.0)
+  if hSph.isSome():
+    let hs: RayHit3D = hSph.unwrap()
+    scene.sphereHitDist = hs.distance
+    scene.sphereHitZ = hs.point.z
+    scene.sphereHitNormY = hs.normal.y
+    scene.sphereHitNormZ = hs.normal.z
+
+  let hBox = raycast3dBox(ray, Vec3(x = 0.0, y = 0.0, z = 12.0), idRot, Vec3(x = 4.0, y = 4.0, z = 4.0))
+  if hBox.isSome():
+    let hb: RayHit3D = hBox.unwrap()
+    scene.boxHitDist = hb.distance
+
+  let hSweep = sphereCast3D(ray, 1.0, scene.colliders)
+  if hSweep.isSome():
+    let hsw: RayHit3D = hSweep.unwrap()
+    scene.sweepHitDist = hsw.distance
+
+pub fn auditPhys3dRaycastPicker(): int:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  let ray = Ray3D(origin = Vec3(x = 0.0, y = 0.0, z = -20.0), dir = Vec3(x = 0.0, y = 0.0, z = 1.0), direction = Vec3(x = 0.0, y = 0.0, z = 1.0), maxDistance = 100.0)
+  let hSph = raycast3dSphere(ray, Vec3(x = 0.0, y = 0.0, z = 0.0), 5.0)
+  let hs: RayHit3D = hSph.unwrap()
+  let hBox = raycast3dBox(ray, Vec3(x = 0.0, y = 0.0, z = 0.0), idRot, Vec3(x = 4.0, y = 4.0, z = 4.0))
+  let mat = PhysicsMaterial3D(restitution = 0.2, staticFriction = 0.5, dynamicFriction = 0.4, density = 1.0)
+  let cA = boxCollider3dNew(Vec3(x = 5.0, y = 5.0, z = 5.0), mat)
+  let hSweep = sphereCast3D(ray, 1.0, [cA])
+  mut hits = 0
+  if hSph.isSome():
+    hits = hits + 1
+  if hBox.isSome():
+    hits = hits + 1
+  if hSweep.isSome():
+    hits = hits + 1
+  ret int(hs.distance) + hits
+
+pub fn main(): int:
+  let audit = auditPhys3dRaycastPicker()
+  println("EX_227_PHYS3D_RAYCAST_AUDIT=" + str(audit))
+
+  mut scene = createRaycastPicker3dScene()
+
+  initWindow(1280, 720, "AIPL ex_227: 3D Raycast & SphereCast Scene Picker")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.1)
+    let beamY = 380.0 + scene.rayY * 24.0
+
+    beginDrawing()
+    clearScreen(rgb(10, 15, 28))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_227: 3D RAYCAST SPHERE/BOX & SPHERECAST SCENE PICKER", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Sphere Hit Dist=" + str(int(scene.sphereHitDist * 10.0)) + "dm (z=" + str(int(scene.sphereHitZ * 10.0)) + "dm) | Sweep TOI=" + str(int(scene.sweepHitDist * 10.0)) + "dm | Box Dist=" + str(int(scene.boxHitDist * 10.0)) + "dm", 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(50.0, 108.0, 1180.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(50.0, 108.0, 1180.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("3D DEPTH-PROJECTED RAYCAST & SPHERECAST CORRIDOR (Z: -20m -> +20m)", 80.0, 130.0, 16.0, rgb(125, 211, 252))
+
+    // Draw 3D Sphere Target at z = 0 (x = 640, r = 120)
+    drawCircle(640.0, 380.0, 120.0, rgb(14, 116, 144))
+    drawCircleOutline(640.0, 380.0, 120.0, 3.0, rgb(103, 232, 249))
+    drawLine(520.0, 380.0, 760.0, 380.0, rgb(34, 211, 238), 1.0)
+    drawLine(640.0, 260.0, 640.0, 500.0, rgb(34, 211, 238), 1.0)
+    drawText("3D Sphere (z=0, R=5m)", 555.0, 225.0, 15.0, rgb(103, 232, 249))
+
+    // Draw 3D Extruded Box Target at z = 12 (x = 832..1024)
+    drawRect(856.0, 264.0, 192.0, 192.0, rgb(59, 7, 100))
+    drawRectOutline(856.0, 264.0, 192.0, 192.0, 1.5, rgb(168, 85, 247))
+    drawRect(832.0, 284.0, 192.0, 192.0, rgb(88, 28, 135))
+    drawRectOutline(832.0, 284.0, 192.0, 192.0, 3.0, rgb(192, 132, 252))
+    drawLine(832.0, 284.0, 856.0, 264.0, rgb(192, 132, 252), 1.5)
+    drawLine(1024.0, 284.0, 1048.0, 264.0, rgb(192, 132, 252), 1.5)
+    drawLine(832.0, 476.0, 856.0, 456.0, rgb(192, 132, 252), 1.5)
+    drawLine(1024.0, 476.0, 1048.0, 456.0, rgb(192, 132, 252), 1.5)
+    drawText("3D OBB Box (z=+12m)", 848.0, 232.0, 15.0, rgb(216, 180, 254))
+
+    // Draw Swept SphereCast3D Corridor & TOI Ghost
+    drawLine(160.0, beamY - 24.0, 1120.0, beamY - 24.0, rgb(71, 85, 105), 1.0)
+    drawLine(160.0, beamY + 24.0, 1120.0, beamY + 24.0, rgb(71, 85, 105), 1.0)
+    let sweepScreenX = 160.0 + scene.sweepHitDist * 24.0
+    drawCircleOutline(sweepScreenX, beamY, 24.0, 2.0, rgb(52, 211, 153))
+    drawCircle(sweepScreenX, beamY, 4.0, rgb(52, 211, 153))
+
+    // Draw Primary Raycast3D Beam
+    drawCircle(160.0, beamY, 12.0, rgb(250, 204, 21))
+    drawText("Ray Origin (z=-20m)", 86.0, beamY - 38.0, 13.0, rgb(250, 204, 21))
+    drawLine(160.0, beamY, 1120.0, beamY, rgb(56, 189, 248), 3.0)
+
+    // Sphere Hit Point & Curved 3D Normal Vector
+    let sphHitScreenX = 160.0 + scene.sphereHitDist * 24.0
+    let normTipX = sphHitScreenX + scene.sphereHitNormZ * 62.0
+    let normTipY = beamY + scene.sphereHitNormY * 62.0
+    drawLine(sphHitScreenX, beamY, normTipX, normTipY, rgb(250, 204, 21), 3.5)
+    drawCircle(normTipX, normTipY, 4.5, rgb(250, 204, 21))
+    drawCircle(sphHitScreenX, beamY, 8.5, rgb(239, 68, 68))
+
+    // Box Hit Point
+    let boxHitScreenX = 160.0 + scene.boxHitDist * 24.0
+    drawCircle(boxHitScreenX, beamY, 8.5, rgb(250, 204, 21))
+    drawLine(boxHitScreenX, beamY, boxHitScreenX - 48.0, beamY, rgb(192, 132, 252), 3.0)
+
+    drawText("Red Dot + Yellow Arrow: raycast3dSphere Hit & 3D Normal | Green Ring: sphereCast3D (R=1m) | Purple: raycast3dBox", 80.0, 648.0, 14.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

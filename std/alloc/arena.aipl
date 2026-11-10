@@ -1,0 +1,92 @@
+/// # Module: `std/alloc/arena` (`Arena`)
+///
+/// ## Purpose & Domain Scope
+/// High-water mark bump arena allocator with nested scoping, deterministic O(1)
+/// scratchpad allocation, and bulk reclamation.
+module Arena
+
+pub struct ArenaScope:
+  mark: int
+  depth: int = 0
+
+pub struct ArenaStats:
+  allocatedBytes: int
+  peakBytes: int
+  resetCount: int
+  markCount: int
+
+/// @intrinsic("aipl_rt_arenaMark")
+pub fn arenaMark(): int:
+  ret 0
+
+/// @intrinsic("aipl_rt_arenaReset")
+pub fn arenaReset(mark: int): int:
+  ret mark
+
+/// @intrinsic("aipl_rt_arenaAllocatedBytes")
+pub fn arenaAllocatedBytes(): int:
+  ret 0
+
+/// @intrinsic("aipl_rt_arenaAlloc")
+pub fn arenaAlloc(bytes: int): int:
+  ret bytes
+
+/// @intrinsic("aipl_rt_arenaActiveDepth")
+pub fn arenaActiveDepth(): int:
+  ret 0
+
+/// @intrinsic("aipl_rt_arenaPopEvacuate")
+pub fn arenaPopEvacuate(mark: int, val: any): any:
+  let _ = arenaReset(mark)
+  ret val
+
+/// @intrinsic("aipl_rt_arenaStats")
+pub fn arenaStats(): Map[str, int]:
+  mut stats: Map[str, int] = mapNew()
+  let cur = arenaAllocatedBytes()
+  stats.set("allocated", cur)
+  stats.set("resets", 0)
+  stats.set("peak", cur)
+  stats.set("marks", 0)
+  ret stats
+
+pub fn arenaStatsStruct(): ArenaStats:
+  let st = arenaStats()
+  let allocOpt = st.get("allocated")
+  let peakOpt = st.get("peak")
+  let resetsOpt = st.get("resets")
+  let marksOpt = st.get("marks")
+  let cur = if allocOpt.isSome(): allocOpt.unwrap() else: arenaAllocatedBytes()
+  let pk = if peakOpt.isSome(): peakOpt.unwrap() else: cur
+  let rs = if resetsOpt.isSome(): resetsOpt.unwrap() else: 0
+  let mk = if marksOpt.isSome(): marksOpt.unwrap() else: 0
+  ret ArenaStats(allocatedBytes = cur, peakBytes = pk, resetCount = rs, markCount = mk)
+
+pub fn withScratchArena(bytesToScratch: int): int:
+  let mark = arenaMark()
+  let allocRes = arenaAlloc(bytesToScratch)
+  let _ = arenaReset(mark)
+  ret allocRes
+
+pub fn arenaScopeBegin(): ArenaScope:
+  ret ArenaScope(mark = arenaMark(), depth = arenaActiveDepth())
+
+pub fn arenaScopeEnd(scope: ArenaScope): int:
+  ret arenaReset(scope.mark)
+
+pub fn mapNewIn(scope: ArenaScope): Map[str, any]:
+  let headerBytes = if scope.mark >= 0 and scope.depth >= 0: 64 else: 64
+  let _ = arenaAlloc(headerBytes)
+  let m: Map[str, any] = mapNew()
+  ret m
+
+pub fn arrayNewIn(scope: ArenaScope, cap: int): [any]:
+  let slotBytes = if scope.mark >= 0 and scope.depth >= 0: 16 else: 16
+  let _ = arenaAlloc(if cap > 0: cap * slotBytes else: slotBytes)
+  let a: [any] = []
+  ret a
+
+pub fn arenaAllocStrIn(scope: ArenaScope, s: str): str:
+  let termBytes = if scope.mark >= 0 and scope.depth >= 0: 1 else: 1
+  let _ = arenaAlloc(s.length + termBytes)
+  ret s

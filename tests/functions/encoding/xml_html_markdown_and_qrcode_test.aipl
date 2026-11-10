@@ -1,0 +1,804 @@
+module tests.functions.encoding.xml_html_markdown_and_qrcode_test
+
+import * from "std/encoding/html_dom"
+import * from "std/encoding/markdown"
+import * from "std/encoding/qrcode_semver"
+import * from "std/encoding/xml"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_xml_decodeXmlEntities_1(): int:
+  let arg_s = "<r></r>"
+  let edge_s = "<r></r>"
+  let resNom = decodeXmlEntities(arg_s)
+  let resEdge = decodeXmlEntities(edge_s)
+  assertEqStr(resNom, "<r></r>", "decodeXmlEntities nominal string matches")
+  assertEqStr(resEdge, "<r></r>", "decodeXmlEntities boundary string matches")
+  ret 0
+
+pub fn test_xml_encodeXmlEntities_2(): int:
+  let arg_s = "<r></r>"
+  let edge_s = "<r></r>"
+  let resNom = encodeXmlEntities(arg_s)
+  let resEdge = encodeXmlEntities(edge_s)
+  assertEqStr(resNom, "&lt;r&gt;&lt;/r&gt;", "encodeXmlEntities nominal string matches")
+  assertEqStr(resEdge, "&lt;r&gt;&lt;/r&gt;", "encodeXmlEntities boundary string matches")
+  ret 0
+
+pub fn test_xml_parseXmlAttributes_3(): int:
+  let arg_header = "<r></r>"
+  let edge_header = "<r></r>"
+  let resNom = parseXmlAttributes(arg_header)
+  let resEdge = parseXmlAttributes(edge_header)
+  assertEqInt(resNom.len(), 1, "parseXmlAttributes nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseXmlAttributes boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_xml_parseXmlNodeAt_4(): int:
+  let arg_text = "<r></r>"
+  let edge_text = "<r></r>"
+  let arg_startPos = 1
+  let edge_startPos = 0
+  let resNom = parseXmlNodeAt(arg_text, arg_startPos)
+  let resEdge = parseXmlNodeAt(edge_text, edge_startPos)
+  let (n_t0, n_t1, n_t2) = resNom
+  let (e_t0, e_t1, e_t2) = resEdge
+  assertEqInt(n_t0, 1, "parseXmlNodeAt nominal n_t0 == 1")
+  assertEqInt(e_t0, 7, "parseXmlNodeAt boundary e_t0 == 7")
+  ret 0
+
+pub fn test_xml_parseXml_5(): int:
+  let arg_text = "<r></r>"
+  let edge_text = "<r></r>"
+  let resNom = parseXml(arg_text)
+  let resEdge = parseXml(edge_text)
+  assert(resNom.isOk() == true, "parseXml nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseXml boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_xml_serializeXmlNode_6(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let arg_pretty = true
+  let edge_pretty = false
+  let arg_depth = 4
+  let edge_depth = 1
+  let resNom = serializeXmlNode(arg_node, arg_pretty, arg_depth)
+  let resEdge = serializeXmlNode(edge_node, edge_pretty, edge_depth)
+  assertEqStr(resNom, "        <!--<r></r>-->", "serializeXmlNode nominal string matches")
+  assertEqStr(resEdge, "<<r></r>>&lt;r&gt;&lt;/r&gt;</<r></r>>", "serializeXmlNode boundary string matches")
+  ret 0
+
+pub fn test_xml_serializeXml_7(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let arg_pretty = true
+  let edge_pretty = false
+  let resNom = serializeXml(arg_doc, arg_pretty)
+  let resEdge = serializeXml(edge_doc, edge_pretty)
+  assertEqInt(resNom.len(), 22, "serializeXml nominal string length == 22")
+  assertEqStr(resEdge, "<r></r><<r></r>>&lt;r&gt;&lt;/r&gt;</<r></r>>", "serializeXml boundary string matches")
+  ret 0
+
+pub fn test_xml_XmlNode_findChild_8(): int:
+  let recv_self = XmlNode(tag = "test", attributes = [], children = [], textContent = "test", isComment = true)
+  let edge_self = XmlNode(tag = "a", attributes = [], children = [], textContent = "a", isComment = false)
+  let arg_tag = "test"
+  let edge_tag = "a"
+  let resNom = recv_self.findChild(arg_tag)
+  let resEdge = edge_self.findChild(edge_tag)
+  assert(resNom.isSome() == false, "findChild nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "findChild boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_xml_XmlNode_getAttr_9(): int:
+  let recv_self = XmlNode(tag = "test", attributes = [], children = [], textContent = "test", isComment = true)
+  let edge_self = XmlNode(tag = "a", attributes = [], children = [], textContent = "a", isComment = false)
+  let arg_name = "test"
+  let edge_name = "a"
+  let resNom = recv_self.getAttr(arg_name)
+  let resEdge = edge_self.getAttr(edge_name)
+  assert(resNom.isSome() == false, "getAttr nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "getAttr boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_xml_escapeXml_10(): int:
+  let arg_s = "<r></r>"
+  let edge_s = "<r></r>"
+  let resNom = escapeXml(arg_s)
+  let resEdge = escapeXml(edge_s)
+  assertEqStr(resNom, "&lt;r&gt;&lt;/r&gt;", "escapeXml nominal string matches")
+  assertEqStr(resEdge, "&lt;r&gt;&lt;/r&gt;", "escapeXml boundary string matches")
+  ret 0
+
+pub fn test_xml_unescapeXml_11(): int:
+  let arg_s = "<r></r>"
+  let edge_s = "<r></r>"
+  let resNom = unescapeXml(arg_s)
+  let resEdge = unescapeXml(edge_s)
+  assertEqStr(resNom, "<r></r>", "unescapeXml nominal string matches")
+  assertEqStr(resEdge, "<r></r>", "unescapeXml boundary string matches")
+  ret 0
+
+pub fn test_xml_collectXmlElements_12(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let arg_tagName = "<r></r>"
+  let edge_tagName = "<r></r>"
+  let arg_acc = [XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)]
+  let edge_acc = []
+  let resNom = collectXmlElements(arg_node, arg_tagName, arg_acc)
+  let resEdge = collectXmlElements(edge_node, edge_tagName, edge_acc)
+  assertEqInt(resNom.len(), 1, "collectXmlElements nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "collectXmlElements boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_xml_xmlFindElements_13(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let arg_tagName = "<r></r>"
+  let edge_tagName = "<r></r>"
+  let resNom = xmlFindElements(arg_node, arg_tagName)
+  let resEdge = xmlFindElements(edge_node, edge_tagName)
+  assertEqInt(resNom.len(), 0, "xmlFindElements nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 1, "xmlFindElements boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_xml_xmlFindAll_14(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let arg_tagName = "<r></r>"
+  let edge_tagName = "<r></r>"
+  let resNom = xmlFindAll(arg_doc, arg_tagName)
+  let resEdge = xmlFindAll(edge_doc, edge_tagName)
+  assertEqInt(resNom.len(), 0, "xmlFindAll nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 1, "xmlFindAll boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_xml_xmlText_15(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let resNom = xmlText(arg_node)
+  let resEdge = xmlText(edge_node)
+  assertEqStr(resNom, "<r></r>", "xmlText nominal string matches")
+  assertEqStr(resEdge, "<r></r>", "xmlText boundary string matches")
+  ret 0
+
+pub fn test_xml_xmlAttr_16(): int:
+  let arg_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true)
+  let edge_node = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false)
+  let arg_name = "<r></r>"
+  let edge_name = "<r></r>"
+  let resNom = xmlAttr(arg_node, arg_name)
+  let resEdge = xmlAttr(edge_node, edge_name)
+  assert(resNom.isSome() == false, "xmlAttr nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "xmlAttr boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_xml_formatXml_17(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let resNom = formatXml(arg_doc)
+  let resEdge = formatXml(edge_doc)
+  assertEqInt(resNom.len(), 22, "formatXml nominal string length == 22")
+  assertEqInt(resEdge.len(), 46, "formatXml boundary string length == 46")
+  ret 0
+
+pub fn test_xml_stringifyXml_18(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let resNom = stringifyXml(arg_doc)
+  let resEdge = stringifyXml(edge_doc)
+  assertEqStr(resNom, "<r></r><!--<r></r>-->", "stringifyXml nominal string matches")
+  assertEqStr(resEdge, "<r></r><<r></r>>&lt;r&gt;&lt;/r&gt;</<r></r>>", "stringifyXml boundary string matches")
+  ret 0
+
+pub fn test_xml_toXml_19(): int:
+  let arg_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = true), declaration = "<r></r>", tag = "<r></r>")
+  let edge_doc = XmlDocument(root = XmlNode(tag = "<r></r>", attributes = [], children = [], textContent = "<r></r>", isComment = false), declaration = "<r></r>", tag = "<r></r>")
+  let resNom = toXml(arg_doc)
+  let resEdge = toXml(edge_doc)
+  assertEqStr(resNom, "<r></r><!--<r></r>-->", "toXml nominal string matches")
+  assertEqStr(resEdge, "<r></r><<r></r>>&lt;r&gt;&lt;/r&gt;</<r></r>>", "toXml boundary string matches")
+  ret 0
+
+pub fn test_html_dom_isVoidHtmlTag_1(): int:
+  let arg_tag = "test"
+  let edge_tag = "a"
+  let resNom = isVoidHtmlTag(arg_tag)
+  let resEdge = isVoidHtmlTag(edge_tag)
+  assert(resNom == false, "isVoidHtmlTag nominal resNom == false")
+  assert(resEdge == false, "isVoidHtmlTag boundary resEdge == false")
+  ret 0
+
+pub fn test_html_dom_parseHtmlAttrs_2(): int:
+  let arg_raw = "test"
+  let edge_raw = "a"
+  let resNom = parseHtmlAttrs(arg_raw)
+  let resEdge = parseHtmlAttrs(edge_raw)
+  let (n_t0, n_t1, n_t2) = resNom
+  let (e_t0, e_t1, e_t2) = resEdge
+  assertEqInt(n_t0.len(), 1, "parseHtmlAttrs nominal n_t0.len() == 1")
+  assertEqInt(e_t0.len(), 1, "parseHtmlAttrs boundary e_t0.len() == 1")
+  ret 0
+
+pub fn test_html_dom_parseHtmlNodeAt_3(): int:
+  let arg_htmlText = "test"
+  let edge_htmlText = "a"
+  let arg_startPos = 1
+  let edge_startPos = 0
+  let resNom = parseHtmlNodeAt(arg_htmlText, arg_startPos)
+  let resEdge = parseHtmlNodeAt(edge_htmlText, edge_startPos)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0, 4, "parseHtmlNodeAt nominal n_t0 == 4")
+  assertEqInt(e_t0, 1, "parseHtmlNodeAt boundary e_t0 == 1")
+  ret 0
+
+pub fn test_html_dom_parseHtml_4(): int:
+  let arg_htmlText = "test"
+  let edge_htmlText = "a"
+  let resNom = parseHtml(arg_htmlText)
+  let resEdge = parseHtml(edge_htmlText)
+  assertEqStr(resNom.root.tag, "div", "parseHtml nominal string matches")
+  assertEqStr(resEdge.root.tag, "div", "parseHtml boundary string matches")
+  ret 0
+
+pub fn test_html_dom_matchesSelector_5(): int:
+  let arg_node = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = [])
+  let edge_node = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = [])
+  let arg_selector = "test"
+  let edge_selector = "a"
+  let resNom = matchesSelector(arg_node, arg_selector)
+  let resEdge = matchesSelector(edge_node, edge_selector)
+  assert(resNom == true, "matchesSelector nominal resNom == true")
+  assert(resEdge == true, "matchesSelector boundary resEdge == true")
+  ret 0
+
+pub fn test_html_dom_collectMatchingHtmlNodes_6(): int:
+  let arg_node = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = [])
+  let edge_node = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = [])
+  let arg_selector = "test"
+  let edge_selector = "a"
+  let arg_acc = [HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = [])]
+  let edge_acc = []
+  let resNom = collectMatchingHtmlNodes(arg_node, arg_selector, arg_acc)
+  let resEdge = collectMatchingHtmlNodes(edge_node, edge_selector, edge_acc)
+  assertEqInt(resNom.len(), 2, "collectMatchingHtmlNodes nominal resNom.len() == 2")
+  assertEqInt(resEdge.len(), 1, "collectMatchingHtmlNodes boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_html_dom_HtmlDocument_querySelectorAll_7(): int:
+  let recv_self = HtmlDocument(root = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = []))
+  let edge_self = HtmlDocument(root = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = []))
+  let arg_selector = "test"
+  let edge_selector = "a"
+  let resNom = recv_self.querySelectorAll(arg_selector)
+  let resEdge = edge_self.querySelectorAll(edge_selector)
+  assertEqInt(resNom.len(), 1, "querySelectorAll nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "querySelectorAll boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_html_dom_HtmlDocument_querySelector_8(): int:
+  let recv_self = HtmlDocument(root = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = []))
+  let edge_self = HtmlDocument(root = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = []))
+  let arg_selector = "test"
+  let edge_selector = "a"
+  let resNom = recv_self.querySelector(arg_selector)
+  let resEdge = edge_self.querySelector(edge_selector)
+  assert(resNom.isSome() == true, "querySelector nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "querySelector boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_html_dom_HtmlNode_getElementById_9(): int:
+  let recv_self = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = [])
+  let edge_self = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = [])
+  let arg_id = "test"
+  let edge_id = "a"
+  let resNom = recv_self.getElementById(arg_id)
+  let resEdge = edge_self.getElementById(edge_id)
+  assert(resNom.isSome() == true, "getElementById nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "getElementById boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_html_dom_HtmlNode_getElementsByClassName_10(): int:
+  let recv_self = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = [])
+  let edge_self = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = [])
+  let arg_className = "test"
+  let edge_className = "a"
+  let resNom = recv_self.getElementsByClassName(arg_className)
+  let resEdge = edge_self.getElementsByClassName(edge_className)
+  assertEqInt(resNom.len(), 0, "getElementsByClassName nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "getElementsByClassName boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_html_dom_escapeHtml_11(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = escapeHtml(arg_s)
+  let resEdge = escapeHtml(edge_s)
+  assertEqStr(resNom, "test", "escapeHtml nominal string matches")
+  assertEqStr(resEdge, "a", "escapeHtml boundary string matches")
+  ret 0
+
+pub fn test_html_dom_htmlEscape_12(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = htmlEscape(arg_s)
+  let resEdge = htmlEscape(edge_s)
+  assertEqStr(resNom, "test", "htmlEscape nominal string matches")
+  assertEqStr(resEdge, "a", "htmlEscape boundary string matches")
+  ret 0
+
+pub fn test_html_dom_htmlUnescape_13(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = htmlUnescape(arg_s)
+  let resEdge = htmlUnescape(edge_s)
+  assertEqStr(resNom, "test", "htmlUnescape nominal string matches")
+  assertEqStr(resEdge, "a", "htmlUnescape boundary string matches")
+  ret 0
+
+pub fn test_html_dom_unescapeHtml_14(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = unescapeHtml(arg_s)
+  let resEdge = unescapeHtml(edge_s)
+  assertEqStr(resNom, "test", "unescapeHtml nominal string matches")
+  assertEqStr(resEdge, "a", "unescapeHtml boundary string matches")
+  ret 0
+
+pub fn test_html_dom_sanitizeUrl_15(): int:
+  let arg_url = "http://localhost/test"
+  let edge_url = "http://localhost/test"
+  let resNom = sanitizeUrl(arg_url)
+  let resEdge = sanitizeUrl(edge_url)
+  assertEqStr(resNom, "http://localhost/test", "sanitizeUrl nominal string matches")
+  assertEqStr(resEdge, "http://localhost/test", "sanitizeUrl boundary string matches")
+  ret 0
+
+pub fn test_html_dom_innerText_16(): int:
+  let arg_node = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = [])
+  let edge_node = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = [])
+  let resNom = innerText(arg_node)
+  let resEdge = innerText(edge_node)
+  assertEqStr(resNom, "test", "innerText nominal string matches")
+  assertEqStr(resEdge, "a", "innerText boundary string matches")
+  ret 0
+
+pub fn test_html_dom_htmlToPlainText_17(): int:
+  let arg_html = "42"
+  let edge_html = "0"
+  let resNom = htmlToPlainText(arg_html)
+  let resEdge = htmlToPlainText(edge_html)
+  assertEqStr(resNom, "42", "htmlToPlainText nominal string matches")
+  assertEqStr(resEdge, "0", "htmlToPlainText boundary string matches")
+  ret 0
+
+pub fn test_html_dom_htmlNodeAttr_18(): int:
+  let arg_node = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = [])
+  let edge_node = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = [])
+  let arg_attrName = "test"
+  let edge_attrName = "a"
+  let resNom = htmlNodeAttr(arg_node, arg_attrName)
+  let resEdge = htmlNodeAttr(edge_node, edge_attrName)
+  assert(resNom.isSome() == false, "htmlNodeAttr nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "htmlNodeAttr boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_html_dom_formatHtml_19(): int:
+  let arg_node = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = [])
+  let edge_node = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = [])
+  let resNom = formatHtml(arg_node)
+  let resEdge = formatHtml(edge_node)
+  assertEqStr(resNom, "<test>test</test>", "formatHtml nominal string matches")
+  assertEqStr(resEdge, "<a>a</a>", "formatHtml boundary string matches")
+  ret 0
+
+pub fn test_html_dom_toHtml_20(): int:
+  let arg_doc = HtmlDocument(root = HtmlNode(tag = "test", attributes = [], children = [], innerText = "test", id = "test", classList = []))
+  let edge_doc = HtmlDocument(root = HtmlNode(tag = "a", attributes = [], children = [], innerText = "a", id = "a", classList = []))
+  let resNom = toHtml(arg_doc)
+  let resEdge = toHtml(edge_doc)
+  assertEqStr(resNom, "<test>test</test>", "toHtml nominal string matches")
+  assertEqStr(resEdge, "<a>a</a>", "toHtml boundary string matches")
+  ret 0
+
+pub fn test_markdown_escapeMdHtml_1(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = escapeMdHtml(arg_s)
+  let resEdge = escapeMdHtml(edge_s)
+  assertEqStr(resNom, "test", "escapeMdHtml nominal string matches")
+  assertEqStr(resEdge, "a", "escapeMdHtml boundary string matches")
+  ret 0
+
+pub fn test_markdown_isHorizontalRuleLine_2(): int:
+  let arg_trimmed = "test"
+  let edge_trimmed = "a"
+  let resNom = isHorizontalRuleLine(arg_trimmed)
+  let resEdge = isHorizontalRuleLine(edge_trimmed)
+  assert(resNom == false, "isHorizontalRuleLine nominal resNom == false")
+  assert(resEdge == false, "isHorizontalRuleLine boundary resEdge == false")
+  ret 0
+
+pub fn test_markdown_splitTableRowCells_3(): int:
+  let arg_line = "test"
+  let edge_line = "a"
+  let resNom = splitTableRowCells(arg_line)
+  let resEdge = splitTableRowCells(edge_line)
+  assertEqInt(resNom.len(), 1, "splitTableRowCells nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "splitTableRowCells boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_markdown_isTableSeparatorLine_4(): int:
+  let arg_line = "test"
+  let edge_line = "a"
+  let resNom = isTableSeparatorLine(arg_line)
+  let resEdge = isTableSeparatorLine(edge_line)
+  assert(resNom == false, "isTableSeparatorLine nominal resNom == false")
+  assert(resEdge == false, "isTableSeparatorLine boundary resEdge == false")
+  ret 0
+
+pub fn test_markdown_isOrderedListPrefix_5(): int:
+  let arg_trimmed = "test"
+  let edge_trimmed = "a"
+  let resNom = isOrderedListPrefix(arg_trimmed)
+  let resEdge = isOrderedListPrefix(edge_trimmed)
+  assertEqInt(resNom, 0, "isOrderedListPrefix nominal resNom == 0")
+  assertEqInt(resEdge, 0, "isOrderedListPrefix boundary resEdge == 0")
+  ret 0
+
+pub fn test_markdown_renderInlineMarkdown_6(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = renderInlineMarkdown(arg_text)
+  let resEdge = renderInlineMarkdown(edge_text)
+  assertEqStr(resNom, "test", "renderInlineMarkdown nominal string matches")
+  assertEqStr(resEdge, "a", "renderInlineMarkdown boundary string matches")
+  ret 0
+
+pub fn test_markdown_parseMarkdown_7(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseMarkdown(arg_text)
+  let resEdge = parseMarkdown(edge_text)
+  assertEqInt(resNom.blocks.len(), 1, "parseMarkdown nominal resNom.blocks.len() == 1")
+  assertEqInt(resEdge.blocks.len(), 1, "parseMarkdown boundary resEdge.blocks.len() == 1")
+  ret 0
+
+pub fn test_markdown_renderMarkdownHtml_8(): int:
+  let arg_doc = MdDocument(blocks = [])
+  let edge_doc = MdDocument(blocks = [])
+  let resNom = renderMarkdownHtml(arg_doc)
+  let resEdge = renderMarkdownHtml(edge_doc)
+  assertEqStr(resNom, "", "renderMarkdownHtml nominal string matches")
+  assertEqStr(resEdge, "", "renderMarkdownHtml boundary string matches")
+  ret 0
+
+pub fn test_markdown_markdownToHtml_9(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = markdownToHtml(arg_text)
+  let resEdge = markdownToHtml(edge_text)
+  assertEqStr(resNom, "<p>test</p>", "markdownToHtml nominal string matches")
+  assertEqStr(resEdge, "<p>a</p>", "markdownToHtml boundary string matches")
+  ret 0
+
+pub fn test_markdown_extractMarkdownHeadings_10(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = extractMarkdownHeadings(arg_text)
+  let resEdge = extractMarkdownHeadings(edge_text)
+  assertEqInt(resNom.len(), 0, "extractMarkdownHeadings nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "extractMarkdownHeadings boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_markdown_extractMarkdownCodeBlocks_11(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = extractMarkdownCodeBlocks(arg_text)
+  let resEdge = extractMarkdownCodeBlocks(edge_text)
+  assertEqInt(resNom.len(), 0, "extractMarkdownCodeBlocks nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "extractMarkdownCodeBlocks boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_markdown_markdownStrip_12(): int:
+  let arg_text = "127.0.0.1"
+  let edge_text = "127.0.0.1"
+  let resNom = markdownStrip(arg_text)
+  let resEdge = markdownStrip(edge_text)
+  assertEqStr(resNom, "127.0.0.1", "markdownStrip nominal string matches")
+  assertEqStr(resEdge, "127.0.0.1", "markdownStrip boundary string matches")
+  ret 0
+
+pub fn test_markdown_markdownToPlainText_13(): int:
+  let arg_text = "42"
+  let edge_text = "0"
+  let resNom = markdownToPlainText(arg_text)
+  let resEdge = markdownToPlainText(edge_text)
+  assertEqStr(resNom, "42", "markdownToPlainText nominal string matches")
+  assertEqStr(resEdge, "0", "markdownToPlainText boundary string matches")
+  ret 0
+
+pub fn test_markdown_parseMarkdownHeadings_14(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseMarkdownHeadings(arg_text)
+  let resEdge = parseMarkdownHeadings(edge_text)
+  assertEqInt(resNom.len(), 0, "parseMarkdownHeadings nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "parseMarkdownHeadings boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_markdown_markdownWordCount_15(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = markdownWordCount(arg_text)
+  let resEdge = markdownWordCount(edge_text)
+  assertEqInt(resNom, 1, "markdownWordCount nominal resNom == 1")
+  assertEqInt(resEdge, 1, "markdownWordCount boundary resEdge == 1")
+  ret 0
+
+pub fn test_markdown_extractMarkdownLinks_16(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = extractMarkdownLinks(arg_text)
+  let resEdge = extractMarkdownLinks(edge_text)
+  assertEqInt(resNom.len(), 0, "extractMarkdownLinks nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "extractMarkdownLinks boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_qrcode_semver_parseNonNegInt_1(): int:
+  let arg_s = "42"
+  let edge_s = "0"
+  let resNom = parseNonNegInt(arg_s)
+  let resEdge = parseNonNegInt(edge_s)
+  assertEqInt(resNom, 42, "parseNonNegInt nominal resNom == 42")
+  assertEqInt(resEdge, 0, "parseNonNegInt boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_parseSemVer_2(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseSemVer(arg_text)
+  let resEdge = parseSemVer(edge_text)
+  assert(resNom.isOk() == false, "parseSemVer nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "parseSemVer boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_qrcode_semver_formatSemVer_3(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = formatSemVer(arg_v)
+  let resEdge = formatSemVer(edge_v)
+  assertEqStr(resNom, "4.4.2-test+test", "formatSemVer nominal string matches")
+  assertEqStr(resEdge, "1.1.0-a+a", "formatSemVer boundary string matches")
+  ret 0
+
+pub fn test_qrcode_semver_comparePrerelease_4(): int:
+  let arg_preA = "test"
+  let edge_preA = "a"
+  let arg_preB = "test"
+  let edge_preB = "a"
+  let resNom = comparePrerelease(arg_preA, arg_preB)
+  let resEdge = comparePrerelease(edge_preA, edge_preB)
+  assertEqInt(resNom, 0, "comparePrerelease nominal resNom == 0")
+  assertEqInt(resEdge, 0, "comparePrerelease boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_compareSemVer_5(): int:
+  let arg_a = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_a = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_b = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_b = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = compareSemVer(arg_a, arg_b)
+  let resEdge = compareSemVer(edge_a, edge_b)
+  assertEqInt(resNom, 0, "compareSemVer nominal resNom == 0")
+  assertEqInt(resEdge, 0, "compareSemVer boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_satisfiesSingleSemVer_6(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_single = "test"
+  let edge_single = "a"
+  let resNom = satisfiesSingleSemVer(arg_v, arg_single)
+  let resEdge = satisfiesSingleSemVer(edge_v, edge_single)
+  assert(resNom == false, "satisfiesSingleSemVer nominal resNom == false")
+  assert(resEdge == false, "satisfiesSingleSemVer boundary resEdge == false")
+  ret 0
+
+pub fn test_qrcode_semver_satisfiesSemVer_7(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_constraint = "test"
+  let edge_constraint = "a"
+  let resNom = satisfiesSemVer(arg_v, arg_constraint)
+  let resEdge = satisfiesSemVer(edge_v, edge_constraint)
+  assert(resNom == false, "satisfiesSemVer nominal resNom == false")
+  assert(resEdge == false, "satisfiesSemVer boundary resEdge == false")
+  ret 0
+
+pub fn test_qrcode_semver_generateQrMatrix_8(): int:
+  let arg_payload = "test"
+  let edge_payload = "a"
+  let arg_ecLevel = 2
+  let edge_ecLevel = 0
+  let resNom = generateQrMatrix(arg_payload, arg_ecLevel)
+  let resEdge = generateQrMatrix(edge_payload, edge_ecLevel)
+  assertEqInt(resNom.version, 1, "generateQrMatrix nominal resNom.version == 1")
+  assertEqInt(resEdge.version, 1, "generateQrMatrix boundary resEdge.version == 1")
+  ret 0
+
+pub fn test_qrcode_semver_qrGetModule_9(): int:
+  let arg_qr = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_qr = QrMatrix(version = 1, size = 0, modules = [])
+  let arg_x = 1
+  let edge_x = 0
+  let arg_y = 1
+  let edge_y = 0
+  let resNom = qrGetModule(arg_qr, arg_x, arg_y)
+  let resEdge = qrGetModule(edge_qr, edge_x, edge_y)
+  assert(resNom == false, "qrGetModule nominal resNom == false")
+  assert(resEdge == false, "qrGetModule boundary resEdge == false")
+  ret 0
+
+pub fn test_qrcode_semver_renderQrAscii_10(): int:
+  let arg_qr = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_qr = QrMatrix(version = 1, size = 0, modules = [])
+  let resNom = renderQrAscii(arg_qr)
+  let resEdge = renderQrAscii(edge_qr)
+  assertEqStr(resNom, "", "renderQrAscii nominal string matches")
+  assertEqStr(resEdge, "", "renderQrAscii boundary string matches")
+  ret 0
+
+pub fn test_qrcode_semver_renderQrSvg_11(): int:
+  let arg_qr = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_qr = QrMatrix(version = 1, size = 0, modules = [])
+  let arg_moduleSizePx = 4
+  let edge_moduleSizePx = 1
+  let resNom = renderQrSvg(arg_qr, arg_moduleSizePx)
+  let resEdge = renderQrSvg(edge_qr, edge_moduleSizePx)
+  assertEqInt(resNom.len(), 134, "renderQrSvg nominal string length == 134")
+  assertEqInt(resEdge.len(), 134, "renderQrSvg boundary string length == 134")
+  ret 0
+
+pub fn test_qrcode_semver_qrGf256Mul_12(): int:
+  let arg_a = 2
+  let edge_a = 0
+  let arg_b = 4
+  let edge_b = 1
+  let resNom = qrGf256Mul(arg_a, arg_b)
+  let resEdge = qrGf256Mul(edge_a, edge_b)
+  assertEqInt(resNom, 8, "qrGf256Mul nominal resNom == 8")
+  assertEqInt(resEdge, 0, "qrGf256Mul boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_qrReedSolomonEncode_13(): int:
+  let arg_data = [2]
+  let edge_data = []
+  let arg_ecCount = 4
+  let edge_ecCount = 1
+  let resNom = qrReedSolomonEncode(arg_data, arg_ecCount)
+  let resEdge = qrReedSolomonEncode(edge_data, edge_ecCount)
+  assertEqInt(resNom.len(), 4, "qrReedSolomonEncode nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 1, "qrReedSolomonEncode boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_qrcode_semver_qrComputeBchFormatBits_14(): int:
+  let arg_ecLevel = 2
+  let edge_ecLevel = 0
+  let arg_maskPattern = 4
+  let edge_maskPattern = 1
+  let resNom = qrComputeBchFormatBits(arg_ecLevel, arg_maskPattern)
+  let resEdge = qrComputeBchFormatBits(edge_ecLevel, edge_maskPattern)
+  assertEqInt(resNom, 1890, "qrComputeBchFormatBits nominal resNom == 1890")
+  assertEqInt(resEdge, 20773, "qrComputeBchFormatBits boundary resEdge == 20773")
+  ret 0
+
+pub fn test_qrcode_semver_encodeQrCode_15(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = encodeQrCode(arg_text)
+  let resEdge = encodeQrCode(edge_text)
+  assertEqInt(resNom.version, 1, "encodeQrCode nominal resNom.version == 1")
+  assertEqInt(resEdge.version, 1, "encodeQrCode boundary resEdge.version == 1")
+  ret 0
+
+pub fn test_qrcode_semver_qrToAscii_16(): int:
+  let arg_matrix = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_matrix = QrMatrix(version = 1, size = 0, modules = [])
+  let resNom = qrToAscii(arg_matrix)
+  let resEdge = qrToAscii(edge_matrix)
+  assertEqStr(resNom, "", "qrToAscii nominal string matches")
+  assertEqStr(resEdge, "", "qrToAscii boundary string matches")
+  ret 0
+
+pub fn test_qrcode_semver_qrToSvg_17(): int:
+  let arg_matrix = QrMatrix(version = 4, size = 0, modules = [])
+  let edge_matrix = QrMatrix(version = 1, size = 0, modules = [])
+  let arg_scale = 2
+  let edge_scale = 0
+  let resNom = qrToSvg(arg_matrix, arg_scale)
+  let resEdge = qrToSvg(edge_matrix, edge_scale)
+  assertEqInt(resNom.len(), 134, "qrToSvg nominal string length == 134")
+  assertEqInt(resEdge.len(), 134, "qrToSvg boundary string length == 134")
+  ret 0
+
+pub fn test_qrcode_semver_parseSemver_18(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseSemver(arg_text)
+  let resEdge = parseSemver(edge_text)
+  assert(resNom.isOk() == false, "parseSemver nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "parseSemver boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_qrcode_semver_formatSemver_19(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = formatSemver(arg_v)
+  let resEdge = formatSemver(edge_v)
+  assertEqStr(resNom, "4.4.2-test+test", "formatSemver nominal string matches")
+  assertEqStr(resEdge, "1.1.0-a+a", "formatSemver boundary string matches")
+  ret 0
+
+pub fn test_qrcode_semver_compareSemver_20(): int:
+  let arg_a = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_a = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_b = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_b = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = compareSemver(arg_a, arg_b)
+  let resEdge = compareSemver(edge_a, edge_b)
+  assertEqInt(resNom, 0, "compareSemver nominal resNom == 0")
+  assertEqInt(resEdge, 0, "compareSemver boundary resEdge == 0")
+  ret 0
+
+pub fn test_qrcode_semver_bumpMajor_21(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = bumpMajor(arg_v)
+  let resEdge = bumpMajor(edge_v)
+  assertEqInt(resNom.major, 5, "bumpMajor nominal resNom.major == 5")
+  assertEqInt(resEdge.major, 2, "bumpMajor boundary resEdge.major == 2")
+  ret 0
+
+pub fn test_qrcode_semver_bumpMinor_22(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = bumpMinor(arg_v)
+  let resEdge = bumpMinor(edge_v)
+  assertEqInt(resNom.major, 4, "bumpMinor nominal resNom.major == 4")
+  assertEqInt(resEdge.major, 1, "bumpMinor boundary resEdge.major == 1")
+  ret 0
+
+pub fn test_qrcode_semver_bumpPatch_23(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let resNom = bumpPatch(arg_v)
+  let resEdge = bumpPatch(edge_v)
+  assertEqInt(resNom.major, 4, "bumpPatch nominal resNom.major == 4")
+  assertEqInt(resEdge.major, 1, "bumpPatch boundary resEdge.major == 1")
+  ret 0
+
+pub fn test_qrcode_semver_bumpSemver_24(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_part = "test"
+  let edge_part = "a"
+  let resNom = bumpSemver(arg_v, arg_part)
+  let resEdge = bumpSemver(edge_v, edge_part)
+  assertEqInt(resNom.major, 4, "bumpSemver nominal resNom.major == 4")
+  assertEqInt(resEdge.major, 1, "bumpSemver boundary resEdge.major == 1")
+  ret 0
+
+pub fn test_qrcode_semver_satisfiesRange_25(): int:
+  let arg_v = SemVer(major = 4, minor = 4, patch = 2, prerelease = "test", build = "test")
+  let edge_v = SemVer(major = 1, minor = 1, patch = 0, prerelease = "a", build = "a")
+  let arg_rangeStr = "test"
+  let edge_rangeStr = "a"
+  let resNom = satisfiesRange(arg_v, arg_rangeStr)
+  let resEdge = satisfiesRange(edge_v, edge_rangeStr)
+  assert(resNom == false, "satisfiesRange nominal resNom == false")
+  assert(resEdge == false, "satisfiesRange boundary resEdge == false")
+  ret 0

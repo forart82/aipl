@@ -1,0 +1,58 @@
+module tests.functions.phys3d.character3d_test
+
+import * from "std/phys3d/character3d"
+import { minFloat } from "std/math/consts"
+import { Vec3 } from "std/math/vec_math"
+import { PhysicsWorld3D } from "std/phys3d/phys_world3d"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_character3d_characterControllerNew_1(): int:
+  let arg_settings = CharacterControllerSettings3D(stepHeight = 2.0, slopeLimitRadians = 0.0, skinWidth = 2.0, gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), groundFriction = 1.0, airControl = 1.0)
+  let edge_settings = CharacterControllerSettings3D(stepHeight = 1.0, slopeLimitRadians = 0.0, skinWidth = 1.0, gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), groundFriction = 0.5, airControl = 0.5)
+  let arg_height = 2.0
+  let edge_height = 1.0
+  let arg_radius = 2.0
+  let edge_radius = 1.0
+  let resNom = characterControllerNew(arg_settings, arg_height, arg_radius)
+  let resEdge = characterControllerNew(edge_settings, edge_height, edge_radius)
+  assertApproxEq(resNom.height, 2.0, 0.001, "characterControllerNew nominal resNom.height ~= 2.0")
+  assertApproxEq(resEdge.height, 1.0, 0.001, "characterControllerNew boundary resEdge.height ~= 1.0")
+  ret 0
+
+pub fn test_character3d_characterMoveAndSlide_2(): int:
+  let arg_controller = KinematicCharacterController3D(position = Vec3(x = 1.0, y = 1.0, z = 1.0), velocity = Vec3(x = 1.0, y = 1.0, z = 1.0), height = 2.0, radius = 2.0, isGrounded = true, groundNormal = Vec3(x = 1.0, y = 1.0, z = 1.0), settings = CharacterControllerSettings3D(stepHeight = 2.0, slopeLimitRadians = 0.0, skinWidth = 2.0, gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), groundFriction = 1.0, airControl = 1.0))
+  let edge_controller = KinematicCharacterController3D(position = Vec3(x = 0.5, y = 0.5, z = 0.5), velocity = Vec3(x = 0.5, y = 0.5, z = 0.5), height = 1.0, radius = 1.0, isGrounded = false, groundNormal = Vec3(x = 0.5, y = 0.5, z = 0.5), settings = CharacterControllerSettings3D(stepHeight = 1.0, slopeLimitRadians = 0.0, skinWidth = 1.0, gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), groundFriction = 0.5, airControl = 0.5))
+  let arg_desiredVelocity = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_desiredVelocity = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 1.0, y = 1.0, z = 1.0), iterations = 4, subSteps = 4, sleepLinearThresholdSq = 2.0, sleepAngularThresholdSq = 2.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let edge_world = PhysicsWorld3D(settings = PhysWorldSettings3D(gravity = Vec3(x = 0.5, y = 0.5, z = 0.5), iterations = 1, subSteps = 1, sleepLinearThresholdSq = 1.0, sleepAngularThresholdSq = 1.0), bodies = [], colliders = [], colliderBodyIds = [], joints = [])
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = characterMoveAndSlide(arg_controller, arg_desiredVelocity, arg_world, arg_dt)
+  let resEdge = characterMoveAndSlide(edge_controller, edge_desiredVelocity, edge_world, edge_dt)
+  assertApproxEq(resNom.x, 3.0, 0.001, "characterMoveAndSlide nominal resNom.x ~= 3.0")
+  assertApproxEq(resEdge.x, 1.5, 0.001, "characterMoveAndSlide boundary resEdge.x ~= 1.5")
+  ret 0
+
+pub fn test_character3d_computeAirAccelerateVelocity_3(): int:
+  let arg_velocity = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_velocity = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_wishDir = Vec3(x = 1.0, y = 1.0, z = 1.0)
+  let edge_wishDir = Vec3(x = 0.5, y = 0.5, z = 0.5)
+  let arg_wishSpeed = 2.0
+  let edge_wishSpeed = 1.0
+  let arg_accel = 1.0
+  let edge_accel = 0.5
+  let arg_dt = 2.0
+  let edge_dt = 1.0
+  let resNom = computeAirAccelerateVelocity(arg_velocity, arg_wishDir, arg_wishSpeed, arg_accel, arg_dt)
+  let resEdge = computeAirAccelerateVelocity(edge_velocity, edge_wishDir, edge_wishSpeed, edge_accel, edge_dt)
+  assertApproxEq(resNom.x, 1.0, 0.001, "computeAirAccelerateVelocity nominal resNom.x ~= 1.0")
+  assertApproxEq(resEdge.x, 0.625, 0.001, "computeAirAccelerateVelocity boundary resEdge.x ~= 0.625")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_character3d_characterControllerNew_1(), 0, "test_character3d_characterControllerNew_1")
+  assertEqInt(test_character3d_characterMoveAndSlide_2(), 0, "test_character3d_characterMoveAndSlide_2")
+  assertEqInt(test_character3d_computeAirAccelerateVelocity_3(), 0, "test_character3d_computeAirAccelerateVelocity_3")
+  ret 0

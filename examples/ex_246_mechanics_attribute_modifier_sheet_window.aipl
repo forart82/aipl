@@ -1,0 +1,153 @@
+module Ex246MechanicsAttributeModifierSheetWindow
+
+import { ModifierStage, StatModifier, AttributePool, evalStatModifierStack, stepStatModifierDurations, attributePoolNew, attributePoolSpend, attributePoolStepRegen, computeArmorMitigationRatio, applyMitigatedDamage, computeCriticalStrikeMultiplier } from "../std/mechanics/attribute_pipeline"
+import { initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow, clearScreen, drawRect, drawRectOutline, drawText, rgb } from "../std/gfx2d/shape2d"
+
+pub struct AttributeSheetScene(mods: [StatModifier], manaPool: AttributePool, basePower: float, totalPower: float, critDmg: float, mitRatio: float, stepCount: int)
+
+pub fn initScene(): AttributeSheetScene:
+  mut mods: [StatModifier] = []
+  mods.push(StatModifier(id = 1, statTag = "power", stage = ModifierStage.FlatAdd, value = 20.0, durationRemaining = 10.0, isPermanent = true))
+  mods.push(StatModifier(id = 2, statTag = "power", stage = ModifierStage.PercentAdd, value = 0.50, durationRemaining = 10.0, isPermanent = true))
+  mods.push(StatModifier(id = 3, statTag = "power", stage = ModifierStage.FinalMultiply, value = 1.20, durationRemaining = 1.0, isPermanent = false))
+  let basePower = 100.0
+  let totalPower = evalStatModifierStack(basePower, mods)
+  let critDmg = computeCriticalStrikeMultiplier(totalPower, true, 1.0)
+  let mitRatio = computeArmorMitigationRatio(150.0, 100.0)
+  let rawPool = attributePoolNew(100.0, 15.0)
+  let (spentPool, _) = attributePoolSpend(rawPool, 40.0)
+  ret AttributeSheetScene(
+    mods = mods,
+    manaPool = spentPool,
+    basePower = basePower,
+    totalPower = totalPower,
+    critDmg = critDmg,
+    mitRatio = mitRatio,
+    stepCount = 0
+  )
+
+pub fn stepScene(mut scene: AttributeSheetScene, frame: int, dt: float): AttributeSheetScene:
+  scene.mods = stepStatModifierDurations(scene.mods, dt)
+  scene.manaPool = attributePoolStepRegen(scene.manaPool, dt)
+  if frame >= 7 and frame % 7 == 0 and scene.mods.len() < 3:
+    let (nextPool, ok) = attributePoolSpend(scene.manaPool, 25.0)
+    if ok:
+      scene.manaPool = nextPool
+      mut nextMods = scene.mods
+      let multVal = 1.20 + float((frame / 7) % 3) * 0.10
+      nextMods.push(StatModifier(id = 3 + frame, statTag = "power", stage = ModifierStage.FinalMultiply, value = multVal, durationRemaining = 1.0, isPermanent = false))
+      scene.mods = nextMods
+  scene.totalPower = evalStatModifierStack(scene.basePower, scene.mods)
+  scene.critDmg = computeCriticalStrikeMultiplier(scene.totalPower, true, 1.0)
+  scene.mitRatio = computeArmorMitigationRatio(120.0 + float((frame * 3) % 11) * 15.0, 100.0)
+  scene.stepCount = scene.stepCount + 1
+  ret scene
+
+pub fn auditMechanicsAttributeSheet(): int:
+  let scene = initScene()
+  let mitDmg = applyMitigatedDamage(120.0, 100.0, 20.0)
+  ret int(scene.totalPower) + int(mitDmg)
+
+pub fn main(): int:
+  let audit = auditMechanicsAttributeSheet()
+  println("EX_246_MECHANICS_ATTRIBUTE_AUDIT=" + str(audit))
+
+  mut scene = initScene()
+  mut frame = 0
+
+  initWindow(1280, 720, "AIPL ex_246: Staged Attribute Modifier Pipeline & Character Sheet")
+  while not windowShouldClose():
+    scene = stepScene(scene, frame, 0.2)
+    let afterFlat = scene.basePower + 20.0
+    let afterPct = afterFlat * 1.50
+    let armorVal = 120.0 + float((frame * 3) % 11) * 15.0
+    let netHit = applyMitigatedDamage(scene.critDmg, armorVal, 15.0)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_246: STAGED ATTRIBUTE MODIFIER PIPELINE (FLAT + %ADD + FINAL MULT)", 36.0, 24.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Base=" + str(int(scene.basePower)) + " -> Effective=" + str(int(scene.totalPower)) + " | Crit=" + str(int(scene.critDmg)) + " | NetHit=" + str(int(netHit)) + " | Mana=" + str(int(scene.manaPool.current)) + "/100", 36.0, 52.0, 15.0, rgb(148, 163, 184))
+
+    drawRect(44.0, 88.0, 580.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(44.0, 88.0, 580.0, 594.0, 2.0, rgb(56, 189, 248))
+    drawText("STAGED STAT PIPELINE WATERFALL & COMBAT MITIGATION", 66.0, 104.0, 15.0, rgb(125, 211, 252))
+
+    drawRect(68.0, 136.0, 532.0, 236.0, rgb(11, 17, 30))
+    drawRectOutline(68.0, 136.0, 532.0, 236.0, 1.0, rgb(51, 65, 85))
+    drawText("FORMULA: ((Base + sumFlat) * (1 + sumPct)) * prodFinalMult", 84.0, 150.0, 13.0, rgb(147, 197, 253))
+
+    let stageLabels = [
+      "0. Base Stat: " + str(int(scene.basePower)),
+      "1. +FlatAdd (+20): " + str(int(afterFlat)),
+      "2. *PercentAdd (+50%): " + str(int(afterPct)),
+      "3. *FinalMultiply: " + str(int(scene.totalPower))
+    ]
+    let stageVals = [scene.basePower, afterFlat, afterPct, scene.totalPower]
+    let stageCols = [rgb(100, 116, 139), rgb(56, 189, 248), rgb(16, 185, 129), rgb(168, 85, 247)]
+    mut sIdx = 0
+    while sIdx < 4:
+      let sy = 182.0 + float(sIdx * 44)
+      let sw = (stageVals[sIdx] / 260.0) * 300.0
+      drawText(stageLabels[sIdx], 84.0, sy + 4.0, 13.0, rgb(226, 232, 240))
+      drawRect(276.0, sy, 300.0, 24.0, rgb(30, 41, 59))
+      drawRect(276.0, sy, sw, 24.0, stageCols[sIdx])
+      drawRectOutline(276.0, sy, 300.0, 24.0, 1.0, rgb(71, 85, 105))
+      sIdx = sIdx + 1
+
+    drawRect(68.0, 390.0, 532.0, 132.0, rgb(11, 17, 30))
+    drawRectOutline(68.0, 390.0, 532.0, 132.0, 1.0, rgb(51, 65, 85))
+    drawText("CRITICAL STRIKE & ARMOR MITIGATION (Armor=" + str(int(armorVal)) + ", Pen=15)", 84.0, 404.0, 13.0, rgb(253, 224, 71))
+    drawText("Raw Crit (2.0x): " + str(int(scene.critDmg)) + " dmg  |  Mitigation: " + str(int(scene.mitRatio * 100.0)) + "%  |  Post-Armor Hit: " + str(int(netHit)) + " dmg", 84.0, 432.0, 13.0, rgb(226, 232, 240))
+    drawRect(84.0, 462.0, 500.0, 22.0, rgb(127, 29, 29))
+    drawRect(84.0, 462.0, 500.0 * scene.mitRatio, 22.0, rgb(52, 211, 153))
+    drawRectOutline(84.0, 462.0, 500.0, 22.0, 1.0, rgb(148, 163, 184))
+    drawText("Green = Damage Mitigated by Armor | Red = Damage Taken", 84.0, 492.0, 12.0, rgb(148, 163, 184))
+
+    drawRect(68.0, 540.0, 532.0, 118.0, rgb(11, 17, 30))
+    drawRectOutline(68.0, 540.0, 532.0, 118.0, 1.0, rgb(51, 65, 85))
+    drawText("MANA ATTRIBUTE POOL (Current=" + str(int(scene.manaPool.current)) + " / " + str(int(scene.manaPool.baseMax)) + " | Regen=+15/s | PotionCost=25)", 84.0, 554.0, 13.0, rgb(56, 189, 248))
+    let manaW = (scene.manaPool.current / scene.manaPool.baseMax) * 500.0
+    drawRect(84.0, 584.0, 500.0, 30.0, rgb(30, 41, 59))
+    drawRect(84.0, 584.0, manaW, 30.0, rgb(37, 99, 235))
+    drawRectOutline(84.0, 584.0, 500.0, 30.0, 1.5, rgb(96, 165, 250))
+    drawText("Auto-casts FinalMultiply Elixir (-25 Mana) every 7 ticks when expired", 84.0, 624.0, 12.0, rgb(148, 163, 184))
+
+    drawRect(652.0, 88.0, 584.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(652.0, 88.0, 584.0, 594.0, 2.0, rgb(168, 85, 247))
+    drawText("ACTIVE STAT MODIFIER STACK (" + str(scene.mods.len()) + " BUFFS ACTIVE)", 674.0, 104.0, 15.0, rgb(216, 180, 254))
+
+    mut mIdx = 0
+    while mIdx < scene.mods.len():
+      let m: StatModifier = scene.mods[mIdx]
+      let my = 144.0 + float(mIdx * 136)
+      let bgCol = if mIdx == 0: rgb(23, 37, 84) elif mIdx == 1: rgb(6, 78, 59) else: rgb(88, 28, 135)
+      let outCol = if mIdx == 0: rgb(56, 189, 248) elif mIdx == 1: rgb(52, 211, 153) else: rgb(192, 132, 252)
+      let stageName = if m.stage == ModifierStage.FlatAdd: "STAGE 1: FLAT_ADD (+20.0)" elif m.stage == ModifierStage.PercentAdd: "STAGE 2: PERCENT_ADD (+50%)" else: "STAGE 3: FINAL_MULTIPLY (x" + str(m.value) + ")"
+      drawRect(676.0, my, 536.0, 114.0, bgCol)
+      drawRectOutline(676.0, my, 536.0, 114.0, 2.0, outCol)
+      drawText("Modifier #" + str(m.id) + " [" + m.statTag + "] — " + stageName, 696.0, my + 18.0, 15.0, rgb(255, 255, 255))
+      let durText = if m.isPermanent: "PERMANENT PASSIVE AURA" else: "TEMPORARY BUFF: " + str(int(m.durationRemaining * 10.0)) + "00 ms remaining"
+      drawText(durText, 696.0, my + 46.0, 13.0, rgb(226, 232, 240))
+      let fillFrac = if m.isPermanent: 1.0 else: m.durationRemaining / 1.0
+      drawRect(696.0, my + 74.0, 496.0, 20.0, rgb(15, 23, 42))
+      drawRect(696.0, my + 74.0, 496.0 * fillFrac, 20.0, outCol)
+      drawRectOutline(696.0, my + 74.0, 496.0, 20.0, 1.0, rgb(226, 232, 240))
+      mIdx = mIdx + 1
+
+    if scene.mods.len() < 3:
+      let ey = 144.0 + 2.0 * 136.0
+      drawRect(676.0, ey, 536.0, 114.0, rgb(15, 23, 42))
+      drawRectOutline(676.0, ey, 536.0, 114.0, 1.5, rgb(71, 85, 105))
+      drawText("[SLOT 3: TEMPORARY FINAL_MULTIPLY ELIXIR EXPIRED]", 696.0, ey + 32.0, 14.0, rgb(148, 163, 184))
+      drawText("Waiting for next Mana Pool expenditure (25 Mana) to re-apply buff...", 696.0, ey + 62.0, 13.0, rgb(100, 116, 139))
+
+    drawRect(676.0, 560.0, 536.0, 98.0, rgb(11, 17, 30))
+    drawRectOutline(676.0, 560.0, 536.0, 98.0, 1.0, rgb(51, 65, 85))
+    drawText("PIPELINE INVARIANTS (std/mechanics/attribute_pipeline)", 696.0, 576.0, 13.0, rgb(216, 180, 254))
+    drawText("1. FlatAdd modifiers sum first | 2. PercentAdd sums into (1 + sumPct)", 696.0, 602.0, 13.0, rgb(226, 232, 240))
+    drawText("3. FinalMultiply compounds multiplicatively | Expired mods auto-pruned", 696.0, 626.0, 13.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

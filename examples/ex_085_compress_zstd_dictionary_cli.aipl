@@ -1,0 +1,52 @@
+// ============================================================================
+// Example 085: RFC-8878 Zstandard (Zstd) Frame & FSE Entropy Codec (CLI)
+// Demonstrates: zstdCompress, zstdDecompress, compressZstd, decompressZstd,
+//               and computeCrc32 from std/compress.
+// ============================================================================
+module Ex085CompressZstdDictionaryCli
+
+import {
+  zstdCompress,
+  zstdDecompress,
+  compressZstd,
+  decompressZstd,
+  computeCrc32
+} from "../std/compress"
+
+// Compresses and decompresses a payload with RFC-8878 Zstandard and returns the restored byte length.
+pub fn evaluateZstdDecompressedLength(payloadStr: str): int:
+  let raw = payloadStr.toBytes()
+  let compressed = zstdCompress(raw, 3)
+  assert(compressed.len() > 0, "Zstd compressed frame non-empty")
+  let decompressed = zstdDecompress(compressed).unwrap()
+  assert(decompressed.toStringLossy() == payloadStr, "Zstd exact string roundtrip")
+  ret decompressed.len()
+
+// Verifies both Zstd APIs and CRC32 content checksum equality before and after decompression.
+pub fn verifyZstdDualApiAndIntegrity(): int:
+  let text = "Zstandard modern compression verification payload with FSE entropy"
+  let raw = text.toBytes()
+  let crcBefore = computeCrc32(raw)
+
+  let compA = zstdCompress(raw, 3)
+  let decA = zstdDecompress(compA).unwrap()
+
+  let compB = compressZstd(raw, 3)
+  let decB = decompressZstd(compB).unwrap()
+  let crcAfter = computeCrc32(decB)
+  if decA.toStringLossy() == text and decB.toStringLossy() == text and crcBefore == crcAfter:
+    ret 1
+  ret 0
+
+// Returns a canonical label for the Zstandard FSE compression level.
+pub fn describeZstdEntropyLevel(level: int): str:
+  if level == 3:
+    ret "ZSTD:RFC8878_FSE_LEVEL_3_DEFAULT"
+  ret "ZSTD:HIGH_RATIO_ARCHIVE"
+
+pub fn main(): int:
+  let decLen = evaluateZstdDecompressedLength("Zstandard modern compression verification payload with FSE entropy")
+  let ok = verifyZstdDualApiAndIntegrity()
+  let mode = describeZstdEntropyLevel(3)
+  println("ex_085_compress_zstd_dictionary_cli: decLen=" + str(decLen) + " ok=" + str(ok) + " mode=" + mode)
+  ret 0

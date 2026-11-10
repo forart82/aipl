@@ -1,0 +1,138 @@
+// ============================================================================
+// Example 021: X11 Software Framebuffer, Bresenham Lines & Blit Window
+// Demonstrates: rtCanvasNew, rtCanvasClear, rtCanvasBlitRect,
+//               rtCanvasPresentX11, rtFbNew, rtFbDrawLineBresenham, and
+//               rtFbDrawCircleMidpoint from std/rt/rt_canvas_x11, rendered
+//               live in a 1280x720 desktop window.
+// ============================================================================
+module Ex021RtCanvasX11Window
+
+import { clampInt } from "../std/prelude"
+import {
+  rtCanvasNew,
+  rtCanvasClear,
+  rtCanvasBlitRect,
+  rtCanvasPresentX11,
+  rtCanvasFree,
+  rtFbNew,
+  rtFbClear,
+  rtFbGetPixel,
+  rtFbDrawLineBresenham,
+  rtFbDrawCircleMidpoint,
+  rtFbFree
+} from "../std/rt/rt_canvas_x11"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct X11CanvasState:
+  width: int
+  height: int
+  presentBytes: int
+  activeScanline: int
+  centerPixel: int
+
+pub fn probeSoftwareCanvasBlit(w: int, h: int): int:
+  mut canvas = rtCanvasNew(w, h)
+  rtCanvasClear(canvas, 0xFF101824)
+  rtCanvasBlitRect(canvas, 2, 2, 8, 8, 0xFF38BDF8)
+  let bytesOut = rtCanvasPresentX11(canvas)
+  rtCanvasFree(canvas)
+  ret bytesOut
+
+pub fn probeBresenhamFramebuffer(w: int, h: int): int:
+  mut fb = rtFbNew(w, h)
+  rtFbClear(fb, 0xFF000000)
+  rtFbDrawLineBresenham(fb, 0, 0, w - 1, h - 1, 0xFFFFFFFF)
+  rtFbDrawCircleMidpoint(fb, w / 2, h / 2, 4, 0xFF00FFAA)
+  let px = rtFbGetPixel(fb, 2, 2)
+  rtFbFree(fb)
+  ret px
+
+pub fn describeScanlineSyncMode(modeId: int): str:
+  if modeId == 0:
+    ret "X11:VSYNC_LOCKED_60HZ"
+  ret "X11:IMMEDIATE_SHM_BLIT"
+
+pub fn buildX11CanvasState(w: int, h: int, frameIdx: int): X11CanvasState:
+  let bytesPresented = probeSoftwareCanvasBlit(w, h)
+  let diagPx = probeBresenhamFramebuffer(16, 16)
+  let scanRow = clampInt(frameIdx % h, 0, h - 1)
+  ret X11CanvasState(
+    width = w,
+    height = h,
+    presentBytes = bytesPresented,
+    activeScanline = scanRow,
+    centerPixel = diagPx
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildX11CanvasState(64, 64, frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.presentBytes + frameIndex + dtPad
+
+pub fn renderX11InspectorScene(frame: int): void:
+  let st = buildX11CanvasState(64, 64, frame)
+  let gridScanRow = (st.activeScanline + (frame / 11)) % 12
+  let circleX = 4 + ((frame * 3 + (frame / 7)) % 9)
+  let circleY = 4 + ((frame / 5) % 4)
+  mut fb = rtFbNew(16, 12)
+  rtFbClear(fb, 0xFF161E2E)
+  rtFbDrawLineBresenham(fb, 0, (frame / 4) % 5, 15, 11 - ((frame / 3) % 5), 0xFF38BDF8)
+  rtFbDrawCircleMidpoint(fb, circleX, circleY, 3, 0xFF00FFAA)
+
+  clearScreen(rgb(10, 14, 22))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 42))
+  drawText("AIPL ex_021: X11 Software Framebuffer, Magnified Pixel Matrix & Bresenham Rasterizer", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Magnified 16x12 software framebuffer grid read directly from rtFbGetPixel
+  drawRect(40.0, 80.0, 672.0, 504.0, rgb(16, 22, 34))
+  drawRectOutline(40.0, 80.0, 672.0, 504.0, 2.0, rgb(56, 189, 248))
+  for row in 0..12:
+    for col in 0..16:
+      let cellX = 48.0 + float(col * 41)
+      let cellY = 88.0 + float(row * 41)
+      let px = rtFbGetPixel(fb, col, row)
+      let onScan = (row == gridScanRow)
+      let tileColor = if px == 0xFF00FFAA: rgb(0, 255, 170) elif px == 0xFF38BDF8: rgb(56, 189, 248) elif onScan: rgb(30, 58, 95) else: rgb(22, 30, 46)
+      drawRect(cellX, cellY, 37.0, 37.0, tileColor)
+  rtFbFree(fb)
+  // Scanline beam indicator line
+  let beamY = 88.0 + float(gridScanRow * 41) + 18.0
+  drawLine(40.0, beamY, 712.0, beamY, rgb(250, 204, 21), 2.0)
+
+  // Right panel: SMPTE color bars + X11 SHM telemetry
+  drawRect(748.0, 80.0, 492.0, 504.0, rgb(18, 24, 38))
+  drawText("SMPTE / X11 Calibration Bars", 772.0, 100.0, 18.0, rgb(148, 163, 184))
+  for bar in 0..6:
+    let bx = 772.0 + float(bar * 74)
+    let br = 40 + (bar * 35) % 215
+    let bg = 220 - (bar * 28) % 180
+    let bb = 120 + (bar * 45) % 135
+    drawRect(bx, 136.0, 66.0, 220.0, rgb(br, bg, bb))
+
+  drawText("Mode: " + describeScanlineSyncMode(0), 772.0, 392.0, 18.0, rgb(167, 243, 208))
+  drawText("Present Buffer: " + str(st.presentBytes) + " bytes (64x64 RGBA)", 772.0, 424.0, 16.0, rgb(203, 213, 225))
+  drawText("Active Scanline Row: " + str(gridScanRow) + " / 11 (scan=" + str(st.activeScanline) + "/63)", 772.0, 452.0, 16.0, rgb(250, 204, 21))
+  drawText("Frame Step Metric: " + str(renderFrameStep(frame, 0.016)), 772.0, 480.0, 16.0, rgb(125, 211, 252))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_021_rt_canvas_x11_window: X11 Software Framebuffer & Bresenham Rasterizer")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderX11InspectorScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

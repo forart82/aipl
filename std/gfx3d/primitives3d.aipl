@@ -1,0 +1,465 @@
+/// # Module: `std/gfx3d/primitives3d` (`Primitives3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Procedural 3D mesh generators for Box, UV Sphere, Icosphere, Cylinder,
+/// Cone, Torus, Plane, and Capsule primitives.
+module Primitives3DMod
+
+import { PI, TAU } from "std/math/consts"
+import { sin, cos, sqrt } from "std/math/trig"
+import { Vec2, Vec3, Vec4, IVec4 } from "std/math/vec_math"
+import { AABB3D } from "std/math/geom3d"
+import { ColorRgba8 } from "std/gfx/color"
+import { Vertex3D, SubMesh3D, Mesh3D, recomputeMeshBoundingBox, computeMeshNormals } from "std/gfx3d/mesh3d"
+
+fn makeVert(px: float, py: float, pz: float, nx: float, ny: float, nz: float, u: float, v: float): Vertex3D:
+  ret Vertex3D(
+    pos = Vec3(x = px, y = py, z = pz),
+    normal = Vec3(x = nx, y = ny, z = nz),
+    tangent = Vec4(x = 1.0, y = 0.0, z = 0.0, w = 1.0),
+    uv = Vec2(x = u, y = v),
+    color = ColorRgba8(r = 255, g = 255, b = 255, a = 255),
+    boneIndices = IVec4(x = 0, y = 0, z = 0, w = 0),
+    boneWeights = Vec4(x = 1.0, y = 0.0, z = 0.0, w = 0.0)
+  )
+
+fn finalizePrimitiveMesh(verts: [Vertex3D], indices: [int]): Mesh3D:
+  let baseMesh = recomputeMeshBoundingBox(Mesh3D(
+    vertices = verts,
+    indices = indices,
+    subMeshes = [],
+    boundingBox = AABB3D(min = Vec3(x = 0.0, y = 0.0, z = 0.0), max = Vec3(x = 0.0, y = 0.0, z = 0.0))
+  ))
+  let sub = SubMesh3D(
+    startIndex = 0,
+    indexCount = indices.len,
+    materialIndex = 0,
+    boundingBox = baseMesh.boundingBox
+  )
+  ret Mesh3D(
+    vertices = baseMesh.vertices,
+    indices = baseMesh.indices,
+    subMeshes = [sub],
+    boundingBox = baseMesh.boundingBox
+  )
+
+pub fn generateBoxMesh(width: float, height: float, depth: float): Mesh3D:
+  let hx = width * 0.5
+  let hy = height * 0.5
+  let hz = depth * 0.5
+  mut verts: [Vertex3D] = []
+  mut indices: [int] = []
+
+  // +Z Front face (0..3)
+  verts.push(makeVert(-hx, -hy,  hz,  0.0,  0.0,  1.0, 0.0, 1.0))
+  verts.push(makeVert( hx, -hy,  hz,  0.0,  0.0,  1.0, 1.0, 1.0))
+  verts.push(makeVert( hx,  hy,  hz,  0.0,  0.0,  1.0, 1.0, 0.0))
+  verts.push(makeVert(-hx,  hy,  hz,  0.0,  0.0,  1.0, 0.0, 0.0))
+
+  // -Z Back face (4..7)
+  verts.push(makeVert( hx, -hy, -hz,  0.0,  0.0, -1.0, 0.0, 1.0))
+  verts.push(makeVert(-hx, -hy, -hz,  0.0,  0.0, -1.0, 1.0, 1.0))
+  verts.push(makeVert(-hx,  hy, -hz,  0.0,  0.0, -1.0, 1.0, 0.0))
+  verts.push(makeVert( hx,  hy, -hz,  0.0,  0.0, -1.0, 0.0, 0.0))
+
+  // +Y Top face (8..11)
+  verts.push(makeVert(-hx,  hy,  hz,  0.0,  1.0,  0.0, 0.0, 1.0))
+  verts.push(makeVert( hx,  hy,  hz,  0.0,  1.0,  0.0, 1.0, 1.0))
+  verts.push(makeVert( hx,  hy, -hz,  0.0,  1.0,  0.0, 1.0, 0.0))
+  verts.push(makeVert(-hx,  hy, -hz,  0.0,  1.0,  0.0, 0.0, 0.0))
+
+  // -Y Bottom face (12..15)
+  verts.push(makeVert(-hx, -hy, -hz,  0.0, -1.0,  0.0, 0.0, 1.0))
+  verts.push(makeVert( hx, -hy, -hz,  0.0, -1.0,  0.0, 1.0, 1.0))
+  verts.push(makeVert( hx, -hy,  hz,  0.0, -1.0,  0.0, 1.0, 0.0))
+  verts.push(makeVert(-hx, -hy,  hz,  0.0, -1.0,  0.0, 0.0, 0.0))
+
+  // +X Right face (16..19)
+  verts.push(makeVert( hx, -hy,  hz,  1.0,  0.0,  0.0, 0.0, 1.0))
+  verts.push(makeVert( hx, -hy, -hz,  1.0,  0.0,  0.0, 1.0, 1.0))
+  verts.push(makeVert( hx,  hy, -hz,  1.0,  0.0,  0.0, 1.0, 0.0))
+  verts.push(makeVert( hx,  hy,  hz,  1.0,  0.0,  0.0, 0.0, 0.0))
+
+  // -X Left face (20..23)
+  verts.push(makeVert(-hx, -hy, -hz, -1.0,  0.0,  0.0, 0.0, 1.0))
+  verts.push(makeVert(-hx, -hy,  hz, -1.0,  0.0,  0.0, 1.0, 1.0))
+  verts.push(makeVert(-hx,  hy,  hz, -1.0,  0.0,  0.0, 1.0, 0.0))
+  verts.push(makeVert(-hx,  hy, -hz, -1.0,  0.0,  0.0, 0.0, 0.0))
+
+  mut f = 0
+  while f < 6:
+    let base = f * 4
+    indices.push(base)
+    indices.push(base + 1)
+    indices.push(base + 2)
+    indices.push(base)
+    indices.push(base + 2)
+    indices.push(base + 3)
+    f = f + 1
+
+  ret finalizePrimitiveMesh(verts, indices)
+
+pub fn generateUvSphereMesh(radius: float, segments: int = 32, rings: int = 16): Mesh3D:
+  let segs = if segments >= 3: segments else: 3
+  let rgs = if rings >= 2: rings else: 2
+  mut verts: [Vertex3D] = []
+  mut indices: [int] = []
+
+  mut r = 0
+  while r <= rgs:
+    let v = float(r) / float(rgs)
+    let phi = v * PI
+    let sinPhi = sin(phi)
+    let cosPhi = cos(phi)
+    mut s = 0
+    while s <= segs:
+      let u = float(s) / float(segs)
+      let theta = u * TAU
+      let nx = cos(theta) * sinPhi
+      let ny = cosPhi
+      let nz = sin(theta) * sinPhi
+      verts.push(makeVert(nx * radius, ny * radius, nz * radius, nx, ny, nz, u, v))
+      s = s + 1
+    r = r + 1
+
+  let stride = segs + 1
+  mut ri = 0
+  while ri < rgs:
+    mut si = 0
+    while si < segs:
+      let i0 = ri * stride + si
+      let i1 = i0 + 1
+      let i2 = (ri + 1) * stride + si
+      let i3 = i2 + 1
+      indices.push(i0)
+      indices.push(i2)
+      indices.push(i1)
+      indices.push(i1)
+      indices.push(i2)
+      indices.push(i3)
+      si = si + 1
+    ri = ri + 1
+
+  ret finalizePrimitiveMesh(verts, indices)
+
+fn normVec3(px: float, py: float, pz: float): Vec3:
+  let l = sqrt(px * px + py * py + pz * pz)
+  if l > 0.0:
+    ret Vec3(x = px / l, y = py / l, z = pz / l)
+  ret Vec3(x = 0.0, y = 0.0, z = 0.0)
+
+pub fn generateIcosphereMesh(radius: float, subdivisions: int = 3): Mesh3D:
+  let t = (1.0 + sqrt(5.0)) * 0.5
+  mut positions: [Vec3] = [
+    normVec3(-1.0,  t,   0.0),
+    normVec3( 1.0,  t,   0.0),
+    normVec3(-1.0, -t,   0.0),
+    normVec3( 1.0, -t,   0.0),
+    normVec3( 0.0, -1.0,  t ),
+    normVec3( 0.0,  1.0,  t ),
+    normVec3( 0.0, -1.0, -t ),
+    normVec3( 0.0,  1.0, -t ),
+    normVec3( t,    0.0, -1.0),
+    normVec3( t,    0.0,  1.0),
+    normVec3(-t,    0.0, -1.0),
+    normVec3(-t,    0.0,  1.0)
+  ]
+  mut tris: [int] = [
+    0, 11, 5,  0, 5, 1,   0, 1, 7,   0, 7, 10,  0, 10, 11,
+    1, 5, 9,   5, 11, 4,  11, 10, 2, 10, 7, 6,  7, 1, 8,
+    3, 9, 4,   3, 4, 2,   3, 2, 6,   3, 6, 8,   3, 8, 9,
+    4, 9, 5,   2, 4, 11,  6, 2, 10,  8, 6, 7,   9, 8, 1
+  ]
+
+  mut sub = 0
+  let maxSub = if subdivisions > 4: 4 else: subdivisions
+  while sub < maxSub:
+    mut nextTris: [int] = []
+    mut k = 0
+    while k + 2 < tris.len:
+      let a = tris[k]
+      let b = tris[k + 1]
+      let c = tris[k + 2]
+      let pa: Vec3 = positions[a]
+      let pb: Vec3 = positions[b]
+      let pc: Vec3 = positions[c]
+      let ab = normVec3(pa.x + pb.x, pa.y + pb.y, pa.z + pb.z)
+      let bc = normVec3(pb.x + pc.x, pb.y + pc.y, pb.z + pc.z)
+      let ca = normVec3(pc.x + pa.x, pc.y + pa.y, pc.z + pa.z)
+      let iAb = positions.len
+      positions.push(ab)
+      let iBc = positions.len
+      positions.push(bc)
+      let iCa = positions.len
+      positions.push(ca)
+      nextTris.push(a)
+      nextTris.push(iAb)
+      nextTris.push(iCa)
+      nextTris.push(b)
+      nextTris.push(iBc)
+      nextTris.push(iAb)
+      nextTris.push(c)
+      nextTris.push(iCa)
+      nextTris.push(iBc)
+      nextTris.push(iAb)
+      nextTris.push(iBc)
+      nextTris.push(iCa)
+      k = k + 3
+    tris = nextTris
+    sub = sub + 1
+
+  mut verts: [Vertex3D] = []
+  mut idx = 0
+  while idx < positions.len:
+    let n = positions[idx]
+    verts.push(makeVert(n.x * radius, n.y * radius, n.z * radius, n.x, n.y, n.z, 0.5, 0.5))
+    idx = idx + 1
+
+  ret finalizePrimitiveMesh(verts, tris)
+
+pub fn generateCylinderMesh(radius: float, height: float, segments: int = 32, capped: bool = true): Mesh3D:
+  let segs = if segments >= 3: segments else: 3
+  let halfH = height * 0.5
+  mut verts: [Vertex3D] = []
+  mut indices: [int] = []
+
+  // Side wall vertices: 2 rings of (segs + 1)
+  mut s = 0
+  while s <= segs:
+    let u = float(s) / float(segs)
+    let theta = u * TAU
+    let nx = cos(theta)
+    let nz = sin(theta)
+    verts.push(makeVert(nx * radius, -halfH, nz * radius, nx, 0.0, nz, u, 1.0))
+    verts.push(makeVert(nx * radius,  halfH, nz * radius, nx, 0.0, nz, u, 0.0))
+    s = s + 1
+
+  mut si = 0
+  while si < segs:
+    let b0 = si * 2
+    let t0 = b0 + 1
+    let b1 = b0 + 2
+    let t1 = b0 + 3
+    indices.push(b0)
+    indices.push(t0)
+    indices.push(b1)
+    indices.push(b1)
+    indices.push(t0)
+    indices.push(t1)
+    si = si + 1
+
+  if capped:
+    let topCenterIdx = verts.len
+    verts.push(makeVert(0.0, halfH, 0.0, 0.0, 1.0, 0.0, 0.5, 0.5))
+    mut cs = 0
+    while cs <= segs:
+      let theta = (float(cs) / float(segs)) * TAU
+      let cx = cos(theta)
+      let cz = sin(theta)
+      verts.push(makeVert(cx * radius, halfH, cz * radius, 0.0, 1.0, 0.0, cx * 0.5 + 0.5, cz * 0.5 + 0.5))
+      cs = cs + 1
+    mut csi = 0
+    while csi < segs:
+      indices.push(topCenterIdx)
+      indices.push(topCenterIdx + 1 + csi + 1)
+      indices.push(topCenterIdx + 1 + csi)
+      csi = csi + 1
+
+    let botCenterIdx = verts.len
+    verts.push(makeVert(0.0, -halfH, 0.0, 0.0, -1.0, 0.0, 0.5, 0.5))
+    mut bs = 0
+    while bs <= segs:
+      let theta = (float(bs) / float(segs)) * TAU
+      let cx = cos(theta)
+      let cz = sin(theta)
+      verts.push(makeVert(cx * radius, -halfH, cz * radius, 0.0, -1.0, 0.0, cx * 0.5 + 0.5, cz * 0.5 + 0.5))
+      bs = bs + 1
+    mut bsi = 0
+    while bsi < segs:
+      indices.push(botCenterIdx)
+      indices.push(botCenterIdx + 1 + bsi)
+      indices.push(botCenterIdx + 1 + bsi + 1)
+      bsi = bsi + 1
+
+  ret finalizePrimitiveMesh(verts, indices)
+
+pub fn generateConeMesh(radius: float, height: float, segments: int = 32): Mesh3D:
+  let segs = if segments >= 3: segments else: 3
+  let halfH = height * 0.5
+  mut verts: [Vertex3D] = []
+  mut indices: [int] = []
+
+  let apexIdx = 0
+  verts.push(makeVert(0.0, halfH, 0.0, 0.0, 1.0, 0.0, 0.5, 0.0))
+
+  let slopeLen = sqrt(radius * radius + height * height)
+  let ny = if slopeLen > 0.0: radius / slopeLen else: 0.0
+  let nr = if slopeLen > 0.0: height / slopeLen else: 1.0
+
+  mut s = 0
+  while s <= segs:
+    let u = float(s) / float(segs)
+    let theta = u * TAU
+    let cx = cos(theta)
+    let cz = sin(theta)
+    verts.push(makeVert(cx * radius, -halfH, cz * radius, cx * nr, ny, cz * nr, u, 1.0))
+    s = s + 1
+
+  mut si = 0
+  while si < segs:
+    indices.push(apexIdx)
+    indices.push(1 + si + 1)
+    indices.push(1 + si)
+    si = si + 1
+
+  let botCenterIdx = verts.len
+  verts.push(makeVert(0.0, -halfH, 0.0, 0.0, -1.0, 0.0, 0.5, 0.5))
+  mut bs = 0
+  while bs <= segs:
+    let theta = (float(bs) / float(segs)) * TAU
+    let cx = cos(theta)
+    let cz = sin(theta)
+    verts.push(makeVert(cx * radius, -halfH, cz * radius, 0.0, -1.0, 0.0, cx * 0.5 + 0.5, cz * 0.5 + 0.5))
+    bs = bs + 1
+  mut bsi = 0
+  while bsi < segs:
+    indices.push(botCenterIdx)
+    indices.push(botCenterIdx + 1 + bsi)
+    indices.push(botCenterIdx + 1 + bsi + 1)
+    bsi = bsi + 1
+
+  ret finalizePrimitiveMesh(verts, indices)
+
+pub fn generateTorusMesh(majorRadius: float, minorRadius: float, radialSegments: int = 32, tubularSegments: int = 16): Mesh3D:
+  let rSegs = if radialSegments >= 3: radialSegments else: 3
+  let tSegs = if tubularSegments >= 3: tubularSegments else: 3
+  mut verts: [Vertex3D] = []
+  mut indices: [int] = []
+
+  mut i = 0
+  while i <= rSegs:
+    let u = float(i) / float(rSegs)
+    let theta = u * TAU
+    let cosT = cos(theta)
+    let sinT = sin(theta)
+    mut j = 0
+    while j <= tSegs:
+      let v = float(j) / float(tSegs)
+      let phi = v * TAU
+      let cosP = cos(phi)
+      let sinP = sin(phi)
+      let px = (majorRadius + minorRadius * cosP) * cosT
+      let py = minorRadius * sinP
+      let pz = (majorRadius + minorRadius * cosP) * sinT
+      let nx = cosP * cosT
+      let ny = sinP
+      let nz = cosP * sinT
+      verts.push(makeVert(px, py, pz, nx, ny, nz, u, v))
+      j = j + 1
+    i = i + 1
+
+  let stride = tSegs + 1
+  mut ri = 0
+  while ri < rSegs:
+    mut ti = 0
+    while ti < tSegs:
+      let a = ri * stride + ti
+      let b = (ri + 1) * stride + ti
+      let c = (ri + 1) * stride + (ti + 1)
+      let d = ri * stride + (ti + 1)
+      indices.push(a)
+      indices.push(b)
+      indices.push(d)
+      indices.push(b)
+      indices.push(c)
+      indices.push(d)
+      ti = ti + 1
+    ri = ri + 1
+
+  ret finalizePrimitiveMesh(verts, indices)
+
+pub fn generatePlaneMesh(width: float, depth: float, subX: int = 1, subZ: int = 1): Mesh3D:
+  let sx = if subX >= 1: subX else: 1
+  let sz = if subZ >= 1: subZ else: 1
+  let hw = width * 0.5
+  let hd = depth * 0.5
+  mut verts: [Vertex3D] = []
+  mut indices: [int] = []
+
+  mut iz = 0
+  while iz <= sz:
+    let v = float(iz) / float(sz)
+    let pz = -hd + v * depth
+    mut ix = 0
+    while ix <= sx:
+      let u = float(ix) / float(sx)
+      let px = -hw + u * width
+      verts.push(makeVert(px, 0.0, pz, 0.0, 1.0, 0.0, u, v))
+      ix = ix + 1
+    iz = iz + 1
+
+  let stride = sx + 1
+  mut rz = 0
+  while rz < sz:
+    mut rx = 0
+    while rx < sx:
+      let i0 = rz * stride + rx
+      let i1 = i0 + 1
+      let i2 = (rz + 1) * stride + rx
+      let i3 = i2 + 1
+      indices.push(i0)
+      indices.push(i2)
+      indices.push(i1)
+      indices.push(i1)
+      indices.push(i2)
+      indices.push(i3)
+      rx = rx + 1
+    rz = rz + 1
+
+  ret finalizePrimitiveMesh(verts, indices)
+
+pub fn generateCapsuleMesh(radius: float, cylinderHeight: float, rings: int = 8, segments: int = 16): Mesh3D:
+  let segs = if segments >= 3: segments else: 3
+  let rgs = if rings >= 2: rings else: 2
+  let halfCyl = cylinderHeight * 0.5
+  mut verts: [Vertex3D] = []
+  mut indices: [int] = []
+
+  let totalRings = rgs * 2
+  mut r = 0
+  while r <= totalRings:
+    let v = float(r) / float(totalRings)
+    let phi = v * PI
+    let sinPhi = sin(phi)
+    let cosPhi = cos(phi)
+    let yOffset = if r < rgs: halfCyl else: -halfCyl
+    mut s = 0
+    while s <= segs:
+      let u = float(s) / float(segs)
+      let theta = u * TAU
+      let nx = cos(theta) * sinPhi
+      let ny = cosPhi
+      let nz = sin(theta) * sinPhi
+      verts.push(makeVert(nx * radius, ny * radius + yOffset, nz * radius, nx, ny, nz, u, v))
+      s = s + 1
+    r = r + 1
+
+  let stride = segs + 1
+  mut ri = 0
+  while ri < totalRings:
+    mut si = 0
+    while si < segs:
+      let i0 = ri * stride + si
+      let i1 = i0 + 1
+      let i2 = (ri + 1) * stride + si
+      let i3 = i2 + 1
+      indices.push(i0)
+      indices.push(i2)
+      indices.push(i1)
+      indices.push(i1)
+      indices.push(i2)
+      indices.push(i3)
+      si = si + 1
+    ri = ri + 1
+
+  ret finalizePrimitiveMesh(verts, indices)

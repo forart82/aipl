@@ -1,0 +1,243 @@
+// ============================================================================
+// Canonical Example 255: Game GLX Brick Breaker Arcade Classic (WINDOW - GLX)
+// Target Profile: WINDOW (Game GLX Mode) | Mode: setWindowMode("glx")
+// ============================================================================
+module Ex255GameGlxBrickBreakerArcadeWindow
+
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, setWindowMode, getWindowMode, drawRect, drawRectOutline,
+  drawRoundedRect, drawCircle, drawText, Color, rgb,
+  isKeyPressed, isKeyHeld, getMouseX
+} from "../std/gfx2d/shape2d.aipl"
+import { playToneEx } from "../std/audio/audio_device.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub struct BrickBreakerGame(bricks: [int], bricksLeft: int, paddleX: float, ballX: float, ballY: float, ballVx: float, ballVy: float, launched: bool, score: int, lives: int, wave: int, gameOver: bool, paused: bool, lastMouseX: float)
+
+pub fn brickRowColor(row: int): Color:
+  let r = clampInt(row % 6, 0, 5)
+  if r == 0: ret rgb(244, 63, 94) // Row 0: Rose 60pts
+  if r == 1: ret rgb(249, 115, 22) // Row 1: Orange 50pts
+  if r == 2: ret rgb(250, 204, 21) // Row 2: Gold 40pts
+  if r == 3: ret rgb(34, 197, 94) // Row 3: Emerald 30pts
+  if r == 4: ret rgb(56, 189, 248) // Row 4: Cyan 20pts
+  ret rgb(168, 85, 247) // Row 5: Violet 10pts
+
+pub fn brickRowNoteHz(row: int): float:
+  let notes = [783.99, 659.25, 587.33, 523.25, 440.00, 392.00]
+  ret notes[clampInt(row % 6, 0, 5)]
+
+pub fn createBrickBreakerGame(): BrickBreakerGame:
+  mut b: [int] = []
+  mut i = 0
+  while i < 60:
+    b.push(1)
+    i = i + 1
+  ret BrickBreakerGame(
+    bricks = b, bricksLeft = 60, paddleX = 468.0, ballX = 528.0, ballY = 588.0,
+    ballVx = 3.8, ballVy = -5.6, launched = true, score = 0, lives = 3,
+    wave = 1, gameOver = false, paused = false, lastMouseX = getMouseX()
+  )
+
+pub fn pollBrickBreakerControls(mut game: BrickBreakerGame): BrickBreakerGame:
+  if isKeyPressed("P"):
+    game.paused = not game.paused
+  if isKeyPressed("R") or (game.gameOver and isKeyPressed("Space")):
+    ret createBrickBreakerGame()
+  if game.gameOver or game.paused:
+    ret game
+  if isKeyHeld(263) or isKeyHeld(65) or isKeyPressed("Left") or isKeyPressed("A"):
+    game.paddleX = game.paddleX - 8.5
+  if isKeyHeld(262) or isKeyHeld(68) or isKeyPressed("Right") or isKeyPressed("D"):
+    game.paddleX = game.paddleX + 8.5
+  let mx = getMouseX()
+  if (mx - game.lastMouseX > 0.5 or game.lastMouseX - mx > 0.5) and mx >= 108.0 and mx <= 948.0:
+    game.paddleX = mx - 60.0
+  game.lastMouseX = mx
+  if game.paddleX < 108.0: game.paddleX = 108.0
+  if game.paddleX > 828.0: game.paddleX = 828.0
+  if not game.launched:
+    game.ballX = game.paddleX + 60.0
+    game.ballY = 592.0
+    if isKeyPressed("Space"):
+      game.launched = true
+      game.ballVx = 3.8
+      game.ballVy = -5.6
+      let _ = playToneEx(440.0, 120.0, 0.28, "pluck")
+  ret game
+
+pub fn stepBrickBreakerBall(mut game: BrickBreakerGame): BrickBreakerGame:
+  if game.gameOver or game.paused or not game.launched:
+    ret game
+  let ballR = 8.0
+  let prevX = game.ballX
+  let prevY = game.ballY
+  game.ballX = game.ballX + game.ballVx
+  game.ballY = game.ballY + game.ballVy
+
+  if game.ballX - ballR <= 108.0:
+    game.ballX = 108.0 + ballR
+    if game.ballVx < 0.0: game.ballVx = -game.ballVx
+  elif game.ballX + ballR >= 948.0:
+    game.ballX = 948.0 - ballR
+    if game.ballVx > 0.0: game.ballVx = -game.ballVx
+  if game.ballY - ballR <= 76.0:
+    game.ballY = 76.0 + ballR
+    if game.ballVy < 0.0: game.ballVy = -game.ballVy
+
+  let padY = 602.0
+  let padW = 120.0
+  if game.ballVy > 0.0 and game.ballY + ballR >= padY and game.ballY - ballR <= padY + 16.0:
+    if game.ballX >= game.paddleX - ballR and game.ballX <= game.paddleX + padW + ballR:
+      let hitOffset = (game.ballX - (game.paddleX + padW * 0.5)) / (padW * 0.5)
+      let clampedOff = if hitOffset < -1.0: -1.0 elif hitOffset > 1.0: 1.0 else: hitOffset
+      let rawVx = clampedOff * 6.4
+      game.ballVx = if rawVx >= 0.0 and rawVx < 1.2: 1.2 elif rawVx < 0.0 and rawVx > -1.2: -1.2 else: rawVx
+      game.ballVy = -5.6
+      game.ballY = padY - ballR
+      let _ = playToneEx(329.63, 95.0, 0.26, "pluck")
+
+  mut idx = 0
+  mut hitBrick = false
+  while idx < 60 and not hitBrick:
+    if game.bricks[idx] > 0:
+      let row = idx / 10
+      let col = idx % 10
+      let bx = 128.0 + float(col) * 80.0
+      let by = 118.0 + float(row) * 30.0
+      if game.ballX + ballR >= bx and game.ballX - ballR <= bx + 74.0 and game.ballY + ballR >= by and game.ballY - ballR <= by + 22.0:
+        game.bricks[idx] = 0
+        game.bricksLeft = game.bricksLeft - 1
+        game.score = game.score + (6 - row) * 10
+        let sideHit = (prevY + ballR >= by and prevY - ballR <= by + 22.0) and (prevX + ballR < bx or prevX - ballR > bx + 74.0)
+        if sideHit:
+          game.ballVx = -game.ballVx
+        else:
+          game.ballVy = -game.ballVy
+        hitBrick = true
+        let hz = brickRowNoteHz(row)
+        let _ = playToneEx(hz, 150.0, 0.30, "bell")
+        let _ = playToneEx(hz * 0.5, 130.0, 0.22, "pluck")
+    idx = idx + 1
+
+  if game.bricksLeft <= 0:
+    mut k = 0
+    while k < 60:
+      game.bricks[k] = 1
+      k = k + 1
+    game.bricksLeft = 60
+    game.wave = game.wave + 1
+    game.ballX = game.paddleX + 60.0
+    game.ballY = 588.0
+    game.ballVy = -5.8
+    let _ = playToneEx(523.25, 280.0, 0.32, "warm_pad")
+    let _ = playToneEx(659.25, 280.0, 0.28, "bell")
+
+  if game.ballY - ballR > 640.0:
+    game.lives = game.lives - 1
+    if game.lives <= 0:
+      game.gameOver = true
+      let _ = playToneEx(146.83, 450.0, 0.34, "warm_pad")
+    else:
+      game.launched = false
+      game.ballX = game.paddleX + 60.0
+      game.ballY = 592.0
+      game.ballVx = 3.8
+      game.ballVy = -5.6
+  ret game
+
+pub fn triggerBrickBreakerSynthAudio(frameIndex: int): int:
+  mut v = 0
+  if frameIndex % 15 == 0:
+    let bass = [110.0, 110.0, 130.81, 146.83, 98.00, 98.00, 130.81, 164.81]
+    let _ = playToneEx(bass[(frameIndex / 15) % 8], 190.0, 0.24, "synth_lead")
+    v = v + 1
+  if frameIndex % 60 == 0:
+    let _ = playToneEx(220.0, 750.0, 0.24, "warm_pad")
+    let _ = playToneEx(329.63, 750.0, 0.18, "warm_pad")
+    v = v + 2
+  ret v
+
+pub fn renderBrickBreakerArena(game: BrickBreakerGame, frameIndex: int): int:
+  clearScreen(rgb(6, 10, 20))
+  drawRect(24.0, 14.0, 1232.0, 48.0, rgb(14, 22, 38))
+  drawRectOutline(24.0, 14.0, 1232.0, 48.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_255 // GLX ARCADE CLASSICS: NEON BRICK BREAKER (A/D, ARROWS OR MOUSE PADDLE, SPACE LAUNCH)", 42.0, 31.0, 17.0, rgb(240, 249, 255))
+
+  drawRect(108.0, 76.0, 840.0, 564.0, rgb(10, 16, 30))
+  drawRectOutline(108.0, 76.0, 840.0, 564.0, 2.5, rgb(56, 189, 248))
+
+  mut i = 0
+  mut activeSum = 0
+  while i < 60:
+    if game.bricks[i] > 0:
+      let row = i / 10
+      let col = i % 10
+      let bx = 128.0 + float(col) * 80.0
+      let by = 118.0 + float(row) * 30.0
+      drawRect(bx, by, 74.0, 22.0, brickRowColor(row))
+      drawRect(bx + 3.0, by + 2.0, 68.0, 5.0, rgb(248, 250, 252))
+      drawRectOutline(bx, by, 74.0, 22.0, 1.2, rgb(15, 23, 42))
+      activeSum = activeSum + (row + 1) * 7
+    i = i + 1
+
+  drawRoundedRect(game.paddleX, 602.0, 120.0, 16.0, 6.0, rgb(56, 189, 248))
+  drawRect(game.paddleX + 20.0, 605.0, 80.0, 4.0, rgb(224, 242, 254))
+  drawCircle(game.ballX, game.ballY, 8.5, rgb(250, 204, 21))
+  drawCircle(game.ballX - 2.0, game.ballY - 2.0, 3.5, rgb(254, 249, 195))
+
+  drawRect(968.0, 76.0, 288.0, 564.0, rgb(14, 22, 38))
+  drawRectOutline(968.0, 76.0, 288.0, 564.0, 1.5, rgb(168, 85, 247))
+  drawText("SCORE: " + str(game.score), 990.0, 112.0, 22.0, rgb(74, 222, 128))
+  drawText("LIVES: " + str(game.lives), 990.0, 160.0, 20.0, rgb(244, 63, 94))
+  drawText("WAVE: " + str(game.wave), 990.0, 206.0, 20.0, rgb(56, 189, 248))
+  drawText("BRICKS LEFT: " + str(game.bricksLeft), 990.0, 252.0, 17.0, rgb(250, 204, 21))
+  drawText("LEFT/RIGHT or A/D : PADDLE", 990.0, 340.0, 14.0, rgb(226, 232, 240))
+  drawText("MOUSE X : SMOOTH PADDLE", 990.0, 370.0, 14.0, rgb(226, 232, 240))
+  drawText("SPACE : LAUNCH / RESTART", 990.0, 400.0, 14.0, rgb(226, 232, 240))
+  drawText("P : PAUSE | R : RESET", 990.0, 430.0, 14.0, rgb(226, 232, 240))
+
+  if game.gameOver:
+    drawRect(310.0, 330.0, 440.0, 80.0, rgb(15, 23, 42))
+    drawRectOutline(310.0, 330.0, 440.0, 80.0, 2.5, rgb(244, 63, 94))
+    drawText("GAME OVER! PRESS SPACE OR R", 358.0, 362.0, 18.0, rgb(253, 164, 175))
+  elif game.paused:
+    drawRect(320.0, 330.0, 420.0, 76.0, rgb(15, 23, 42))
+    drawRectOutline(320.0, 330.0, 420.0, 76.0, 2.0, rgb(250, 204, 21))
+    drawText("PAUSED - PRESS P TO RESUME", 378.0, 360.0, 18.0, rgb(250, 204, 21))
+  elif not game.launched:
+    drawText("PRESS SPACE TO LAUNCH BALL", 390.0, 540.0, 18.0, rgb(250, 204, 21))
+
+  drawRect(24.0, 652.0, 1232.0, 48.0, rgb(14, 22, 38))
+  drawRectOutline(24.0, 652.0, 1232.0, 48.0, 1.5, rgb(56, 189, 248))
+  drawText("Mode=" + getWindowMode() + " | Score=" + str(game.score) + " | Lives=" + str(game.lives) + " | Bricks=" + str(game.bricksLeft), 42.0, 670.0, 15.0, rgb(134, 239, 172))
+  ret activeSum + game.score + int(game.ballX) + int(game.ballY) + frameIndex
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  setWindowMode("glx")
+  mut g = createBrickBreakerGame()
+  mut s = 0
+  let steps = (frameIndex % 8) + 1
+  while s < steps:
+    g = stepBrickBreakerBall(g)
+    s = s + 1
+  let v = triggerBrickBreakerSynthAudio(frameIndex)
+  ret renderBrickBreakerArena(g, frameIndex) + v * 10 + int(dt * 0.0)
+
+pub fn main(): int:
+  setWindowMode("glx")
+  assert(getWindowMode() == "glx", "Brick Breaker arcade uses glx mode")
+  initWindow(1280, 720, "AIPL ex_255 - GLX Brick Breaker Arcade Classic")
+  mut game = createBrickBreakerGame()
+  mut frame: int = 0
+  while not windowShouldClose():
+    game = pollBrickBreakerControls(game)
+    game = stepBrickBreakerBall(game)
+    let _ = triggerBrickBreakerSynthAudio(frame)
+    beginDrawing()
+    let _ = renderBrickBreakerArena(game, frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

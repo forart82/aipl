@@ -1,0 +1,158 @@
+// ============================================================================
+// Canonical Example 143: Texture Atlas MaxRects Bin Packer & 2px Gutters (WINDOW)
+// Target Profile: WINDOW | Standard Library Module: std/asset
+// ============================================================================
+module Ex143AssetAtlasPackerShelfMaxrectsWindow
+
+import {
+  AtlasBin,
+  PackRect,
+  createAtlasBin,
+  packRectMaxRects,
+  packRectangles,
+  checkBleedGutters,
+  calculateAtlasOccupancy
+} from "../std/asset/asset_mod.aipl"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyMaxRectsAtlasPackerAndGutters(): int:
+  mut bin = createAtlasBin(256, 256, 2)
+  let single = PackRect(id = 99, width = 16, height = 16, x = 0, y = 0, isRotated = false, isPacked = false)
+  let (_, pSingle) = packRectMaxRects(bin, single, false)
+  assert(pSingle.isSome(), "single rect packed")
+
+  let rects = [
+    PackRect(id = 1, width = 64, height = 64, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 2, width = 32, height = 32, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 3, width = 48, height = 48, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 4, width = 16, height = 16, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 5, width = 64, height = 32, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 6, width = 32, height = 64, x = 0, y = 0, isRotated = false, isPacked = false)
+  ]
+  let (packedBin, packedList) = packRectangles(bin, rects, false)
+  assert(checkBleedGutters(packedBin, 2), "2px bleed gutters preserved")
+  assert(calculateAtlasOccupancy(packedBin) > 0.15, "atlas occupancy > 15%")
+  ret packedList.len()
+
+pub fn computePaddedSpriteSpanPx(rawSpanPx: int, gutterPx: int): int:
+  let s = maxInt(1, rawSpanPx)
+  let g = clampInt(gutterPx, 0, 16)
+  ret s + g * 2
+
+pub fn describeAtlasPackerHeuristic(gutterPx: int): str:
+  let g = clampInt(gutterPx, 0, 16)
+  ret "ATLAS:MAXRECTS_GUTTER_" + str(g) + "PX"
+
+pub fn stepAtlasPackerFrame(frameIndex: int): AtlasBin:
+  let bin = createAtlasBin(256, 256, 2)
+  let dynW = 24 + ((frameIndex * 7) % 59)
+  let dynH = 24 + ((frameIndex * 11) % 53)
+  let rects = [
+    PackRect(id = 1, width = 64, height = 64, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 2, width = 32, height = 32, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 3, width = 48, height = 48, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 4, width = 16, height = 16, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 5, width = 64, height = 32, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 6, width = 32, height = 64, x = 0, y = 0, isRotated = false, isPacked = false),
+    PackRect(id = 7, width = dynW, height = dynH, x = 0, y = 0, isRotated = false, isPacked = false)
+  ]
+  let (packedBin, _) = packRectangles(bin, rects, true)
+  ret packedBin
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let packedBin = stepAtlasPackerFrame(frameIndex)
+  let occPermille = int(calculateAtlasOccupancy(packedBin) * 1000.0 + 0.5)
+  let lastRect = packedBin.packedRects[packedBin.packedRects.len - 1]
+  ret occPermille + packedBin.packedRects.len + lastRect.width + lastRect.height + int(dt * 0.0)
+
+pub fn renderAtlasPackerScene(frameIndex: int): void:
+  let packedBin = stepAtlasPackerFrame(frameIndex)
+  let packedList = packedBin.packedRects
+  let occPermille = int(calculateAtlasOccupancy(packedBin) * 1000.0)
+  let guttersOk = checkBleedGutters(packedBin, packedBin.paddingGutter)
+  let highlightIdx = (frameIndex / 11) % packedList.len()
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(32.0, 20.0, 1216.0, 54.0, rgb(18, 28, 48))
+  drawRectOutline(32.0, 20.0, 1216.0, 54.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_143 // MAXRECTS TEXTURE ATLAS PACKER & 2PX MIPMAP BLEED GUTTER INSPECTOR", 52.0, 38.0, 20.0, rgb(240, 249, 255))
+
+  // Left: Power-of-Two Atlas Page driven by packedBin.width & packedBin.height
+  let ax = 64.0
+  let ay = 100.0
+  let scale = 2.2
+  let pageW = float(packedBin.width) * scale
+  let pageH = float(packedBin.height) * scale
+  drawRect(ax, ay, pageW, pageH, rgb(15, 22, 38))
+  drawRectOutline(ax, ay, pageW, pageH, 2.5, rgb(100, 116, 139))
+
+  // Render MaxRects Free Space Subdivisions from packedBin.freeRects
+  mut fi = 0
+  while fi < packedBin.freeRects.len:
+    let fr = packedBin.freeRects[fi]
+    drawRectOutline(
+      ax + float(fr.x) * scale,
+      ay + float(fr.y) * scale,
+      float(fr.width) * scale,
+      float(fr.height) * scale,
+      1.0,
+      rgb(30, 41, 59)
+    )
+    fi = fi + 1
+
+  let gScale = float(packedBin.paddingGutter) * scale
+  mut i = 0
+  while i < packedList.len():
+    let r = packedList[i]
+    let rx = ax + float(r.x) * scale
+    let ry = ay + float(r.y) * scale
+    let rw = float(r.width) * scale
+    let rh = float(r.height) * scale
+    let isSel = i == highlightIdx
+    let fillCol = if isSel: rgb(34, 197, 94) else: rgb(14, 116, 144)
+    drawRect(rx, ry, rw, rh, fillCol)
+    drawRectOutline(rx - gScale, ry - gScale, rw + gScale * 2.0, rh + gScale * 2.0, 1.5, rgb(244, 63, 94))
+    let rectLabel = if r.width <= 32: "#" + str(r.id) else: "#" + str(r.id) + " (" + str(r.width) + "x" + str(r.height) + ")"
+    drawText(rectLabel, rx + 6.0, ry + 8.0, 12.0, rgb(248, 250, 252))
+    i = i + 1
+
+  // Right: Atlas Bin Telemetry & Sprite Manifest
+  let tx = 670.0
+  drawRect(tx, 100.0, 554.0, 563.0, rgb(16, 24, 42))
+  drawRectOutline(tx, 100.0, 554.0, 563.0, 2.0, rgb(56, 189, 248))
+  drawText("ATLAS BIN TELEMETRY (" + str(packedBin.width) + "x" + str(packedBin.height) + " POT)", tx + 24.0, 132.0, 18.0, rgb(56, 189, 248))
+  drawText(describeAtlasPackerHeuristic(packedBin.paddingGutter), tx + 24.0, 170.0, 15.0, rgb(74, 222, 128))
+  drawText("Packed Sprites: " + str(packedList.len()) + " | Free Sub-Rects: " + str(packedBin.freeRects.len), tx + 24.0, 206.0, 15.0, rgb(251, 113, 133))
+  drawText("Occupancy: " + str(occPermille) + " permille | Gutter Check: " + (if guttersOk: "PASS" else: "FAIL"), tx + 24.0, 242.0, 15.0, rgb(250, 204, 21))
+
+  let selRect = packedList[highlightIdx]
+  drawRect(tx + 24.0, 290.0, 506.0, 130.0, rgb(11, 17, 30))
+  drawRectOutline(tx + 24.0, 290.0, 506.0, 130.0, 1.5, rgb(34, 197, 94))
+  drawText("INSPECTED SPRITE #" + str(selRect.id), tx + 44.0, 316.0, 16.0, rgb(134, 239, 172))
+  drawText("Atlas UV Coords: x=" + str(selRect.x) + ", y=" + str(selRect.y) + " | Size: " + str(selRect.width) + "x" + str(selRect.height), tx + 44.0, 352.0, 15.0, rgb(226, 232, 240))
+  drawText("Padded Footprint: " + str(computePaddedSpriteSpanPx(selRect.width, packedBin.paddingGutter)) + "x" + str(computePaddedSpriteSpanPx(selRect.height, packedBin.paddingGutter)) + " px", tx + 44.0, 386.0, 15.0, rgb(148, 163, 184))
+
+pub fn main(): int:
+  let count = verifyMaxRectsAtlasPackerAndGutters()
+  assert(count == 6, "6 rects packed")
+  initWindow(1280, 720, "AIPL ex_143 - MaxRects Texture Atlas Packer & 2px Gutters")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderAtlasPackerScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

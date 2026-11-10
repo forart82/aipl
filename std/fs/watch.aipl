@@ -1,0 +1,90 @@
+/// # Module: `std/fs/watch` (`FsWatch`)
+///
+/// ## Purpose & Domain Scope
+/// Filesystem change notification watcher (`FsWatcher`), event taxonomy (`WatchEventKind`),
+/// and time-windowed event debouncing/coalescing.
+module FsWatch
+
+import "path.aipl"
+
+pub enum WatchEventKind:
+  Created
+  Modified
+  Removed
+  Renamed
+
+pub struct WatchEvent:
+  kind: WatchEventKind
+  path: str
+  oldPath: str = ""
+  timestampMs: int
+
+pub struct FsWatcher:
+  mut watchedRoots: [str]
+  debounceWindowMs: int = 50
+  mut pendingEvents: [WatchEvent]
+
+pub fn fsWatcherNew(debounceMs: int): FsWatcher:
+  mut win = debounceMs
+  if win < 0:
+    win = 0
+  ret FsWatcher(watchedRoots: [], debounceWindowMs: win, pendingEvents: [])
+
+pub fn fsWatcherAddPath(mut w: FsWatcher, path: str): FsWatcher:
+  let norm = pathNormalize(path)
+  mut i = 0
+  while i < w.watchedRoots.len():
+    if w.watchedRoots[i] == norm:
+      ret w
+    i = i + 1
+  w.watchedRoots.push(norm)
+  ret w
+
+pub fn fsWatcherRemovePath(mut w: FsWatcher, path: str): FsWatcher:
+  let norm = pathNormalize(path)
+  mut kept: [str] = []
+  mut i = 0
+  while i < w.watchedRoots.len():
+    if w.watchedRoots[i] != norm:
+      kept.push(w.watchedRoots[i])
+    i = i + 1
+  w.watchedRoots = kept
+  ret w
+
+pub fn fsWatcherPushRawEvent(mut w: FsWatcher, ev: WatchEvent): FsWatcher:
+  let normEv = WatchEvent(
+    kind: ev.kind,
+    path: pathNormalize(ev.path),
+    oldPath: if ev.oldPath.len() > 0: pathNormalize(ev.oldPath) else: "",
+    timestampMs: ev.timestampMs
+  )
+  w.pendingEvents.push(normEv)
+  ret w
+
+pub fn fsWatcherFlushDebounced(mut w: FsWatcher): [WatchEvent]:
+  mut out: [WatchEvent] = []
+  mut i = 0
+  while i < w.pendingEvents.len():
+    let ev = w.pendingEvents[i]
+    mut merged = false
+    if out.len() > 0:
+      mut k = out.len() - 1
+      while k >= 0:
+        let prev = out[k]
+        if prev.path == ev.path and (ev.timestampMs - prev.timestampMs) <= w.debounceWindowMs:
+          let coalescedKind = match prev.kind:
+            WatchEventKind::Created =>
+              match ev.kind:
+                WatchEventKind::Modified => WatchEventKind::Created
+                _ => ev.kind
+            _ => ev.kind
+          out[k] = WatchEvent(kind: coalescedKind, path: ev.path, oldPath: ev.oldPath, timestampMs: ev.timestampMs)
+          merged = true
+          break
+        k = k - 1
+    if not merged:
+      out.push(ev)
+    i = i + 1
+  while w.pendingEvents.len() > 0:
+    let _ = w.pendingEvents.pop()
+  ret out

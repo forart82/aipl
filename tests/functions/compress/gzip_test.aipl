@@ -1,0 +1,72 @@
+module tests.functions.compress.gzip_test
+
+import * from "std/compress/gzip"
+import * from "std/prelude"
+import { DeflateOptions, deflateCompress, deflateDecompress } from "std/compress/deflate"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_gzip_computeAdler32_1(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = computeAdler32(arg_data)
+  let resEdge = computeAdler32(edge_data)
+  assertEqInt(resNom, 47120679, "computeAdler32 nominal resNom == 47120679")
+  assertEqInt(resEdge, 4325442, "computeAdler32 boundary resEdge == 4325442")
+  ret 0
+
+pub fn test_gzip_computeCrc32_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = computeCrc32(arg_data)
+  let resEdge = computeCrc32(edge_data)
+  assertEqInt(resNom, 3094742756, "computeCrc32 nominal resNom == 3094742756")
+  assertEqInt(resEdge, 3554254475, "computeCrc32 boundary resEdge == 3554254475")
+  ret 0
+
+pub fn test_gzip_gzipCompress_3(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_filename = "127.0.0.1"
+  let edge_filename = "127.0.0.1"
+  let arg_mtime = 4
+  let edge_mtime = 1
+  let resNom = gzipCompress(arg_data, arg_filename, arg_mtime)
+  let resEdge = gzipCompress(edge_data, edge_filename, edge_mtime)
+  assertEqInt(resNom.len(), 33, "gzipCompress nominal resNom.len() == 33")
+  assertEqInt(resEdge.len(), 30, "gzipCompress boundary resEdge.len() == 30")
+  ret 0
+
+pub fn test_gzip_gzipDecompress_4(): int:
+  let origData = [65, 73, 80, 76]
+  let comp = gzipCompress(origData, "test.txt", 100)
+  let decompRes = gzipDecompress(comp)
+  assert(decompRes.isOk() == true, "gzipDecompress roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "gzipDecompress length matches")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = gzipDecompress([1, 2, 3])
+  assert(bad.isOk() == false, "gzipDecompress corrupt stream rejected")
+  ret 0
+
+pub fn test_gzip_zlibCompress_5(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_level = 2
+  let edge_level = 0
+  let resNom = zlibCompress(arg_data, arg_level)
+  let resEdge = zlibCompress(edge_data, edge_level)
+  assertEqInt(resNom.len(), 11, "zlibCompress nominal resNom.len() == 11")
+  assertEqInt(resEdge.len(), 12, "zlibCompress boundary resEdge.len() == 12")
+  ret 0
+
+pub fn test_gzip_zlibDecompress_6(): int:
+  let origData = [65, 73, 80, 76]
+  let comp = zlibCompress(origData, 2)
+  let decompRes = zlibDecompress(comp)
+  assert(decompRes.isOk() == true, "zlibDecompress roundtrip isOk")
+  let decomp = decompRes.unwrap()
+  assertEqInt(decomp.len(), 4, "zlibDecompress length matches")
+  assertEqInt(decomp[0], 65, "decomp[0] == 65")
+  let bad = zlibDecompress([1, 2, 3])
+  assert(bad.isOk() == false, "zlibDecompress corrupt stream rejected")
+  ret 0

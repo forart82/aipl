@@ -1,0 +1,57 @@
+// ============================================================================
+// Example 008: Anonymous Lambdas, Array Combinators & Pipelines CLI
+// Demonstrates: Anonymous lambdas (fn(x: int) => ... and |x| ...),
+//               functional array combinators (.filter, .map, .any, .all),
+//               do: expression blocks, and std/prelude.
+// ============================================================================
+module Ex008ClosuresAndFunctionalPipelinesCli
+
+import { maxInt } from "../std/prelude"
+
+pub struct PipelineTelemetry:
+  inputCount: int
+  activeCount: int
+  squaredSum: int
+  allSquaredPositive: bool
+
+pub fn filterAndSquarePositive(samples: [int]): [int]:
+  let positives = samples.filter(|x| x > 0)
+  let squared = positives.map(fn(x: int) => x * x)
+  ret squared
+
+pub fn sumArrayElements(values: [int]): int:
+  mut acc = 0
+  for i in 0..values.len:
+    acc = acc + values[i]
+  ret acc
+
+pub fn classifyPipelinePredicates(samples: [int]): str:
+  let allPos = samples.all(fn(x: int) => x > 0)
+  let hasPeak = samples.any(|x| x >= 5)
+  if allPos and hasPeak:
+    ret "PIPE:ALL_POSITIVE_WITH_PEAK"
+  elif allPos:
+    ret "PIPE:ALL_POSITIVE_LOW"
+  else:
+    ret "PIPE:CONTAINS_NON_POSITIVE"
+
+pub fn buildPipelineTelemetry(samples: [int]): PipelineTelemetry:
+  let squared = filterAndSquarePositive(samples)
+  let total = do:
+    let rawSum = sumArrayElements(squared)
+    maxInt(rawSum, 0)
+  let allPos = squared.all(fn(v: int) => v > 0)
+  ret PipelineTelemetry(
+    inputCount = samples.len,
+    activeCount = squared.len,
+    squaredSum = total,
+    allSquaredPositive = allPos
+  )
+
+pub fn main(): int:
+  let data = [-3, 0, 2, 4, -1, 5]
+  let tel = buildPipelineTelemetry(data)
+  let status = classifyPipelinePredicates([2, 4, 6])
+  println("[ex_008_closures_and_functional_pipelines_cli] PipelineTelemetry(in=" + str(tel.inputCount) + ", active=" + str(tel.activeCount) + ", sum=" + str(tel.squaredSum) + ", allPos=" + str(tel.allSquaredPositive) + ")")
+  println("[ex_008_closures_and_functional_pipelines_cli] status=" + status)
+  ret 0

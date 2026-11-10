@@ -1,0 +1,44 @@
+// ============================================================================
+// Twin Test Suite 054: SAH BVH Tree Hierarchy & Ray Traversal Window
+// Verifies examples/ex_054_collections_bvh_tree_ray_query_window.aipl
+// ============================================================================
+module Ex054CollectionsBvhTreeRayQueryWindowTest
+
+import {
+  BvhQueryState,
+  buildDemoBvh,
+  evaluateSahBvhRayAndSurfaceArea,
+  describeBvhPartitionHeuristic,
+  buildBvhQueryState,
+  renderFrameStep
+} from "../../examples/ex_054_collections_bvh_tree_ray_query_window"
+
+pub fn test_sah_bvh_ray_and_surface_area(): int:
+  // Surface area of 2x2x2 cube is 24 + union maxX(12) + ray hit count(1) == 37
+  assert(evaluateSahBvhRayAndSurfaceArea() == 37, "surfaceArea(24) + union.maxX(12) + rayHits.len(1) == 37")
+  let bvh = buildDemoBvh()
+  assert(bvh.nodes.len == 3 and bvh.rootIndex == 2, "buildDemoBvh creates 2 leaf nodes and 1 root union node")
+  assert(describeBvhPartitionHeuristic(0) == "BVH:SURFACE_AREA_HEURISTIC_SAH", "SAH heuristic")
+  ret 0
+
+pub fn test_bvh_window_state_and_step(): int:
+  let st0 = buildBvhQueryState(0)
+  let st1 = buildBvhQueryState(1)
+  let st20 = buildBvhQueryState(20)
+  let st100 = buildBvhQueryState(100)
+  assert(st0.leafZeroArea == 24, "leafZeroArea == 24")
+  assert(st0.rayHitLeaves == 1, "rayHitLeaves == 1")
+  assert(st1.rayXWorld > st0.rayXWorld, "rayXWorld advances from frame 0 to 1")
+  assert(st20.rayXWorld != st100.rayXWorld, "rayXWorld varies between frame 20 and 100")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m0 < m1 and m1 < m20 and m20 < m100, "renderFrameStep progresses across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_sah_bvh_ray_and_surface_area()
+  test_bvh_window_state_and_step()
+  println("PASS: ex_054_collections_bvh_tree_ray_query_window_test")
+  ret 0

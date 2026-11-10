@@ -1,0 +1,66 @@
+// ============================================================================
+// Example 040: SIMD F32x4 Lanes, 8-Wide Dot/AXPY & Tensor Ops (CLI)
+// Demonstrates: F32x4, f32x4Add, f32x4Sub, f32x4Mul, f32x4Dot, f32x4Min,
+//               f32x4Max, simdDotProduct8Wide, simdAxpy8Wide, tensorMatmul,
+//               tensorSoftmax, tensorCosineSimilarity, tensorLayerNorm, and
+//               analyzeSimdLoopAutoVectorization from std/math/simd.
+// ============================================================================
+module Ex040MathSimdF32x4BenchmarkCli
+
+import { absFloat } from "../std/math/consts"
+import {
+  F32x4,
+  f32x4Add,
+  f32x4Sub,
+  f32x4Mul,
+  f32x4Dot,
+  f32x4Min,
+  f32x4Max,
+  simdDotProduct8Wide,
+  simdAxpy8Wide,
+  tensorMatmul,
+  tensorSoftmax,
+  tensorCosineSimilarity,
+  tensorLayerNorm,
+  analyzeSimdLoopAutoVectorization
+} from "../std/math/simd"
+
+pub fn evaluateF32x4And8WideDot(): int:
+  let a = F32x4(x = 1.0, y = 2.0, z = 3.0, w = 4.0)
+  let b = F32x4(x = 4.0, y = 3.0, z = 2.0, w = 1.0)
+  let sum4 = f32x4Add(a, b)
+  let diff4 = f32x4Sub(a, b)
+  let mul4 = f32x4Mul(a, b)
+  let min4 = f32x4Min(a, b)
+  let max4 = f32x4Max(a, b)
+  let dot4 = f32x4Dot(a, b)
+  let vecA = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+  let vecB = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  let dot8 = simdDotProduct8Wide(vecA, vecB)
+  let axpy = simdAxpy8Wide(2.0, [1.0, 2.0], [10.0, 20.0])
+  if sum4.x == 5.0 and diff4.x == -3.0 and mul4.y == 6.0 and min4.x == 1.0 and max4.x == 4.0 and axpy[0] == 12.0:
+    ret int(dot4 + dot8)
+  ret -1
+
+pub fn verifyTensorSoftmaxAndLayerNorm(): int:
+  let mm = tensorMatmul([1.0, 2.0, 3.0, 4.0], [1.0, 0.0, 0.0, 1.0], 2, 2, 2)
+  let sm = tensorSoftmax([1.0, 1.0])
+  let cs = tensorCosineSimilarity([1.0, 0.0], [1.0, 0.0])
+  let ln = tensorLayerNorm([1.0, 3.0])
+  if mm[3] == 4.0 and absFloat(sm[0] - 0.5) < 0.01 and absFloat(cs - 1.0) < 0.01 and ln.len == 2:
+    ret 1
+  ret 0
+
+pub fn describeSimdVectorizationPlan(count: int, bitWidth: int): str:
+  let plan = analyzeSimdLoopAutoVectorization(1, count, false, bitWidth)
+  if plan.isVectorizable and plan.vectorIterations == 8:
+    ret "SIMD:AVX2_256BIT_8_ITERS"
+  ret "SIMD:SCALAR_FALLBACK"
+
+pub fn main(): int:
+  let dotSum = evaluateF32x4And8WideDot()
+  let tensorOk = verifyTensorSoftmaxAndLayerNorm()
+  let planDesc = describeSimdVectorizationPlan(64, 256)
+  println("SIMD F32x4 + 8-Wide Dot Product Sum: " + str(dotSum))
+  println("Tensor Matmul/Softmax/LayerNorm Valid: " + str(tensorOk) + " (" + planDesc + ")")
+  ret 0

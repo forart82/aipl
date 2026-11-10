@@ -1,0 +1,89 @@
+/// # Module: `std/phys3d/phys_world3d` (`PhysWorld3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Central `PhysicsWorld3D` managing 3D rigid bodies, colliders, joints,
+/// and sub-stepped simulation ticks.
+module PhysWorld3DMod
+
+import { Vec3 } from "std/math/vec_math"
+import { RigidBody3D, rigidBody3dIntegrate } from "std/phys3d/rigid_body3d"
+import { Collider3D } from "std/phys3d/collider3d"
+import { Joint3D, joint3dSolveVelocity } from "std/phys3d/joint3d"
+
+pub struct PhysWorldSettings3D(gravity: Vec3, iterations: int, subSteps: int, sleepLinearThresholdSq: float, sleepAngularThresholdSq: float)
+
+pub struct PhysicsWorld3D(settings: PhysWorldSettings3D, bodies: [RigidBody3D], colliders: [Collider3D], colliderBodyIds: [int], joints: [Joint3D])
+
+pub fn physWorld3dNew(gravity: Vec3): PhysicsWorld3D:
+  mut bds: [RigidBody3D] = []
+  mut cols: [Collider3D] = []
+  mut cbIds: [int] = []
+  mut jts: [Joint3D] = []
+  ret PhysicsWorld3D(
+    settings = PhysWorldSettings3D(
+      gravity = gravity,
+      iterations = 8,
+      subSteps = 1,
+      sleepLinearThresholdSq = 0.001,
+      sleepAngularThresholdSq = 0.001
+    ),
+    bodies = bds,
+    colliders = cols,
+    colliderBodyIds = cbIds,
+    joints = jts
+  )
+
+pub fn physWorld3dAddBody(mut world: PhysicsWorld3D, body: RigidBody3D): int:
+  mut bds = world.bodies
+  let idx = bds.len
+  bds.push(body)
+  world.bodies = bds
+  ret idx
+
+pub fn physWorld3dAddCollider(mut world: PhysicsWorld3D, bodyId: int, collider: Collider3D): int:
+  mut cols = world.colliders
+  mut cbIds = world.colliderBodyIds
+  let idx = cols.len
+  cols.push(collider)
+  cbIds.push(bodyId)
+  world.colliders = cols
+  world.colliderBodyIds = cbIds
+  ret idx
+
+pub fn physWorld3dAddJoint(mut world: PhysicsWorld3D, joint: Joint3D): int:
+  mut jts = world.joints
+  let idx = jts.len
+  jts.push(joint)
+  world.joints = jts
+  ret idx
+
+pub fn physWorld3dStep(mut world: PhysicsWorld3D, dt: float): void:
+  let cfg: PhysWorldSettings3D = world.settings
+  let steps = if cfg.subSteps > 0: cfg.subSteps else: 1
+  let subDt = dt / float(steps)
+
+  mut bds = world.bodies
+  mut s = 0
+  while s < steps:
+    mut i = 0
+    while i < bds.len:
+      mut b: RigidBody3D = bds[i]
+      rigidBody3dIntegrate(b, cfg.gravity, subDt)
+      bds[i] = b
+      i = i + 1
+
+    mut it = 0
+    while it < cfg.iterations:
+      mut j = 0
+      while j < world.joints.len:
+        let jt: Joint3D = world.joints[j]
+        if jt.bodyIdA >= 0 and jt.bodyIdA < bds.len and jt.bodyIdB >= 0 and jt.bodyIdB < bds.len:
+          mut ba: RigidBody3D = bds[jt.bodyIdA]
+          mut bb: RigidBody3D = bds[jt.bodyIdB]
+          joint3dSolveVelocity(jt, ba, bb, subDt)
+          bds[jt.bodyIdA] = ba
+          bds[jt.bodyIdB] = bb
+        j = j + 1
+      it = it + 1
+    s = s + 1
+  world.bodies = bds

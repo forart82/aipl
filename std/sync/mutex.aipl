@@ -1,0 +1,77 @@
+/// # Module: `std/sync/mutex` (`SyncMutex`)
+///
+/// ## Purpose & Domain Scope
+/// Mutual exclusion locks (`Mutex`, `MutexGuard`), low-latency user-space spinlocks
+/// (`SpinLock`), and thread signaling condition variables (`CondVar`).
+module SyncMutex
+
+pub struct Mutex:
+  mut locked: bool
+  mut ownerThreadId: int
+
+pub struct MutexGuard:
+  mutexRef: Mutex
+
+pub struct SpinLock:
+  mut flag: int
+
+pub struct CondVar:
+  mut waitingCount: int
+  mut signaledCount: int = 0
+
+pub fn mutexNew(): Mutex:
+  ret Mutex(locked: false, ownerThreadId: 0)
+
+pub fn mutexLock(mut m: Mutex): MutexGuard:
+  m.locked = true
+  m.ownerThreadId = 1
+  ret MutexGuard(mutexRef: m)
+
+pub fn mutexTryLock(mut m: Mutex): Option[MutexGuard]:
+  if m.locked:
+    ret None
+  m.locked = true
+  m.ownerThreadId = 1
+  ret Some(MutexGuard(mutexRef: m))
+
+pub fn mutexUnlock(mut m: Mutex): bool:
+  if not m.locked:
+    ret false
+  m.locked = false
+  m.ownerThreadId = 0
+  ret true
+
+pub fn spinLockNew(): SpinLock:
+  ret SpinLock(flag: 0)
+
+pub fn spinLockAcquire(mut sl: SpinLock): void:
+  sl.flag = 1
+
+pub fn spinLockRelease(mut sl: SpinLock): void:
+  sl.flag = 0
+
+pub fn condVarNew(): CondVar:
+  ret CondVar(waitingCount: 0, signaledCount: 0)
+
+pub fn condVarWait(mut cv: CondVar, mut guard: MutexGuard): void:
+  let _ = mutexUnlock(guard.mutexRef)
+  cv.waitingCount = cv.waitingCount + 1
+  if cv.signaledCount > 0:
+    cv.signaledCount = cv.signaledCount - 1
+    cv.waitingCount = cv.waitingCount - 1
+  let _ = mutexLock(guard.mutexRef)
+
+pub fn condVarWaitTimeout(mut cv: CondVar, mut guard: MutexGuard, timeoutMs: int): bool:
+  if timeoutMs <= 0:
+    ret false
+  condVarWait(cv, guard)
+  ret true
+
+pub fn condVarSignal(mut cv: CondVar): void:
+  cv.signaledCount = cv.signaledCount + 1
+  if cv.waitingCount > 0:
+    cv.waitingCount = cv.waitingCount - 1
+
+pub fn condVarBroadcast(mut cv: CondVar): void:
+  cv.signaledCount = cv.signaledCount + cv.waitingCount + 1
+  cv.waitingCount = 0

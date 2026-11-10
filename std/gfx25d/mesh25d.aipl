@@ -1,0 +1,613 @@
+/// # Module: `std/gfx25d/mesh25d` (`Gfx25dMesh25d`)
+///
+/// ## Purpose & Domain Scope
+/// Continuous heightfield terrain patch renderer (`drawHeightfieldPatch25D`, `drawHeightfieldPatchTextured25D`),
+/// indexed mesh renderer (`drawIndexedMesh25D`, `drawIndexedMeshTextured25D`), and Z-buffered volumetric 2.5D
+/// primitives (`drawPrism25D`, `drawPrismTextured25D`, `drawCone25D`, `drawBillboard25D`) with smooth per-vertex
+/// Gouraud normal lighting and hardware/software UV texture mapping.
+///
+/// ## Architectural Boundary
+/// - `std/gfx2d/tilemap_renderer2d`: Discrete 2D retro grid / tactical board games.
+/// - `std/gfx25d/*` + `std/gfx3d/terrain3d`: Continuous heightfield terrains, rivers, mountains, and isometric/2.5D worlds.
+///
+/// ## Runnable Example
+/// ```aipl
+/// import { Vec3 } from "std/math/vec_math"
+/// import { rgb, setDepthTest, clearDepth, createProceduralTexture } from "std/gfx2d/shape2d"
+/// import { TerrainHeightfield } from "std/gfx3d/terrain3d"
+/// import { createCamera25D } from "std/gfx25d/camera25d"
+/// import { drawHeightfieldPatch25D, drawPrism25D, drawPrismTextured25D, drawCone25D } from "std/gfx25d/mesh25d"
+///
+/// let cam = createCamera25D(800.0, 600.0, 1.2)
+/// let sun = Vec3(x = -0.4, y = -0.5, z = 0.75)
+/// let wallTex = createProceduralTexture("brick", 32, 32, 101)
+/// let roofTex = createProceduralTexture("roof", 32, 32, 202)
+/// setDepthTest(true)
+/// clearDepth()
+/// drawPrism25D(cam, 0.0, 0.0, 0.0, 32.0, 32.0, 48.0, rgb(210, 180, 140), sun)
+/// drawPrismTextured25D(cam, 48.0, 0.0, 0.0, 32.0, 32.0, 48.0, wallTex, roofTex, rgb(255, 255, 255), sun)
+/// drawCone25D(cam, 40.0, 20.0, 0.0, 16.0, 44.0, rgb(46, 139, 87), sun, 10)
+/// ```
+module Gfx25dMesh25d
+
+import { Vec2, Vec3 } from "../math/vec_math"
+import { absFloat, clampFloat, clampInt, maxFloat, minFloat } from "../prelude"
+import { Color, drawTriangle3DGouraud, drawQuad3DGouraud, drawTriangle3DTextured, drawQuad3DTextured } from "../gfx2d/shape2d"
+import { TerrainHeightfield, sampleHeightAt, computeTerrainNormal } from "../gfx3d/terrain3d"
+import { Camera25D, project3DToIso } from "./camera25d"
+
+/// 2.5D vertex storing projected/world position, surface normal, and vertex color.
+pub struct Vertex25D(pos: Vec3, normal: Vec3, color: Color)
+
+/// Indexed triangle mesh for custom 2.5D world props and terrain features.
+pub struct IndexedMesh25D(vertices: [Vertex25D], indices: [int])
+
+/// UV-mapped 2.5D vertex storing world position, surface normal, texture coordinates `uv`, and vertex tint `color`.
+pub struct Vertex25DTextured(pos: Vec3, normal: Vec3, uv: Vec2, color: Color)
+
+/// UV-mapped indexed triangle mesh bound to runtime texture handle `texId`.
+pub struct IndexedMesh25DTextured(vertices: [Vertex25DTextured], indices: [int], texId: int)
+
+/// Shades `baseColor` using Lambertian directional lighting (`normal . sunDir`) plus `ambient`.
+pub fn shadeVertex25D(baseColor: Color, normal: Vec3, sunDir: Vec3, ambient: float = 0.35): Color:
+  let n = normal.norm()
+  let l = sunDir.norm()
+  let ndotl = maxFloat(0.0, n.dot(l))
+  let amb = clampFloat(ambient, 0.0, 1.0)
+  let intensity = clampFloat(amb + (1.0 - amb) * ndotl, 0.0, 1.35)
+  ret Color(
+    r = clampFloat(baseColor.r * intensity, 0.0, 1.0),
+    g = clampFloat(baseColor.g * intensity, 0.0, 1.0),
+    b = clampFloat(baseColor.b * intensity, 0.0, 1.0),
+    a = baseColor.a
+  )
+
+fn blendElevationColor(lowColor: Color, highColor: Color, t: float): Color:
+  let u = clampFloat(t, 0.0, 1.0)
+  ret Color(
+    r = lowColor.r + (highColor.r - lowColor.r) * u,
+    g = lowColor.g + (highColor.g - lowColor.g) * u,
+    b = lowColor.b + (highColor.b - lowColor.b) * u,
+    a = lowColor.a + (highColor.a - lowColor.a) * u
+  )
+
+fn sampleVertexColorAndPos25D(cam: Camera25D, terrain: TerrainHeightfield, gx: int, gz: int, invMaxH: float, sunDir: Vec3, lowColor: Color, highColor: Color): Vertex25D:
+  let wx = float(gx) * terrain.horizontalScale
+  let wy = float(gz) * terrain.horizontalScale
+  let wz = sampleHeightAt(terrain, wx, wy)
+  let tn = computeTerrainNormal(terrain, gx, gz)
+  let worldNormal = Vec3(x = tn.x, y = tn.z, z = tn.y)
+  let baseCol = blendElevationColor(lowColor, highColor, wz * invMaxH)
+  let litCol = shadeVertex25D(baseCol, worldNormal, sunDir, 0.38)
+  let proj = project3DToIso(cam, wx, wy, wz)
+  ret Vertex25D(pos = proj, normal = worldNormal, color = litCol)
+
+/// Renders a continuous `TerrainHeightfield` grid patch using smooth per-vertex Gouraud normals and depth testing.
+pub fn drawHeightfieldPatch25D(cam: Camera25D, terrain: TerrainHeightfield, startGx: int, startGz: int, cellsX: int, cellsZ: int, sunDir: Vec3, lowColor: Color, highColor: Color): int:
+  if terrain.width < 2 or terrain.depth < 2 or cellsX <= 0 or cellsZ <= 0:
+    ret 0
+  let x0 = clampInt(startGx, 0, terrain.width - 2)
+  let z0 = clampInt(startGz, 0, terrain.depth - 2)
+  let x1 = clampInt(startGx + cellsX, x0 + 1, terrain.width - 1)
+  let z1 = clampInt(startGz + cellsZ, z0 + 1, terrain.depth - 1)
+  let invMaxH = 1.0 / maxFloat(terrain.heightScale, 0.001)
+
+  mut quadsDrawn = 0
+  mut gz = z0
+  while gz < z1:
+    mut gx = x0
+    while gx < x1:
+      let v00 = sampleVertexColorAndPos25D(cam, terrain, gx, gz, invMaxH, sunDir, lowColor, highColor)
+      let v10 = sampleVertexColorAndPos25D(cam, terrain, gx + 1, gz, invMaxH, sunDir, lowColor, highColor)
+      let v11 = sampleVertexColorAndPos25D(cam, terrain, gx + 1, gz + 1, invMaxH, sunDir, lowColor, highColor)
+      let v01 = sampleVertexColorAndPos25D(cam, terrain, gx, gz + 1, invMaxH, sunDir, lowColor, highColor)
+      drawQuad3DGouraud(
+        v00.pos.x, v00.pos.y, v00.pos.z,
+        v10.pos.x, v10.pos.y, v10.pos.z,
+        v11.pos.x, v11.pos.y, v11.pos.z,
+        v01.pos.x, v01.pos.y, v01.pos.z,
+        v00.color, v10.color, v11.color, v01.color
+      )
+      quadsDrawn += 1
+      gx += 1
+    gz += 1
+  ret quadsDrawn
+
+/// Renders an `IndexedMesh25D` with per-vertex normal shading and Z-buffered Gouraud triangles.
+pub fn drawIndexedMesh25D(cam: Camera25D, mesh: IndexedMesh25D, sunDir: Vec3): int:
+  let nVerts = mesh.vertices.len
+  let nIdx = mesh.indices.len
+  mut trisDrawn = 0
+  mut i = 0
+  while (i + 2) < nIdx:
+    let i0 = mesh.indices[i]
+    let i1 = mesh.indices[i + 1]
+    let i2 = mesh.indices[i + 2]
+    if i0 >= 0 and i0 < nVerts and i1 >= 0 and i1 < nVerts and i2 >= 0 and i2 < nVerts:
+      let v0 = mesh.vertices[i0]
+      let v1 = mesh.vertices[i1]
+      let v2 = mesh.vertices[i2]
+      let p0 = project3DToIso(cam, v0.pos.x, v0.pos.y, v0.pos.z)
+      let p1 = project3DToIso(cam, v1.pos.x, v1.pos.y, v1.pos.z)
+      let p2 = project3DToIso(cam, v2.pos.x, v2.pos.y, v2.pos.z)
+      let c0 = shadeVertex25D(v0.color, v0.normal, sunDir, 0.35)
+      let c1 = shadeVertex25D(v1.color, v1.normal, sunDir, 0.35)
+      let c2 = shadeVertex25D(v2.color, v2.normal, sunDir, 0.35)
+      drawTriangle3DGouraud(
+        p0.x, p0.y, p0.z,
+        p1.x, p1.y, p1.z,
+        p2.x, p2.y, p2.z,
+        c0, c1, c2
+      )
+      trisDrawn += 1
+    i += 3
+  ret trisDrawn
+
+/// Renders a depth-buffered 3D rectangular prism (buildings, bridges, walls, pillars) in 2.5D space.
+pub fn drawPrism25D(cam: Camera25D, centerWx: float, centerWy: float, baseWz: float, sizeX: float, sizeY: float, heightZ: float, baseColor: Color, sunDir: Vec3): int:
+  let hx = maxFloat(sizeX * 0.5, 0.001)
+  let hy = maxFloat(sizeY * 0.5, 0.001)
+  let hz = maxFloat(heightZ, 0.001)
+  let x0 = centerWx - hx
+  let x1 = centerWx + hx
+  let y0 = centerWy - hy
+  let y1 = centerWy + hy
+  let z0 = baseWz
+  let z1 = baseWz + hz
+
+  let b00 = project3DToIso(cam, x0, y0, z0)
+  let b10 = project3DToIso(cam, x1, y0, z0)
+  let b11 = project3DToIso(cam, x1, y1, z0)
+  let b01 = project3DToIso(cam, x0, y1, z0)
+
+  let t00 = project3DToIso(cam, x0, y0, z1)
+  let t10 = project3DToIso(cam, x1, y0, z1)
+  let t11 = project3DToIso(cam, x1, y1, z1)
+  let t01 = project3DToIso(cam, x0, y1, z1)
+
+  // Slight vertical ambient occlusion at the base of walls
+  let darkBase = Color(
+    r = baseColor.r * 0.82,
+    g = baseColor.g * 0.82,
+    b = baseColor.b * 0.82,
+    a = baseColor.a
+  )
+
+  // North wall (y = y0, normal = (0, -1, 0))
+  let nNorth = Vec3(x = 0.0, y = -1.0, z = 0.0)
+  let cNorthTop = shadeVertex25D(baseColor, nNorth, sunDir, 0.35)
+  let cNorthBot = shadeVertex25D(darkBase, nNorth, sunDir, 0.30)
+  drawQuad3DGouraud(
+    b00.x, b00.y, b00.z,
+    b10.x, b10.y, b10.z,
+    t10.x, t10.y, t10.z,
+    t00.x, t00.y, t00.z,
+    cNorthBot, cNorthBot, cNorthTop, cNorthTop
+  )
+
+  // East wall (x = x1, normal = (1, 0, 0))
+  let nEast = Vec3(x = 1.0, y = 0.0, z = 0.0)
+  let cEastTop = shadeVertex25D(baseColor, nEast, sunDir, 0.35)
+  let cEastBot = shadeVertex25D(darkBase, nEast, sunDir, 0.30)
+  drawQuad3DGouraud(
+    b10.x, b10.y, b10.z,
+    b11.x, b11.y, b11.z,
+    t11.x, t11.y, t11.z,
+    t10.x, t10.y, t10.z,
+    cEastBot, cEastBot, cEastTop, cEastTop
+  )
+
+  // South wall (y = y1, normal = (0, 1, 0))
+  let nSouth = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  let cSouthTop = shadeVertex25D(baseColor, nSouth, sunDir, 0.35)
+  let cSouthBot = shadeVertex25D(darkBase, nSouth, sunDir, 0.30)
+  drawQuad3DGouraud(
+    b11.x, b11.y, b11.z,
+    b01.x, b01.y, b01.z,
+    t01.x, t01.y, t01.z,
+    t11.x, t11.y, t11.z,
+    cSouthBot, cSouthBot, cSouthTop, cSouthTop
+  )
+
+  // West wall (x = x0, normal = (-1, 0, 0))
+  let nWest = Vec3(x = -1.0, y = 0.0, z = 0.0)
+  let cWestTop = shadeVertex25D(baseColor, nWest, sunDir, 0.35)
+  let cWestBot = shadeVertex25D(darkBase, nWest, sunDir, 0.30)
+  drawQuad3DGouraud(
+    b01.x, b01.y, b01.z,
+    b00.x, b00.y, b00.z,
+    t00.x, t00.y, t00.z,
+    t01.x, t01.y, t01.z,
+    cWestBot, cWestBot, cWestTop, cWestTop
+  )
+
+  // Roof (z = z1, normal = (0, 0, 1))
+  let cRoof00 = shadeVertex25D(baseColor, Vec3(x = -0.15, y = -0.15, z = 1.0), sunDir, 0.42)
+  let cRoof10 = shadeVertex25D(baseColor, Vec3(x = 0.15, y = -0.15, z = 1.0), sunDir, 0.42)
+  let cRoof11 = shadeVertex25D(baseColor, Vec3(x = 0.15, y = 0.15, z = 1.0), sunDir, 0.42)
+  let cRoof01 = shadeVertex25D(baseColor, Vec3(x = -0.15, y = 0.15, z = 1.0), sunDir, 0.42)
+  drawQuad3DGouraud(
+    t00.x, t00.y, t00.z,
+    t10.x, t10.y, t10.z,
+    t11.x, t11.y, t11.z,
+    t01.x, t01.y, t01.z,
+    cRoof00, cRoof10, cRoof11, cRoof01
+  )
+  ret 5
+
+/// Renders a depth-buffered 3D cone (pine canopies, spires, roofs, mountain peaks) in 2.5D space.
+pub fn drawCone25D(cam: Camera25D, centerWx: float, centerWy: float, baseWz: float, radius: float, heightZ: float, baseColor: Color, sunDir: Vec3, segments: int = 8): int:
+  let segCount = clampInt(segments, 3, 64)
+  let r = maxFloat(radius, 0.001)
+  let h = maxFloat(heightZ, 0.001)
+  let twoPi = 6.283185307179586
+  let apexProj = project3DToIso(cam, centerWx, centerWy, baseWz + h)
+  let apexColor = shadeVertex25D(baseColor, Vec3(x = 0.0, y = 0.0, z = 1.0), sunDir, 0.45)
+  let nz = r / sqrt(r * r + h * h)
+  let nxyScale = h / sqrt(r * r + h * h)
+
+  mut k = 0
+  while k < segCount:
+    let a0 = float(k) * twoPi / float(segCount)
+    let a1 = float(k + 1) * twoPi / float(segCount)
+    let ca0 = cos(a0)
+    let sa0 = sin(a0)
+    let ca1 = cos(a1)
+    let sa1 = sin(a1)
+
+    let p0 = project3DToIso(cam, centerWx + ca0 * r, centerWy + sa0 * r, baseWz)
+    let p1 = project3DToIso(cam, centerWx + ca1 * r, centerWy + sa1 * r, baseWz)
+
+    let n0 = Vec3(x = ca0 * nxyScale, y = sa0 * nxyScale, z = nz)
+    let n1 = Vec3(x = ca1 * nxyScale, y = sa1 * nxyScale, z = nz)
+    let c0 = shadeVertex25D(baseColor, n0, sunDir, 0.35)
+    let c1 = shadeVertex25D(baseColor, n1, sunDir, 0.35)
+
+    drawTriangle3DGouraud(
+      apexProj.x, apexProj.y, apexProj.z,
+      p0.x, p0.y, p0.z,
+      p1.x, p1.y, p1.z,
+      apexColor, c0, c1
+    )
+    k += 1
+  ret segCount
+
+/// Renders a vertical screen-aligned depth-buffered billboard at world anchor `(wx, wy, wz)`.
+pub fn drawBillboard25D(cam: Camera25D, wx: float, wy: float, wz: float, pixelW: float, pixelH: float, topColor: Color, bottomColor: Color): int:
+  let anchor = project3DToIso(cam, wx, wy, wz)
+  let hw = maxFloat(pixelW * 0.5, 0.5)
+  let h = maxFloat(pixelH, 1.0)
+  let x0 = anchor.x - hw
+  let x1 = anchor.x + hw
+  let yTop = anchor.y - h
+  let yBot = anchor.y
+  let z = anchor.z
+  drawQuad3DGouraud(
+    x0, yTop, z,
+    x1, yTop, z,
+    x1, yBot, z,
+    x0, yBot, z,
+    topColor, topColor, bottomColor, bottomColor
+  )
+  ret 1
+
+/// Renders an `IndexedMesh25DTextured` with UV texture mapping, per-vertex normal lighting, and Z-buffering.
+pub fn drawIndexedMeshTextured25D(cam: Camera25D, mesh: IndexedMesh25DTextured, sunDir: Vec3): int:
+  let nVerts = mesh.vertices.len
+  let nIdx = mesh.indices.len
+  mut trisDrawn = 0
+  mut i = 0
+  while (i + 2) < nIdx:
+    let i0 = mesh.indices[i]
+    let i1 = mesh.indices[i + 1]
+    let i2 = mesh.indices[i + 2]
+    if i0 >= 0 and i0 < nVerts and i1 >= 0 and i1 < nVerts and i2 >= 0 and i2 < nVerts:
+      let v0 = mesh.vertices[i0]
+      let v1 = mesh.vertices[i1]
+      let v2 = mesh.vertices[i2]
+      let p0 = project3DToIso(cam, v0.pos.x, v0.pos.y, v0.pos.z)
+      let p1 = project3DToIso(cam, v1.pos.x, v1.pos.y, v1.pos.z)
+      let p2 = project3DToIso(cam, v2.pos.x, v2.pos.y, v2.pos.z)
+      let c0 = shadeVertex25D(v0.color, v0.normal, sunDir, 0.38)
+      let c1 = shadeVertex25D(v1.color, v1.normal, sunDir, 0.38)
+      let c2 = shadeVertex25D(v2.color, v2.normal, sunDir, 0.38)
+      drawTriangle3DTextured(
+        mesh.texId,
+        p0.x, p0.y, p0.z, v0.uv.x, v0.uv.y,
+        p1.x, p1.y, p1.z, v1.uv.x, v1.uv.y,
+        p2.x, p2.y, p2.z, v2.uv.x, v2.uv.y,
+        c0, c1, c2
+      )
+      trisDrawn += 1
+    i += 3
+  ret trisDrawn
+
+fn sampleTexturedTerrainVertex25D(cam: Camera25D, terrain: TerrainHeightfield, gx: int, gz: int, sunDir: Vec3, uvScale: float): Vertex25DTextured:
+  let wx = float(gx) * terrain.horizontalScale
+  let wy = float(gz) * terrain.horizontalScale
+  let wz = sampleHeightAt(terrain, wx, wy)
+  let tn = computeTerrainNormal(terrain, gx, gz)
+  let worldNormal = Vec3(x = tn.x, y = tn.z, z = tn.y).norm()
+  let white = Color(r = 1.0, g = 1.0, b = 1.0, a = 1.0)
+  let litCol = shadeVertex25D(white, worldNormal, sunDir, 0.42)
+  let proj = project3DToIso(cam, wx, wy, wz)
+  let uv = Vec2(x = float(gx) * uvScale, y = float(gz) * uvScale)
+  ret Vertex25DTextured(pos = proj, normal = worldNormal, uv = uv, color = litCol)
+
+/// Renders a UV-tiled `TerrainHeightfield` patch selecting `flatTexId` vs `slopeTexId` by surface normal steepness with Gouraud lighting.
+pub fn drawHeightfieldPatchTextured25D(cam: Camera25D, terrain: TerrainHeightfield, startGx: int, startGz: int, cellsX: int, cellsZ: int, sunDir: Vec3, flatTexId: int, slopeTexId: int, uvScale: float = 0.25): int:
+  if terrain.width < 2 or terrain.depth < 2 or cellsX <= 0 or cellsZ <= 0:
+    ret 0
+  let x0 = clampInt(startGx, 0, terrain.width - 2)
+  let z0 = clampInt(startGz, 0, terrain.depth - 2)
+  let x1 = clampInt(startGx + cellsX, x0 + 1, terrain.width - 1)
+  let z1 = clampInt(startGz + cellsZ, z0 + 1, terrain.depth - 1)
+  let scaleUv = maxFloat(uvScale, 0.01)
+
+  mut quadsDrawn = 0
+  mut gz = z0
+  while gz < z1:
+    mut gx = x0
+    while gx < x1:
+      let v00 = sampleTexturedTerrainVertex25D(cam, terrain, gx, gz, sunDir, scaleUv)
+      let v10 = sampleTexturedTerrainVertex25D(cam, terrain, gx + 1, gz, sunDir, scaleUv)
+      let v11 = sampleTexturedTerrainVertex25D(cam, terrain, gx + 1, gz + 1, sunDir, scaleUv)
+      let v01 = sampleTexturedTerrainVertex25D(cam, terrain, gx, gz + 1, sunDir, scaleUv)
+      let avgNz = (v00.normal.z + v10.normal.z + v11.normal.z + v01.normal.z) * 0.25
+      let minNz = minFloat(minFloat(v00.normal.z, v10.normal.z), minFloat(v11.normal.z, v01.normal.z))
+      let useSlope = slopeTexId > 0 and (avgNz < 0.89 or minNz < 0.84)
+      let activeTex = if useSlope: slopeTexId else: flatTexId
+      drawQuad3DTextured(
+        activeTex,
+        v00.pos.x, v00.pos.y, v00.pos.z, v00.uv.x, v00.uv.y,
+        v10.pos.x, v10.pos.y, v10.pos.z, v10.uv.x, v10.uv.y,
+        v11.pos.x, v11.pos.y, v11.pos.z, v11.uv.x, v11.uv.y,
+        v01.pos.x, v01.pos.y, v01.pos.z, v01.uv.x, v01.uv.y,
+        v00.color, v10.color, v11.color, v01.color
+      )
+      quadsDrawn += 1
+      gx += 1
+    gz += 1
+  ret quadsDrawn
+
+/// Renders a UV-textured, depth-buffered 3D rectangular prism with `wallTexId` on vertical faces and `roofTexId` on the top face.
+pub fn drawPrismTextured25D(cam: Camera25D, centerWx: float, centerWy: float, baseWz: float, sizeX: float, sizeY: float, heightZ: float, wallTexId: int, roofTexId: int, baseColor: Color, sunDir: Vec3): int:
+  let hx = maxFloat(sizeX * 0.5, 0.001)
+  let hy = maxFloat(sizeY * 0.5, 0.001)
+  let hz = maxFloat(heightZ, 0.001)
+  let x0 = centerWx - hx
+  let x1 = centerWx + hx
+  let y0 = centerWy - hy
+  let y1 = centerWy + hy
+  let z0 = baseWz
+  let z1 = baseWz + hz
+
+  let b00 = project3DToIso(cam, x0, y0, z0)
+  let b10 = project3DToIso(cam, x1, y0, z0)
+  let b11 = project3DToIso(cam, x1, y1, z0)
+  let b01 = project3DToIso(cam, x0, y1, z0)
+
+  let t00 = project3DToIso(cam, x0, y0, z1)
+  let t10 = project3DToIso(cam, x1, y0, z1)
+  let t11 = project3DToIso(cam, x1, y1, z1)
+  let t01 = project3DToIso(cam, x0, y1, z1)
+
+  let uRepeatX = maxFloat(1.0, sizeX / 24.0)
+  let uRepeatY = maxFloat(1.0, sizeY / 24.0)
+  let vRepeatZ = maxFloat(1.0, heightZ / 24.0)
+
+  let darkBase = Color(
+    r = baseColor.r * 0.84,
+    g = baseColor.g * 0.84,
+    b = baseColor.b * 0.84,
+    a = baseColor.a
+  )
+
+  let nNorth = Vec3(x = 0.0, y = -1.0, z = 0.0)
+  let cNorthTop = shadeVertex25D(baseColor, nNorth, sunDir, 0.38)
+  let cNorthBot = shadeVertex25D(darkBase, nNorth, sunDir, 0.32)
+  drawQuad3DTextured(
+    wallTexId,
+    b00.x, b00.y, b00.z, 0.0, vRepeatZ,
+    b10.x, b10.y, b10.z, uRepeatX, vRepeatZ,
+    t10.x, t10.y, t10.z, uRepeatX, 0.0,
+    t00.x, t00.y, t00.z, 0.0, 0.0,
+    cNorthBot, cNorthBot, cNorthTop, cNorthTop
+  )
+
+  let nEast = Vec3(x = 1.0, y = 0.0, z = 0.0)
+  let cEastTop = shadeVertex25D(baseColor, nEast, sunDir, 0.38)
+  let cEastBot = shadeVertex25D(darkBase, nEast, sunDir, 0.32)
+  drawQuad3DTextured(
+    wallTexId,
+    b10.x, b10.y, b10.z, 0.0, vRepeatZ,
+    b11.x, b11.y, b11.z, uRepeatY, vRepeatZ,
+    t11.x, t11.y, t11.z, uRepeatY, 0.0,
+    t10.x, t10.y, t10.z, 0.0, 0.0,
+    cEastBot, cEastBot, cEastTop, cEastTop
+  )
+
+  let nSouth = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  let cSouthTop = shadeVertex25D(baseColor, nSouth, sunDir, 0.38)
+  let cSouthBot = shadeVertex25D(darkBase, nSouth, sunDir, 0.32)
+  drawQuad3DTextured(
+    wallTexId,
+    b11.x, b11.y, b11.z, 0.0, vRepeatZ,
+    b01.x, b01.y, b01.z, uRepeatX, vRepeatZ,
+    t01.x, t01.y, t01.z, uRepeatX, 0.0,
+    t11.x, t11.y, t11.z, 0.0, 0.0,
+    cSouthBot, cSouthBot, cSouthTop, cSouthTop
+  )
+
+  let nWest = Vec3(x = -1.0, y = 0.0, z = 0.0)
+  let cWestTop = shadeVertex25D(baseColor, nWest, sunDir, 0.38)
+  let cWestBot = shadeVertex25D(darkBase, nWest, sunDir, 0.32)
+  drawQuad3DTextured(
+    wallTexId,
+    b01.x, b01.y, b01.z, 0.0, vRepeatZ,
+    b00.x, b00.y, b00.z, uRepeatY, vRepeatZ,
+    t00.x, t00.y, t00.z, uRepeatY, 0.0,
+    t01.x, t01.y, t01.z, 0.0, 0.0,
+    cWestBot, cWestBot, cWestTop, cWestTop
+  )
+
+  let topTex = if roofTexId > 0: roofTexId else: wallTexId
+  let cRoof00 = shadeVertex25D(baseColor, Vec3(x = -0.15, y = -0.15, z = 1.0), sunDir, 0.45)
+  let cRoof10 = shadeVertex25D(baseColor, Vec3(x = 0.15, y = -0.15, z = 1.0), sunDir, 0.45)
+  let cRoof11 = shadeVertex25D(baseColor, Vec3(x = 0.15, y = 0.15, z = 1.0), sunDir, 0.45)
+  let cRoof01 = shadeVertex25D(baseColor, Vec3(x = -0.15, y = 0.15, z = 1.0), sunDir, 0.45)
+  drawQuad3DTextured(
+    topTex,
+    t00.x, t00.y, t00.z, 0.0, 0.0,
+    t10.x, t10.y, t10.z, uRepeatX, 0.0,
+    t11.x, t11.y, t11.z, uRepeatX, uRepeatY,
+    t01.x, t01.y, t01.z, 0.0, uRepeatY,
+    cRoof00, cRoof10, cRoof11, cRoof01
+  )
+  ret 5
+
+fn withVertexAlpha(c: Color, alphaWeight: float): Color:
+  ret Color(r = c.r, g = c.g, b = c.b, a = clampFloat(alphaWeight, 0.0, 1.0))
+
+fn computeSplatCobbleWeight(wx: float, wy: float, roadCenterWx: float, roadCenterWy: float, roadRadius: float): float:
+  let r = maxFloat(roadRadius, 1.0)
+  let dx = wx - roadCenterWx
+  let dy = wy - roadCenterWy
+  let dist = sqrt(dx * dx + dy * dy)
+  ret clampFloat(1.0 - (dist - r * 0.52) / maxFloat(r * 0.42, 1.0), 0.0, 1.0)
+
+fn computeSplatDirtWeight(wx: float, wy: float, roadCenterWx: float, roadCenterWy: float, roadRadius: float): float:
+  let r = maxFloat(roadRadius, 1.0)
+  let dx = wx - roadCenterWx
+  let dy = wy - roadCenterWy
+  let dist = sqrt(dx * dx + dy * dy)
+  let ringW = clampFloat(1.0 - absFloat(dist - r * 0.82) / maxFloat(r * 0.50, 1.0), 0.0, 1.0)
+  let corridorCross = absFloat(dx * 0.62 - dy * 0.78)
+  let corridorAlong = dx * 0.78 + dy * 0.62
+  let roadW = if corridorAlong > (-r * 0.35): clampFloat(1.0 - corridorCross / maxFloat(r * 0.44, 1.0), 0.0, 1.0) else: 0.0
+  ret clampFloat(maxFloat(ringW * 0.88, roadW * 0.94), 0.0, 1.0)
+
+fn computeSplatRockWeight(normalZ: float): float:
+  ret clampFloat((0.90 - normalZ) / 0.14, 0.0, 1.0)
+
+/// Renders a multi-biome alpha-splatted `TerrainHeightfield` blending `grassTexId`, `dirtTexId`, `cobbleTexId`, and `rockTexId` via per-vertex alpha weights and `GL_LEQUAL` depth testing.
+pub fn drawHeightfieldSplat25D(cam: Camera25D, terrain: TerrainHeightfield, startGx: int, startGz: int, cellsX: int, cellsZ: int, sunDir: Vec3, grassTexId: int, dirtTexId: int, rockTexId: int, cobbleTexId: int, roadCenterWx: float, roadCenterWy: float, roadRadius: float, uvScale: float = 0.35): int:
+  if terrain.width < 2 or terrain.depth < 2 or cellsX <= 0 or cellsZ <= 0:
+    ret 0
+  let x0 = clampInt(startGx, 0, terrain.width - 2)
+  let z0 = clampInt(startGz, 0, terrain.depth - 2)
+  let x1 = clampInt(startGx + cellsX, x0 + 1, terrain.width - 1)
+  let z1 = clampInt(startGz + cellsZ, z0 + 1, terrain.depth - 1)
+  let scaleUv = maxFloat(uvScale, 0.01)
+
+  mut quadsDrawn = 0
+  mut gz = z0
+  while gz < z1:
+    mut gx = x0
+    while gx < x1:
+      let v00 = sampleTexturedTerrainVertex25D(cam, terrain, gx, gz, sunDir, scaleUv)
+      let v10 = sampleTexturedTerrainVertex25D(cam, terrain, gx + 1, gz, sunDir, scaleUv)
+      let v11 = sampleTexturedTerrainVertex25D(cam, terrain, gx + 1, gz + 1, sunDir, scaleUv)
+      let v01 = sampleTexturedTerrainVertex25D(cam, terrain, gx, gz + 1, sunDir, scaleUv)
+
+      drawQuad3DTextured(
+        grassTexId,
+        v00.pos.x, v00.pos.y, v00.pos.z, v00.uv.x, v00.uv.y,
+        v10.pos.x, v10.pos.y, v10.pos.z, v10.uv.x, v10.uv.y,
+        v11.pos.x, v11.pos.y, v11.pos.z, v11.uv.x, v11.uv.y,
+        v01.pos.x, v01.pos.y, v01.pos.z, v01.uv.x, v01.uv.y,
+        v00.color, v10.color, v11.color, v01.color
+      )
+      quadsDrawn += 1
+
+      let wx0 = float(gx) * terrain.horizontalScale
+      let wx1 = float(gx + 1) * terrain.horizontalScale
+      let wy0 = float(gz) * terrain.horizontalScale
+      let wy1 = float(gz + 1) * terrain.horizontalScale
+
+      if dirtTexId > 0:
+        let wd00 = computeSplatDirtWeight(wx0, wy0, roadCenterWx, roadCenterWy, roadRadius)
+        let wd10 = computeSplatDirtWeight(wx1, wy0, roadCenterWx, roadCenterWy, roadRadius)
+        let wd11 = computeSplatDirtWeight(wx1, wy1, roadCenterWx, roadCenterWy, roadRadius)
+        let wd01 = computeSplatDirtWeight(wx0, wy1, roadCenterWx, roadCenterWy, roadRadius)
+        if (wd00 + wd10 + wd11 + wd01) > 0.08:
+          drawQuad3DTextured(
+            dirtTexId,
+            v00.pos.x, v00.pos.y, v00.pos.z - 0.0002, v00.uv.x, v00.uv.y,
+            v10.pos.x, v10.pos.y, v10.pos.z - 0.0002, v10.uv.x, v10.uv.y,
+            v11.pos.x, v11.pos.y, v11.pos.z - 0.0002, v11.uv.x, v11.uv.y,
+            v01.pos.x, v01.pos.y, v01.pos.z - 0.0002, v01.uv.x, v01.uv.y,
+            withVertexAlpha(v00.color, wd00),
+            withVertexAlpha(v10.color, wd10),
+            withVertexAlpha(v11.color, wd11),
+            withVertexAlpha(v01.color, wd01)
+          )
+          quadsDrawn += 1
+
+      if cobbleTexId > 0:
+        let wc00 = computeSplatCobbleWeight(wx0, wy0, roadCenterWx, roadCenterWy, roadRadius)
+        let wc10 = computeSplatCobbleWeight(wx1, wy0, roadCenterWx, roadCenterWy, roadRadius)
+        let wc11 = computeSplatCobbleWeight(wx1, wy1, roadCenterWx, roadCenterWy, roadRadius)
+        let wc01 = computeSplatCobbleWeight(wx0, wy1, roadCenterWx, roadCenterWy, roadRadius)
+        if (wc00 + wc10 + wc11 + wc01) > 0.08:
+          drawQuad3DTextured(
+            cobbleTexId,
+            v00.pos.x, v00.pos.y, v00.pos.z - 0.0004, v00.uv.x, v00.uv.y,
+            v10.pos.x, v10.pos.y, v10.pos.z - 0.0004, v10.uv.x, v10.uv.y,
+            v11.pos.x, v11.pos.y, v11.pos.z - 0.0004, v11.uv.x, v11.uv.y,
+            v01.pos.x, v01.pos.y, v01.pos.z - 0.0004, v01.uv.x, v01.uv.y,
+            withVertexAlpha(v00.color, wc00),
+            withVertexAlpha(v10.color, wc10),
+            withVertexAlpha(v11.color, wc11),
+            withVertexAlpha(v01.color, wc01)
+          )
+          quadsDrawn += 1
+
+      if rockTexId > 0:
+        let wr00 = computeSplatRockWeight(v00.normal.z)
+        let wr10 = computeSplatRockWeight(v10.normal.z)
+        let wr11 = computeSplatRockWeight(v11.normal.z)
+        let wr01 = computeSplatRockWeight(v01.normal.z)
+        if (wr00 + wr10 + wr11 + wr01) > 0.08:
+          drawQuad3DTextured(
+            rockTexId,
+            v00.pos.x, v00.pos.y, v00.pos.z - 0.0006, v00.uv.x, v00.uv.y,
+            v10.pos.x, v10.pos.y, v10.pos.z - 0.0006, v10.uv.x, v10.uv.y,
+            v11.pos.x, v11.pos.y, v11.pos.z - 0.0006, v11.uv.x, v11.uv.y,
+            v01.pos.x, v01.pos.y, v01.pos.z - 0.0006, v01.uv.x, v01.uv.y,
+            withVertexAlpha(v00.color, wr00),
+            withVertexAlpha(v10.color, wr10),
+            withVertexAlpha(v11.color, wr11),
+            withVertexAlpha(v01.color, wr01)
+          )
+          quadsDrawn += 1
+
+      gx += 1
+    gz += 1
+  ret quadsDrawn
+
+/// Renders a rotated, Z-buffered ground decal quad (muddy wagon tracks, scorch marks, stone runes) anchored at `(wx, wy, wz + zLift)`.
+pub fn drawGroundDecal25D(cam: Camera25D, texId: int, wx: float, wy: float, wz: float, radiusX: float, radiusY: float, rotRad: float, tintColor: Color, zLift: float = 0.15): int:
+  if texId <= 0:
+    ret 0
+  let rx = maxFloat(radiusX, 0.5)
+  let ry = maxFloat(radiusY, 0.5)
+  let ca = cos(rotRad)
+  let sa = sin(rotRad)
+  let z = wz + zLift
+
+  let p0 = project3DToIso(cam, wx + (-rx) * ca - (-ry) * sa, wy + (-rx) * sa + (-ry) * ca, z)
+  let p1 = project3DToIso(cam, wx + rx * ca - (-ry) * sa, wy + rx * sa + (-ry) * ca, z)
+  let p2 = project3DToIso(cam, wx + rx * ca - ry * sa, wy + rx * sa + ry * ca, z)
+  let p3 = project3DToIso(cam, wx + (-rx) * ca - ry * sa, wy + (-rx) * sa + ry * ca, z)
+
+  let edgeCol = Color(r = tintColor.r, g = tintColor.g, b = tintColor.b, a = tintColor.a * 0.85)
+  drawQuad3DTextured(
+    texId,
+    p0.x, p0.y, p0.z, 0.0, 0.0,
+    p1.x, p1.y, p1.z, 1.0, 0.0,
+    p2.x, p2.y, p2.z, 1.0, 1.0,
+    p3.x, p3.y, p3.z, 0.0, 1.0,
+    edgeCol, edgeCol, edgeCol, edgeCol
+  )
+  ret 1

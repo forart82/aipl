@@ -1,0 +1,58 @@
+// ============================================================================
+// Example 087: SHA-256, SHA-512, BLAKE3 & Streaming Shasum Tool (CLI)
+// Demonstrates: sha256, sha256Str, sha512Str, blake3, blake3Str,
+//               sha256HasherNew, constantTimeEqual, crc32, xxhash64, and
+//               siphash24 from std/crypto.
+// ============================================================================
+module Ex087CryptoSha256Blake3ShasumCli
+
+import {
+  sha256,
+  sha256Str,
+  sha512Str,
+  blake3,
+  blake3Str,
+  sha256HasherNew,
+  constantTimeEqual,
+  crc32,
+  xxhash64,
+  siphash24
+} from "../std/crypto"
+
+// Computes SHA-256 and BLAKE3 binary and hex digests and returns the sum of their lengths.
+pub fn evaluateDigestByteLengthsSum(input: str): int:
+  let raw = input.toBytes()
+  let d256 = sha256(raw)
+  let dBlake = blake3(raw)
+  let hexBlake = blake3Str(input)
+  ret d256.len() + dBlake.len() + hexBlake.len
+
+// Verifies NIST SHA-256/SHA-512 test vectors, streaming Sha256Hasher, and fast non-crypto hashes.
+pub fn verifyStreamingSha256AndVectors(): int:
+  let helloHex = sha256Str("hello")
+  let sha512Abc = sha512Str("abc")
+  let oneShot = sha256("hello".toBytes())
+
+  mut streamHasher = sha256HasherNew()
+  streamHasher.update("hel".toBytes())
+  streamHasher.update("lo".toBytes())
+  let streamed = streamHasher.finalize()
+
+  let rawHello = "hello".toBytes()
+  let fastHashesOk = crc32(rawHello) == 907060870 and xxhash64(rawHello, 0) != 0 and siphash24((12345, 67890), rawHello) != 0
+  if helloHex == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" and sha512Abc.len == 128 and constantTimeEqual(oneShot, streamed) and fastHashesOk:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a cryptographic hash bit width.
+pub fn describeHashDigestAlgorithm(bits: int): str:
+  if bits == 256:
+    ret "HASH:FIPS180_SHA256_AND_BLAKE3"
+  ret "HASH:FIPS180_SHA512"
+
+pub fn main(): int:
+  let lenSum = evaluateDigestByteLengthsSum("hello")
+  let vecOk = verifyStreamingSha256AndVectors()
+  let alg = describeHashDigestAlgorithm(256)
+  println("ex_087_crypto_sha256_blake3_shasum_cli: lenSum=" + str(lenSum) + " vecOk=" + str(vecOk) + " alg=" + alg)
+  ret 0

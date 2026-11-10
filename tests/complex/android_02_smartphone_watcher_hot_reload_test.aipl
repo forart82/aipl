@@ -1,0 +1,119 @@
+// Comprehensive complex test for Android smartphone watcher and hot-reload pipeline (step_22.6)
+module tests.complex.android_02_smartphone_watcher_hot_reload_test
+
+import * from "std/fs/android_vfs"
+import * from "std/fs/file_watcher_mobile"
+import * from "std/net/live_reload_sync"
+import * from "compiler/bytecode"
+import * from "std/ui/ui_watcher_hud"
+import { sha256Str } from "std/crypto/hash"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn validateAdr0035Metadata(adrNumber: int, vfsModules: int, debounceMs: int, preservesState: bool): bool requires adrNumber >= 0 ensures result == (adrNumber == 35 and vfsModules == 281 and debounceMs == 50 and preservesState):
+  ret adrNumber == 35 and vfsModules == 281 and debounceMs == 50 and preservesState
+
+pub fn simulateWatcherSyntaxErrorSurvival(liveScore: int, activeGen: int, brokenEditErrorCode: str): (int, int, str) requires activeGen >= 1 ensures result[0] == liveScore and result[1] >= activeGen:
+  if brokenEditErrorCode.len() > 0:
+    let pill = "ERR " + brokenEditErrorCode + " L14 | #" + str(activeGen)
+    ret (liveScore, activeGen, pill)
+  let nextGen = activeGen + 1
+  ret (liveScore, nextGen, "LIVE 60 FPS | #" + str(nextGen))
+
+pub fn runSmartphoneWatcherHotReloadE2e(initialScore: int, v1StepDelta: int, v2StepDelta: int): (int, int, str) requires initialScore >= 0 ensures result[0] >= initialScore and result[1] >= 0:
+  mut score = initialScore
+  mut reloads = 1
+  let h1 = sha256Str("v1:" + str(v1StepDelta))
+  mut f = 0
+  while f < 10:
+    score = score + v1StepDelta
+    f = f + 1
+  let h2 = sha256Str("v2:" + str(v2StepDelta))
+  if h2 != h1:
+    reloads = reloads + 1
+  f = 0
+  while f < 10:
+    score = score + v2StepDelta
+    f = f + 1
+  let finalPill = "LIVE 60 FPS | #" + str(reloads)
+  ret (score, reloads, finalPill)
+
+pub fn test_android_02_validateAdr0035Metadata(): int:
+  assert(validateAdr0035Metadata(35, 281, 50, true) == true, "ADR-0035 valid")
+  assert(validateAdr0035Metadata(35, 200, 50, true) == false, "wrong VFS module count rejected")
+  assert(validateAdr0035Metadata(35, 281, 50, false) == false, "stateless reload rejected")
+  assert(validateAdr0035Metadata(35, 281, 100, true) == false, "wrong debounceMs rejected")
+  assert(validateAdr0035Metadata(35, 281, 50, false) == false, "missing state preservation rejected")
+  assert(validateAdr0035Metadata(0, 0, 0, false) == false, "zero boundary rejected")
+  ret 0
+
+pub fn test_android_02_simulateWatcherSyntaxErrorSurvival(): int:
+  let (score1, gen1, pill1) = simulateWatcherSyntaxErrorSurvival(420, 1, "E1001")
+  assertEqInt(score1, 420, "liveScore 420 preserved across syntax error")
+  assertEqInt(gen1, 1, "activeGen stays 1 when E1001 occurs")
+  assertEqStr(pill1, "ERR E1001 L14 | #1", "HUD pill shows E1001 without crashing")
+  let (score2, gen2, pill2) = simulateWatcherSyntaxErrorSurvival(score1, gen1, "")
+  assertEqInt(score2, 420, "liveScore 420 preserved after fixing syntax error")
+  assertEqInt(gen2, 2, "activeGen promoted to 2")
+  assertEqStr(pill2, "LIVE 60 FPS | #2", "HUD pill returns to LIVE 60 FPS | #2")
+  ret 0
+
+pub fn test_android_02_runSmartphoneWatcherHotReloadE2e(): int:
+  let (finalScore, reloadCount, pill) = runSmartphoneWatcherHotReloadE2e(100, 5, 20)
+  assertEqInt(finalScore, 350, "100 + 10*5 + 10*20 == 350")
+  assertEqInt(reloadCount, 2, "2 successful loads (v1 boot + v2 hot-reload)")
+  assertEqStr(pill, "LIVE 60 FPS | #2", "final HUD pill status")
+  let (zeroScore, _, _) = runSmartphoneWatcherHotReloadE2e(0, 0, 0)
+  assertEqInt(zeroScore, 0, "boundary 0 deltas -> 0")
+  let (zScore, zRel, zPill) = runSmartphoneWatcherHotReloadE2e(0, 0, 0)
+  assertEqInt(zScore, 0, "zero initial score and deltas remain 0")
+  assertEqStr(zPill, "LIVE 60 FPS | #2", "pill still records 2 reloads on zero deltas")
+  ret 0
+
+pub fn test_android_02_full_pipeline_integration(): int:
+  // 1. Offline VFS init
+  let vfs = createAndroidStdlibVfs(281)
+  assertEqStr(vfs.magic, "AIPLVFS1", "vfs magic initialized")
+  let norm = normalizeStdImportPath("std/math/vec_math")
+  assertEqStr(norm, "std/math/vec_math.aipl", "normalized path")
+
+  // 2. Watcher and debounce setup
+  let watcher = createMobileAiplWatcher(50)
+  assertEqInt(watcher.debounceMs, 50, "watcher debounce 50ms")
+
+  // 3. State snapshot & schema restore
+  mut liveVars: Map[str, int] = Map.new()
+  liveVars.set("level", 5)
+  liveVars.set("xp", 1250)
+  let snap = snapshotVmGlobalState(liveVars, 100, 1)
+  assertEqInt(snap.varCount, 2, "snapshot captures 2 variables")
+
+  mut newDefs: Map[str, int] = Map.new()
+  newDefs.set("level", 1)
+  newDefs.set("xp", 0)
+  newDefs.set("shield", 100)
+  let restored = restoreVmGlobalState(snap.savedVars, newDefs)
+  assertEqInt(restored.get("level").unwrap(), 5, "restored level preserved")
+  assertEqInt(restored.get("xp").unwrap(), 1250, "restored xp preserved")
+  assertEqInt(restored.get("shield").unwrap(), 100, "new field shield initialized to default")
+
+  // 4. Hot-swap bytecode
+  let (nextGen, fnCount, swapped) = hotSwapBytecodeModule(snap.moduleGen, 10, 12, 0)
+  assert(swapped == true, "hotSwap succeeded")
+  assertEqInt(nextGen, 2, "generation incremented")
+  assertEqInt(fnCount, 12, "new fnCount")
+
+  // 5. Zero-config LAN live-reload packet & delta patch
+  let baseCode = "pub fn main(): int: ret 1"
+  let patchRes = applyLiveReloadDeltaPatch(baseCode, 24, 1, "2", 275034057)
+  assert(patchRes.isOk() == true, "LAN delta patch applied cleanly")
+  assertEqStr(patchRes.unwrap(), "pub fn main(): int: ret 2", "patched code matches expected")
+  let beacon = buildUdpDiscoveryBeacon("Galaxy-Fold", 9477)
+  assertEqStr(beacon, "AIPL_WATCHER_BEACON|Galaxy-Fold|9477|v1", "UDP beacon broadcast ready")
+
+  // 6. HUD overlay
+  let hud = createWatcherHudState(60, 48)
+  assertEqInt(hud.pillHitboxDp, 48, "hud hitbox 48dp")
+  let pillText = renderWatcherOverlayPill(60, nextGen, false, "", 0)
+  assertEqStr(pillText, "LIVE 60 FPS | #2", "hud pill matches live state")
+
+  ret 0

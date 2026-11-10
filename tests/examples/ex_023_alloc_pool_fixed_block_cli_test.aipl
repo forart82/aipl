@@ -1,0 +1,29 @@
+// ============================================================================
+// Twin Test Suite 023: Fixed-Block Pool Allocator & ABA Handle Guard (CLI)
+// Verifies examples/ex_023_alloc_pool_fixed_block_cli.aipl
+// ============================================================================
+module Ex023AllocPoolFixedBlockCliTest
+
+import {
+  verifyPoolAbaProtection,
+  countPoolActiveAfterBatch,
+  describePoolOccupancy
+} from "../../examples/ex_023_alloc_pool_fixed_block_cli.aipl"
+
+pub fn test_pool_aba_generational_guard(): int:
+  let recycledValue = verifyPoolAbaProtection(4, 101, 202)
+  assert(recycledValue == 202, "recycled slot stores 202 while rejecting stale generation handle")
+  ret 0
+
+pub fn test_pool_batch_and_occupancy_status(): int:
+  assert(countPoolActiveAfterBatch(8, 5, 2) == 3, "5 acquired minus 2 released leaves 3 active")
+  assert(describePoolOccupancy(0, 8) == "POOL:EMPTY", "0/8 is empty")
+  assert(describePoolOccupancy(8, 8) == "POOL:SATURATED", "8/8 is saturated")
+  assert(describePoolOccupancy(3, 8) == "POOL:ACTIVE_SLOTS", "3/8 is active")
+  ret 0
+
+pub fn main(): int:
+  test_pool_aba_generational_guard()
+  test_pool_batch_and_occupancy_status()
+  println("PASS: ex_023_alloc_pool_fixed_block_cli_test")
+  ret 0

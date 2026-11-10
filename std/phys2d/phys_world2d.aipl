@@ -1,0 +1,126 @@
+/// # Module: `std/phys2d/phys_world2d` (`PhysWorld2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Central `PhysicsWorld2D` managing rigid bodies, colliders, constraint joints,
+/// dynamic AABB broadphase, and sub-stepped simulation ticks.
+module PhysWorld2DMod
+
+import { Vec2 } from "std/math/vec_math"
+import {
+  RigidBody2D, rigidBody2dIntegrateVelocity, rigidBody2dIntegratePosition
+} from "std/phys2d/rigid_body2d"
+import { Collider2D, colliderComputeAABB } from "std/phys2d/collider2d"
+import {
+  DynamicAABBTree2D, dynamicAABBTreeNew, dynamicAABBTreeInsert
+} from "std/phys2d/broadphase2d"
+import {
+  Joint2D, jointSolveVelocity, jointSolvePosition
+} from "std/phys2d/joint2d"
+
+pub struct PhysWorldSettings2D(gravity: Vec2, velocityIterations: int, positionIterations: int, subSteps: int, allowSleep: bool)
+
+pub struct PhysicsWorld2D(settings: PhysWorldSettings2D, bodies: [RigidBody2D], colliders: [Collider2D], colliderBodyIds: [int], joints: [Joint2D], broadphase: DynamicAABBTree2D)
+
+pub fn physWorld2dNew(gravity: Vec2): PhysicsWorld2D:
+  mut bds: [RigidBody2D] = []
+  mut cols: [Collider2D] = []
+  mut colBodyIds: [int] = []
+  mut jts: [Joint2D] = []
+  ret PhysicsWorld2D(
+    settings = PhysWorldSettings2D(
+      gravity = gravity,
+      velocityIterations = 8,
+      positionIterations = 3,
+      subSteps = 1,
+      allowSleep = true
+    ),
+    bodies = bds,
+    colliders = cols,
+    colliderBodyIds = colBodyIds,
+    joints = jts,
+    broadphase = dynamicAABBTreeNew()
+  )
+
+pub fn physWorld2dAddBody(mut world: PhysicsWorld2D, body: RigidBody2D): int:
+  mut bds = world.bodies
+  let idx = bds.len
+  bds.push(body)
+  world.bodies = bds
+  ret idx
+
+pub fn physWorld2dAddCollider(mut world: PhysicsWorld2D, bodyId: int, collider: Collider2D): int:
+  mut cols = world.colliders
+  mut cbIds = world.colliderBodyIds
+  let colIdx = cols.len
+  cols.push(collider)
+  cbIds.push(bodyId)
+  world.colliders = cols
+  world.colliderBodyIds = cbIds
+
+  if bodyId >= 0 and bodyId < world.bodies.len:
+    let b: RigidBody2D = world.bodies[bodyId]
+    let aabb = colliderComputeAABB(collider, b.position, b.angle)
+    mut bp = world.broadphase
+    dynamicAABBTreeInsert(bp, bodyId, aabb)
+    world.broadphase = bp
+  ret colIdx
+
+pub fn physWorld2dAddJoint(mut world: PhysicsWorld2D, joint: Joint2D): int:
+  mut jts = world.joints
+  let jIdx = jts.len
+  jts.push(joint)
+  world.joints = jts
+  ret jIdx
+
+pub fn physWorld2dStep(mut world: PhysicsWorld2D, dt: float): void:
+  let cfg: PhysWorldSettings2D = world.settings
+  let steps = if cfg.subSteps > 0: cfg.subSteps else: 1
+  let subDt = dt / float(steps)
+
+  mut bds = world.bodies
+  mut s = 0
+  while s < steps:
+    mut i = 0
+    while i < bds.len:
+      mut b: RigidBody2D = bds[i]
+      rigidBody2dIntegrateVelocity(b, cfg.gravity, subDt)
+      bds[i] = b
+      i = i + 1
+
+    mut vIt = 0
+    while vIt < cfg.velocityIterations:
+      mut j = 0
+      while j < world.joints.len:
+        let jt: Joint2D = world.joints[j]
+        if jt.bodyIdA >= 0 and jt.bodyIdA < bds.len and jt.bodyIdB >= 0 and jt.bodyIdB < bds.len:
+          mut ba: RigidBody2D = bds[jt.bodyIdA]
+          mut bb: RigidBody2D = bds[jt.bodyIdB]
+          jointSolveVelocity(jt, ba, bb, subDt)
+          bds[jt.bodyIdA] = ba
+          bds[jt.bodyIdB] = bb
+        j = j + 1
+      vIt = vIt + 1
+
+    mut k = 0
+    while k < bds.len:
+      mut b: RigidBody2D = bds[k]
+      rigidBody2dIntegratePosition(b, subDt)
+      bds[k] = b
+      k = k + 1
+
+    mut pIt = 0
+    while pIt < cfg.positionIterations:
+      mut j = 0
+      while j < world.joints.len:
+        let jt: Joint2D = world.joints[j]
+        if jt.bodyIdA >= 0 and jt.bodyIdA < bds.len and jt.bodyIdB >= 0 and jt.bodyIdB < bds.len:
+          mut ba: RigidBody2D = bds[jt.bodyIdA]
+          mut bb: RigidBody2D = bds[jt.bodyIdB]
+          jointSolvePosition(jt, ba, bb)
+          bds[jt.bodyIdA] = ba
+          bds[jt.bodyIdB] = bb
+        j = j + 1
+      pIt = pIt + 1
+
+    s = s + 1
+  world.bodies = bds

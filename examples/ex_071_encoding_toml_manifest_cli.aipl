@@ -1,0 +1,53 @@
+// ============================================================================
+// Example 071: TOML Project Manifest Parser & Serializer (CLI)
+// Demonstrates: parseToml, tomlGetFloat, serializeToml, parseTomlSection,
+//               parseTomlSections, getTomlValue, and toToml from std/encoding.
+// ============================================================================
+module Ex071EncodingTomlManifestCli
+
+import {
+  parseToml,
+  tomlGetFloat,
+  serializeToml,
+  parseTomlSection,
+  parseTomlSections,
+  getTomlValue,
+  toToml
+} from "../std/encoding"
+
+// Parses a TOML project manifest and extracts the server port plus 10x scale ratio.
+pub fn extractTomlServerPortAndScale(): int:
+  let tomlSrc = "title = \"AIPL-Engine\"\nratio = 2.5\n[server]\nport = 8080\nenabled = true\n"
+  let doc = parseToml(tomlSrc).unwrap()
+  assert(doc.getString("title").unwrap() == "AIPL-Engine", "manifest title")
+  assert(doc.getBool("server.enabled").unwrap() == true, "server.enabled flag")
+
+  let port = doc.getInt("server.port").unwrap()
+  let ratio = tomlGetFloat(doc, "ratio").unwrap()
+  let serialized = serializeToml(doc)
+  assert(serialized.contains("title = \"AIPL-Engine\""), "serializeToml retains title")
+  ret port + int(ratio * 10.0)
+
+// Verifies TOML section table extraction and round-trip serialization.
+pub fn verifyTomlSectionRoundTrip(): int:
+  let tomlSrc = "title = \"AIPL-Engine\"\n[server]\nport = 8080\nworkers = 4\n"
+  let sec = parseTomlSection(tomlSrc, "server")
+  let allSecs = parseTomlSections(tomlSrc)
+  let rawPort = getTomlValue(tomlSrc, "server", "port", "")
+  let rebuilt = toToml("server", sec)
+  if allSecs.len == 1 and rawPort == "8080" and rebuilt.contains("[server]"):
+    ret 1
+  ret 0
+
+// Summarizes the server activation profile from the TOML manifest.
+pub fn describeTomlManifestProfile(enabled: bool): str:
+  if enabled:
+    ret "TOML:PROD_SERVER_ENABLED"
+  ret "TOML:MAINTENANCE_OFFLINE"
+
+pub fn main(): int:
+  let metric = extractTomlServerPortAndScale()
+  let roundTripOk = verifyTomlSectionRoundTrip()
+  let profile = describeTomlManifestProfile(true)
+  println("ex_071_encoding_toml_manifest_cli: metric=" + str(metric) + " roundTripOk=" + str(roundTripOk) + " profile=" + profile)
+  ret 0

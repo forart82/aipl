@@ -1,0 +1,47 @@
+/// # Module: `std/ecs/ecs_event` (`EcsEventMod`)
+///
+/// ## Purpose & Domain Scope
+/// Double-buffered typed event queues (`EventBus`, `EventReader`) supporting
+/// frame-persistent event delivery.
+module EcsEventMod
+
+pub struct EventEnvelope(eventTypeId: int, sourceEntityIndex: int, payloadA: float, payloadB: float)
+
+pub struct EventBus(currentQueue: [EventEnvelope], previousQueue: [EventEnvelope])
+
+pub struct EventReader(readCursorPrev: int, readCursorCurr: int)
+
+pub fn createEventBus(): EventBus:
+  mut curr: [EventEnvelope] = []
+  mut prev: [EventEnvelope] = []
+  ret EventBus(currentQueue = curr, previousQueue = prev)
+
+pub fn publishEvent(bus: EventBus, ev: EventEnvelope): EventBus:
+  mut curr = bus.currentQueue
+  curr.push(ev)
+  ret EventBus(currentQueue = curr, previousQueue = bus.previousQueue)
+
+pub fn swapEventBuffers(bus: EventBus): EventBus:
+  mut freshCurr: [EventEnvelope] = []
+  ret EventBus(currentQueue = freshCurr, previousQueue = bus.currentQueue)
+
+pub fn readNewEvents(bus: EventBus, reader: EventReader, eventTypeId: int): ([EventEnvelope], EventReader):
+  mut out: [EventEnvelope] = []
+  mut pCursor = reader.readCursorPrev
+  while pCursor < bus.previousQueue.len:
+    let ev: EventEnvelope = bus.previousQueue[pCursor]
+    if ev.eventTypeId == eventTypeId:
+      out.push(ev)
+    pCursor = pCursor + 1
+
+  mut cCursor = reader.readCursorCurr
+  while cCursor < bus.currentQueue.len:
+    let ev: EventEnvelope = bus.currentQueue[cCursor]
+    if ev.eventTypeId == eventTypeId:
+      out.push(ev)
+    cCursor = cCursor + 1
+
+  ret (
+    out,
+    EventReader(readCursorPrev = pCursor, readCursorCurr = cCursor)
+  )

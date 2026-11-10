@@ -1,0 +1,86 @@
+module WindowAppLoop
+
+// ============================================================================
+// std/window/app_loop.aipl — Deterministic Fixed-Timestep Application Loop
+// ============================================================================
+
+pub struct AppConfig(title: str, targetFps: int, fixedUpdatesPerSec: int, maxFrameSkip: int, vsync: bool)
+
+pub struct AppLoopState(isRunning: bool, frameCount: int, totalTimeSeconds: float, deltaTimeSeconds: float, alpha: float, accumulatorSeconds: float)
+
+pub struct AppLifecycleHooks(onInit: int, onUpdate: int, onFixedUpdate: int, onDraw: int, onShutdown: int)
+
+pub fn createAppConfig(title: str = "AIPL Window", targetFps: int = 60, fixedUpdatesPerSec: int = 60): AppConfig:
+  let safeTarget = if targetFps > 0: targetFps else: 60
+  let safeFixed = if fixedUpdatesPerSec > 0: fixedUpdatesPerSec else: 60
+  ret AppConfig(
+    title = title,
+    targetFps = safeTarget,
+    fixedUpdatesPerSec = safeFixed,
+    maxFrameSkip = 5,
+    vsync = true
+  )
+
+pub fn createAppLoopState(config: AppConfig): AppLoopState:
+  let running = config.targetFps > 0 and config.fixedUpdatesPerSec > 0
+  ret AppLoopState(
+    isRunning = running,
+    frameCount = 0,
+    totalTimeSeconds = 0.0,
+    deltaTimeSeconds = 0.0,
+    alpha = 0.0,
+    accumulatorSeconds = 0.0
+  )
+
+pub fn clampDeltaTime(dt: float, maxDt: float = 0.25): float:
+  let safeMax = if maxDt > 0.0: maxDt else: 0.25
+  if dt < 0.0:
+    ret 0.0
+  if dt > safeMax:
+    ret safeMax
+  ret dt
+
+pub fn calculateAlpha(accumulator: float, fixedDt: float): float:
+  if fixedDt <= 0.0:
+    ret 0.0
+  let a = accumulator / fixedDt
+  if a < 0.0:
+    ret 0.0
+  if a > 1.0:
+    ret 1.0
+  ret a
+
+pub fn stepAppLoop(state: AppLoopState, config: AppConfig, rawDeltaSeconds: float, hooks: AppLifecycleHooks): AppLoopState:
+  if not state.isRunning or hooks.onShutdown < 0:
+    ret state
+  let fixedHz = if config.fixedUpdatesPerSec > 0: config.fixedUpdatesPerSec else: 60
+  let fixedDt = 1.0 / float(fixedHz)
+  let maxSkip = if config.maxFrameSkip > 0: config.maxFrameSkip else: 5
+  let dt = clampDeltaTime(rawDeltaSeconds, float(maxSkip) * fixedDt)
+
+  mut acc = state.accumulatorSeconds + dt
+  mut steps = 0
+  while acc >= fixedDt and steps < maxSkip:
+    acc = acc - fixedDt
+    steps += 1
+
+  let interpAlpha = calculateAlpha(acc, fixedDt)
+
+  ret AppLoopState(
+    isRunning = state.isRunning,
+    frameCount = state.frameCount + 1,
+    totalTimeSeconds = state.totalTimeSeconds + dt,
+    deltaTimeSeconds = dt,
+    alpha = interpAlpha,
+    accumulatorSeconds = acc
+  )
+
+pub fn requestAppExit(state: AppLoopState): AppLoopState:
+  ret AppLoopState(
+    isRunning = false,
+    frameCount = state.frameCount,
+    totalTimeSeconds = state.totalTimeSeconds,
+    deltaTimeSeconds = state.deltaTimeSeconds,
+    alpha = state.alpha,
+    accumulatorSeconds = state.accumulatorSeconds
+  )

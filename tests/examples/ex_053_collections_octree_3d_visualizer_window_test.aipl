@@ -1,0 +1,46 @@
+// ============================================================================
+// Twin Test Suite 053: 3D Octree 8-Octant Subdivision & Box Query Window
+// Verifies examples/ex_053_collections_octree_3d_visualizer_window.aipl
+// ============================================================================
+module Ex053CollectionsOctree3dVisualizerWindowTest
+
+import {
+  OctreeVizState,
+  buildDemoOctree,
+  evaluateOctreeSubdivisionAndBoxQuery,
+  describeOctreeSplitTopology,
+  buildOctreeVizState,
+  renderFrameStep
+} from "../../examples/ex_053_collections_octree_3d_visualizer_window"
+
+pub fn test_octree_subdivision_and_box_query(): int:
+  // 4 points inserted into capacity-2 octree: divided(100) + total(4)*10 + octant0 hits(2) == 142
+  assert(evaluateOctreeSubdivisionAndBoxQuery() == 142, "divided(100) + total(4)*10 + boxQuery(2) == 142")
+  let ot = buildDemoOctree()
+  assert(ot.divided == true and ot.children.len == 8 and ot.count() == 4, "buildDemoOctree creates 8 child octants with 4 items")
+  assert(describeOctreeSplitTopology(8) == "OCTREE:8_OCTANT_SPATIAL_SUBDIVISION", "8 octants")
+  ret 0
+
+pub fn test_octree_window_state_and_step(): int:
+  let st0 = buildOctreeVizState(0)
+  let st1 = buildOctreeVizState(1)
+  let st20 = buildOctreeVizState(20)
+  let st100 = buildOctreeVizState(100)
+  assert(st0.totalVoxels == 4, "totalVoxels == 4")
+  assert(st0.octantZeroHits == 2, "octantZeroHits == 2 at frame 0")
+  assert(st20.octantZeroHits >= st0.octantZeroHits, "expanding box query hits >= 2 items")
+  assert(st0.dividedFlag == 1, "dividedFlag == 1")
+  assert(st0.projX > 200.0 and st0.projX < 650.0, "3D octree corner projects inside left viewport")
+  assert(int(st0.projX) != int(st20.projX) and int(st20.projX) != int(st100.projX), "3D octree rotates across frames 0 -> 20 -> 100")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m1 > m0 and m20 > m1 and m100 > m20, "renderFrameStep progresses across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_octree_subdivision_and_box_query()
+  test_octree_window_state_and_step()
+  println("PASS: ex_053_collections_octree_3d_visualizer_window_test")
+  ret 0

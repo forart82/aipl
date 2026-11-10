@@ -1,0 +1,78 @@
+module tests.functions.gfx25d.camera25d_test
+
+import { Vec3 } from "std/math/vec_math"
+import { assert, assertEqInt, assertApproxEq } from "std/prelude"
+import {
+  AABB2D,
+  Camera25D,
+  createCamera25D,
+  project3DToIso,
+  unprojectIsoTo3D,
+  getVisibleWorldAABB,
+  updateCamera25D
+} from "std/gfx25d/gfx25d_mod"
+
+pub fn test_camera25d_projection_invertibility(): int:
+  let zooms: [float] = [0.5, 1.0, 2.25]
+  let elevations: [float] = [-50.0, 0.0, 42.5, 150.0]
+
+  mut zi = 0
+  while zi < zooms.len:
+    let z = zooms[zi]
+    let baseCam = createCamera25D(1280.0, 720.0, z, 45.0, 30.0)
+    let cam = baseCam { worldX = 120.0, worldY = -85.0, worldZ = 15.0 }
+
+    mut ei = 0
+    while ei < elevations.len:
+      let wz = elevations[ei]
+      let wx = 245.75
+      let wy = -32.25
+      let screenPt = project3DToIso(cam, wx, wy, wz)
+      let worldPt = unprojectIsoTo3D(cam, screenPt.x, screenPt.y, wz)
+
+      assertApproxEq(worldPt.x, wx, 0.0005, "unprojectIsoTo3D world X invertibility < 0.001")
+      assertApproxEq(worldPt.y, wy, 0.0005, "unprojectIsoTo3D world Y invertibility < 0.001")
+      assertApproxEq(worldPt.z, wz, 0.0005, "unprojectIsoTo3D world Z invertibility < 0.001")
+      ei += 1
+    zi += 1
+
+  // Verify depth ordering: foreground object (higher wz or closer wy) has smaller normalized z
+  let cam0 = createCamera25D(800.0, 600.0, 1.0, 45.0, 30.0)
+  let pFront = project3DToIso(cam0, 20.0, 20.0, 10.0)
+  let pBack = project3DToIso(cam0, -20.0, -20.0, 0.0)
+  assert(pFront.z < pBack.z, "foreground point must have smaller normalized depth z than background point")
+  ret 0
+
+pub fn test_camera25d_elevation_frustum_aabb(): int:
+  let cam = createCamera25D(1280.0, 720.0, 1.0, 45.0, 30.0)
+  let flatBox: AABB2D = getVisibleWorldAABB(cam, 0.0, 0.0)
+  let tallBox: AABB2D = getVisibleWorldAABB(cam, -50.0, 150.0)
+
+  assert(tallBox.minX < flatBox.minX, "elevation-aware AABB minX expands for [-50, 150]")
+  assert(tallBox.minY < flatBox.minY, "elevation-aware AABB minY expands for [-50, 150]")
+  assert(tallBox.maxX > flatBox.maxX, "elevation-aware AABB maxX expands for [-50, 150]")
+  assert(tallBox.maxY > flatBox.maxY, "elevation-aware AABB maxY expands for [-50, 150]")
+
+  // Verify that a mountain peak at (wx=0, wy=0, wz=150) and river gorge at (wx=0, wy=0, wz=-50) are inside tallBox
+  assert(0.0 >= tallBox.minX and 0.0 <= tallBox.maxX, "origin X inside frustum AABB")
+  assert(0.0 >= tallBox.minY and 0.0 <= tallBox.maxY, "origin Y inside frustum AABB")
+  ret 0
+
+pub fn test_camera25d_smooth_elevation_tracking(): int:
+  mut cam: Camera25D = createCamera25D(800.0, 600.0, 1.0, 45.0, 30.0)
+  mut step = 0
+  while step < 60:
+    cam = updateCamera25D(cam, 100.0, 200.0, 45.0, 0.05)
+    step += 1
+
+  assertApproxEq(cam.worldX, 100.0, 0.05, "camera smoothly tracks targetWx")
+  assertApproxEq(cam.worldY, 200.0, 0.05, "camera smoothly tracks targetWy")
+  assertApproxEq(cam.worldZ, 45.0, 0.05, "camera smoothly tracks terrainWz")
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_camera25d_projection_invertibility(), 0, "test_camera25d_projection_invertibility")
+  assertEqInt(test_camera25d_elevation_frustum_aabb(), 0, "test_camera25d_elevation_frustum_aabb")
+  assertEqInt(test_camera25d_smooth_elevation_tracking(), 0, "test_camera25d_smooth_elevation_tracking")
+  println("PASS: camera25d_test")
+  ret 0

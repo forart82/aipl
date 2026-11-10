@@ -1,0 +1,86 @@
+/// # Module: `std/phys3d/joint3d` (`Joint3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 3D spatial constraints: BallSocket, Hinge, Slider, SixDof, and ConeTwist.
+module Joint3DMod
+
+import { Vec3 } from "std/math/vec_math"
+import { RigidBody3D } from "std/phys3d/rigid_body3d"
+
+pub enum JointType3D:
+  BallSocket
+  Hinge
+  Slider
+  SixDof
+  ConeTwist
+
+pub struct Joint3D(id: int, jointType: JointType3D, bodyIdA: int, bodyIdB: int, localAnchorA: Vec3, localAnchorB: Vec3, localAxisA: Vec3, localAxisB: Vec3, minLimits: Vec3, maxLimits: Vec3, enableMotor: bool, motorTargetVelocity: float, motorMaxForce: float)
+
+pub fn ballSocketJointNew(bodyA: int, bodyB: int, worldAnchor: Vec3): Joint3D:
+  let z = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  ret Joint3D(
+    id = 0,
+    jointType = JointType3D.BallSocket,
+    bodyIdA = bodyA,
+    bodyIdB = bodyB,
+    localAnchorA = worldAnchor,
+    localAnchorB = worldAnchor,
+    localAxisA = Vec3(x = 0.0, y = 1.0, z = 0.0),
+    localAxisB = Vec3(x = 0.0, y = 1.0, z = 0.0),
+    minLimits = z,
+    maxLimits = z,
+    enableMotor = false,
+    motorTargetVelocity = 0.0,
+    motorMaxForce = 0.0
+  )
+
+pub fn hingeJointNew(bodyA: int, bodyB: int, worldAnchor: Vec3, worldAxis: Vec3): Joint3D:
+  let ax: Vec3 = worldAxis.norm()
+  let z = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  ret Joint3D(
+    id = 0,
+    jointType = JointType3D.Hinge,
+    bodyIdA = bodyA,
+    bodyIdB = bodyB,
+    localAnchorA = worldAnchor,
+    localAnchorB = worldAnchor,
+    localAxisA = ax,
+    localAxisB = ax,
+    minLimits = z,
+    maxLimits = z,
+    enableMotor = false,
+    motorTargetVelocity = 0.0,
+    motorMaxForce = 0.0
+  )
+
+pub fn sixDofJointNew(bodyA: int, bodyB: int, anchorA: Vec3, anchorB: Vec3): Joint3D:
+  let z = Vec3(x = 0.0, y = 0.0, z = 0.0)
+  ret Joint3D(
+    id = 0,
+    jointType = JointType3D.SixDof,
+    bodyIdA = bodyA,
+    bodyIdB = bodyB,
+    localAnchorA = anchorA,
+    localAnchorB = anchorB,
+    localAxisA = Vec3(x = 1.0, y = 0.0, z = 0.0),
+    localAxisB = Vec3(x = 1.0, y = 0.0, z = 0.0),
+    minLimits = z,
+    maxLimits = z,
+    enableMotor = false,
+    motorTargetVelocity = 0.0,
+    motorMaxForce = 0.0
+  )
+
+pub fn joint3dSolveVelocity(joint: Joint3D, mut bodyA: RigidBody3D, mut bodyB: RigidBody3D, dt: float): void:
+  let invMassSum = bodyA.invMass + bodyB.invMass
+  if invMassSum <= 0.000001:
+    ret
+  let va: Vec3 = bodyA.linearVelocity
+  let vb: Vec3 = bodyB.linearVelocity
+  let pa: Vec3 = bodyA.position.add(joint.localAnchorA)
+  let pb: Vec3 = bodyB.position.add(joint.localAnchorB)
+  let posErr: Vec3 = pb.sub(pa)
+  let relVel: Vec3 = vb.sub(va).add(posErr.scale(0.2 / (if dt > 0.0001: dt else: 0.016)))
+  let impulse: Vec3 = relVel.scale(-1.0 / invMassSum)
+  bodyA.linearVelocity = va.sub(impulse.scale(bodyA.invMass))
+  bodyB.linearVelocity = vb.add(impulse.scale(bodyB.invMass))

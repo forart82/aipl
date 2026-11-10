@@ -1,0 +1,151 @@
+module Ex231ProcgenNoisePerlinSimplexWorleyWindow
+
+import {
+  NoiseType, FbmConfig, WorleyResult, samplePerlin2D,
+  samplePerlin3D, sampleSimplex2D, sampleWorley2D,
+  sampleFbm2D, sampleDomainWarpedFbm2D
+} from "../std/procgen/noise_field"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct NoiseScene(fbmCfg: FbmConfig, phaseOffset: float, centerFbm: float, centerSimplex: float, centerPerlin3d: float)
+
+pub fn createNoiseScene(): NoiseScene:
+  let cfg = FbmConfig(octaves = 4, lacunarity = 2.0, persistence = 0.5, seed = 42)
+  ret NoiseScene(
+    fbmCfg = cfg,
+    phaseOffset = 0.0,
+    centerFbm = sampleFbm2D(1.8, 1.8, cfg),
+    centerSimplex = sampleSimplex2D(1.8, 1.8, 99),
+    centerPerlin3d = samplePerlin3D(1.8, 1.8, 0.0, 42)
+  )
+
+pub fn stepScene(mut scene: NoiseScene, frame: int, dt: float): void:
+  let nextPhase = scene.phaseOffset + dt
+  scene.phaseOffset = nextPhase
+  scene.centerFbm = sampleFbm2D(1.8 + nextPhase, 1.8 + nextPhase * 0.5, scene.fbmCfg)
+  scene.centerSimplex = sampleSimplex2D(1.8 + nextPhase, 1.8, 99)
+  scene.centerPerlin3d = samplePerlin3D(1.8, 1.8, nextPhase, 42)
+
+pub fn auditProcgenNoiseFields(): int:
+  let p2 = samplePerlin2D(12.34, 56.78, 1337)
+  let p3 = samplePerlin3D(3.1, 4.2, 5.3, 42)
+  let simp = sampleSimplex2D(2.5, 3.5, 99)
+  let worley: WorleyResult = sampleWorley2D(10.0, 10.0, 999)
+  let fbmCfg = FbmConfig(octaves = 4, lacunarity = 2.0, persistence = 0.5, seed = 42)
+  let fbmVal = sampleFbm2D(5.0, 5.0, fbmCfg)
+  let warpVal = sampleDomainWarpedFbm2D(5.0, 5.0, fbmCfg, 2.0)
+  mut okCount = 0
+  if p2 >= -1.0 and p2 <= 1.0:
+    okCount = okCount + 1
+  if p3 >= -1.0 and p3 <= 1.0:
+    okCount = okCount + 1
+  if simp >= -1.0 and simp <= 1.0:
+    okCount = okCount + 1
+  if worley.f2 >= worley.f1:
+    okCount = okCount + 1
+  if fbmVal >= -2.0 and fbmVal <= 2.0:
+    okCount = okCount + 1
+  if warpVal >= -2.0 and warpVal <= 2.0:
+    okCount = okCount + 1
+  ret okCount
+
+pub fn main(): int:
+  let audit = auditProcgenNoiseFields()
+  println("EX_231_PROCGEN_NOISE_AUDIT=" + str(audit))
+  mut scene = createNoiseScene()
+
+  initWindow(1280, 720, "AIPL ex_231: Perlin, Simplex, Worley & Domain-Warped FBM Noise")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.12)
+    let fbmCfg: FbmConfig = scene.fbmCfg
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawRect(32.0, 18.0, 1216.0, 66.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 18.0, 1216.0, 66.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_231: PROCEDURAL NOISE FIELDS (PERLIN 2D, SIMPLEX 2D, WORLEY & DOMAIN-WARPED FBM)", 48.0, 32.0, 20.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Phase=" + str(int(scene.phaseOffset * 10.0)) + " | FBM=" + str(int(scene.centerFbm * 100.0)) + "c | Simplex=" + str(int(scene.centerSimplex * 100.0)) + "c | Perlin3D=" + str(int(scene.centerPerlin3d * 100.0)) + "c", 48.0, 56.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(32.0, 98.0, 386.0, 412.0, rgb(17, 24, 39))
+    drawRectOutline(32.0, 98.0, 386.0, 412.0, 2.0, rgb(56, 189, 248))
+    drawText("PERLIN + 4-OCTAVE FBM", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    drawRect(447.0, 98.0, 386.0, 412.0, rgb(17, 24, 39))
+    drawRectOutline(447.0, 98.0, 386.0, 412.0, 2.0, rgb(16, 185, 129))
+    drawText("SIMPLEX + DOMAIN WARP (q=1.5)", 475.0, 118.0, 16.0, rgb(110, 231, 183))
+
+    drawRect(862.0, 98.0, 386.0, 412.0, rgb(17, 24, 39))
+    drawRectOutline(862.0, 98.0, 386.0, 412.0, 2.0, rgb(168, 85, 247))
+    drawText("WORLEY CELLULAR (F2 - F1)", 890.0, 118.0, 16.0, rgb(216, 180, 254))
+
+    mut gy = 0
+    while gy < 8:
+      mut gx = 0
+      while gx < 8:
+        let nx = float(gx) * 0.45 + scene.phaseOffset
+        let ny = float(gy) * 0.45 + scene.phaseOffset * 0.5
+        let vPerlin = sampleFbm2D(nx, ny, fbmCfg)
+        let vWarp = sampleDomainWarpedFbm2D(nx, ny, fbmCfg, 1.5)
+        let wRes: WorleyResult = sampleWorley2D(nx, ny, 777)
+
+        let c1 = 80 + int((vPerlin + 1.0) * 70.0)
+        let c2 = 80 + int((vWarp + 1.0) * 70.0)
+        let c3 = 60 + int((wRes.f2 - wRes.f1) * 140.0)
+
+        let x1 = 65.0 + float(gx * 40)
+        let x2 = 480.0 + float(gx * 40)
+        let x3 = 895.0 + float(gx * 40)
+        let py = 156.0 + float(gy * 40)
+
+        drawRect(x1, py, 36.0, 36.0, rgb(20, c1, 220))
+        if vPerlin > 0.25:
+          drawRectOutline(x1 + 4.0, py + 4.0, 28.0, 28.0, 2.0, rgb(186, 230, 253))
+
+        drawRect(x2, py, 36.0, 36.0, rgb(16, c2, 130))
+        if vWarp > 0.25:
+          drawCircle(x2 + 18.0, py + 18.0, 6.0, rgb(167, 243, 208))
+
+        drawRect(x3, py, 36.0, 36.0, rgb(c3, 60, 210))
+        if wRes.f1 < 0.38:
+          drawCircle(x3 + 18.0, py + 18.0, 5.0, rgb(250, 204, 21))
+
+        gx = gx + 1
+      gy = gy + 1
+
+    // Bottom Panel: 1D Cross-Section Terrain Ridge Profiles
+    drawRect(32.0, 526.0, 1216.0, 168.0, rgb(17, 24, 39))
+    drawRectOutline(32.0, 526.0, 1216.0, 168.0, 2.0, rgb(56, 189, 248))
+    drawText("LIVE 1D HORIZONTAL CROSS-SECTION PROFILES (CYAN: FBM | GREEN: WARPED | PURPLE: WORLEY F2-F1)", 56.0, 546.0, 15.0, rgb(125, 211, 252))
+    drawLine(56.0, 626.0, 1224.0, 626.0, rgb(51, 65, 85), 1.0)
+
+    mut sx = 0
+    while sx < 38:
+      let u0 = float(sx) * 0.22 + scene.phaseOffset
+      let u1 = float(sx + 1) * 0.22 + scene.phaseOffset
+      let px0 = 60.0 + float(sx * 30)
+      let px1 = 60.0 + float((sx + 1) * 30)
+
+      let yFbm0 = 626.0 - sampleFbm2D(u0, 1.8, fbmCfg) * 42.0
+      let yFbm1 = 626.0 - sampleFbm2D(u1, 1.8, fbmCfg) * 42.0
+      drawLine(px0, yFbm0, px1, yFbm1, rgb(56, 189, 248), 3.0)
+
+      let yWrp0 = 626.0 - sampleDomainWarpedFbm2D(u0, 1.8, fbmCfg, 1.5) * 42.0
+      let yWrp1 = 626.0 - sampleDomainWarpedFbm2D(u1, 1.8, fbmCfg, 1.5) * 42.0
+      drawLine(px0, yWrp0, px1, yWrp1, rgb(16, 185, 129), 3.0)
+
+      let w0: WorleyResult = sampleWorley2D(u0, 1.8, 777)
+      let w1: WorleyResult = sampleWorley2D(u1, 1.8, 777)
+      let yWor0 = 664.0 - (w0.f2 - w0.f1) * 65.0
+      let yWor1 = 664.0 - (w1.f2 - w1.f1) * 65.0
+      drawLine(px0, yWor0, px1, yWor1, rgb(192, 132, 252), 2.0)
+
+      sx = sx + 1
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

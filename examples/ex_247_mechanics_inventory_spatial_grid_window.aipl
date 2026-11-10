@@ -1,0 +1,227 @@
+module Ex247MechanicsInventorySpatialGridWindow
+
+import { InventoryItem, SlotListContainer, SpatialMatrixContainer2D, WeightedLootEntry, WeightedLootTable, slotListNew, slotListInsert, slotListCountTag, slotListRemoveQuantity, slotListTotalWeight, spatialMatrixNew, spatialMatrixCanFit, spatialMatrixInsert, spatialMatrixOccupiedCells, spatialMatrixTotalWeight, weightedLootTableNew, weightedLootTableRoll } from "../std/mechanics/inventory_container"
+import { initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow, clearScreen, drawRect, drawRectOutline, drawLine, drawText, rgb } from "../std/gfx2d/shape2d"
+
+pub struct InventoryScene(matrix: SpatialMatrixContainer2D, slots: SlotListContainer, table: WeightedLootTable, lastRollTag: str, occupiedCount: int, totalWeight: float, stepCount: int)
+
+pub fn initScene(): InventoryScene:
+  mut matrix = spatialMatrixNew(6, 5)
+  let gear2x2 = InventoryItem(id = 1, itemTag = "GearBox", quantity = 1, maxStack = 1, gridWidth = 2, gridHeight = 2, unitWeight = 5.0)
+  let halberd1x3 = InventoryItem(id = 2, itemTag = "Halberd", quantity = 1, maxStack = 1, gridWidth = 1, gridHeight = 3, unitWeight = 8.0)
+  let shield2x2 = InventoryItem(id = 3, itemTag = "TowerShield", quantity = 1, maxStack = 1, gridWidth = 2, gridHeight = 2, unitWeight = 12.0)
+  spatialMatrixInsert(matrix, gear2x2, 0, 0, false)
+  spatialMatrixInsert(matrix, halberd1x3, 2, 0, false)
+  spatialMatrixInsert(matrix, shield2x2, 3, 0, false)
+
+  mut slots = slotListNew(4)
+  let potion = InventoryItem(id = 10, itemTag = "Potion", quantity = 2, maxStack = 10, gridWidth = 1, gridHeight = 1, unitWeight = 0.5)
+  slotListInsert(slots, potion)
+
+  mut entries: [WeightedLootEntry] = []
+  entries.push(WeightedLootEntry(itemTag = "CommonOre", weight = 75.0, minQuantity = 1, maxQuantity = 3))
+  entries.push(WeightedLootEntry(itemTag = "RareGem", weight = 25.0, minQuantity = 1, maxQuantity = 1))
+  let table = weightedLootTableNew(entries)
+
+  let occ = spatialMatrixOccupiedCells(matrix)
+  let totWeight = spatialMatrixTotalWeight(matrix) + slotListTotalWeight(slots)
+  ret InventoryScene(
+    matrix = matrix,
+    slots = slots,
+    table = table,
+    lastRollTag = "RareGem",
+    occupiedCount = occ,
+    totalWeight = totWeight,
+    stepCount = 0
+  )
+
+pub fn stepScene(mut scene: InventoryScene, frame: int, dt: float): InventoryScene:
+  let roll01 = float((frame * 37 + 19) % 97) / 97.0
+  let dropped: WeightedLootEntry = weightedLootTableRoll(scene.table, roll01).unwrap()
+  scene.lastRollTag = dropped.itemTag
+  let uWeight = if dropped.itemTag == "RareGem": 1.5 else: 2.0
+  let lootItem = InventoryItem(
+    id = 100 + frame,
+    itemTag = dropped.itemTag,
+    quantity = 1,
+    maxStack = 20,
+    gridWidth = 1,
+    gridHeight = 1,
+    unitWeight = uWeight
+  )
+  if not slotListInsert(scene.slots, lootItem):
+    slotListRemoveQuantity(scene.slots, "CommonOre", 10)
+    slotListRemoveQuantity(scene.slots, "RareGem", 5)
+    slotListInsert(scene.slots, lootItem)
+
+  mut placed = false
+  mut r = 0
+  while r < scene.matrix.rows and (not placed):
+    mut c = 0
+    while c < scene.matrix.cols and (not placed):
+      if spatialMatrixCanFit(scene.matrix, lootItem, c, r, false):
+        spatialMatrixInsert(scene.matrix, lootItem, c, r, false)
+        placed = true
+      c = c + 1
+    r = r + 1
+
+  // When the 6x5 spatial matrix fills up, smelt/consume the oldest 11 loot items so placements cycle forever
+  if not placed:
+    mut nextMatrix = spatialMatrixNew(6, 5)
+    let gear2x2 = InventoryItem(id = 1, itemTag = "GearBox", quantity = 1, maxStack = 1, gridWidth = 2, gridHeight = 2, unitWeight = 5.0)
+    let halberd1x3 = InventoryItem(id = 2, itemTag = "Halberd", quantity = 1, maxStack = 1, gridWidth = 1, gridHeight = 3, unitWeight = 8.0)
+    let shield2x2 = InventoryItem(id = 3, itemTag = "TowerShield", quantity = 1, maxStack = 1, gridWidth = 2, gridHeight = 2, unitWeight = 12.0)
+    spatialMatrixInsert(nextMatrix, gear2x2, 0, 0, false)
+    spatialMatrixInsert(nextMatrix, halberd1x3, 2, 0, false)
+    spatialMatrixInsert(nextMatrix, shield2x2, 3, 0, false)
+
+    mut keepIdx = 14
+    while keepIdx < scene.matrix.items.len:
+      let keptItem: InventoryItem = scene.matrix.items[keepIdx]
+      mut kp = false
+      mut kr = 0
+      while kr < nextMatrix.rows and (not kp):
+        mut kc = 0
+        while kc < nextMatrix.cols and (not kp):
+          if spatialMatrixCanFit(nextMatrix, keptItem, kc, kr, false):
+            spatialMatrixInsert(nextMatrix, keptItem, kc, kr, false)
+            kp = true
+          kc = kc + 1
+        kr = kr + 1
+      keepIdx = keepIdx + 1
+
+    mut nr = 0
+    while nr < nextMatrix.rows and (not placed):
+      mut nc = 0
+      while nc < nextMatrix.cols and (not placed):
+        if spatialMatrixCanFit(nextMatrix, lootItem, nc, nr, false):
+          spatialMatrixInsert(nextMatrix, lootItem, nc, nr, false)
+          placed = true
+        nc = nc + 1
+      nr = nr + 1
+    scene.matrix = nextMatrix
+
+  scene.occupiedCount = spatialMatrixOccupiedCells(scene.matrix)
+  scene.totalWeight = spatialMatrixTotalWeight(scene.matrix) + slotListTotalWeight(scene.slots)
+  scene.stepCount = scene.stepCount + 1
+  ret scene
+
+pub fn auditMechanicsInventorySpatialGrid(): int:
+  let scene = initScene()
+  ret scene.occupiedCount * 10 - 6
+
+pub fn main(): int:
+  let audit = auditMechanicsInventorySpatialGrid()
+  println("EX_247_MECHANICS_INVENTORY_AUDIT=" + str(audit))
+
+  mut scene = initScene()
+  mut frame = 0
+
+  initWindow(1280, 720, "AIPL ex_247: 2D Spatial Inventory Grid & Weighted Loot Table")
+  while not windowShouldClose():
+    scene = stepScene(scene, frame, 0.1)
+    let rollPct = ((frame * 37 + 19) % 97) * 100 / 97
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_247: 2D SPATIAL INVENTORY CONTAINER (6x5) & WEIGHTED LOOT ROLLS", 36.0, 24.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Occupied=" + str(scene.occupiedCount) + "/30 cells | TotalWeight=" + str(int(scene.totalWeight)) + "kg | Roll=" + str(rollPct) + "% -> " + scene.lastRollTag, 36.0, 54.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: 6x5 Spatial Backpack Matrix
+    drawRect(44.0, 90.0, 610.0, 590.0, rgb(15, 23, 42))
+    drawRectOutline(44.0, 90.0, 610.0, 590.0, 2.0, rgb(56, 189, 248))
+    drawText("SPATIAL BACKPACK MATRIX (6x5 MULTI-CELL PLACEMENT)", 68.0, 108.0, 16.0, rgb(125, 211, 252))
+
+    // Background 6x5 grid cells
+    mut gy = 0
+    while gy < scene.matrix.rows:
+      mut gx = 0
+      while gx < scene.matrix.cols:
+        let sx = 72.0 + float(gx * 92)
+        let sy = 148.0 + float(gy * 88)
+        drawRect(sx, sy, 86.0, 82.0, rgb(24, 33, 50))
+        drawRectOutline(sx, sy, 86.0, 82.0, 1.0, rgb(51, 65, 85))
+        drawText("(" + str(gx) + "," + str(gy) + ")", sx + 6.0, sy + 64.0, 10.0, rgb(71, 85, 105))
+        gx = gx + 1
+      gy = gy + 1
+
+    // Draw each placed item once at its top-left anchor cell
+    mut itemIdx = 0
+    while itemIdx < scene.matrix.items.len:
+      mut anchorX = -1
+      mut anchorY = -1
+      mut r = 0
+      while r < scene.matrix.rows and anchorX < 0:
+        mut c = 0
+        while c < scene.matrix.cols and anchorX < 0:
+          if scene.matrix.occupiedGrid[r * scene.matrix.cols + c] == itemIdx:
+            anchorX = c
+            anchorY = r
+          c = c + 1
+        r = r + 1
+
+      if anchorX >= 0:
+        let item: InventoryItem = scene.matrix.items[itemIdx]
+        let sx = 72.0 + float(anchorX * 92)
+        let sy = 148.0 + float(anchorY * 88)
+        let boxW = float(item.gridWidth * 92 - 6)
+        let boxH = float(item.gridHeight * 88 - 6)
+        let isGem = item.itemTag == "RareGem"
+        let fillCol = if itemIdx == 0: rgb(30, 58, 138) elif itemIdx == 1: rgb(6, 95, 70) elif itemIdx == 2: rgb(120, 53, 15) elif isGem: rgb(88, 28, 135) else: rgb(30, 64, 96)
+        let outCol = if itemIdx == 0: rgb(56, 189, 248) elif itemIdx == 1: rgb(52, 211, 153) elif itemIdx == 2: rgb(245, 158, 11) elif isGem: rgb(216, 180, 254) else: rgb(125, 211, 252)
+        drawRect(sx, sy, boxW, boxH, fillCol)
+        drawRectOutline(sx, sy, boxW, boxH, 2.0, outCol)
+        let fontSz = if item.gridWidth > 1: 13.0 else: 11.0
+        drawText(item.itemTag, sx + 6.0, sy + 14.0, fontSz, rgb(255, 255, 255))
+        drawText(str(item.gridWidth) + "x" + str(item.gridHeight) + " | " + str(int(item.unitWeight)) + "kg", sx + 6.0, sy + 36.0, 11.0, outCol)
+      itemIdx = itemIdx + 1
+
+    // Backpack capacity bar at bottom of left panel
+    drawRect(72.0, 604.0, 552.0, 54.0, rgb(22, 30, 46))
+    drawRectOutline(72.0, 604.0, 552.0, 54.0, 1.0, rgb(71, 85, 105))
+    drawText("Matrix Occupancy: " + str(scene.occupiedCount) + " / 30 cells (Auto-smelts 11 loot cells when full)", 86.0, 612.0, 13.0, rgb(226, 232, 240))
+    let capW = float(scene.occupiedCount) * 524.0 / 30.0
+    drawRect(86.0, 634.0, 524.0, 14.0, rgb(30, 41, 59))
+    drawRect(86.0, 634.0, capW, 14.0, rgb(56, 189, 248))
+
+    // Right Panel: Cumulative Weighted Loot Table & Stackable Quick Slots
+    drawRect(682.0, 90.0, 554.0, 590.0, rgb(15, 23, 42))
+    drawRectOutline(682.0, 90.0, 554.0, 590.0, 2.0, rgb(168, 85, 247))
+    drawText("CUMULATIVE WEIGHTED LOOT TABLE & STACKABLE SLOTS", 706.0, 108.0, 16.0, rgb(216, 180, 254))
+
+    // Loot table CDF bar
+    drawRect(706.0, 142.0, 506.0, 110.0, rgb(22, 30, 46))
+    drawRectOutline(706.0, 142.0, 506.0, 110.0, 1.0, rgb(71, 85, 105))
+    drawText("CDF Roll Table (Total Weight = 100.0) | Current Roll = " + str(rollPct) + "%", 722.0, 152.0, 14.0, rgb(226, 232, 240))
+    drawRect(722.0, 180.0, 354.0, 28.0, rgb(30, 64, 96))
+    drawRectOutline(722.0, 180.0, 354.0, 28.0, 1.0, rgb(56, 189, 248))
+    drawText("CommonOre (75% weight)", 734.0, 188.0, 13.0, rgb(226, 232, 240))
+    drawRect(1076.0, 180.0, 118.0, 28.0, rgb(88, 28, 135))
+    drawRectOutline(1076.0, 180.0, 118.0, 28.0, 1.0, rgb(216, 180, 254))
+    drawText("RareGem (25%)", 1084.0, 188.0, 13.0, rgb(243, 232, 255))
+    let needleX = 722.0 + float(rollPct) * 4.72
+    drawRect(needleX - 2.0, 174.0, 4.0, 40.0, rgb(250, 204, 21))
+    drawText("Rolled Drop: " + scene.lastRollTag + " -> merged into Quick Slots & Spatial Matrix", 722.0, 222.0, 13.0, rgb(250, 204, 21))
+
+    // 4 Quick Slots
+    mut sIdx = 0
+    while sIdx < scene.slots.slots.len:
+      let sl: InventoryItem = scene.slots.slots[sIdx]
+      let sy = 272.0 + float(sIdx * 96)
+      drawRect(706.0, sy, 506.0, 82.0, rgb(22, 30, 46))
+      let activeCol = if sl.quantity > 0: rgb(168, 85, 247) else: rgb(71, 85, 105)
+      drawRectOutline(706.0, sy, 506.0, 82.0, 2.0, activeCol)
+      let label = if sl.quantity > 0: sl.itemTag + "  x" + str(sl.quantity) + " / " + str(sl.maxStack) else: "[Empty Stack Slot]"
+      let wStr = if sl.quantity > 0: "Stack Weight: " + str(int(float(sl.quantity) * sl.unitWeight)) + "kg" else: "0kg"
+      drawText("Quick Slot #" + str(sIdx + 1) + ": " + label, 724.0, sy + 16.0, 15.0, rgb(241, 245, 249))
+      drawText(wStr, 1040.0, sy + 16.0, 13.0, rgb(148, 163, 184))
+      drawRect(724.0, sy + 48.0, 470.0, 16.0, rgb(30, 41, 59))
+      if sl.quantity > 0 and sl.maxStack > 0:
+        let fillW = float(sl.quantity) * 470.0 / float(sl.maxStack)
+        drawRect(724.0, sy + 48.0, fillW, 16.0, rgb(168, 85, 247))
+      drawRectOutline(724.0, sy + 48.0, 470.0, 16.0, 1.0, rgb(100, 116, 139))
+      sIdx = sIdx + 1
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

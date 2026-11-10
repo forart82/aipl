@@ -1,0 +1,50 @@
+// ============================================================================
+// Example 025: Circular Ring Packet Buffer Allocator (CLI)
+// Demonstrates: ringAllocNew, ringAlloc, ringFreeOldest, ringAvailable,
+//               ringReset, and ringDestroy from std/alloc/ring_alloc.
+// ============================================================================
+module Ex025AllocRingPacketBufferCli
+
+import {
+  ringAllocNew,
+  ringAlloc,
+  ringFreeOldest,
+  ringAvailable,
+  ringReset,
+  ringDestroy
+} from "../std/alloc/ring_alloc"
+
+pub fn simulateCircularPacketWrap(capacity: int, firstBytes: int, freeBytes: int, secondBytes: int): int:
+  mut ring = ringAllocNew(capacity)
+  let p1 = ringAlloc(ring, firstBytes)
+  ringFreeOldest(ring, freeBytes)
+  let p2 = ringAlloc(ring, secondBytes)
+  let avail = ringAvailable(ring)
+  ringDestroy(ring)
+  if p1 != 0 and p2 != 0:
+    ret avail
+  ret -1
+
+pub fn verifyRingResetRestoresCapacity(capacity: int, packetBytes: int): int:
+  mut ring = ringAllocNew(capacity)
+  let p = ringAlloc(ring, packetBytes)
+  ringReset(ring)
+  let restored = ringAvailable(ring)
+  ringDestroy(ring)
+  if p != 0:
+    ret restored
+  ret -1
+
+pub fn describeRingBufferState(available: int, capacity: int): str:
+  if available >= capacity:
+    ret "RING:EMPTY_IDLE"
+  if available <= 0:
+    ret "RING:FULL_BACKPRESSURE"
+  ret "RING:STREAMING_PACKETS"
+
+pub fn main(): int:
+  let avail = simulateCircularPacketWrap(1024, 600, 600, 600)
+  let restored = verifyRingResetRestoresCapacity(2048, 1200)
+  println("Ring Available After Circular Wrap: " + str(avail) + " (" + describeRingBufferState(avail, 1024) + ")")
+  println("Ring Restored Capacity After Reset: " + str(restored))
+  ret 0

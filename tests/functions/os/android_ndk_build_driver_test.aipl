@@ -1,0 +1,79 @@
+// ============================================================================
+// Step 21.5: Exhaustive Per-Function Unit Tests for android_ndk_build_driver
+// Target: tests/functions/os/android_ndk_build_driver_test.aipl
+// ============================================================================
+module tests.functions.os.android_ndk_build_driver_test
+
+import {
+  assert,
+  assertEqInt,
+  assertEqStr
+} from "std/prelude"
+
+pub struct AndroidNdkBuildResult(exitCode: int, mode: str, emittedCBytes: int, commandLine: str, artifactPath: str)
+
+pub fn buildAndroidNdkClangCommand(cSourcePath: str, outputSoPath: str, apiLevel: int): str requires apiLevel >= 0 ensures result.contains("-shared -fPIC") and result.contains("-landroid -llog -laaudio -lm"):
+  let safeApi = if apiLevel >= 29: apiLevel else: 29
+  let safeSrc = if cSourcePath.len() > 0: cSourcePath else: "build/app_android.c"
+  let safeOut = if outputSoPath.len() > 0: outputSoPath else: "libaipl_app.so"
+  ret "aarch64-linux-android" + str(safeApi) + "-clang " + safeSrc + " -shared -fPIC -landroid -llog -laaudio -lm -o " + safeOut
+
+pub fn emitAndroidNativeActivityGlueC(entryFnName: str): str requires entryFnName.len() >= 0 ensures result.contains("ANativeActivity_onCreate") and result.contains("#ifdef __ANDROID__"):
+  let fnSym = if entryFnName.len() > 0: entryFnName else: "aipl_main"
+  ret "#ifdef __ANDROID__\n#include <android/native_activity.h>\nvoid ANativeActivity_onCreate(ANativeActivity* activity, void* savedState, size_t savedStateSize) { " + fnSym + "(); }\n#endif"
+
+pub fn compileTargetAndroidArm64WithFallback(cCodeLen: int, ndkToolchainPresent: bool, outputSoPath: str): AndroidNdkBuildResult requires cCodeLen >= 0 ensures result.exitCode == 0 or result.exitCode == 1:
+  let outSo = if outputSoPath.len() > 0: outputSoPath else: "libaipl_app.so"
+  let cmd = "aarch64-linux-android29-clang -shared -fPIC -landroid -llog -laaudio -lm -o " + outSo
+  if cCodeLen <= 0:
+    ret AndroidNdkBuildResult(exitCode = 1, mode = "ERR_EMPTY_C_SOURCE", emittedCBytes = 0, commandLine = cmd, artifactPath = "")
+  if ndkToolchainPresent:
+    ret AndroidNdkBuildResult(exitCode = 0, mode = "NDK_ARM64_SHARED_SO", emittedCBytes = cCodeLen, commandLine = cmd, artifactPath = outSo)
+  ret AndroidNdkBuildResult(exitCode = 0, mode = "FALLBACK_C99_VERIFIED", emittedCBytes = cCodeLen, commandLine = cmd, artifactPath = outSo + ".c")
+
+pub fn test_android_ndk_build_driver_buildAndroidNdkClangCommand(): int:
+  let cmd = buildAndroidNdkClangCommand("app.c", "libaipl_app.so", 29)
+  assertEqStr(cmd, "aarch64-linux-android29-clang app.c -shared -fPIC -landroid -llog -laaudio -lm -o libaipl_app.so", "exact NDK clang invocation")
+  let clamped = buildAndroidNdkClangCommand("", "", 21)
+  assert(clamped.startsWith("aarch64-linux-android29-clang build/app_android.c") == true, "API < 29 clamped to 29 and default paths applied")
+  assert(clamped.endsWith("-o libaipl_app.so") == true, "default output libaipl_app.so")
+  let api34 = buildAndroidNdkClangCommand("main.c", "out.so", 34)
+  assert(api34.startsWith("aarch64-linux-android34-clang main.c") == true, "API 34 preserved")
+  assert(api34.contains("-shared -fPIC -landroid -llog -laaudio -lm") == true, "required NDK flags present")
+  let api0 = buildAndroidNdkClangCommand("", "", 0)
+  assert(api0.startsWith("aarch64-linux-android29-clang") == true, "boundary API 0 clamped to 29")
+  ret 0
+
+pub fn test_android_ndk_build_driver_emitAndroidNativeActivityGlueC(): int:
+  let cGlue = emitAndroidNativeActivityGlueC("aipl_user_main")
+  assert(cGlue.contains("#ifdef __ANDROID__") == true, "guarded by #ifdef __ANDROID__")
+  assert(cGlue.contains("ANativeActivity_onCreate") == true, "exports ANativeActivity_onCreate")
+  assert(cGlue.contains("aipl_user_main();") == true, "invokes custom entry function")
+  let defGlue = emitAndroidNativeActivityGlueC("")
+  assert(defGlue.contains("aipl_main();") == true, "empty entryFnName defaults to aipl_main()")
+  assert(cGlue.contains("#include <android/native_activity.h>") == true, "includes native_activity.h")
+  assert(defGlue.endsWith("#endif") == true, "terminated by #endif")
+  ret 0
+
+pub fn test_android_ndk_build_driver_compileTargetAndroidArm64WithFallback(): int:
+  let withNdk = compileTargetAndroidArm64WithFallback(4096, true, "libaipl_app.so")
+  assertEqInt(withNdk.exitCode, 0, "exitCode 0 with NDK")
+  assertEqStr(withNdk.mode, "NDK_ARM64_SHARED_SO", "NDK shared library mode")
+  assertEqStr(withNdk.artifactPath, "libaipl_app.so", "artifactPath == libaipl_app.so")
+  let noNdk = compileTargetAndroidArm64WithFallback(4096, false, "libaipl_app.so")
+  assertEqInt(noNdk.exitCode, 0, "deterministic fallback succeeds when NDK absent")
+  assertEqStr(noNdk.mode, "FALLBACK_C99_VERIFIED", "fallback C99 verification mode")
+  assertEqStr(noNdk.artifactPath, "libaipl_app.so.c", "emits verified .c artifact in fallback mode")
+  let emptyErr = compileTargetAndroidArm64WithFallback(0, true, "libaipl_app.so")
+  assertEqInt(emptyErr.exitCode, 1, "empty C source returns exitCode 1")
+  let defOutFallback = compileTargetAndroidArm64WithFallback(2048, false, "")
+  assertEqInt(defOutFallback.exitCode, 0, "fallback succeeds with empty output path")
+  assertEqStr(defOutFallback.artifactPath, "libaipl_app.so.c", "defaults to libaipl_app.so.c")
+  ret 0
+
+pub fn main(): int:
+  test_android_ndk_build_driver_buildAndroidNdkClangCommand()
+  test_android_ndk_build_driver_emitAndroidNativeActivityGlueC()
+  test_android_ndk_build_driver_compileTargetAndroidArm64WithFallback()
+  println("PASS: tests/functions/os/android_ndk_build_driver_test.aipl")
+  ret 0

@@ -1,0 +1,60 @@
+// ============================================================================
+// Example 099: Path Normalizer, Component Splitter & Traversal Guard (CLI)
+// Demonstrates: pathNormalize, pathJoin, pathJoinMany, pathParent,
+//               pathFileName, pathFileStem, pathExtension, pathWithExtension,
+//               pathIsAbsolute, pathRelativeTo, pathComponents, and
+//               pathHasTraversalEscape from std/fs.
+// ============================================================================
+module Ex099FsPathNormalizerCli
+
+import {
+  pathNormalize,
+  pathJoin,
+  pathJoinMany,
+  pathParent,
+  pathFileName,
+  pathFileStem,
+  pathExtension,
+  pathWithExtension,
+  pathIsAbsolute,
+  pathRelativeTo,
+  pathComponents,
+  pathHasTraversalEscape
+} from "../std/fs"
+
+// Normalizes a messy POSIX path with '//', '.', and '..' and returns "<segCount>:<cleanPath>".
+pub fn evaluateNormalizedPathAndComponentCount(): str:
+  let clean = pathNormalize("/var/log//nginx/../app/./access.log")
+  let comps = pathComponents(clean)
+  assert(comps.hasRoot and pathIsAbsolute(clean), "normalized path is absolute with root")
+  ret str(comps.segments.len()) + ":" + clean
+
+// Exercises path join, parent/stem/extension extraction, relative path resolution, and traversal security.
+pub fn verifyPathManipulationsAndTraversalGuard(): int:
+  let joined = pathJoin("/etc/nginx", "conf.d/default.conf")
+  let multi = pathJoinMany(["/usr", "local", "bin", "aipl"])
+  let par = pathParent("/usr/local/bin")
+  let fname = pathFileName("/usr/local/bin/aipl.exe")
+  let stem = pathFileStem("/usr/local/bin/aipl.exe")
+  let ext = pathExtension("/usr/local/bin/aipl.exe")
+  let swapped = pathWithExtension("/src/main.aipl", "c")
+  let rel = pathRelativeTo("/var/www/app", "/var/www/assets/logo.png")
+
+  let safeChild = not pathHasTraversalEscape("/var/www/html", "images/logo.png")
+  let attackBlocked = pathHasTraversalEscape("/var/www/html", "../../../etc/passwd")
+  if joined == "/etc/nginx/conf.d/default.conf" and multi == "/usr/local/bin/aipl" and par == "/usr/local" and fname == "aipl.exe" and stem == "aipl" and ext == "exe" and swapped == "/src/main.c" and rel == "../assets/logo.png" and safeChild and attackBlocked:
+    ret 1
+  ret 0
+
+// Summarizes the security verdict for a candidate path against a sandbox root.
+pub fn describePathSecurityVerdict(escaped: bool): str:
+  if escaped:
+    ret "PATH:TRAVERSAL_ESCAPE_BLOCKED"
+  ret "PATH:SANDBOX_CONFINED_OK"
+
+pub fn main(): int:
+  let normStr = evaluateNormalizedPathAndComponentCount()
+  let pathOk = verifyPathManipulationsAndTraversalGuard()
+  let verdict = describePathSecurityVerdict(true)
+  println("ex_099_fs_path_normalizer_cli: norm=" + normStr + " pathOk=" + str(pathOk) + " verdict=" + verdict)
+  ret 0

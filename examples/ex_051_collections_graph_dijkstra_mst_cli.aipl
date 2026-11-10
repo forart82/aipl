@@ -1,0 +1,48 @@
+// ============================================================================
+// Example 051: DirectedGraph Dijkstra Shortest Path & DSU MST (CLI)
+// Demonstrates: dsuNew, .union(), .connected(), .find(), .countSets(),
+//               directedGraphNew, .addEdge(), and .dijkstraShortestPath()
+//               from std/collections/graph_topology.
+// ============================================================================
+module Ex051CollectionsGraphDijkstraMstCli
+
+import { maxInt } from "../std/prelude"
+import { dsuNew, directedGraphNew } from "../std/collections/graph_topology"
+
+pub fn computeRelaxedPathCost(currentDist: int, edgeWeight: int): int:
+  ret currentDist + edgeWeight
+
+pub fn computeMstTargetEdgeCount(vertexCount: int, components: int): int:
+  ret maxInt(vertexCount - components, 0)
+
+pub fn classifyGraphTopology(cycleCount: int): str:
+  if cycleCount == 0:
+    ret "GRAPH:DAG_VALID"
+  ret "GRAPH:CYCLIC_FEEDBACK"
+
+pub fn evaluateDijkstraAndDsuMst(): int:
+  mut dg = directedGraphNew(4)
+  dg.addEdge(0, 1, 2)
+  dg.addEdge(1, 2, 3)
+  dg.addEdge(2, 3, 4)
+  dg.addEdge(0, 3, 25)
+  let pathOpt = dg.dijkstraShortestPath(0, 3)
+  if not pathOpt.isSome():
+    ret -1
+  let path = pathOpt.unwrap()
+
+  mut dsu = dsuNew(4)
+  let _ = dsu.union(0, 1)
+  let _ = dsu.union(1, 2)
+  if dsu.connected(0, 2) and dsu.find(0) == dsu.find(2):
+    ret path.len + dsu.countSets()
+  ret -2
+
+pub fn main(): int:
+  let relaxed = computeRelaxedPathCost(120, 35)
+  let mstEdges = computeMstTargetEdgeCount(16, 1)
+  let topo = classifyGraphTopology(0)
+  let graphMetric = evaluateDijkstraAndDsuMst()
+  println("Relaxed Path Cost (120 + 35): " + str(relaxed) + " | MST Edges (16, 1): " + str(mstEdges))
+  println("Dijkstra Hops + DSU Sets: " + str(graphMetric) + " | Topology: " + topo)
+  ret 0

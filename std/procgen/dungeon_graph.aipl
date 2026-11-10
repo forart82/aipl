@@ -1,0 +1,195 @@
+/// # Module: `std/procgen/dungeon_graph` (`DungeonGraphMod`)
+///
+/// ## Purpose & Domain Scope
+/// BSP recursive room tree partitioning, room graph triangulation,
+/// Kruskal's Minimum Spanning Tree (MST) corridors, and binary grid carving.
+module DungeonGraphMod
+
+import { minInt, maxInt, clampInt } from "std/math/consts"
+import { floor, sqrt } from "std/math/trig"
+import { Vec2, IVec2 } from "std/math/vec_math"
+import { Rect2D } from "std/math/geom2d"
+import { CellularGrid2D } from "std/procgen/cellular_automata"
+
+pub struct DungeonRoom(id: int, bounds: Rect2D, center: Vec2, connectedRooms: [int])
+
+pub struct DungeonCorridor(roomA: int, roomB: int, waypoints: [Vec2], width: float)
+
+pub struct DungeonGraphResult(rooms: [DungeonRoom], corridors: [DungeonCorridor], grid: CellularGrid2D)
+
+pub fn bspPartitionRooms(area: Rect2D, minRoomSize: float, maxDepth: int, seed: int): [DungeonRoom]:
+  mut leaves: [Rect2D] = [area]
+  mut curDepth = 0
+  mut s = if seed != 0: seed else: 1
+
+  while curDepth < maxDepth:
+    mut nextLeaves: [Rect2D] = []
+    mut i = 0
+    while i < leaves.len:
+      let r: Rect2D = leaves[i]
+      let rw = if r.w > 0.0: r.w else: r.width
+      let rh = if r.h > 0.0: r.h else: r.height
+      s = (s * 1103515245 + 12345) & 2147483647
+      let splitHoriz = if rw > rh * 1.25: false else: (if rh > rw * 1.25: true else: ((s & 1) == 0))
+
+      if splitHoriz and rh >= minRoomSize * 2.0:
+        let ratio = 0.4 + float(s % 200) / 1000.0
+        let h1 = rh * ratio
+        let h2 = rh - h1
+        nextLeaves.push(Rect2D(x = r.x, y = r.y, w = rw, h = h1, width = rw, height = h1))
+        nextLeaves.push(Rect2D(x = r.x, y = r.y + h1, w = rw, h = h2, width = rw, height = h2))
+      else:
+        if (not splitHoriz) and rw >= minRoomSize * 2.0:
+          let ratio = 0.4 + float(s % 200) / 1000.0
+          let w1 = rw * ratio
+          let w2 = rw - w1
+          nextLeaves.push(Rect2D(x = r.x, y = r.y, w = w1, h = rh, width = w1, height = rh))
+          nextLeaves.push(Rect2D(x = r.x + w1, y = r.y, w = w2, h = rh, width = w2, height = rh))
+        else:
+          nextLeaves.push(r)
+      i = i + 1
+    leaves = nextLeaves
+    curDepth = curDepth + 1
+
+  mut rooms: [DungeonRoom] = []
+  mut k = 0
+  while k < leaves.len:
+    let lf: Rect2D = leaves[k]
+    let lw = if lf.w > 0.0: lf.w else: lf.width
+    let lh = if lf.h > 0.0: lf.h else: lf.height
+    let pad = 2.0
+    let rw = if lw - pad * 2.0 >= 20.0: lw - pad * 2.0 else: lw
+    let rh = if lh - pad * 2.0 >= 20.0: lh - pad * 2.0 else: lh
+    let rx = lf.x + (lw - rw) * 0.5
+    let ry = lf.y + (lh - rh) * 0.5
+    let rb = Rect2D(x = rx, y = ry, w = rw, h = rh, width = rw, height = rh)
+    mut conn: [int] = []
+    rooms.push(DungeonRoom(
+      id = k,
+      bounds = rb,
+      center = Vec2(x = rx + rw * 0.5, y = ry + rh * 0.5),
+      connectedRooms = conn
+    ))
+    k = k + 1
+  ret rooms
+
+pub fn delaunayTriangulateRooms(rooms: [DungeonRoom]): [IVec2]:
+  mut edges: [IVec2] = []
+  let n = rooms.len
+  mut i = 0
+  while i < n:
+    mut j = i + 1
+    while j < n:
+      let ra: DungeonRoom = rooms[i]
+      let rb: DungeonRoom = rooms[j]
+      edges.push(IVec2(x = ra.id, y = rb.id))
+      j = j + 1
+    i = i + 1
+  ret edges
+
+pub fn minimumSpanningTreeCorridors(rooms: [DungeonRoom], edges: [IVec2], extraEdgeProbability: float, seed: int): [DungeonCorridor]:
+  let n = rooms.len
+  mut parent: [int] = []
+  mut i = 0
+  while i < n:
+    parent.push(i)
+    i = i + 1
+
+  mut sortedEdges = edges
+  let m = sortedEdges.len
+  mut a = 0
+  while a < m:
+    mut b = 0
+    while b < m - 1 - a:
+      let e0: IVec2 = sortedEdges[b]
+      let e1: IVec2 = sortedEdges[b + 1]
+      let r0a: DungeonRoom = rooms[e0.x]
+      let r0b: DungeonRoom = rooms[e0.y]
+      let r1a: DungeonRoom = rooms[e1.x]
+      let r1b: DungeonRoom = rooms[e1.y]
+      let d0 = r0a.center.sub(r0b.center).lenSq()
+      let d1 = r1a.center.sub(r1b.center).lenSq()
+      if d0 > d1:
+        sortedEdges[b] = e1
+        sortedEdges[b + 1] = e0
+      b = b + 1
+    a = a + 1
+
+  mut corridors: [DungeonCorridor] = []
+  mut s = if seed != 0: seed else: 1
+  mut k = 0
+  while k < m:
+    let edge: IVec2 = sortedEdges[k]
+    mut rootA = edge.x
+    while parent[rootA] != rootA:
+      rootA = parent[rootA]
+    mut rootB = edge.y
+    while parent[rootB] != rootB:
+      rootB = parent[rootB]
+
+    s = (s * 1103515245 + 12345) & 2147483647
+    let rf = float(s % 10000) / 10000.0
+    if rootA != rootB or rf < extraEdgeProbability:
+      parent[rootA] = rootB
+      let ra: DungeonRoom = rooms[edge.x]
+      let rb: DungeonRoom = rooms[edge.y]
+      let corner = Vec2(x = rb.center.x, y = ra.center.y)
+      corridors.push(DungeonCorridor(
+        roomA = edge.x,
+        roomB = edge.y,
+        waypoints = [ra.center, corner, rb.center],
+        width = 2.0
+      ))
+    k = k + 1
+  ret corridors
+
+pub fn carveDungeonGrid(rooms: [DungeonRoom], corridors: [DungeonCorridor], gridWidth: int, gridHeight: int): CellularGrid2D:
+  mut cells: [int] = []
+  mut i = 0
+  while i < gridWidth * gridHeight:
+    cells.push(0)
+    i = i + 1
+
+  mut r = 0
+  while r < rooms.len:
+    let rm: DungeonRoom = rooms[r]
+    let b: Rect2D = rm.bounds
+    let bw = if b.w > 0.0: b.w else: b.width
+    let bh = if b.h > 0.0: b.h else: b.height
+    let x0 = clampInt(int(floor(b.x)), 0, gridWidth - 1)
+    let y0 = clampInt(int(floor(b.y)), 0, gridHeight - 1)
+    let x1 = clampInt(int(floor(b.x + bw)), 0, gridWidth - 1)
+    let y1 = clampInt(int(floor(b.y + bh)), 0, gridHeight - 1)
+    mut py = y0
+    while py <= y1:
+      mut px = x0
+      while px <= x1:
+        cells[py * gridWidth + px] = 1
+        px = px + 1
+      py = py + 1
+    r = r + 1
+
+  mut c = 0
+  while c < corridors.len:
+    let cor: DungeonCorridor = corridors[c]
+    if cor.waypoints.len >= 3:
+      let p0: Vec2 = cor.waypoints[0]
+      let p1: Vec2 = cor.waypoints[1]
+      let p2: Vec2 = cor.waypoints[2]
+      let hx0 = clampInt(minInt(int(floor(p0.x)), int(floor(p1.x))), 0, gridWidth - 1)
+      let hx1 = clampInt(maxInt(int(floor(p0.x)), int(floor(p1.x))), 0, gridWidth - 1)
+      let hy = clampInt(int(floor(p0.y)), 0, gridHeight - 1)
+      mut x = hx0
+      while x <= hx1:
+        cells[hy * gridWidth + x] = 1
+        x = x + 1
+      let vy0 = clampInt(minInt(int(floor(p1.y)), int(floor(p2.y))), 0, gridHeight - 1)
+      let vy1 = clampInt(maxInt(int(floor(p1.y)), int(floor(p2.y))), 0, gridHeight - 1)
+      let vx = clampInt(int(floor(p1.x)), 0, gridWidth - 1)
+      mut y = vy0
+      while y <= vy1:
+        cells[y * gridWidth + vx] = 1
+        y = y + 1
+    c = c + 1
+
+  ret CellularGrid2D(width = gridWidth, height = gridHeight, cells = cells)

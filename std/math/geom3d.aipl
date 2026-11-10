@@ -1,0 +1,469 @@
+/// # Module: `std/math/geom3d` (`Geom3D`)
+///
+/// ## Purpose & Domain Scope
+/// 3D bounding volumes (`AABB3D`, `Sphere3D`, `Plane3D`, `Ray3D`, `Triangle3D`, `Frustum3D`),
+/// slab ray-AABB intersection, Moller-Trumbore ray-triangle intersection, and frustum culling.
+module Geom3D
+
+import { PI, EPSILON, absFloat, minFloat, maxFloat, clampFloat } from "std/math/consts"
+import { sin, cos, sqrt, pow } from "std/math/trig"
+import { Vec3, Vector3, Vector2 } from "std/math/vec_math"
+
+pub struct AABB3D:
+  min: Vec3
+  max: Vec3
+
+pub struct Sphere3D:
+  center: Vec3
+  radius: float
+
+pub struct Plane3D:
+  normal: Vec3
+  distance: float = 0.0
+  d: float = 0.0
+
+pub struct Ray3D:
+  origin: Vec3
+  dir: Vec3 = Vec3(x = 0.0, y = 0.0, z = 1.0)
+  direction: Vec3 = Vec3(x = 0.0, y = 0.0, z = 1.0)
+  maxDistance: float = 1000.0
+
+pub struct Triangle3D:
+  v0: Vec3
+  v1: Vec3
+  v2: Vec3
+
+pub struct Frustum3D:
+  planes: [Plane3D]
+
+pub fn vec3(x: float, y: float, z: float): Vector3:
+  ret Vector3(x = x, y = y, z = z)
+
+pub fn vec3Add(a: Vector3, b: Vector3): Vector3:
+  ret Vector3(x = a.x + b.x, y = a.y + b.y, z = a.z + b.z)
+
+pub fn vec3Sub(a: Vector3, b: Vector3): Vector3:
+  ret Vector3(x = a.x - b.x, y = a.y - b.y, z = a.z - b.z)
+
+pub fn vec3Scale(v: Vector3, s: float): Vector3:
+  ret Vector3(x = v.x * s, y = v.y * s, z = v.z * s)
+
+pub fn vec3Dot(a: Vector3, b: Vector3): float:
+  ret a.x * b.x + a.y * b.y + a.z * b.z
+
+pub fn vec3Cross(a: Vector3, b: Vector3): Vector3:
+  ret Vector3(
+    x = a.y * b.z - a.z * b.y,
+    y = a.z * b.x - a.x * b.z,
+    z = a.x * b.y - a.y * b.x
+  )
+
+pub fn vec3Length(v: Vector3): float:
+  ret sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+
+pub fn vec3Distance(a: Vector3, b: Vector3): float:
+  let dx = a.x - b.x
+  let dy = a.y - b.y
+  let dz = a.z - b.z
+  ret sqrt(dx * dx + dy * dy + dz * dz)
+
+pub fn vec3DistanceSquared(a: Vector3, b: Vector3): float:
+  let dx = a.x - b.x
+  let dy = a.y - b.y
+  let dz = a.z - b.z
+  ret dx * dx + dy * dy + dz * dz
+
+pub fn vec3Lerp(a: Vector3, b: Vector3, t: float): Vector3:
+  ret Vector3(
+    x = a.x + (b.x - a.x) * t,
+    y = a.y + (b.y - a.y) * t,
+    z = a.z + (b.z - a.z) * t
+  )
+
+pub fn vec3Normalize(v: Vector3): Vector3:
+  let l = sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+  if l <= 0.0001:
+    ret Vector3(x = 0.0, y = 1.0, z = 0.0)
+  ret Vector3(x = v.x / l, y = v.y / l, z = v.z / l)
+
+pub fn rotateX(v: Vector3, angle: float): Vector3:
+  let c = cos(angle)
+  let s = sin(angle)
+  ret Vector3(x = v.x, y = v.y * c - v.z * s, z = v.y * s + v.z * c)
+
+pub fn rotateY(v: Vector3, angle: float): Vector3:
+  let c = cos(angle)
+  let s = sin(angle)
+  ret Vector3(x = v.x * c + v.z * s, y = v.y, z = -v.x * s + v.z * c)
+
+pub fn rotateZ(v: Vector3, angle: float): Vector3:
+  let c = cos(angle)
+  let s = sin(angle)
+  ret Vector3(x = v.x * c - v.y * s, y = v.x * s + v.y * c, z = v.z)
+
+pub fn rotateEuler(v: Vector3, rx: float, ry: float, rz: float): Vector3:
+  ret rotateZ(rotateY(rotateX(v, rx), ry), rz)
+
+pub fn project3D(v: Vector3, cameraDist: float, screenW: float, screenH: float, focalLength: float): Vector2:
+  let depth = cameraDist - v.z
+  let factor = if depth > 0.001: focalLength / depth else: 1.0
+  ret Vector2(x = screenW / 2.0 + v.x * factor, y = screenH / 2.0 - v.y * factor)
+
+pub fn aabbIntersectsAABB(a: AABB3D, b: AABB3D): bool:
+  ret a.min.x <= b.max.x and a.max.x >= b.min.x and a.min.y <= b.max.y and a.max.y >= b.min.y and a.min.z <= b.max.z and a.max.z >= b.min.z
+
+pub fn sphereIntersectsSphere(a: Sphere3D, b: Sphere3D): bool:
+  let rSum = a.radius + b.radius
+  let dx = a.center.x - b.center.x
+  let dy = a.center.y - b.center.y
+  let dz = a.center.z - b.center.z
+  ret (dx * dx + dy * dy + dz * dz) <= (rSum * rSum)
+
+pub fn rayIntersectsAABB(ray: Ray3D, aabb: AABB3D): Option[float]:
+  mut tMin = -1e18
+  mut tMax = 1e18
+  if absFloat(ray.dir.x) < EPSILON:
+    if ray.origin.x < aabb.min.x or ray.origin.x > aabb.max.x:
+      ret None
+  else:
+    let invX = 1.0 / ray.dir.x
+    let t1 = (aabb.min.x - ray.origin.x) * invX
+    let t2 = (aabb.max.x - ray.origin.x) * invX
+    tMin = maxFloat(tMin, minFloat(t1, t2))
+    tMax = minFloat(tMax, maxFloat(t1, t2))
+  if absFloat(ray.dir.y) < EPSILON:
+    if ray.origin.y < aabb.min.y or ray.origin.y > aabb.max.y:
+      ret None
+  else:
+    let invY = 1.0 / ray.dir.y
+    let t1 = (aabb.min.y - ray.origin.y) * invY
+    let t2 = (aabb.max.y - ray.origin.y) * invY
+    tMin = maxFloat(tMin, minFloat(t1, t2))
+    tMax = minFloat(tMax, maxFloat(t1, t2))
+  if absFloat(ray.dir.z) < EPSILON:
+    if ray.origin.z < aabb.min.z or ray.origin.z > aabb.max.z:
+      ret None
+  else:
+    let invZ = 1.0 / ray.dir.z
+    let t1 = (aabb.min.z - ray.origin.z) * invZ
+    let t2 = (aabb.max.z - ray.origin.z) * invZ
+    tMin = maxFloat(tMin, minFloat(t1, t2))
+    tMax = minFloat(tMax, maxFloat(t1, t2))
+  if tMax < 0.0 or tMin > tMax:
+    ret None
+  ret Some(if tMin >= 0.0: tMin else: tMax)
+
+pub fn rayIntersectsTriangle(ray: Ray3D, tri: Triangle3D): Option[float]:
+  let e1x = tri.v1.x - tri.v0.x
+  let e1y = tri.v1.y - tri.v0.y
+  let e1z = tri.v1.z - tri.v0.z
+  let e2x = tri.v2.x - tri.v0.x
+  let e2y = tri.v2.y - tri.v0.y
+  let e2z = tri.v2.z - tri.v0.z
+  let hx = ray.dir.y * e2z - ray.dir.z * e2y
+  let hy = ray.dir.z * e2x - ray.dir.x * e2z
+  let hz = ray.dir.x * e2y - ray.dir.y * e2x
+  let a = e1x * hx + e1y * hy + e1z * hz
+  if absFloat(a) < EPSILON:
+    ret None
+  let f = 1.0 / a
+  let sx = ray.origin.x - tri.v0.x
+  let sy = ray.origin.y - tri.v0.y
+  let sz = ray.origin.z - tri.v0.z
+  let u = f * (sx * hx + sy * hy + sz * hz)
+  if u < 0.0 or u > 1.0:
+    ret None
+  let qx = sy * e1z - sz * e1y
+  let qy = sz * e1x - sx * e1z
+  let qz = sx * e1y - sy * e1x
+  let v = f * (ray.dir.x * qx + ray.dir.y * qy + ray.dir.z * qz)
+  if v < 0.0 or (u + v) > 1.0:
+    ret None
+  let t = f * (e2x * qx + e2y * qy + e2z * qz)
+  if t > EPSILON:
+    ret Some(t)
+  ret None
+
+pub fn frustumContainsPoint(frustum: Frustum3D, pt: Vec3): bool:
+  mut i = 0
+  while i < frustum.planes.len:
+    let pl = frustum.planes[i]
+    let dotVal = pl.normal.x * pt.x + pl.normal.y * pt.y + pl.normal.z * pt.z
+    if (dotVal + pl.distance) < 0.0:
+      ret false
+    i += 1
+  ret true
+
+pub fn frustumIntersectsAABB(frustum: Frustum3D, aabb: AABB3D): bool:
+  mut i = 0
+  while i < frustum.planes.len:
+    let pl = frustum.planes[i]
+    let px = if pl.normal.x >= 0.0: aabb.max.x else: aabb.min.x
+    let py = if pl.normal.y >= 0.0: aabb.max.y else: aabb.min.y
+    let pz = if pl.normal.z >= 0.0: aabb.max.z else: aabb.min.z
+    let dotVal = pl.normal.x * px + pl.normal.y * py + pl.normal.z * pz
+    if (dotVal + pl.distance) < 0.0:
+      ret false
+    i += 1
+  ret true
+
+pub struct GeomRayHit3D:
+  hit: bool
+  distance: float
+  point: Vector3
+  normal: Vector3
+
+pub struct Capsule3D:
+  start: Vector3
+  end: Vector3
+  radius: float
+
+pub struct EulerVectors:
+  forward: Vector3
+  right: Vector3
+  up: Vector3
+
+pub struct EulerTransform3D:
+  translation: Vector3
+  rotationEuler: Vector3
+  scale: Vector3
+
+pub fn vec3Reflect(v: Vector3, normal: Vector3): Vector3:
+  let dot2 = 2.0 * vec3Dot(v, normal)
+  ret Vector3(x = v.x - dot2 * normal.x, y = v.y - dot2 * normal.y, z = v.z - dot2 * normal.z)
+
+pub fn aabb3DIntersects(minA: Vector3, maxA: Vector3, minB: Vector3, maxB: Vector3): bool:
+  ret minA.x <= maxB.x and maxA.x >= minB.x and minA.y <= maxB.y and maxA.y >= minB.y and minA.z <= maxB.z and maxA.z >= minB.z
+
+pub fn aabbContainsPoint(box: AABB3D, pt: Vec3): bool:
+  ret pt.x >= box.min.x and pt.x <= box.max.x and pt.y >= box.min.y and pt.y <= box.max.y and pt.z >= box.min.z and pt.z <= box.max.z
+
+pub fn aabbIntersects3D(a: AABB3D, b: AABB3D): bool:
+  ret aabbIntersectsAABB(a, b)
+
+pub fn aabb3DIntersectsBox(a: AABB3D, b: AABB3D): bool:
+  ret aabbIntersectsAABB(a, b)
+
+pub fn aabbFromCenterExtents(center: Vec3, halfExtents: Vec3): AABB3D:
+  ret AABB3D(min = center.sub(halfExtents), max = center.add(halfExtents))
+
+pub fn aabb2DTo3D(x: float, z: float, w: float, d: float, height: float): AABB3D:
+  ret AABB3D(min = Vec3(x = x, y = 0.0, z = z), max = Vec3(x = x + w, y = height, z = z + d))
+
+pub fn screenToWorldRay(mouseX: float, mouseY: float, screenW: float, screenH: float, camPos: Vector3, camTarget: Vector3, camUp: Vector3, fovyDeg: float): Ray3D:
+  let w = if screenW > 1.0: screenW else: 800.0
+  let h = if screenH > 1.0: screenH else: 600.0
+  let ndcX = (2.0 * mouseX) / w - 1.0
+  let ndcY = 1.0 - (2.0 * mouseY) / h
+  let aspect = w / h
+  let halfFovRad = (fovyDeg * PI / 180.0) * 0.5
+  let cosHalf = cos(halfFovRad)
+  let tanHalf = sin(halfFovRad) / (if cosHalf > 0.0001: cosHalf else: 0.0001)
+  let forward = vec3Normalize(vec3Sub(camTarget, camPos))
+  let right = vec3Normalize(vec3Cross(forward, camUp))
+  let up = vec3Normalize(vec3Cross(right, forward))
+  let rayDir = vec3Normalize(vec3Add(
+    forward,
+    vec3Add(
+      vec3Scale(right, ndcX * aspect * tanHalf),
+      vec3Scale(up, ndcY * tanHalf)
+    )
+  ))
+  let origVec = Vec3(x = camPos.x, y = camPos.y, z = camPos.z)
+  let dirVec = Vec3(x = rayDir.x, y = rayDir.y, z = rayDir.z)
+  ret Ray3D(origin = origVec, dir = dirVec, direction = dirVec)
+
+pub fn rayIntersectTriangle(ray: Ray3D, v0: Vector3, v1: Vector3, v2: Vector3): GeomRayHit3D:
+  let miss = GeomRayHit3D(hit = false, distance = -1.0, point = vec3(0.0, 0.0, 0.0), normal = vec3(0.0, 1.0, 0.0))
+  let orig = Vector3(x = ray.origin.x, y = ray.origin.y, z = ray.origin.z)
+  let rdir = Vector3(x = ray.dir.x, y = ray.dir.y, z = ray.dir.z)
+  let edge1 = vec3Sub(v1, v0)
+  let edge2 = vec3Sub(v2, v0)
+  let h = vec3Cross(rdir, edge2)
+  let a = vec3Dot(edge1, h)
+  if a > -0.00001 and a < 0.00001:
+    ret miss
+  let f = 1.0 / a
+  let s = vec3Sub(orig, v0)
+  let u = f * vec3Dot(s, h)
+  if u < 0.0 or u > 1.0:
+    ret miss
+  let q = vec3Cross(s, edge1)
+  let v = f * vec3Dot(rdir, q)
+  if v < 0.0 or u + v > 1.0:
+    ret miss
+  let t = f * vec3Dot(edge2, q)
+  if t <= 0.00001:
+    ret miss
+  let hitPt = vec3Add(orig, vec3Scale(rdir, t))
+  let norm = vec3Normalize(vec3Cross(edge1, edge2))
+  ret GeomRayHit3D(hit = true, distance = t, point = hitPt, normal = norm)
+
+pub fn rayIntersectAABB(ray: Ray3D, box: AABB3D): GeomRayHit3D:
+  let miss = GeomRayHit3D(hit = false, distance = -1.0, point = vec3(0.0, 0.0, 0.0), normal = vec3(0.0, 1.0, 0.0))
+  let opt = rayIntersectsAABB(ray, box)
+  match opt:
+    Some(dist) =>
+      let orig = Vector3(x = ray.origin.x, y = ray.origin.y, z = ray.origin.z)
+      let rdir = Vector3(x = ray.dir.x, y = ray.dir.y, z = ray.dir.z)
+      let pt = vec3Add(orig, vec3Scale(rdir, dist))
+      ret GeomRayHit3D(hit = true, distance = dist, point = pt, normal = vec3(0.0, 1.0, 0.0))
+    None =>
+      ret miss
+
+pub fn rayIntersectSphere(ray: Ray3D, center: Vector3, radius: float): GeomRayHit3D:
+  let miss = GeomRayHit3D(hit = false, distance = -1.0, point = vec3(0.0, 0.0, 0.0), normal = vec3(0.0, 1.0, 0.0))
+  let orig = Vector3(x = ray.origin.x, y = ray.origin.y, z = ray.origin.z)
+  let rdir = Vector3(x = ray.dir.x, y = ray.dir.y, z = ray.dir.z)
+  let oc = vec3Sub(orig, center)
+  let b = vec3Dot(oc, rdir)
+  let c = vec3Dot(oc, oc) - radius * radius
+  let disc = b * b - c
+  if disc < 0.0:
+    ret miss
+  let s = sqrt(disc)
+  mut t = -b - s
+  if t < 0.0:
+    t = -b + s
+  if t < 0.0:
+    ret miss
+  let pt = vec3Add(orig, vec3Scale(rdir, t))
+  let norm = vec3Normalize(vec3Sub(pt, center))
+  ret GeomRayHit3D(hit = true, distance = t, point = pt, normal = norm)
+
+pub fn sweepSphereAABB(center: Vector3, radius: float, vel: Vector3, box: AABB3D): Vector3:
+  let nextPos = vec3Add(center, vel)
+  let cx = clampFloat(nextPos.x, box.min.x, box.max.x)
+  let cy = clampFloat(nextPos.y, box.min.y, box.max.y)
+  let cz = clampFloat(nextPos.z, box.min.z, box.max.z)
+  let closest = vec3(cx, cy, cz)
+  let delta = vec3Sub(nextPos, closest)
+  let d = vec3Length(delta)
+  if d >= radius:
+    ret nextPos
+  if d <= 0.00001:
+    let fromStart = vec3Sub(center, closest)
+    let fromLen = vec3Length(fromStart)
+    let fallbackDir = if fromLen > 0.00001: vec3Scale(fromStart, 1.0 / fromLen) else: vec3(0.0, 0.0, -1.0)
+    ret vec3Add(closest, vec3Scale(fallbackDir, radius))
+  let pushDir = vec3Scale(delta, 1.0 / d)
+  let penetration = radius - d
+  ret vec3Add(nextPos, vec3Scale(pushDir, penetration))
+
+pub fn capsuleIntersectsAABB(cap: Capsule3D, box: AABB3D): bool:
+  let seg = vec3Sub(cap.end, cap.start)
+  let segLenSq = vec3Dot(seg, seg)
+  let rSq = cap.radius * cap.radius
+  if segLenSq <= 0.000001:
+    let cx = clampFloat(cap.start.x, box.min.x, box.max.x)
+    let cy = clampFloat(cap.start.y, box.min.y, box.max.y)
+    let cz = clampFloat(cap.start.z, box.min.z, box.max.z)
+    let d0 = vec3Sub(cap.start, vec3(cx, cy, cz))
+    ret vec3Dot(d0, d0) <= rSq
+  mut boxPt = vec3((box.min.x + box.max.x) * 0.5, (box.min.y + box.max.y) * 0.5, (box.min.z + box.max.z) * 0.5)
+  mut iter = 0
+  while iter < 4:
+    let t = clampFloat(vec3Dot(vec3Sub(boxPt, cap.start), seg) / segLenSq, 0.0, 1.0)
+    let segPt = vec3Add(cap.start, vec3Scale(seg, t))
+    boxPt = vec3(
+      clampFloat(segPt.x, box.min.x, box.max.x),
+      clampFloat(segPt.y, box.min.y, box.max.y),
+      clampFloat(segPt.z, box.min.z, box.max.z)
+    )
+    let delta = vec3Sub(segPt, boxPt)
+    if vec3Dot(delta, delta) <= rSq:
+      ret true
+    iter += 1
+  ret false
+
+pub fn rayIntersectsCylinder(rayOrigin: Vector3, rayDir: Vector3, cylCenter: Vector3, radius: float, height: float): Option[float]:
+  if radius <= 0.0 or height <= 0.0:
+    ret None
+  let ox = rayOrigin.x - cylCenter.x
+  let oy = rayOrigin.y - cylCenter.y
+  let rSq = radius * radius
+  let zMin = cylCenter.z
+  let zMax = cylCenter.z + height
+  let originDistSq = ox * ox + oy * oy
+  if originDistSq <= rSq and rayOrigin.z >= zMin and rayOrigin.z <= zMax:
+    ret Some(0.0)
+  let dx = rayDir.x
+  let dy = rayDir.y
+  let a = dx * dx + dy * dy
+  mut bestT = -1.0
+  if a > 0.000000001:
+    let b = ox * dx + oy * dy
+    let c = originDistSq - rSq
+    let disc = b * b - a * c
+    if disc >= 0.0:
+      let sqrtD = sqrt(disc)
+      let t1 = (-b - sqrtD) / a
+      let t2 = (-b + sqrtD) / a
+      if t1 >= 0.0:
+        let z1 = rayOrigin.z + t1 * rayDir.z
+        if z1 >= zMin and z1 <= zMax:
+          bestT = t1
+      if bestT < 0.0 and t2 >= 0.0:
+        let z2 = rayOrigin.z + t2 * rayDir.z
+        if z2 >= zMin and z2 <= zMax:
+          bestT = t2
+  if absFloat(rayDir.z) > 0.000001:
+    let tBot = (zMin - rayOrigin.z) / rayDir.z
+    if tBot >= 0.0 and (bestT < 0.0 or tBot < bestT):
+      let xBot = ox + tBot * dx
+      let yBot = oy + tBot * dy
+      if (xBot * xBot + yBot * yBot) <= rSq:
+        bestT = tBot
+    let tTop = (zMax - rayOrigin.z) / rayDir.z
+    if tTop >= 0.0 and (bestT < 0.0 or tTop < bestT):
+      let xTop = ox + tTop * dx
+      let yTop = oy + tTop * dy
+      if (xTop * xTop + yTop * yTop) <= rSq:
+        bestT = tTop
+  if bestT >= 0.0:
+    ret Some(bestT)
+  ret None
+
+pub fn eulerToAngleVectors(pitchDeg: float, yawDeg: float, rollDeg: float = 0.0): EulerVectors:
+  let p = pitchDeg * (PI / 180.0)
+  let y = yawDeg * (PI / 180.0)
+  let r = rollDeg * (PI / 180.0)
+  let sp = sin(p)
+  let cp = cos(p)
+  let sy = sin(y)
+  let cy = cos(y)
+  let sr = sin(r)
+  let cr = cos(r)
+  let fwd = vec3Normalize(vec3(cp * cy, cp * sy, -sp))
+  let rgt = vec3Normalize(vec3(
+    (-1.0 * sr * sp * cy) + (cr * sy),
+    (-1.0 * sr * sp * sy) - (cr * cy),
+    -1.0 * sr * cp
+  ))
+  let upVec = vec3Normalize(vec3Cross(rgt, fwd))
+  ret EulerVectors(forward = fwd, right = rgt, up = upVec)
+
+pub fn radialAttenuation(origin: Vector3, target: Vector3, maxRadius: float, curve: float = 1.0): float:
+  if maxRadius <= 0.0:
+    ret 0.0
+  let d = vec3Distance(origin, target)
+  if d >= maxRadius:
+    ret 0.0
+  let factor = 1.0 - (d / maxRadius)
+  if curve == 1.0:
+    ret factor
+  if curve == 2.0:
+    ret factor * factor
+  ret pow(factor, curve)
+
+pub fn transform3DIdentity(): EulerTransform3D:
+  ret EulerTransform3D(
+    translation = vec3(0.0, 0.0, 0.0),
+    rotationEuler = vec3(0.0, 0.0, 0.0),
+    scale = vec3(1.0, 1.0, 1.0)
+  )
+
+pub fn transform3DPoint(t: EulerTransform3D, p: Vector3): Vector3:
+  let scaled = vec3(p.x * t.scale.x, p.y * t.scale.y, p.z * t.scale.z)
+  let rotated = rotateEuler(scaled, t.rotationEuler.x, t.rotationEuler.y, t.rotationEuler.z)
+  ret vec3Add(rotated, t.translation)

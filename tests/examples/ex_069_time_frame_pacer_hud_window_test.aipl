@@ -1,0 +1,40 @@
+// ============================================================================
+// Twin Test Suite 069: Fixed-Timestep Accumulator & Frame Pacer HUD Window
+// Verifies examples/ex_069_time_frame_pacer_hud_window.aipl
+// ============================================================================
+module Ex069TimeFramePacerHudWindowTest
+
+import {
+  FramePacerHudState,
+  evaluateAccumulatorSubsteps,
+  describeFramePacerVSyncMode,
+  buildFramePacerHudState,
+  renderFrameStep
+} from "../../examples/ex_069_time_frame_pacer_hud_window.aipl"
+
+pub fn test_frame_pacer_accumulator(): int:
+  assert(evaluateAccumulatorSubsteps(60, 35) == 2, "60Hz accumulator advances 2 ticks for 35ms frame delta")
+  assert(describeFramePacerVSyncMode(60) == "PACER:VSYNC_60HZ_16_67MS", "60Hz mode label")
+  ret 0
+
+pub fn test_frame_pacer_hud_window_state(): int:
+  let st0 = buildFramePacerHudState(0)
+  let st1 = buildFramePacerHudState(1)
+  let st20 = buildFramePacerHudState(20)
+  let st100 = buildFramePacerHudState(100)
+  assert(st0.substepsExecuted >= 1, "substepsExecuted >= 1")
+  assert(st0.alphaPermille >= 0 and st0.alphaPermille <= 1000, "alphaPermille in [0, 1000]")
+  assert(st1.alphaPermille != st0.alphaPermille or st1.substepsExecuted != st0.substepsExecuted, "frame pacer state evolves from frame 0 to 1")
+  assert(st20.alphaPermille != st100.alphaPermille or st20.substepsExecuted != st100.substepsExecuted, "frame pacer state evolves between frame 20 and 100")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m0 != m1 and m1 != m20 and m20 != m100, "renderFrameStep progresses across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_frame_pacer_accumulator()
+  test_frame_pacer_hud_window_state()
+  println("PASS: ex_069_time_frame_pacer_hud_window_test")
+  ret 0

@@ -1,0 +1,148 @@
+// ============================================================================
+// Example 034: Easing Animation Gallery & Curve Plotter Window
+// Demonstrates: easeLinear, easeInQuad, easeOutQuad, easeInOutCubic,
+//               easeOutBack, easeOutElastic, easeOutBounce, easeSmoothstep,
+//               and evalEase from std/math/ease, rendered as a 6-lane
+//               animated comparison gallery + live curve plot on 1280x720.
+// ============================================================================
+module Ex034MathEaseAnimationGalleryWindow
+
+import { clampInt } from "../std/prelude"
+import { absFloat } from "../std/math/consts"
+import {
+  easeLinear,
+  easeInQuad,
+  easeOutQuad,
+  easeInOutCubic,
+  easeInBack,
+  easeOutBack,
+  easeInElastic,
+  easeOutElastic,
+  easeInBounce,
+  easeOutBounce,
+  easeSmoothstep,
+  evalEase
+} from "../std/math/ease"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct EaseGalleryState:
+  tPermille: int
+  quadPermille: int
+  cubicPermille: int
+  bouncePermille: int
+
+pub fn evaluateMidpointEaseSumPermille(): int:
+  let s = easeInQuad(0.5) + easeOutQuad(0.5) + easeInOutCubic(0.5) + easeSmoothstep(0.5)
+  ret int(s * 1000.0 + 0.5)
+
+pub fn verifyBoundaryEasingInvariants(): int:
+  let bOk = absFloat(easeInBack(0.0)) < 0.001 and absFloat(easeOutBack(1.0) - 1.0) < 0.001
+  let eOk = absFloat(easeInElastic(0.0)) < 0.001 and absFloat(easeOutElastic(1.0) - 1.0) < 0.001
+  let nOk = absFloat(easeInBounce(0.0)) < 0.001 and absFloat(easeOutBounce(1.0) - 1.0) < 0.001
+  let ev = absFloat(evalEase(1, 0.5) - 0.25) < 0.001
+  if bOk and eOk and nOk and ev:
+    ret 1
+  ret 0
+
+pub fn describeEaseCurveFamily(familyId: int): str:
+  if familyId == 0:
+    ret "EASE:ROBERT_PENNER_GALLERY_6_LANE"
+  ret "EASE:HERMITE_SMOOTHSTEP"
+
+pub fn buildEaseGalleryState(frameIdx: int): EaseGalleryState:
+  let t = float(frameIdx % 120) / 120.0
+  ret EaseGalleryState(
+    tPermille = int(t * 1000.0 + 0.5),
+    quadPermille = int(easeInQuad(t) * 1000.0 + 0.5),
+    cubicPermille = int(easeInOutCubic(t) * 1000.0 + 0.5),
+    bouncePermille = int(easeOutBounce(t) * 1000.0 + 0.5)
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildEaseGalleryState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret evaluateMidpointEaseSumPermille() + frameIndex + dtPad + st.tPermille * 0
+
+pub fn renderEaseGalleryScene(frameIdx: int): void:
+  let t = float(frameIdx % 120) / 120.0
+  clearScreen(rgb(11, 15, 25))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 44))
+  drawText("AIPL ex_034: 6-Lane Easing Function Gallery & Real-Time Response Curve Plotter", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Left Panel: 6 horizontal racing lanes for easing functions
+  let trackStartX = 240.0
+  let trackSpan = 440.0
+  let vals = [
+    easeLinear(t),
+    easeInQuad(t),
+    easeInOutCubic(t),
+    easeOutBack(t),
+    easeOutElastic(t),
+    easeOutBounce(t)
+  ]
+  let labels = [
+    "1. easeLinear",
+    "2. easeInQuad",
+    "3. easeInOutCubic",
+    "4. easeOutBack",
+    "5. easeOutElastic",
+    "6. easeOutBounce"
+  ]
+
+  for i in 0..6:
+    let laneY = 110.0 + float(i * 92)
+    drawText(labels[i], 40.0, laneY - 8.0, 16.0, rgb(203, 213, 225))
+    drawRect(trackStartX, laneY - 6.0, trackSpan, 12.0, rgb(30, 41, 59))
+    let puckX = trackStartX + vals[i] * trackSpan
+    drawCircle(puckX, laneY, 14.0, rgb(56 + i * 32, 189 - i * 18, 248 - i * 20))
+
+  // Right Panel: 2D Function Graph Plot of easeOutBounce & easeInOutCubic
+  let gx = 760.0
+  let gy = 540.0
+  let gw = 440.0
+  let gh = 380.0
+  drawRect(gx - 20.0, gy - gh - 40.0, gw + 40.0, gh + 80.0, rgb(17, 24, 39))
+  drawRectOutline(gx - 20.0, gy - gh - 40.0, gw + 40.0, gh + 80.0, 2.0, rgb(71, 85, 105))
+  drawText("Response Curves: Cyan = Bounce, Gold = InOutCubic", gx, gy - gh - 20.0, 16.0, rgb(226, 232, 240))
+
+  for seg in 0..32:
+    let t0 = float(seg) / 32.0
+    let t1 = float(seg + 1) / 32.0
+    let x0 = gx + t0 * gw
+    let x1 = gx + t1 * gw
+    let y0B = gy - easeOutBounce(t0) * gh
+    let y1B = gy - easeOutBounce(t1) * gh
+    drawLine(x0, y0B, x1, y1B, rgb(56, 189, 248), 2.5)
+    let y0C = gy - easeInOutCubic(t0) * gh
+    let y1C = gy - easeInOutCubic(t1) * gh
+    drawLine(x0, y0C, x1, y1C, rgb(250, 204, 21), 2.0)
+
+  // Playhead cursor line and live curve dots on graph
+  let playX = gx + t * gw
+  drawLine(playX, gy - gh, playX, gy, rgb(248, 113, 113), 1.5)
+  drawCircle(playX, gy - easeOutBounce(t) * gh, 6.0, rgb(56, 189, 248))
+  drawCircle(playX, gy - easeInOutCubic(t) * gh, 6.0, rgb(250, 204, 21))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_034 - Easing Function Animation Gallery")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderEaseGalleryScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

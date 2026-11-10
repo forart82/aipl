@@ -1,0 +1,48 @@
+module GfxGpuDeviceMod
+
+// ============================================================================
+// std/gfx/gpu_device.aipl — GPU Hardware Device & Adapter Capabilities
+// ============================================================================
+
+pub struct GpuAdapterInfo(name: str, vendorId: int, deviceId: int, backendType: int, isSoftware: bool)
+
+pub struct GpuDeviceLimits(maxTextureDimension2D: int, maxTextureDimension3D: int, maxUniformBufferBindingSize: int, maxStorageBufferBindingSize: int, maxVertexBuffers: int, maxComputeWorkgroupStorageSize: int)
+
+pub struct GpuDevice(adapter: GpuAdapterInfo, limits: GpuDeviceLimits, deviceHandle: int, isAlive: bool)
+
+pub fn getStandardGpuLimits(): GpuDeviceLimits:
+  ret GpuDeviceLimits(
+    maxTextureDimension2D = 8192,
+    maxTextureDimension3D = 2048,
+    maxUniformBufferBindingSize = 65536,
+    maxStorageBufferBindingSize = 134217728,
+    maxVertexBuffers = 8,
+    maxComputeWorkgroupStorageSize = 16384
+  )
+
+pub fn createGpuDevice(backendPreference: int = 0): GpuDevice:
+  let isSw = backendPreference == 4
+  let adapter = GpuAdapterInfo(
+    name = if isSw: "AIPL Software Rasterizer" else: "AIPL Unified GPU Adapter",
+    vendorId = 4096,
+    deviceId = 1,
+    backendType = backendPreference,
+    isSoftware = isSw
+  )
+  ret GpuDevice(
+    adapter = adapter,
+    limits = getStandardGpuLimits(),
+    deviceHandle = 1,
+    isAlive = true
+  )
+
+pub fn isDeviceLost(dev: GpuDevice): bool:
+  ret not dev.isAlive or dev.deviceHandle <= 0
+
+pub fn destroyGpuDevice(dev: GpuDevice): GpuDevice:
+  ret GpuDevice(
+    adapter = dev.adapter,
+    limits = dev.limits,
+    deviceHandle = 0,
+    isAlive = false
+  )

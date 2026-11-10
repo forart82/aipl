@@ -1,0 +1,96 @@
+module tests.functions.time.frame_pacer_test
+
+import * from "std/prelude"
+import * from "std/time/frame_pacer"
+import { Duration, durationZero, durationFromNanos, NANOS_PER_SECOND, NANOS_PER_MILLI } from "std/time/duration"
+import { Instant, instantNow, sleepMs } from "std/time/instant"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_frame_pacer_fixedTimestepAccumulatorNew_1(): int:
+  let arg_targetHertz = 1
+  let edge_targetHertz = 0
+  let arg_maxSubSteps = 4
+  let edge_maxSubSteps = 1
+  let resNom = fixedTimestepAccumulatorNew(arg_targetHertz, arg_maxSubSteps)
+  let resEdge = fixedTimestepAccumulatorNew(edge_targetHertz, edge_maxSubSteps)
+  assertEqInt(resNom.maxSubSteps, 4, "fixedTimestepAccumulatorNew nominal resNom.maxSubSteps == 4")
+  assertEqInt(resEdge.maxSubSteps, 1, "fixedTimestepAccumulatorNew boundary resEdge.maxSubSteps == 1")
+  ret 0
+
+pub fn test_frame_pacer_FixedTimestepAccumulator_advance_2(): int:
+  let mut recv_self = FixedTimestepAccumulator(targetDt = Duration(nanos = 4), maxSubSteps = 4, accumulator = Duration(nanos = 4), lastTime = Instant(nanos = 4))
+  let mut edge_self = FixedTimestepAccumulator(targetDt = Duration(nanos = 1), maxSubSteps = 1, accumulator = Duration(nanos = 1), lastTime = Instant(nanos = 1))
+  let arg_currentTime = Instant(nanos = 4)
+  let edge_currentTime = Instant(nanos = 1)
+  let resNom = recv_self.advance(arg_currentTime)
+  let resEdge = edge_self.advance(edge_currentTime)
+  assertEqInt(resNom, 1, "advance nominal resNom == 1")
+  assertEqInt(resEdge, 1, "advance boundary resEdge == 1")
+  ret 0
+
+pub fn test_frame_pacer_FixedTimestepAccumulator_alpha_3(): int:
+  let recv_self = FixedTimestepAccumulator(targetDt = Duration(nanos = 4), maxSubSteps = 4, accumulator = Duration(nanos = 4), lastTime = Instant(nanos = 4))
+  let edge_self = FixedTimestepAccumulator(targetDt = Duration(nanos = 1), maxSubSteps = 1, accumulator = Duration(nanos = 1), lastTime = Instant(nanos = 1))
+  let resNom = recv_self.alpha()
+  let resEdge = edge_self.alpha()
+  assertApproxEq(resNom, 1.0, 0.001, "alpha nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 1.0, 0.001, "alpha boundary resEdge ~= 1.0")
+  ret 0
+
+pub fn test_frame_pacer_FixedTimestepAccumulator_stepSeconds_4(): int:
+  let recv_self = FixedTimestepAccumulator(targetDt = Duration(nanos = 4), maxSubSteps = 4, accumulator = Duration(nanos = 4), lastTime = Instant(nanos = 4))
+  let edge_self = FixedTimestepAccumulator(targetDt = Duration(nanos = 1), maxSubSteps = 1, accumulator = Duration(nanos = 1), lastTime = Instant(nanos = 1))
+  let resNom = recv_self.stepSeconds()
+  let resEdge = edge_self.stepSeconds()
+  assertApproxEq(resNom, 0.0, 0.001, "stepSeconds nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "stepSeconds boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_frame_pacer_FixedTimestepAccumulator_reset_5(): int:
+  let mut recv_self = FixedTimestepAccumulator(targetDt = Duration(nanos = 4), maxSubSteps = 4, accumulator = Duration(nanos = 4), lastTime = Instant(nanos = 4))
+  let mut edge_self = FixedTimestepAccumulator(targetDt = Duration(nanos = 1), maxSubSteps = 1, accumulator = Duration(nanos = 1), lastTime = Instant(nanos = 1))
+  let arg_now = Instant(nanos = 4)
+  let edge_now = Instant(nanos = 1)
+  recv_self.reset(arg_now)
+  edge_self.reset(edge_now)
+  assertEqInt(recv_self.maxSubSteps, 4, "reset nominal recv_self.maxSubSteps == 4")
+  assertEqInt(edge_self.maxSubSteps, 1, "reset boundary edge_self.maxSubSteps == 1")
+  ret 0
+
+pub fn test_frame_pacer_frameRateGovernorNew_6(): int:
+  let arg_targetFps = 2
+  let edge_targetFps = 0
+  let resNom = frameRateGovernorNew(arg_targetFps)
+  let resEdge = frameRateGovernorNew(edge_targetFps)
+  assertEqInt(resNom.targetFps, 2, "frameRateGovernorNew nominal resNom.targetFps == 2")
+  assertEqInt(resEdge.targetFps, 60, "frameRateGovernorNew boundary resEdge.targetFps == 60")
+  ret 0
+
+pub fn test_frame_pacer_FrameRateGovernor_beginFrame_7(): int:
+  let mut recv_self = FrameRateGovernor(targetFps = 2, targetFrameDuration = Duration(nanos = 4), lastFrameTime = Instant(nanos = 4), currentFps = 1.0)
+  let mut edge_self = FrameRateGovernor(targetFps = 0, targetFrameDuration = Duration(nanos = 1), lastFrameTime = Instant(nanos = 1), currentFps = 0.5)
+  recv_self.beginFrame()
+  edge_self.beginFrame()
+  assertEqInt(recv_self.targetFps, 2, "beginFrame nominal recv_self.targetFps == 2")
+  assertEqInt(edge_self.targetFps, 0, "beginFrame boundary edge_self.targetFps == 0")
+  ret 0
+
+pub fn test_frame_pacer_FrameRateGovernor_endFrameAndSleep_8(): int:
+  let mut recv_self = FrameRateGovernor(targetFps = 2, targetFrameDuration = Duration(nanos = 4), lastFrameTime = Instant(nanos = 4), currentFps = 1.0)
+  let mut edge_self = FrameRateGovernor(targetFps = 0, targetFrameDuration = Duration(nanos = 1), lastFrameTime = Instant(nanos = 1), currentFps = 0.5)
+  let resNom = recv_self.endFrameAndSleep()
+  let resEdge = edge_self.endFrameAndSleep()
+  assertEqInt(resNom.nanos, 0, "endFrameAndSleep nominal resNom.nanos == 0")
+  assertEqInt(resEdge.nanos, 0, "endFrameAndSleep boundary resEdge.nanos == 0")
+  ret 0
+
+pub fn test_frame_pacer_FrameRateGovernor_setTargetFps_9(): int:
+  let mut recv_self = FrameRateGovernor(targetFps = 2, targetFrameDuration = Duration(nanos = 4), lastFrameTime = Instant(nanos = 4), currentFps = 1.0)
+  let mut edge_self = FrameRateGovernor(targetFps = 0, targetFrameDuration = Duration(nanos = 1), lastFrameTime = Instant(nanos = 1), currentFps = 0.5)
+  let arg_targetFps = 2
+  let edge_targetFps = 0
+  recv_self.setTargetFps(arg_targetFps)
+  edge_self.setTargetFps(edge_targetFps)
+  assertEqInt(recv_self.targetFps, 2, "setTargetFps nominal recv_self.targetFps == 2")
+  assertEqInt(edge_self.targetFps, 60, "setTargetFps boundary edge_self.targetFps == 60")
+  ret 0

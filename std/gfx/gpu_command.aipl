@@ -1,0 +1,48 @@
+module GfxGpuCommandMod
+
+// ============================================================================
+// std/gfx/gpu_command.aipl — Command Encoders, Draw Recording & Submission
+// ============================================================================
+
+import { GpuDevice } from "./gpu_device"
+import { GpuTexture } from "./gpu_texture"
+import { RenderPipelineState } from "./gpu_pipeline"
+
+pub struct ClearColor(r: float, g: float, b: float, a: float = 1.0)
+
+pub struct RenderPassDescriptor(colorBuffer: GpuTexture, clearColor: ClearColor, depthBuffer: GpuTexture, clearDepth: float)
+
+pub struct DrawCommand(pipelineId: int, vertexCount: int, instanceCount: int, firstVertex: int, firstInstance: int)
+
+pub struct CommandEncoder(commandQueue: [DrawCommand], isEnded: bool)
+
+pub struct CommandBuffer(bufferId: int, commands: [DrawCommand])
+
+pub fn createCommandEncoder(): CommandEncoder:
+  mut q: [DrawCommand] = []
+  ret CommandEncoder(commandQueue = q, isEnded = false)
+
+pub fn recordDraw(encoder: CommandEncoder, pipeline: RenderPipelineState, vertexCount: int, instanceCount: int = 1): CommandEncoder:
+  if encoder.isEnded:
+    ret encoder
+  mut nextQ: [DrawCommand] = []
+  mut i = 0
+  while i < encoder.commandQueue.len:
+    nextQ.push(encoder.commandQueue[i])
+    i += 1
+  nextQ.push(DrawCommand(
+    pipelineId = pipeline.pipelineId,
+    vertexCount = vertexCount,
+    instanceCount = instanceCount,
+    firstVertex = 0,
+    firstInstance = 0
+  ))
+  ret CommandEncoder(commandQueue = nextQ, isEnded = false)
+
+pub fn finishCommandBuffer(encoder: CommandEncoder): CommandBuffer:
+  ret CommandBuffer(bufferId = 1, commands = encoder.commandQueue)
+
+pub fn submitCommandBuffer(dev: GpuDevice, cmd: CommandBuffer): int:
+  if not dev.isAlive:
+    ret 0
+  ret cmd.commands.len + 1

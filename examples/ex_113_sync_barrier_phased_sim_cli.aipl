@@ -1,0 +1,72 @@
+// ============================================================================
+// Example 113: ThreadBarrier, WaitGroup, CountDownLatch & OnceInit (CLI)
+// Demonstrates: threadBarrierNew, threadBarrierWait, waitGroupNew,
+//               waitGroupAdd, waitGroupDone, waitGroupWait, countDownLatchNew,
+//               countDownLatchGetCount, countDownLatchCountDown,
+//               countDownLatchWait, onceInitNew, onceInitIsDone, and
+//               onceInitDo from std/sync.
+// ============================================================================
+module Ex113SyncBarrierPhasedSimCli
+
+import {
+  threadBarrierNew,
+  threadBarrierWait,
+  waitGroupNew,
+  waitGroupAdd,
+  waitGroupDone,
+  waitGroupWait,
+  countDownLatchNew,
+  countDownLatchGetCount,
+  countDownLatchCountDown,
+  countDownLatchWait,
+  onceInitNew,
+  onceInitIsDone,
+  onceInitDo
+} from "../std/sync"
+
+// Coordinates a 2-party ThreadBarrier and a 3-task WaitGroup, returning leaderCount + tasksCompleted.
+pub fn evaluatePhasedBarrierAndWaitGroupSteps(): int:
+  mut bar = threadBarrierNew(2)
+  let firstLeader = threadBarrierWait(bar)
+  let secondLeader = threadBarrierWait(bar)
+  assert(not firstLeader and secondLeader, "second arrival elects barrier leader")
+
+  mut wg = waitGroupNew()
+  waitGroupAdd(wg, 3)
+  let initialTasks = wg.counter
+  waitGroupDone(wg)
+  waitGroupDone(wg)
+  waitGroupDone(wg)
+  assert(wg.counter == 0 and waitGroupWait(wg), "WaitGroup drains to 0")
+  ret 1 + initialTasks
+
+// Verifies CountDownLatch countdown to zero and OnceInit single-execution idempotence.
+pub fn verifyCountDownLatchAndOnceInit(): int:
+  mut cdl = countDownLatchNew(2)
+  let c2 = countDownLatchGetCount(cdl)
+  countDownLatchCountDown(cdl)
+  let c1 = countDownLatchGetCount(cdl)
+  countDownLatchCountDown(cdl)
+  let c0 = countDownLatchGetCount(cdl)
+  let latchReady = countDownLatchWait(cdl)
+
+  mut once = onceInitNew()
+  let firstExec = onceInitDo(once)
+  let isDone = onceInitIsDone(once)
+  let secondExecSkipped = not onceInitDo(once)
+  if c2 == 2 and c1 == 1 and c0 == 0 and latchReady and firstExec and isDone and secondExecSkipped:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a phased barrier arrival outcome.
+pub fn describeBarrierPhaseLeader(isLeader: bool): str:
+  if isLeader:
+    ret "BARRIER:PHASE_LEADER_ELECTED"
+  ret "BARRIER:FOLLOWER_SYNCHRONIZED"
+
+pub fn main(): int:
+  let steps = evaluatePhasedBarrierAndWaitGroupSteps()
+  let coordOk = verifyCountDownLatchAndOnceInit()
+  let role = describeBarrierPhaseLeader(true)
+  println("ex_113_sync_barrier_phased_sim_cli: steps=" + str(steps) + " coordOk=" + str(coordOk) + " role=" + role)
+  ret 0

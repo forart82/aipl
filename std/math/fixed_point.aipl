@@ -1,0 +1,57 @@
+/// # Module: `std/math/fixed_point` (`FixedPoint`)
+///
+/// ## Purpose & Domain Scope
+/// Deterministic Q16.16 and Q32.32 fixed-point arithmetic for lockstep simulations.
+module FixedPoint
+
+pub const FIXED_Q16_SHIFT: int = 16
+pub const FIXED_Q16_ONE: int = 65536
+
+pub struct FixedQ16_16:
+  raw: int
+
+pub struct FixedQ32_32:
+  raw: int
+
+pub fn fixedFromInt(val: int): FixedQ16_16:
+  ret FixedQ16_16(raw = val << FIXED_Q16_SHIFT)
+
+pub fn fixedFromFloat(val: float): FixedQ16_16:
+  let scaled = val * 65536.0
+  let r = if scaled >= 0.0: int(scaled + 0.5) else: int(scaled - 0.5)
+  ret FixedQ16_16(raw = r)
+
+pub fn (self: FixedQ16_16) toInt(): int:
+  ret self.raw >> FIXED_Q16_SHIFT
+
+pub fn (self: FixedQ16_16) toFloat(): float:
+  ret float(self.raw) / 65536.0
+
+pub fn (self: FixedQ16_16) add(other: FixedQ16_16): FixedQ16_16:
+  ret FixedQ16_16(raw = self.raw + other.raw)
+
+pub fn (self: FixedQ16_16) sub(other: FixedQ16_16): FixedQ16_16:
+  ret FixedQ16_16(raw = self.raw - other.raw)
+
+pub fn (self: FixedQ16_16) mul(other: FixedQ16_16): FixedQ16_16:
+  ret FixedQ16_16(raw = (self.raw * other.raw) >> FIXED_Q16_SHIFT)
+
+pub fn (self: FixedQ16_16) div(other: FixedQ16_16): FixedQ16_16:
+  if other.raw == 0:
+    ret FixedQ16_16(raw = 0)
+  ret FixedQ16_16(raw = (self.raw << FIXED_Q16_SHIFT) / other.raw)
+
+pub fn (self: FixedQ16_16) abs(): FixedQ16_16:
+  ret FixedQ16_16(raw = if self.raw < 0: -self.raw else: self.raw)
+
+pub fn fixedQ32FromInt(val: int): FixedQ32_32:
+  ret FixedQ32_32(raw = val << 32)
+
+pub fn (self: FixedQ32_32) toInt(): int:
+  ret self.raw >> 32
+
+pub fn (self: FixedQ32_32) add(other: FixedQ32_32): FixedQ32_32:
+  ret FixedQ32_32(raw = self.raw + other.raw)
+
+pub fn (self: FixedQ32_32) sub(other: FixedQ32_32): FixedQ32_32:
+  ret FixedQ32_32(raw = self.raw - other.raw)

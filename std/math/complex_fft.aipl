@@ -1,0 +1,80 @@
+/// # Module: `std/math/complex_fft` (`ComplexFft`)
+///
+/// ## Purpose & Domain Scope
+/// Complex numbers (`Complex64`) and in-place Cooley-Tukey Radix-2 Fast Fourier Transform.
+module ComplexFft
+
+import { TAU } from "std/math/consts"
+import { sin, cos, sqrt } from "std/math/trig"
+
+pub struct Complex64:
+  re: float
+  im: float
+
+pub fn Complex64.new(re: float, im: float): Complex64:
+  ret Complex64(re = re, im = im)
+
+pub fn (self: Complex64) add(other: Complex64): Complex64:
+  ret Complex64(re = self.re + other.re, im = self.im + other.im)
+
+pub fn (self: Complex64) sub(other: Complex64): Complex64:
+  ret Complex64(re = self.re - other.re, im = self.im - other.im)
+
+pub fn (self: Complex64) mul(other: Complex64): Complex64:
+  ret Complex64(
+    re = self.re * other.re - self.im * other.im,
+    im = self.re * other.im + self.im * other.re
+  )
+
+pub fn (self: Complex64) mag(): float:
+  ret sqrt(self.re * self.re + self.im * self.im)
+
+pub fn (self: Complex64) conj(): Complex64:
+  ret Complex64(re = self.re, im = -self.im)
+
+pub fn fftRadix2(mut samples: [Complex64], inverse: bool): void:
+  let n = samples.len
+  if n <= 1:
+    ret
+  // 1. Bit-reversal permutation
+  mut j = 0
+  mut i = 1
+  while i < n:
+    mut bit = n >> 1
+    while (j & bit) != 0:
+      j = j ^ bit
+      bit = bit >> 1
+    j = j ^ bit
+    if i < j:
+      let tmp = samples[i]
+      samples[i] = samples[j]
+      samples[j] = tmp
+    i += 1
+  // 2. Butterfly stages
+  mut len = 2
+  while len <= n:
+    let halfLen = len / 2
+    let angle = (if inverse: TAU else: -TAU) / float(len)
+    let wLen = Complex64(re = cos(angle), im = sin(angle))
+    mut start = 0
+    while start < n:
+      mut w = Complex64(re = 1.0, im = 0.0)
+      mut k = 0
+      while k < halfLen:
+        let u = samples[start + k]
+        let v = samples[start + k + halfLen].mul(w)
+        samples[start + k] = u.add(v)
+        samples[start + k + halfLen] = u.sub(v)
+        w = w.mul(wLen)
+        k += 1
+      start += len
+    len = len * 2
+  // 3. Normalize if inverse FFT
+  if inverse:
+    let invN = 1.0 / float(n)
+    mut idx = 0
+    while idx < n:
+      let s = samples[idx]
+      samples[idx] = Complex64(re = s.re * invN, im = s.im * invN)
+      idx += 1
+  ret

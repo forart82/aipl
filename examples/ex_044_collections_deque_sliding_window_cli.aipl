@@ -1,0 +1,66 @@
+// ============================================================================
+// Example 044: Deque Double-Ended Window, Undo Stack & RingBuffer (CLI)
+// Demonstrates: dequeNew, .pushFront(), .pushBack(), .peekFront(),
+//               .peekBack(), .popFront(), .popBack(), circularRingQueueNew,
+//               undoStackNew, undoPush, undoStep, redoStep, ringBufferNew,
+//               ringBufferPush, and ringBufferGet from std/collections/deque.
+// ============================================================================
+module Ex044CollectionsDequeSlidingWindowCli
+
+import {
+  dequeNew,
+  circularRingQueueNew,
+  undoStackNew,
+  undoPush,
+  undoCanUndo,
+  undoStep,
+  redoStep,
+  ringBufferNew,
+  ringBufferPush,
+  ringBufferGet
+} from "../std/collections/deque"
+
+pub fn evaluateDequeEndsAndRingBuffer(): int:
+  mut dq = dequeNew[int]()
+  dq.pushFront(10)
+  dq.pushBack(20)
+  dq.pushFront(5)
+  dq.pushBack(25)
+  let front = dq.popFront().unwrap()
+  let back = dq.popBack().unwrap()
+
+  mut rq = circularRingQueueNew[int](2)
+  let _ = rq.enqueue(1)
+  let _ = rq.enqueue(2)
+  let deqVal = rq.dequeue().unwrap()
+
+  mut rb = ringBufferNew[int](2)
+  rb = ringBufferPush(rb, 10)
+  rb = ringBufferPush(rb, 20)
+  rb = ringBufferPush(rb, 30)
+  let oldestRemaining = ringBufferGet(rb, 0).unwrap()
+
+  ret front + back + oldestRemaining + deqVal
+
+pub fn verifyUndoRedoHistoryRoundtrip(cmdLabel: str): str:
+  mut us = undoStackNew(4)
+  us = undoPush(us, cmdLabel)
+  if not undoCanUndo(us):
+    ret "ERR_NO_UNDO"
+  let undone = undoStep(us).unwrap()
+  let redone = redoStep(us).unwrap()
+  if undone == cmdLabel:
+    ret redone
+  ret "ERR_MISMATCH"
+
+pub fn describeDequeQueueMode(modeId: int): str:
+  if modeId == 0:
+    ret "DEQUE:DOUBLE_ENDED_SLIDING_WINDOW"
+  ret "DEQUE:CIRCULAR_RING_OVERWRITE"
+
+pub fn main(): int:
+  let sumMetric = evaluateDequeEndsAndRingBuffer()
+  let restored = verifyUndoRedoHistoryRoundtrip("snapshot_v1")
+  println("Deque Ends + RingBuffer + CircularQueue Metric: " + str(sumMetric))
+  println("Undo/Redo Restored Command: " + restored + " (" + describeDequeQueueMode(0) + ")")
+  ret 0

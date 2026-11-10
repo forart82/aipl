@@ -1,0 +1,122 @@
+// ============================================================================
+// Module: std/time/instant (InstantMod)
+// Layer 1 (Core Primitives & Math) — Monotonic Hardware Clock & Timestamps
+// ============================================================================
+module InstantMod
+
+import {
+  Duration,
+  durationFromNanos,
+  durationFromMillis,
+  NANOS_PER_MILLI,
+  NANOS_PER_MICRO
+} from "./duration"
+
+/// @intrinsic("aipl_rt_nowMonoNs")
+pub fn nowMonoNs(): int:
+  ret 0
+
+/// @intrinsic("aipl_rt_nowUnixMs")
+pub fn nowUnixMs(): int:
+  ret 0
+
+/// @intrinsic("aipl_rt_sleepMs")
+pub fn sleepMs(ms: int): void:
+  ret
+
+pub fn nowMs(): int:
+  ret nowUnixMs()
+
+pub fn nowEpochSeconds(): int:
+  ret nowUnixMs() / 1000
+
+pub fn nowMicros(): int:
+  ret nowUnixMs() * 1000
+
+pub struct Instant:
+  nanos: int
+
+pub fn instantFromNanos(nanos: int): Instant:
+  ret Instant(nanos = nanos)
+
+pub fn instantFromMillis(millis: int): Instant:
+  ret Instant(nanos = millis * NANOS_PER_MILLI)
+
+pub fn instantNow(): Instant:
+  let ns = nowMonoNs()
+  if ns > 0:
+    ret Instant(nanos = ns)
+  ret Instant(nanos = nowUnixMs() * NANOS_PER_MILLI)
+
+pub fn (self: Instant) toNanos(): int:
+  ret self.nanos
+
+pub fn (self: Instant) toMillis(): int:
+  ret self.nanos / NANOS_PER_MILLI
+
+pub fn (self: Instant) toMicros(): int:
+  ret self.nanos / NANOS_PER_MICRO
+
+pub fn (self: Instant) durationSince(earlier: Instant): Duration:
+  let diff = self.nanos - earlier.nanos
+  if diff < 0:
+    ret durationFromNanos(0)
+  ret durationFromNanos(diff)
+
+pub fn (self: Instant) signedDurationSince(earlier: Instant): Duration:
+  ret durationFromNanos(self.nanos - earlier.nanos)
+
+pub fn (self: Instant) checkedDurationSince(earlier: Instant): Option[Duration]:
+  if self.nanos < earlier.nanos:
+    ret None
+  ret Some(durationFromNanos(self.nanos - earlier.nanos))
+
+pub fn (self: Instant) saturatingDurationSince(earlier: Instant): Duration:
+  if self.nanos <= earlier.nanos:
+    ret durationFromNanos(0)
+  ret durationFromNanos(self.nanos - earlier.nanos)
+
+pub fn (self: Instant) elapsed(): Duration:
+  let cur = instantNow()
+  ret cur.durationSince(self)
+
+pub fn (self: Instant) elapsedMs(): int:
+  ret self.elapsed().toMillis()
+
+pub fn (self: Instant) elapsedMicros(): int:
+  ret self.elapsed().toMicros()
+
+pub fn (self: Instant) elapsedNanos(): int:
+  ret self.elapsed().toNanos()
+
+pub fn (self: Instant) addDuration(d: Duration): Instant:
+  ret Instant(nanos = self.nanos + d.nanos)
+
+pub fn (self: Instant) subDuration(d: Duration): Instant:
+  ret Instant(nanos = self.nanos - d.nanos)
+
+pub fn (self: Instant) isAfter(other: Instant): bool:
+  ret self.nanos > other.nanos
+
+pub fn (self: Instant) isBefore(other: Instant): bool:
+  ret self.nanos < other.nanos
+
+pub fn (self: Instant) equals(other: Instant): bool:
+  ret self.nanos == other.nanos
+
+pub fn (self: Instant) min(other: Instant): Instant:
+  if self.nanos <= other.nanos:
+    ret self
+  ret other
+
+pub fn (self: Instant) max(other: Instant): Instant:
+  if self.nanos >= other.nanos:
+    ret self
+  ret other
+
+pub fn (self: Instant) clamp(minInst: Instant, maxInst: Instant): Instant:
+  if self.nanos < minInst.nanos:
+    ret minInst
+  if self.nanos > maxInst.nanos:
+    ret maxInst
+  ret self

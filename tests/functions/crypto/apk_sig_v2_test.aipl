@@ -1,0 +1,45 @@
+module tests.functions.crypto.apk_sig_v2_test
+
+import * from "std/crypto/apk_Sig_v2"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_apk_sig_v2_computeApkV2DigestsSha256(): int:
+  let topDigest = computeApkV2DigestsSha256("ZIP_ENTRIES_V1", "CENTRAL_DIR_V1", "EOCD_V1")
+  assertEqInt(topDigest.len(), 64, "256-bit hex SHA-256 digest is 64 chars")
+  let topDigest2 = computeApkV2DigestsSha256("ZIP_ENTRIES_V1", "CENTRAL_DIR_V1", "EOCD_V1")
+  assertEqStr(topDigest, topDigest2, "deterministic v2 top-level digest")
+  let tampered = computeApkV2DigestsSha256("ZIP_ENTRIES_TAMPERED", "CENTRAL_DIR_V1", "EOCD_V1")
+  assertEqInt(topDigest != tampered, true, "tampered ZIP entry changes top-level v2 digest")
+  assertEqStr(computeApkV2DigestsSha256("", "CD", "EOCD"), "", "empty section returns empty string")
+  assertEqStr(computeApkV2DigestsSha256("ZIP", "", "EOCD"), "", "empty centralDir returns empty string")
+  assertEqStr(computeApkV2DigestsSha256("ZIP", "CD", ""), "", "empty eocd returns empty string")
+  ret 0
+
+pub fn test_apk_sig_v2_buildApkSigningBlockV2(): int:
+  let digest = "2685010167727b082a3bd20225da63f720df027ab4b85f83edf33a3fdd24d38b"
+  let blk = buildApkSigningBlockV2(digest)
+  assert(blk.isValid == true, "valid 64-char SHA-256 builds v2 signing block")
+  assertEqStr(blk.magic, "APK Sig Block 42", "exact 16-byte APK Sig Block 42 magic")
+  assertEqInt(blk.magic.len(), 16, "magic length == 16 bytes")
+  assertEqInt(blk.v2SchemeId, 1896449818, "v2 scheme ID == 0x7109871a (1896449818)")
+  assertEqInt(blk.sizeOfBlockHead, blk.sizeOfBlockTail, "head and tail sizeOfBlock match (4096)")
+  let bad = buildApkSigningBlockV2("short")
+  assert(bad.isValid == false, "invalid digest length rejected")
+  ret 0
+
+pub fn test_apk_sig_v2_verifyApkSigningBlockV2(): int:
+  let d = "2685010167727b082a3bd20225da63f720df027ab4b85f83edf33a3fdd24d38b"
+  assert(verifyApkSigningBlockV2("APK Sig Block 42", 4096, 4096, 1896449818, d, d) == true, "valid v2 block passes verification")
+  assert(verifyApkSigningBlockV2("APK Sig Block 00", 4096, 4096, 1896449818, d, d) == false, "wrong magic rejected")
+  assert(verifyApkSigningBlockV2("APK Sig Block 42", 4096, 2048, 1896449818, d, d) == false, "mismatched head/tail size rejected")
+  assert(verifyApkSigningBlockV2("APK Sig Block 42", 4096, 4096, 1896449818, d, "9c14d637df4356548088b1b22cea7d5647b786684691cde975a6f550d4568116") == false, "tampered digest rejected")
+  assert(verifyApkSigningBlockV2("APK Sig Block 42", 32, 32, 1896449818, d, d) == false, "sizeHead <= 32 rejected")
+  assert(verifyApkSigningBlockV2("APK Sig Block 42", 4096, 4096, 0, d, d) == false, "wrong schemeId 0 rejected")
+  ret 0
+
+pub fn main(): int:
+  test_apk_sig_v2_computeApkV2DigestsSha256()
+  test_apk_sig_v2_buildApkSigningBlockV2()
+  test_apk_sig_v2_verifyApkSigningBlockV2()
+  println("PASS: tests/functions/crypto/apk_sig_v2_test.aipl")
+  ret 0

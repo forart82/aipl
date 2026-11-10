@@ -1,0 +1,201 @@
+/// # Module: `std/alloc/pool_alloc` (`PoolAlloc`)
+///
+/// ## Purpose & Domain Scope
+/// Fixed-size generational object slab pool with O(1) allocation/deallocation
+/// and ABA-safe versioned handles (`GenerationalHandle`).
+module PoolAlloc
+
+pub struct GenerationalHandle:
+  index: int
+  generation: int
+
+pub struct PoolHandle:
+  index: int
+  generation: int
+
+pub struct FixedObjectPool[T]:
+  capacity: int
+  mut activeCount: int
+  mut freeHead: int
+  mut active: [bool]
+  mut slots: [T]
+  mut generations: [int]
+  mut freeList: [int]
+  numWorkers: int
+  mut queues: [[int]]
+  mut results: [int]
+  mut stolenTasks: int
+
+pub type Pool = FixedObjectPool[int]
+
+pub fn poolNew[T](capacity: int): FixedObjectPool[T]:
+  let cap = if capacity > 0: capacity else: 0
+  mut activeFlags: [bool] = []
+  mut freeSlots: [int] = []
+  mut gens: [int] = []
+  mut i = 0
+  while i < cap:
+    activeFlags.push(false)
+    freeSlots.push(cap - 1 - i)
+    gens.push(1)
+    i += 1
+  let workers = if capacity > 0: capacity else: 4
+  mut qs: [[int]] = []
+  mut wi = 0
+  while wi < workers:
+    mut emptyQueue: [int] = []
+    qs.push(emptyQueue)
+    wi += 1
+  mut emptySlots: [T] = []
+  mut emptyResults: [int] = []
+  ret FixedObjectPool(
+    capacity = cap,
+    activeCount = 0,
+    freeHead = if cap > 0: 0 else: -1,
+    active = activeFlags,
+    slots = emptySlots,
+    generations = gens,
+    freeList = freeSlots,
+    numWorkers = workers,
+    queues = qs,
+    results = emptyResults,
+    stolenTasks = 0
+  )
+
+pub fn (mut self: FixedObjectPool[T]) acquire(item: T): Option[GenerationalHandle]:
+  if self.freeList.len == 0:
+    ret None
+  let idx = self.freeList.pop()
+  self.active[idx] = true
+  self.activeCount += 1
+  while self.slots.len <= idx:
+    self.slots.push(item)
+  self.slots[idx] = item
+  let genVal = if idx >= 0 and idx < self.generations.len: self.generations[idx] else: 1
+  ret Some(GenerationalHandle(index = idx, generation = genVal))
+
+pub fn (self: FixedObjectPool[T]) isValid(handle: GenerationalHandle): bool:
+  if handle.index < 0 or handle.index >= self.capacity:
+    ret false
+  if not self.active[handle.index]:
+    ret false
+  ret self.generations[handle.index] == handle.generation
+
+pub fn (self: FixedObjectPool[T]) get(handle: GenerationalHandle): Option[T]:
+  if not self.isValid(handle):
+    ret None
+  if handle.index < 0 or handle.index >= self.slots.len:
+    ret None
+  ret Some(self.slots[handle.index])
+
+pub fn (mut self: FixedObjectPool[T]) release(handle: GenerationalHandle): bool:
+  if not self.isValid(handle):
+    ret false
+  let idx = handle.index
+  self.active[idx] = false
+  self.activeCount -= 1
+  self.generations[idx] = self.generations[idx] + 1
+  self.freeList.push(idx)
+  ret true
+
+pub fn (self: FixedObjectPool[T]) count(): int:
+  ret self.activeCount
+
+pub fn (self: FixedObjectPool[T]) isFull(): bool:
+  ret self.activeCount >= self.capacity
+
+pub fn (mut self: FixedObjectPool[T]) clear(): void:
+  self.freeList.clear()
+  mut i = 0
+  while i < self.capacity:
+    self.active[i] = false
+    self.generations[i] = self.generations[i] + 1
+    self.freeList.push(self.capacity - 1 - i)
+    i += 1
+  self.activeCount = 0
+  ret
+
+pub fn poolAcquire(mut pool: Pool): Option[int]:
+  if pool.freeList.len == 0:
+    ret None
+  let idx = pool.freeList.pop()
+  pool.active[idx] = true
+  pool.activeCount += 1
+  ret Some(idx)
+
+pub fn poolRelease(mut pool: Pool, idx: int): bool:
+  if idx < 0 or idx >= pool.capacity:
+    ret false
+  if not pool.active[idx]:
+    ret false
+  pool.active[idx] = false
+  pool.activeCount -= 1
+  pool.generations[idx] = pool.generations[idx] + 1
+  pool.freeList.push(idx)
+  ret true
+
+pub fn poolIsActive(pool: Pool, idx: int): bool:
+  if idx < 0 or idx >= pool.capacity:
+    ret false
+  ret pool.active[idx]
+
+pub fn poolActiveIndices(pool: Pool): [int]:
+  mut out: [int] = []
+  mut i = 0
+  while i < pool.capacity:
+    if pool.active[i]:
+      out.push(i)
+    i += 1
+  ret out
+
+pub fn poolActiveCount(pool: Pool): int:
+  ret pool.activeCount
+
+pub fn poolClear(mut pool: Pool): Pool:
+  pool.freeList.clear()
+  mut i = 0
+  while i < pool.capacity:
+    pool.active[i] = false
+    pool.generations[i] = pool.generations[i] + 1
+    pool.freeList.push(pool.capacity - 1 - i)
+    i += 1
+  pool.activeCount = 0
+  ret pool
+
+pub fn poolAlloc(mut pool: Pool): Option[int]:
+  ret poolAcquire(pool)
+
+pub fn poolFree(mut pool: Pool, idx: int): bool:
+  ret poolRelease(pool, idx)
+
+pub fn poolGenerationsNew(capacity: int): [int]:
+  let cap = if capacity > 0: capacity else: 0
+  mut gens: [int] = []
+  mut i = 0
+  while i < cap:
+    gens.push(1)
+    i += 1
+  ret gens
+
+pub fn poolAcquireHandle(mut pool: Pool, generations: [int]): Option[PoolHandle]:
+  match poolAcquire(pool):
+    Some(idx) =>
+      let g = if idx >= 0 and idx < generations.len: generations[idx] else: 1
+      ret Some(PoolHandle(index = idx, generation = g))
+    None =>
+      ret None
+
+pub fn poolIsHandleValid(pool: Pool, generations: [int], handle: PoolHandle): bool:
+  if not poolIsActive(pool, handle.index):
+    ret false
+  if handle.index < 0 or handle.index >= generations.len:
+    ret false
+  ret generations[handle.index] == handle.generation
+
+pub fn poolReleaseHandle(mut pool: Pool, mut generations: [int], handle: PoolHandle): bool:
+  if not poolIsHandleValid(pool, generations, handle):
+    ret false
+  let ok = poolRelease(pool, handle.index)
+  if ok:
+    generations[handle.index] = generations[handle.index] + 1
+  ret ok

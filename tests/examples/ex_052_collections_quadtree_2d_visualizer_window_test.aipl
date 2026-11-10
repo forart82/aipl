@@ -1,0 +1,46 @@
+// ============================================================================
+// Twin Test Suite 052: 2D Quadtree Subdivision & Range Query Visualizer Window
+// Verifies examples/ex_052_collections_quadtree_2d_visualizer_window.aipl
+// ============================================================================
+module Ex052CollectionsQuadtree2dVisualizerWindowTest
+
+import {
+  QuadtreeVizState,
+  buildDemoQuadtree,
+  evaluateQuadtreeSubdivisionAndQuery,
+  describeQuadtreeSplitPolicy,
+  buildQuadtreeVizState,
+  renderFrameStep
+} from "../../examples/ex_052_collections_quadtree_2d_visualizer_window"
+
+pub fn test_quadtree_subdivision_and_range_query(): int:
+  // 5 inserted points into capacity-2 quadtree subdivides (100) + total(5)*10 + NW query hits(3) == 153
+  assert(evaluateQuadtreeSubdivisionAndQuery() == 153, "divided(100) + total(5)*10 + queryRange hits(3) == 153")
+  let qt = buildDemoQuadtree()
+  assert(qt.divided == true and qt.count() == 5, "buildDemoQuadtree subdivides root and stores 5 items")
+  assert(describeQuadtreeSplitPolicy(2) == "QUADTREE:CAPACITY_2_NW_NE_SW_SE", "cap 2")
+  ret 0
+
+pub fn test_quadtree_window_state_and_step(): int:
+  let st0 = buildQuadtreeVizState(0)
+  let st1 = buildQuadtreeVizState(1)
+  let st20 = buildQuadtreeVizState(20)
+  let st40 = buildQuadtreeVizState(40)
+  let st100 = buildQuadtreeVizState(100)
+  assert(st0.totalPoints == 5, "totalPoints == 5")
+  assert(st0.nwClusterHits == 3, "nwClusterHits == 3 at frame 0")
+  assert(st0.isSubdivided == 1, "isSubdivided == 1")
+  assert(st1.sweepX > st0.sweepX and st20.sweepX > st1.sweepX and st100.sweepX != st20.sweepX, "sweepX advances across frames 0 -> 1 -> 20 -> 100")
+  assert(st40.nwClusterHits != st0.nwClusterHits, "sweeping query box changes live hit count")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m1 > m0 and m20 > m1 and m100 > m20, "renderFrameStep progresses across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_quadtree_subdivision_and_range_query()
+  test_quadtree_window_state_and_step()
+  println("PASS: ex_052_collections_quadtree_2d_visualizer_window_test")
+  ret 0

@@ -1,0 +1,43 @@
+// ============================================================================
+// Twin Test Suite 035: Cubic Bezier, Catmull-Rom & Frenet Frame Window
+// Verifies examples/ex_035_math_curve_bezier_catmull_window.aipl
+// ============================================================================
+module Ex035MathCurveBezierCatmullWindowTest
+
+import {
+  SplineEditorState,
+  evaluateSplineControlInvariants,
+  computeBezierArcLengthInt,
+  describeSplineBasisKind,
+  buildSplineEditorState,
+  renderFrameStep
+} from "../../examples/ex_035_math_curve_bezier_catmull_window"
+
+pub fn test_bezier_catmull_and_frenet_frame(): int:
+  // quadraticBezier2D(t=0.5).x == 5 + catmullRom2D(t=0.0).x == 5 + cubicBezier2D(t=1.0).x == 15 -> 25
+  assert(evaluateSplineControlInvariants() == 25, "Bezier & Catmull-Rom knot invariants sum to 25")
+  let arcLen = computeBezierArcLengthInt()
+  assert(arcLen > 400, "arc length of 400px span S-curve exceeds chord length 400")
+  ret 0
+
+pub fn test_spline_window_state_and_step(): int:
+  let st0 = buildSplineEditorState(0)
+  let st1 = buildSplineEditorState(1)
+  let st20 = buildSplineEditorState(20)
+  let st100 = buildSplineEditorState(100)
+  assert(st20.normalLenPermille >= 990 and st20.normalLenPermille <= 1010, "unit normal length is ~1000 permille")
+  assert(st0.arcLengthPx > 400, "arcLengthPx > 400")
+  assert(st1.carriageX > st0.carriageX and st20.carriageX > st1.carriageX and st100.carriageX > st20.carriageX, "carriageX advances along Bezier curve across frames 0 -> 1 -> 20 -> 100")
+  assert(describeSplineBasisKind(0) == "SPLINE:BERNSTEIN_CUBIC_BEZIER", "basis 0")
+  let m0 = renderFrameStep(0, 0.016)
+  let m1 = renderFrameStep(1, 0.016)
+  let m20 = renderFrameStep(20, 0.016)
+  let m100 = renderFrameStep(100, 0.016)
+  assert(m1 > m0 and m20 > m1 and m100 > m20, "renderFrameStep progresses across frames 0 -> 1 -> 20 -> 100")
+  ret 0
+
+pub fn main(): int:
+  test_bezier_catmull_and_frenet_frame()
+  test_spline_window_state_and_step()
+  println("PASS: ex_035_math_curve_bezier_catmull_window_test")
+  ret 0

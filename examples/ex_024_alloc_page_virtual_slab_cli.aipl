@@ -1,0 +1,50 @@
+// ============================================================================
+// Example 024: Virtual Page Slab Allocator & Guard Pages (CLI)
+// Demonstrates: systemPageSize, pageAllocatorNew, pageAlloc, pageProtect,
+//               pageFree, pageAlignUp, and pageCountForBytes from
+//               std/alloc/page_alloc.
+// ============================================================================
+module Ex024AllocPageVirtualSlabCli
+
+import {
+  systemPageSize,
+  pageAllocatorNew,
+  pageAlloc,
+  pageFree,
+  pageProtect,
+  pageAlignUp,
+  pageCountForBytes
+} from "../std/alloc/page_alloc"
+
+pub fn computeSlabPagesAndAlignedBytes(rawBytes: int): int:
+  let aligned = pageAlignUp(rawBytes)
+  let pages = pageCountForBytes(rawBytes)
+  ret aligned + pages
+
+pub fn verifyProtectedPageSlabLifecycle(numPages: int): int:
+  let pa = pageAllocatorNew()
+  let sysPg = systemPageSize()
+  if pa.pageSize != sysPg or sysPg <= 0:
+    ret -1
+  let baseAddr = pageAlloc(numPages)
+  if baseAddr == 0:
+    ret -2
+  let protOk = pageProtect(baseAddr, numPages, 3)
+  let freedOk = pageFree(baseAddr, numPages)
+  if protOk and freedOk:
+    ret numPages * sysPg
+  ret -3
+
+pub fn describePageProtectionFlags(protFlags: int): str:
+  if protFlags == 3:
+    ret "PAGE_PROT:READ_WRITE"
+  if protFlags == 1:
+    ret "PAGE_PROT:READ_ONLY_GUARD"
+  ret "PAGE_PROT:NONE"
+
+pub fn main(): int:
+  let alignedPlusPages = computeSlabPagesAndAlignedBytes(5000)
+  let slabBytes = verifyProtectedPageSlabLifecycle(3)
+  println("Aligned Slab + Page Count (5000B): " + str(alignedPlusPages))
+  println("3-Page Protected Slab Bytes: " + str(slabBytes) + " (" + describePageProtectionFlags(3) + ")")
+  ret 0

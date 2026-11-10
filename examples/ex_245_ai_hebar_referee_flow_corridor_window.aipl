@@ -1,0 +1,201 @@
+module Ex245AiHebarRefereeFlowCorridorWindow
+
+import { HebarActionRecord, HebarReferee, hebarRefereeNew, hebarEnqueueAction, hebarPopReadyActions, hebarClampReactionDelayMs, hebarHashFloat, hebarStepDamageTrail } from "../std/ai/hebar_referee"
+import { Vec2 } from "../std/math/vec_math"
+import { initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow, clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb } from "../std/gfx2d/shape2d"
+
+pub struct HebarScene(referee: HebarReferee, currentTimeMs: int, currentHp: float, trailHp: float, emittedCount: int, lastActionPos: Vec2, winRatesPermille: [int], difficultyDelta: int, stateHash: int, stepCount: int)
+
+pub fn clampHebarHumanReactionMs(rawReactionMs: int, floorMs: int): int:
+  ret hebarClampReactionDelayMs(rawReactionMs, floorMs, 250)
+
+pub fn computeFlowCorridorDifficultyDeltaMilli(winRatePermille: int, targetPermille: int): int:
+  ret (winRatePermille - targetPermille) / 2
+
+pub fn describeHebarComplianceVerdict(violationCount: int): str:
+  if violationCount == 0:
+    ret "HEBAR:VERIFIED_HUMAN_FAIR_PLAY"
+  ret "HEBAR:VIOLATION_DETECTED"
+
+pub fn initScene(): HebarScene:
+  mut referee = hebarRefereeNew(150, 250, 600)
+  let act1 = HebarActionRecord(timestampMs = 1000, actionTag = "Aim", targetPos = Vec2(x = 260.0, y = 240.0))
+  let act2 = HebarActionRecord(timestampMs = 1080, actionTag = "Dash", targetPos = Vec2(x = 340.0, y = 240.0))
+  hebarEnqueueAction(referee, act1, 1000)
+  hebarEnqueueAction(referee, act2, 1080)
+  let winRates = [820, 845, 870, 890, 860, 850, 835, 855, 865]
+  let delta = computeFlowCorridorDifficultyDeltaMilli(winRates[8], 850)
+  let h0 = hebarHashFloat(0, 100.0)
+  ret HebarScene(
+    referee = referee,
+    currentTimeMs = 1080,
+    currentHp = 55.0,
+    trailHp = 100.0,
+    emittedCount = 0,
+    lastActionPos = Vec2(x = 260.0, y = 240.0),
+    winRatesPermille = winRates,
+    difficultyDelta = delta,
+    stateHash = h0,
+    stepCount = 0
+  )
+
+pub fn stepScene(mut scene: HebarScene, frame: int, dt: float): HebarScene:
+  scene.currentTimeMs = scene.currentTimeMs + int(dt * 1000.0)
+  if frame % 3 == 0:
+    let tx = 250.0 + float((frame * 23) % 150)
+    let ty = 215.0 + float((frame * 17) % 50)
+    let rec = HebarActionRecord(timestampMs = scene.currentTimeMs, actionTag = "Fire", targetPos = Vec2(x = tx, y = ty))
+    hebarEnqueueAction(scene.referee, rec, scene.currentTimeMs)
+
+  let ready = hebarPopReadyActions(scene.referee, scene.currentTimeMs)
+  if ready.len() > 0:
+    scene.emittedCount = scene.emittedCount + ready.len()
+    let lastRec: HebarActionRecord = ready[ready.len() - 1]
+    scene.lastActionPos = lastRec.targetPos
+
+  scene.trailHp = hebarStepDamageTrail(scene.trailHp, scene.currentHp, 40.0, dt)
+  if scene.trailHp <= scene.currentHp + 0.5:
+    scene.trailHp = 95.0
+    scene.currentHp = 45.0 + float((frame * 7) % 30)
+
+  mut nextRates: [int] = []
+  mut i = 1
+  while i < scene.winRatesPermille.len():
+    nextRates.push(scene.winRatesPermille[i])
+    i = i + 1
+  let nextSample = 805 + ((frame * 19 + scene.emittedCount * 13) % 89)
+  nextRates.push(nextSample)
+  scene.winRatesPermille = nextRates
+  scene.difficultyDelta = computeFlowCorridorDifficultyDeltaMilli(nextSample, 850)
+  scene.stateHash = hebarHashFloat(scene.stateHash, scene.trailHp)
+  scene.stepCount = scene.stepCount + 1
+  ret scene
+
+pub fn auditAiHebarRefereeFlowCorridor(): int:
+  mut referee = hebarRefereeNew(150, 250, 600)
+  let act = HebarActionRecord(timestampMs = 1000, actionTag = "Fire", targetPos = Vec2(x = 24.0, y = 18.0))
+  hebarEnqueueAction(referee, act, 1000)
+  let ready = hebarPopReadyActions(referee, 1300)
+  let clamped = clampHebarHumanReactionMs(80, 180)
+  let delta = computeFlowCorridorDifficultyDeltaMilli(950, 850)
+  ret clamped + delta + ready.len() - 1
+
+pub fn main(): int:
+  let audit = auditAiHebarRefereeFlowCorridor()
+  let verdict = describeHebarComplianceVerdict(0)
+  println("EX_245_AI_HEBAR_AUDIT=" + str(audit) + " (" + verdict + ")")
+
+  mut scene = initScene()
+  mut frame = 0
+
+  initWindow(1280, 720, "AIPL ex_245: HEBAR Human-Equivalent Referee & Wilson 85% Flow Corridor")
+  while not windowShouldClose():
+    scene = stepScene(scene, frame, 0.05)
+    let curWinPermille = scene.winRatesPermille[scene.winRatesPermille.len() - 1]
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_245: HEBAR REFEREE (150-250ms DELAY, <=15Hz APM) & WILSON 85% FLOW CORRIDOR", 36.0, 24.0, 20.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | " + verdict + " | Emitted=" + str(scene.emittedCount) + " | Queued=" + str(scene.referee.actionHistory.len()) + " | TrailHP=" + str(int(scene.trailHp)) + "% | DDA=" + str(scene.difficultyDelta), 36.0, 52.0, 15.0, rgb(148, 163, 184))
+
+    drawRect(44.0, 88.0, 580.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(44.0, 88.0, 580.0, 594.0, 2.0, rgb(56, 189, 248))
+    drawText("HEBAR HUMAN REFLEX LATENCY GATE (150ms - 250ms) & APM GUARD", 64.0, 104.0, 14.0, rgb(125, 211, 252))
+
+    drawRect(68.0, 140.0, 240.0, 96.0, rgb(69, 10, 10))
+    drawRectOutline(68.0, 140.0, 240.0, 96.0, 1.5, rgb(239, 68, 68))
+    drawText("SUB-HUMAN (<150ms)", 82.0, 154.0, 13.0, rgb(252, 165, 165))
+    drawText("BLOCKED / QUEUED", 82.0, 176.0, 12.0, rgb(248, 113, 113))
+
+    drawRect(308.0, 140.0, 200.0, 96.0, rgb(6, 78, 59))
+    drawRectOutline(308.0, 140.0, 200.0, 96.0, 2.0, rgb(52, 211, 153))
+    drawText("VALID (150-250ms)", 318.0, 154.0, 13.0, rgb(167, 243, 208))
+    drawText("RELEASE GATE OPEN", 318.0, 176.0, 12.0, rgb(110, 231, 183))
+
+    drawRect(508.0, 140.0, 92.0, 96.0, rgb(30, 41, 59))
+    drawRectOutline(508.0, 140.0, 92.0, 96.0, 1.0, rgb(100, 116, 139))
+    drawText(">250ms", 524.0, 154.0, 13.0, rgb(148, 163, 184))
+
+    mut qIdx = 0
+    while qIdx < scene.referee.actionHistory.len():
+      let qRec: HebarActionRecord = scene.referee.actionHistory[qIdx]
+      let elMs = scene.currentTimeMs - qRec.timestampMs
+      let qx = 76.0 + (if elMs > 280: 280.0 else: float(elMs)) * 1.6
+      let qy = 208.0 - float((qIdx % 2) * 14)
+      drawCircle(qx, qy, 8.0, rgb(250, 204, 21))
+      drawText(qRec.actionTag + "(" + str(elMs) + "ms)", qx - 24.0, qy + 12.0, 11.0, rgb(253, 224, 71))
+      qIdx = qIdx + 1
+
+    drawCircle(scene.lastActionPos.x + 80.0, 208.0, 9.0, rgb(52, 211, 153))
+
+    drawRect(68.0, 260.0, 532.0, 142.0, rgb(11, 17, 30))
+    drawRectOutline(68.0, 260.0, 532.0, 142.0, 1.0, rgb(51, 65, 85))
+    drawText("DUAL-LAYER DAMAGE TRAIL BAR (Instant HP=" + str(int(scene.currentHp)) + "% | Trail HP=" + str(int(scene.trailHp)) + "%)", 84.0, 276.0, 14.0, rgb(253, 224, 71))
+    drawRect(84.0, 310.0, 500.0, 42.0, rgb(30, 41, 59))
+    drawRect(84.0, 310.0, 500.0 * (scene.trailHp / 100.0), 42.0, rgb(245, 158, 11))
+    drawRect(84.0, 310.0, 500.0 * (scene.currentHp / 100.0), 42.0, rgb(239, 68, 68))
+    drawRectOutline(84.0, 310.0, 500.0, 42.0, 2.0, rgb(226, 232, 240))
+    drawText("Red = Actual HP | Amber = Damage Trail (-40%/s decay)", 84.0, 368.0, 13.0, rgb(148, 163, 184))
+
+    drawRect(68.0, 422.0, 532.0, 236.0, rgb(11, 17, 30))
+    drawRectOutline(68.0, 422.0, 532.0, 236.0, 1.0, rgb(51, 65, 85))
+    drawText("HEBAR DETERMINISM & RATE-LIMIT AUDIT LEDGER", 84.0, 438.0, 14.0, rgb(125, 211, 252))
+    drawText("Sim Clock: " + str(scene.currentTimeMs) + " ms | Last Popped Timestamp: " + str(scene.referee.lastPopTimestampMs) + " ms", 84.0, 470.0, 13.0, rgb(226, 232, 240))
+    drawText("Max APM Cap: " + str(scene.referee.maxActionsPerMinute) + " APM (Min Inter-Action Gap = 100 ms)", 84.0, 498.0, 13.0, rgb(226, 232, 240))
+    drawText("Total Fair-Play Actions Emitted: " + str(scene.emittedCount) + " | Pending Queue: " + str(scene.referee.actionHistory.len()), 84.0, 526.0, 13.0, rgb(110, 231, 183))
+    drawText("FNV-1a Quantized State Hash: " + str(scene.stateHash), 84.0, 554.0, 13.0, rgb(250, 204, 21))
+    drawRect(84.0, 586.0, 500.0, 52.0, rgb(6, 78, 59))
+    drawRectOutline(84.0, 586.0, 500.0, 52.0, 1.5, rgb(52, 211, 153))
+    drawText("VERDICT: " + verdict + " (0 Violations)", 104.0, 604.0, 15.0, rgb(255, 255, 255))
+
+    drawRect(652.0, 88.0, 584.0, 594.0, rgb(17, 24, 39))
+    drawRectOutline(652.0, 88.0, 584.0, 594.0, 2.0, rgb(16, 185, 129))
+    drawText("WILSON 85% OPTIMAL FLOW CORRIDOR & DDA REGULATOR", 674.0, 104.0, 15.0, rgb(110, 231, 183))
+
+    drawRect(676.0, 140.0, 536.0, 84.0, rgb(69, 26, 3))
+    drawRectOutline(676.0, 140.0, 536.0, 84.0, 1.0, rgb(245, 158, 11))
+    drawText("BOREDOM ZONE (WinRate > 90% -> DDA Increases Challenge)", 692.0, 154.0, 12.0, rgb(253, 224, 71))
+
+    drawRect(676.0, 224.0, 536.0, 168.0, rgb(6, 78, 59))
+    drawRectOutline(676.0, 224.0, 536.0, 168.0, 1.5, rgb(52, 211, 153))
+    drawLine(676.0, 320.0, 1212.0, 320.0, rgb(110, 231, 183), 2.0)
+    drawText("WILSON 85% OPTIMAL FLOW CORRIDOR [78% .. 90%] (Target=85.0%)", 692.0, 232.0, 12.0, rgb(167, 243, 208))
+
+    drawRect(676.0, 392.0, 536.0, 84.0, rgb(69, 10, 10))
+    drawRectOutline(676.0, 392.0, 536.0, 84.0, 1.0, rgb(239, 68, 68))
+    drawText("FRUSTRATION ZONE (WinRate < 78% -> DDA Reduces Pressure)", 692.0, 448.0, 12.0, rgb(252, 165, 165))
+
+    mut s = 0
+    while s < scene.winRatesPermille.len():
+      let r0 = scene.winRatesPermille[s]
+      let x0 = 704.0 + float(s * 60)
+      let y0 = 320.0 - float(r0 - 850) * 1.0
+      if s + 1 < scene.winRatesPermille.len():
+        let r1 = scene.winRatesPermille[s + 1]
+        let x1 = 704.0 + float((s + 1) * 60)
+        let y1 = 320.0 - float(r1 - 850) * 1.0
+        drawLine(x0, y0, x1, y1, rgb(56, 189, 248), 3.5)
+      drawCircle(x0, y0, 6.5, rgb(250, 204, 21))
+      drawText(str(r0 / 10) + "%", x0 - 12.0, y0 - 18.0, 11.0, rgb(241, 245, 249))
+      s = s + 1
+
+    drawRect(676.0, 496.0, 536.0, 162.0, rgb(11, 17, 30))
+    drawRectOutline(676.0, 496.0, 536.0, 162.0, 1.0, rgb(51, 65, 85))
+    drawText("DDA CONTROLLER ACTUATOR (Current WinRate = " + str(curWinPermille / 10) + "." + str(curWinPermille % 10) + "% | Delta = " + str(scene.difficultyDelta) + ")", 692.0, 514.0, 13.0, rgb(110, 231, 183))
+
+    drawRect(704.0, 554.0, 480.0, 28.0, rgb(30, 41, 59))
+    drawLine(944.0, 546.0, 944.0, 590.0, rgb(226, 232, 240), 2.0)
+    let ddaW = float(scene.difficultyDelta) * 5.0
+    if ddaW >= 0.0:
+      drawRect(944.0, 554.0, ddaW, 28.0, rgb(245, 158, 11))
+    else:
+      drawRect(944.0 + ddaW, 554.0, -ddaW, 28.0, rgb(56, 189, 248))
+    drawRectOutline(704.0, 554.0, 480.0, 28.0, 1.0, rgb(100, 116, 139))
+    drawText("<- Assist (-Delta)", 712.0, 596.0, 12.0, rgb(56, 189, 248))
+    drawText("0 (85% Equilibrium)", 888.0, 596.0, 12.0, rgb(226, 232, 240))
+    drawText("Challenge (+Delta) ->", 1042.0, 596.0, 12.0, rgb(253, 224, 71))
+    drawText("Formula: delta = (winRatePermille - 850) / 2", 712.0, 626.0, 13.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

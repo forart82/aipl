@@ -1,0 +1,123 @@
+// ============================================================================
+// Module: std/collections/quadtree (Quadtree)
+// Layer 1 (Core Primitives & Math) — 2D Spatial Quadrant Tree
+// ============================================================================
+module QuadtreeMod
+
+pub struct QuadtreeItem[T]:
+  x: float
+  y: float
+  payload: T
+
+pub struct QuadtreeNode[T]:
+  boundaryX: float
+  boundaryY: float
+  boundaryW: float
+  boundaryH: float
+  capacity: int
+  items: [QuadtreeItem[T]]
+  divided: bool
+  nw: Option[QuadtreeNode[T]]
+  ne: Option[QuadtreeNode[T]]
+  sw: Option[QuadtreeNode[T]]
+  se: Option[QuadtreeNode[T]]
+
+pub fn quadtreeNew[T](x: float, y: float, w: float, h: float, capacity: int): QuadtreeNode[T]:
+  mut cap = capacity
+  if cap < 1:
+    cap = 4
+  let empty: [QuadtreeItem[T]] = []
+  ret QuadtreeNode(
+    boundaryX = x,
+    boundaryY = y,
+    boundaryW = w,
+    boundaryH = h,
+    capacity = cap,
+    items = empty,
+    divided = false,
+    nw = None,
+    ne = None,
+    sw = None,
+    se = None
+  )
+
+pub fn (self: QuadtreeNode[T]) containsPoint(px: float, py: float): bool:
+  ret px >= self.boundaryX and px < (self.boundaryX + self.boundaryW) and py >= self.boundaryY and py < (self.boundaryY + self.boundaryH)
+
+pub fn (self: QuadtreeNode[T]) intersectsRange(qx: float, qy: float, qw: float, qh: float): bool:
+  ret not (qx > self.boundaryX + self.boundaryW or qx + qw < self.boundaryX or qy > self.boundaryY + self.boundaryH or qy + qh < self.boundaryY)
+
+pub fn (mut self: QuadtreeNode[T]) insert(item: QuadtreeItem[T]): bool:
+  if not self.containsPoint(item.x, item.y):
+    ret false
+  if self.items.len < self.capacity and not self.divided:
+    self.items.push(item)
+    ret true
+  if not self.divided:
+    let hw = self.boundaryW * 0.5
+    let hh = self.boundaryH * 0.5
+    let x = self.boundaryX
+    let y = self.boundaryY
+    self.nw = Some(quadtreeNew[T](x, y, hw, hh, self.capacity))
+    self.ne = Some(quadtreeNew[T](x + hw, y, hw, hh, self.capacity))
+    self.sw = Some(quadtreeNew[T](x, y + hh, hw, hh, self.capacity))
+    self.se = Some(quadtreeNew[T](x + hw, y + hh, hw, hh, self.capacity))
+    self.divided = true
+  mut nwNode: QuadtreeNode[T] = self.nw.unwrap()
+  if nwNode.insert(item):
+    self.nw = Some(nwNode)
+    ret true
+  mut neNode: QuadtreeNode[T] = self.ne.unwrap()
+  if neNode.insert(item):
+    self.ne = Some(neNode)
+    ret true
+  mut swNode: QuadtreeNode[T] = self.sw.unwrap()
+  if swNode.insert(item):
+    self.sw = Some(swNode)
+    ret true
+  mut seNode: QuadtreeNode[T] = self.se.unwrap()
+  if seNode.insert(item):
+    self.se = Some(seNode)
+    ret true
+  self.items.push(item)
+  ret true
+
+pub fn (self: QuadtreeNode[T]) queryRange(qx: float, qy: float, qw: float, qh: float): [T]:
+  mut out: [T] = []
+  if not self.intersectsRange(qx, qy, qw, qh):
+    ret out
+  for i in 0..self.items.len:
+    let it = self.items[i]
+    if it.x >= qx and it.x <= (qx + qw) and it.y >= qy and it.y <= (qy + qh):
+      out.push(it.payload)
+  if self.divided:
+    let nwNode: QuadtreeNode[T] = self.nw.unwrap()
+    let nwHits = nwNode.queryRange(qx, qy, qw, qh)
+    for i in 0..nwHits.len:
+      out.push(nwHits[i])
+    let neNode: QuadtreeNode[T] = self.ne.unwrap()
+    let neHits = neNode.queryRange(qx, qy, qw, qh)
+    for i in 0..neHits.len:
+      out.push(neHits[i])
+    let swNode: QuadtreeNode[T] = self.sw.unwrap()
+    let swHits = swNode.queryRange(qx, qy, qw, qh)
+    for i in 0..swHits.len:
+      out.push(swHits[i])
+    let seNode: QuadtreeNode[T] = self.se.unwrap()
+    let seHits = seNode.queryRange(qx, qy, qw, qh)
+    for i in 0..seHits.len:
+      out.push(seHits[i])
+  ret out
+
+pub fn (self: QuadtreeNode[T]) count(): int:
+  mut total = self.items.len
+  if self.divided:
+    let nwNode: QuadtreeNode[T] = self.nw.unwrap()
+    let neNode: QuadtreeNode[T] = self.ne.unwrap()
+    let swNode: QuadtreeNode[T] = self.sw.unwrap()
+    let seNode: QuadtreeNode[T] = self.se.unwrap()
+    total = total + nwNode.count()
+    total = total + neNode.count()
+    total = total + swNode.count()
+    total = total + seNode.count()
+  ret total

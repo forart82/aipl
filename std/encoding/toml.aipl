@@ -1,0 +1,235 @@
+// ============================================================================
+// Module: std/encoding/toml
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// TOML v1.0 configuration document parser and emitter.
+// ============================================================================
+module EncodingToml
+
+pub struct TomlValue:
+  kind: str
+  strVal: str
+  intVal: int
+  floatVal: float
+  boolVal: bool
+  listVal: [TomlValue]
+  tableVal: [(str, TomlValue)]
+
+pub struct TomlDocument:
+  rootTable: [(str, TomlValue)]
+
+fn tomlStrVal(s: str): TomlValue:
+  mut emptyList: [TomlValue] = []
+  mut emptyTable: [(str, TomlValue)] = []
+  ret TomlValue(kind = "string", strVal = s, intVal = 0, floatVal = 0.0, boolVal = false, listVal = emptyList, tableVal = emptyTable)
+
+fn tomlIntVal(n: int): TomlValue:
+  mut emptyList: [TomlValue] = []
+  mut emptyTable: [(str, TomlValue)] = []
+  ret TomlValue(kind = "int", strVal = str(n), intVal = n, floatVal = float(n), boolVal = false, listVal = emptyList, tableVal = emptyTable)
+
+fn tomlFloatVal(f: float): TomlValue:
+  mut emptyList: [TomlValue] = []
+  mut emptyTable: [(str, TomlValue)] = []
+  ret TomlValue(kind = "float", strVal = str(f), intVal = int(f), floatVal = f, boolVal = false, listVal = emptyList, tableVal = emptyTable)
+
+fn tomlBoolVal(b: bool): TomlValue:
+  mut emptyList: [TomlValue] = []
+  mut emptyTable: [(str, TomlValue)] = []
+  ret TomlValue(kind = "bool", strVal = if b: "true" else: "false", intVal = if b: 1 else: 0, floatVal = if b: 1.0 else: 0.0, boolVal = b, listVal = emptyList, tableVal = emptyTable)
+
+fn tomlListVal(items: [TomlValue]): TomlValue:
+  mut emptyTable: [(str, TomlValue)] = []
+  ret TomlValue(kind = "list", strVal = "", intVal = 0, floatVal = 0.0, boolVal = false, listVal = items, tableVal = emptyTable)
+
+fn stripTomlComment(line: str): str:
+  mut inQuote = false
+  mut i = 0
+  while i < line.len:
+    let c = line.charCodeAt(i)
+    if c == 34:
+      inQuote = not inQuote
+    elif c == 35 and not inQuote:
+      ret line.slice(0, i).trim()
+    i = i + 1
+  ret line.trim()
+
+fn parseTomlScalar(raw: str): TomlValue:
+  let t = raw.trim()
+  if (t.startsWith("\"") and t.endsWith("\"") and t.len >= 2) or (t.startsWith("'") and t.endsWith("'") and t.len >= 2):
+    ret tomlStrVal(t.slice(1, t.len - 1))
+  if t == "true":
+    ret tomlBoolVal(true)
+  if t == "false":
+    ret tomlBoolVal(false)
+  if t.startsWith("[") and t.endsWith("]") and t.len >= 2:
+    let inner = t.slice(1, t.len - 1).trim()
+    mut items: [TomlValue] = []
+    if inner.len > 0:
+      let parts = inner.split(",")
+      mut i = 0
+      while i < parts.len:
+        items.push(parseTomlScalar(parts[i]))
+        i = i + 1
+    ret tomlListVal(items)
+  let cleanNum = t.replace("_", "")
+  if cleanNum.contains("."):
+    ret tomlFloatVal(float(cleanNum))
+  ret tomlIntVal(int(cleanNum))
+
+pub fn parseToml(text: str): Result[TomlDocument, str]:
+  let lines = text.split("\n")
+  mut entries: [(str, TomlValue)] = []
+  mut curSection = ""
+  mut i = 0
+  while i < lines.len:
+    let clean = stripTomlComment(lines[i])
+    if clean.len > 0:
+      if clean.startsWith("[") and clean.endsWith("]"):
+        curSection = clean.slice(1, clean.len - 1).trim()
+      else:
+        let eqIdx = clean.indexOf("=")
+        if eqIdx < 0:
+          ret Err("parseToml: missing '=' on line " + str(i + 1))
+        let k = clean.slice(0, eqIdx).trim()
+        let vRaw = clean.slice(eqIdx + 1, clean.len).trim()
+        let fullKey = if curSection.len > 0: curSection + "." + k else: k
+        let parsedVal = parseTomlScalar(vRaw)
+        entries.push((fullKey, parsedVal))
+        if curSection.len > 0:
+          entries.push((k, parsedVal))
+    i = i + 1
+  ret Ok(TomlDocument(rootTable = entries))
+
+pub fn (self: TomlDocument) getString(key: str): Option[str]:
+  mut i = 0
+  while i < self.rootTable.len:
+    let pair = self.rootTable[i]
+    if pair[0] == key:
+      let tv = pair[1]
+      if tv.kind == "string":
+        ret Some(tv.strVal)
+    i = i + 1
+  ret None
+
+pub fn (self: TomlDocument) getInt(key: str): Option[int]:
+  mut i = 0
+  while i < self.rootTable.len:
+    let pair = self.rootTable[i]
+    if pair[0] == key:
+      let tv = pair[1]
+      if tv.kind == "int":
+        ret Some(tv.intVal)
+    i = i + 1
+  ret None
+
+pub fn (self: TomlDocument) getBool(key: str): Option[bool]:
+  mut i = 0
+  while i < self.rootTable.len:
+    let pair = self.rootTable[i]
+    if pair[0] == key:
+      let tv = pair[1]
+      if tv.kind == "bool":
+        ret Some(tv.boolVal)
+    i = i + 1
+  ret None
+
+fn formatTomlValue(v: TomlValue): str:
+  if v.kind == "string":
+    ret "\"" + v.strVal + "\""
+  if v.kind == "bool":
+    ret if v.boolVal: "true" else: "false"
+  if v.kind == "int":
+    ret str(v.intVal)
+  if v.kind == "float":
+    ret str(v.floatVal)
+  if v.kind == "list":
+    mut parts: [str] = []
+    mut i = 0
+    while i < v.listVal.len:
+      parts.push(formatTomlValue(v.listVal[i]))
+      i = i + 1
+    ret "[" + parts.join(", ") + "]"
+  ret "\"" + v.strVal + "\""
+
+pub fn serializeToml(doc: TomlDocument): str:
+  mut lines: [str] = []
+  mut i = 0
+  while i < doc.rootTable.len:
+    let pair = doc.rootTable[i]
+    let k = pair[0]
+    let v = pair[1]
+    lines.push(k + " = " + formatTomlValue(v))
+    i = i + 1
+  ret lines.join("\n")
+
+pub fn tomlGetFloat(doc: TomlDocument, key: str): Option[float]:
+  mut i = 0
+  while i < doc.rootTable.len:
+    let pair = doc.rootTable[i]
+    if pair[0] == key:
+      let tv = pair[1]
+      if tv.kind == "float" or tv.kind == "int":
+        ret Some(tv.floatVal)
+    i = i + 1
+  ret None
+
+pub fn parseTomlSection(src: str, section: str): Map[str, str]:
+  mut m: Map[str, str] = mapNew()
+  let docRes = parseToml(src)
+  if docRes.isErr():
+    ret m
+  let doc = docRes.unwrap()
+  let prefix = if section.len > 0: section + "." else: ""
+  mut i = 0
+  while i < doc.rootTable.len:
+    let pair = doc.rootTable[i]
+    let k = pair[0]
+    let v = pair[1]
+    if prefix.len > 0:
+      if k.startsWith(prefix):
+        let subKey = k.slice(prefix.len, k.len)
+        m.set(subKey, v.strVal)
+    else:
+      if not k.contains("."):
+        m.set(k, v.strVal)
+    i = i + 1
+  ret m
+
+pub fn parseTomlSections(src: str): [str]:
+  mut sections: [str] = []
+  let lines = src.split("\n")
+  mut i = 0
+  while i < lines.len:
+    let clean = stripTomlComment(lines[i])
+    if clean.startsWith("[") and clean.endsWith("]"):
+      sections.push(clean.slice(1, clean.len - 1).trim())
+    i = i + 1
+  ret sections
+
+pub fn getTomlValue(src: str, section: str, key: str, defaultVal: str): str:
+  let docRes = parseToml(src)
+  if docRes.isErr():
+    ret defaultVal
+  let doc = docRes.unwrap()
+  let fullKey = if section.len > 0: section + "." + key else: key
+  mut i = 0
+  while i < doc.rootTable.len:
+    let pair = doc.rootTable[i]
+    if pair[0] == fullKey or pair[0] == key:
+      ret pair[1].strVal
+    i = i + 1
+  ret defaultVal
+
+pub fn toToml(section: str, m: Map[str, str]): str:
+  mut lines: [str] = []
+  if section.len > 0:
+    lines.push("[" + section + "]")
+  let ks = m.keys()
+  mut i = 0
+  while i < ks.len:
+    let k = ks[i]
+    let vOpt = m.get(k)
+    if vOpt.isSome():
+      lines.push(k + " = \"" + vOpt.unwrap() + "\"")
+    i = i + 1
+  ret lines.join("\n")

@@ -1,0 +1,129 @@
+/// # Module: `std/gfx25d/camera25d` (`Gfx25dCamera25d`)
+///
+/// ## Purpose & Domain Scope
+/// Continuous 2.5D/3D isometric camera projection (`project3DToIso`), exact screen-to-world
+/// plane unprojection (`unprojectIsoTo3D`), elevation-aware frustum culling (`getVisibleWorldAABB`),
+/// and smooth exponential terrain height tracking (`updateCamera25D`).
+///
+/// ## Architectural Boundary
+/// - `std/gfx2d/tilemap_renderer2d`: Discrete 2D retro grid / tactical board games.
+/// - `std/gfx25d/*` + `std/gfx3d/terrain3d`: Continuous heightfield terrains, rivers, mountains, and isometric/2.5D worlds.
+///
+/// ## Runnable Example
+/// ```aipl
+/// import { createCamera25D, project3DToIso, unprojectIsoTo3D, getVisibleWorldAABB, updateCamera25D } from "std/gfx25d/camera25d"
+///
+/// mut cam = createCamera25D(1280.0, 720.0, 1.5, 45.0, 30.0)
+/// cam = updateCamera25D(cam, 120.0, 80.0, 24.0, 0.016)
+/// let scr = project3DToIso(cam, 120.0, 80.0, 24.0)
+/// let worldPt = unprojectIsoTo3D(cam, scr.x, scr.y, 24.0)
+/// let bounds = getVisibleWorldAABB(cam, -50.0, 150.0)
+/// ```
+module Gfx25dCamera25d
+
+import { Vec3 } from "../math/vec_math"
+import { clampFloat, minFloat, maxFloat } from "../prelude"
+
+/// 2D world-space axis-aligned bounding box returned by elevation-aware frustum culling.
+pub struct AABB2D(minX: float, minY: float, maxX: float, maxY: float)
+
+/// Continuous 2.5D isometric camera state with yaw/pitch angles, depth range, and follow sharpness.
+pub struct Camera25D(worldX: float, worldY: float, worldZ: float, zoom: float, yawRad: float, pitchRad: float, viewportW: float, viewportH: float, depthNear: float, depthFar: float, followSharpness: float)
+
+/// Creates a `Camera25D` configured for a viewport with zoom, yaw (degrees), and pitch (degrees).
+pub fn createCamera25D(viewportW: float, viewportH: float, zoom: float = 1.0, yawDeg: float = 45.0, pitchDeg: float = 30.0): Camera25D:
+  let degToRad = 3.141592653589793 / 180.0
+  let clampedZoom = if zoom > 0.001: zoom else: 1.0
+  let clampedPitchDeg = clampFloat(pitchDeg, 5.0, 85.0)
+  ret Camera25D(
+    worldX = 0.0,
+    worldY = 0.0,
+    worldZ = 0.0,
+    zoom = clampedZoom,
+    yawRad = yawDeg * degToRad,
+    pitchRad = clampedPitchDeg * degToRad,
+    viewportW = maxFloat(viewportW, 1.0),
+    viewportH = maxFloat(viewportH, 1.0),
+    depthNear = -2000.0,
+    depthFar = 2000.0,
+    followSharpness = 8.0
+  )
+
+/// Projects 3D world coordinates `(wx, wy, wz)` to isometric screen `(x, y)` and normalized hardware depth `z`.
+pub fn project3DToIso(cam: Camera25D, wx: float, wy: float, wz: float): Vec3:
+  let dx = wx - cam.worldX
+  let dy = wy - cam.worldY
+  let dz = wz - cam.worldZ
+  let zScale = if cam.zoom > 0.0001: cam.zoom else: 1.0
+  let cy = cos(cam.yawRad)
+  let sy = sin(cam.yawRad)
+  let cp = cos(cam.pitchRad)
+  let sp = sin(cam.pitchRad)
+
+  let rx = dx * cy - dy * sy
+  let ry = dx * sy + dy * cy
+
+  let sx = cam.viewportW * 0.5 + rx * zScale
+  let syScreen = cam.viewportH * 0.5 + (ry * sp - dz * cp) * zScale
+
+  // Smaller z means closer to the camera (foreground) for both software Z-buffer and GL_LEQUAL.
+  let viewDepth = 0.0 - (ry * cp + dz * sp)
+  let depthSpan = maxFloat(cam.depthFar - cam.depthNear, 1.0)
+  let normZ = (viewDepth - cam.depthNear) / depthSpan
+  ret Vec3(x = sx, y = syScreen, z = normZ)
+
+/// Exact inverse of `project3DToIso`: unprojects screen `(sx, sy)` onto horizontal world elevation plane `planeWz`.
+pub fn unprojectIsoTo3D(cam: Camera25D, sx: float, sy: float, planeWz: float): Vec3:
+  let zScale = if cam.zoom > 0.0001: cam.zoom else: 1.0
+  let cy = cos(cam.yawRad)
+  let syYaw = sin(cam.yawRad)
+  let cp = cos(cam.pitchRad)
+  let sp = if abs(sin(cam.pitchRad)) > 0.0001: sin(cam.pitchRad) else: 0.0001
+  let dz = planeWz - cam.worldZ
+
+  let rx = (sx - cam.viewportW * 0.5) / zScale
+  let ry = ((sy - cam.viewportH * 0.5) / zScale + dz * cp) / sp
+
+  let dx = rx * cy + ry * syYaw
+  let dy = 0.0 - rx * syYaw + ry * cy
+  ret Vec3(
+    x = cam.worldX + dx,
+    y = cam.worldY + dy,
+    z = planeWz
+  )
+
+/// Computes the visible world XY bounding box across `[minElevation, maxElevation]` so peaks and gorges are never clipped.
+pub fn getVisibleWorldAABB(cam: Camera25D, minElevation: float, maxElevation: float): AABB2D:
+  let loZ = minFloat(minElevation, maxElevation)
+  let hiZ = maxFloat(minElevation, maxElevation)
+  let c0 = unprojectIsoTo3D(cam, 0.0, 0.0, loZ)
+  mut minX = c0.x
+  mut maxX = c0.x
+  mut minY = c0.y
+  mut maxY = c0.y
+
+  let cornersX: [float] = [0.0, cam.viewportW, 0.0, cam.viewportW, 0.0, cam.viewportW, 0.0, cam.viewportW]
+  let cornersY: [float] = [0.0, 0.0, cam.viewportH, cam.viewportH, 0.0, 0.0, cam.viewportH, cam.viewportH]
+  let cornersZ: [float] = [loZ, loZ, loZ, loZ, hiZ, hiZ, hiZ, hiZ]
+
+  mut i = 1
+  while i < 8:
+    let p = unprojectIsoTo3D(cam, cornersX[i], cornersY[i], cornersZ[i])
+    minX = minFloat(minX, p.x)
+    maxX = maxFloat(maxX, p.x)
+    minY = minFloat(minY, p.y)
+    maxY = maxFloat(maxY, p.y)
+    i += 1
+
+  ret AABB2D(minX = minX, minY = minY, maxX = maxX, maxY = maxY)
+
+/// Smoothly tracks target world coordinates `(targetWx, targetWy, terrainWz)` over timestep `dt`.
+pub fn updateCamera25D(cam: Camera25D, targetWx: float, targetWy: float, terrainWz: float, dt: float): Camera25D:
+  let safeDt = clampFloat(dt, 0.0, 1.0)
+  let sharp = maxFloat(cam.followSharpness, 0.1)
+  let alpha = clampFloat(1.0 - exp(0.0 - sharp * safeDt), 0.0, 1.0)
+  ret cam {
+    worldX = cam.worldX + (targetWx - cam.worldX) * alpha,
+    worldY = cam.worldY + (targetWy - cam.worldY) * alpha,
+    worldZ = cam.worldZ + (terrainWz - cam.worldZ) * alpha
+  }

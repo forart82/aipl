@@ -1,0 +1,71 @@
+// ============================================================================
+// Example 097: In-Memory ByteCursor Seek, ReadExact & Binary Parser (CLI)
+// Demonstrates: SeekFrom, ioSeekResolve, cursorNew, cursorEmpty,
+//               cursorPosition, cursorRemaining, cursorIsEof, cursorReadByte,
+//               cursorReadExact, cursorSeek, cursorRewind, cursorRead,
+//               cursorWriteByte, cursorWrite, and cursorIntoInner from std/io.
+// ============================================================================
+module Ex097IoByteCursorBinaryParserCli
+
+import {
+  SeekFrom,
+  ioSeekResolve,
+  cursorNew,
+  cursorEmpty,
+  cursorPosition,
+  cursorRemaining,
+  cursorIsEof,
+  cursorReadByte,
+  cursorReadExact,
+  cursorSeek,
+  cursorRewind,
+  cursorRead,
+  cursorWriteByte,
+  cursorWrite,
+  cursorIntoInner
+} from "../std/io"
+
+// Parses a 5-byte binary buffer using cursorReadByte, cursorReadExact, and SeekFrom::End.
+pub fn evaluateCursorSeekAndReadSum(): int:
+  assert(cursorIsEof(cursorEmpty(16)), "empty cursor starts at EOF")
+  mut cur = cursorNew([10, 20, 30, 40, 50])
+  let b0 = cursorReadByte(cur).unwrap()
+  let exact2 = cursorReadExact(cur, 2).unwrap()
+  assert(cursorPosition(cur) == 3 and cursorRemaining(cur) == 2, "position 3, remaining 2")
+
+  let endPos = cursorSeek(cur, SeekFrom::End(-1)).unwrap()
+  assert(endPos == 4, "SeekFrom::End(-1) lands on index 4")
+  let bLast = cursorReadByte(cur).unwrap()
+  assert(cursorIsEof(cur), "cursor reaches EOF after final byte")
+  ret b0 + exact2[0] + exact2[1] + bLast
+
+// Verifies cursor rewind, in-place byte overwrites, dynamic tail growth, and seek bounds checks.
+pub fn verifyCursorRewindWriteAndBounds(): int:
+  mut cur = cursorNew([10, 20, 30, 40, 50])
+  let _ = cursorSeek(cur, SeekFrom::End(0)).unwrap()
+  let pastEofRead = cursorReadExact(cur, 1).isErr()
+  let negSeek = ioSeekResolve(5, 20, SeekFrom::Current(-10)).isErr()
+
+  cur = cursorRewind(cur)
+  let head2 = cursorRead(cur, 2)
+  cur = cursorWriteByte(cur, 99)
+  let written = cursorWrite(cur, [101, 102, 103])
+  let inner = cursorIntoInner(cur)
+  if pastEofRead and negSeek and head2[0] == 10 and written == 3 and inner.len() == 6 and inner[2] == 99 and inner[5] == 103:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a SeekFrom origin tag.
+pub fn describeSeekAnchorOrigin(originTag: int): str:
+  if originTag == 0:
+    ret "SEEK:FROM_START_ABSOLUTE"
+  if originTag == 1:
+    ret "SEEK:FROM_CURRENT_OFFSET"
+  ret "SEEK:FROM_END_RELATIVE"
+
+pub fn main(): int:
+  let readSum = evaluateCursorSeekAndReadSum()
+  let boundsOk = verifyCursorRewindWriteAndBounds()
+  let origin = describeSeekAnchorOrigin(2)
+  println("ex_097_io_byte_cursor_binary_parser_cli: readSum=" + str(readSum) + " boundsOk=" + str(boundsOk) + " origin=" + origin)
+  ret 0

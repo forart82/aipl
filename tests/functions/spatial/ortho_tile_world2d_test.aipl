@@ -1,0 +1,190 @@
+module tests.functions.spatial.ortho_tile_world2d_test
+
+import * from "std/spatial/ortho_tile_world2d"
+import { absInt, absFloat, minFloat } from "std/math/consts"
+import { floor, sqrt } from "std/math/trig"
+import { Vec2, IVec2 } from "std/math/vec_math"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_ortho_tile_world2d_orthoTileWorldNew_1(): int:
+  let arg_width = 4
+  let edge_width = 1
+  let arg_height = 4
+  let edge_height = 1
+  let arg_cellSize = 1.0
+  let edge_cellSize = 0.5
+  let arg_layers = 1
+  let edge_layers = 0
+  let resNom = orthoTileWorldNew(arg_width, arg_height, arg_cellSize, arg_layers)
+  let resEdge = orthoTileWorldNew(edge_width, edge_height, edge_cellSize, edge_layers)
+  assertEqInt(resNom.width, 4, "orthoTileWorldNew nominal resNom.width == 4")
+  assertEqInt(resEdge.width, 1, "orthoTileWorldNew boundary resEdge.width == 1")
+  ret 0
+
+pub fn test_ortho_tile_world2d_resolveOrthoCoords_2(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_layer = 1
+  let edge_layer = 0
+  let arg_col = 1
+  let edge_col = 0
+  let arg_row = 1
+  let edge_row = 0
+  let resNom = resolveOrthoCoords(arg_world, arg_layer, arg_col, arg_row)
+  let resEdge = resolveOrthoCoords(edge_world, edge_layer, edge_col, edge_row)
+  assertEqInt(resNom, -1, "resolveOrthoCoords nominal resNom == -1")
+  assertEqInt(resEdge, -1, "resolveOrthoCoords boundary resEdge == -1")
+  ret 0
+
+pub fn test_ortho_tile_world2d_orthoTileGet_3(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_layer = 1
+  let edge_layer = 0
+  let arg_col = 1
+  let edge_col = 0
+  let arg_row = 1
+  let edge_row = 0
+  let resNom = orthoTileGet(arg_world, arg_layer, arg_col, arg_row)
+  let resEdge = orthoTileGet(edge_world, edge_layer, edge_col, edge_row)
+  assert(resNom.isSome() == false, "orthoTileGet nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "orthoTileGet boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_ortho_tile_world2d_orthoTileSet_4(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_layer = 1
+  let edge_layer = 0
+  let arg_col = 1
+  let edge_col = 0
+  let arg_row = 1
+  let edge_row = 0
+  let arg_cell = OrthoTileCell2D(tileId = 1, solid = true, elevation = 1.0, flags = 0, userData = 2)
+  let edge_cell = OrthoTileCell2D(tileId = 0, solid = false, elevation = 0.5, flags = 0, userData = 0)
+  let resNom = orthoTileSet(arg_world, arg_layer, arg_col, arg_row, arg_cell)
+  let resEdge = orthoTileSet(edge_world, edge_layer, edge_col, edge_row, edge_cell)
+  assert(resNom == false, "orthoTileSet nominal resNom == false")
+  assert(resEdge == false, "orthoTileSet boundary resEdge == false")
+  ret 0
+
+pub fn test_ortho_tile_world2d_orthoWorldToCell_5(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_wx = 2.0
+  let edge_wx = 1.0
+  let arg_wy = 2.0
+  let edge_wy = 1.0
+  let resNom = orthoWorldToCell(arg_world, arg_wx, arg_wy)
+  let resEdge = orthoWorldToCell(edge_world, edge_wx, edge_wy)
+  assertEqInt(resNom.x, 2, "orthoWorldToCell nominal resNom.x == 2")
+  assertEqInt(resEdge.x, 2, "orthoWorldToCell boundary resEdge.x == 2")
+  ret 0
+
+pub fn test_ortho_tile_world2d_orthoCellToWorldCenter_6(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_col = 1
+  let edge_col = 0
+  let arg_row = 1
+  let edge_row = 0
+  let resNom = orthoCellToWorldCenter(arg_world, arg_col, arg_row)
+  let resEdge = orthoCellToWorldCenter(edge_world, edge_col, edge_row)
+  assertApproxEq(resNom.x, 1.5, 0.001, "orthoCellToWorldCenter nominal resNom.x ~= 1.5")
+  assertApproxEq(resEdge.x, 0.25, 0.001, "orthoCellToWorldCenter boundary resEdge.x ~= 0.25")
+  ret 0
+
+pub fn test_ortho_tile_world2d_orthoNeighbors4_7(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_col = 1
+  let edge_col = 0
+  let arg_row = 1
+  let edge_row = 0
+  let resNom = orthoNeighbors4(arg_world, arg_col, arg_row)
+  let resEdge = orthoNeighbors4(edge_world, edge_col, edge_row)
+  assertEqInt(resNom.len(), 4, "orthoNeighbors4 nominal resNom.len() == 4")
+  assertEqInt(resEdge.len(), 0, "orthoNeighbors4 boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ortho_tile_world2d_orthoNeighbors8_8(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_col = 1
+  let edge_col = 0
+  let arg_row = 1
+  let edge_row = 0
+  let resNom = orthoNeighbors8(arg_world, arg_col, arg_row)
+  let resEdge = orthoNeighbors8(edge_world, edge_col, edge_row)
+  assertEqInt(resNom.len(), 8, "orthoNeighbors8 nominal resNom.len() == 8")
+  assertEqInt(resEdge.len(), 0, "orthoNeighbors8 boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ortho_tile_world2d_orthoLineOfSightBresenham_9(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_layer = 1
+  let edge_layer = 0
+  let arg_c0 = 2
+  let edge_c0 = 0
+  let arg_r0 = 2
+  let edge_r0 = 0
+  let arg_c1 = 2
+  let edge_c1 = 0
+  let arg_r1 = 2
+  let edge_r1 = 0
+  let resNom = orthoLineOfSightBresenham(arg_world, arg_layer, arg_c0, arg_r0, arg_c1, arg_r1)
+  let resEdge = orthoLineOfSightBresenham(edge_world, edge_layer, edge_c0, edge_r0, edge_c1, edge_r1)
+  assert(resNom == false, "orthoLineOfSightBresenham nominal resNom == false")
+  assert(resEdge == false, "orthoLineOfSightBresenham boundary resEdge == false")
+  ret 0
+
+pub fn test_ortho_tile_world2d_orthoFloodFill_10(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_layer = 1
+  let edge_layer = 0
+  let arg_startCol = 1
+  let edge_startCol = 0
+  let arg_startRow = 1
+  let edge_startRow = 0
+  let arg_targetTileId = 1
+  let edge_targetTileId = 0
+  let arg_fillTileId = 1
+  let edge_fillTileId = 0
+  let resNom = orthoFloodFill(arg_world, arg_layer, arg_startCol, arg_startRow, arg_targetTileId, arg_fillTileId)
+  let resEdge = orthoFloodFill(edge_world, edge_layer, edge_startCol, edge_startRow, edge_targetTileId, edge_fillTileId)
+  assertEqInt(resNom, 0, "orthoFloodFill nominal resNom == 0")
+  assertEqInt(resEdge, 0, "orthoFloodFill boundary resEdge == 0")
+  ret 0
+
+pub fn test_ortho_tile_world2d_orthoRaycastCells_11(): int:
+  let arg_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 1.0, layers = 1, cells = [], wrapX = true, wrapY = true)
+  let edge_world = OrthoTileWorld2D(width = 4, height = 4, cellSize = 0.5, layers = 0, cells = [], wrapX = false, wrapY = false)
+  let arg_layer = 1
+  let edge_layer = 0
+  let arg_start = Vec2(x = 1.0, y = 1.0)
+  let edge_start = Vec2(x = 0.5, y = 0.5)
+  let arg_dir = Vec2(x = 1.0, y = 1.0)
+  let edge_dir = Vec2(x = 0.5, y = 0.5)
+  let arg_maxDist = 2.0
+  let edge_maxDist = 1.0
+  let resNom = orthoRaycastCells(arg_world, arg_layer, arg_start, arg_dir, arg_maxDist)
+  let resEdge = orthoRaycastCells(edge_world, edge_layer, edge_start, edge_dir, edge_maxDist)
+  assertEqInt(resNom.len(), 0, "orthoRaycastCells nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "orthoRaycastCells boundary resEdge.len() == 0")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_ortho_tile_world2d_orthoTileWorldNew_1(), 0, "test_ortho_tile_world2d_orthoTileWorldNew_1")
+  assertEqInt(test_ortho_tile_world2d_resolveOrthoCoords_2(), 0, "test_ortho_tile_world2d_resolveOrthoCoords_2")
+  assertEqInt(test_ortho_tile_world2d_orthoTileGet_3(), 0, "test_ortho_tile_world2d_orthoTileGet_3")
+  assertEqInt(test_ortho_tile_world2d_orthoTileSet_4(), 0, "test_ortho_tile_world2d_orthoTileSet_4")
+  assertEqInt(test_ortho_tile_world2d_orthoWorldToCell_5(), 0, "test_ortho_tile_world2d_orthoWorldToCell_5")
+  assertEqInt(test_ortho_tile_world2d_orthoCellToWorldCenter_6(), 0, "test_ortho_tile_world2d_orthoCellToWorldCenter_6")
+  assertEqInt(test_ortho_tile_world2d_orthoNeighbors4_7(), 0, "test_ortho_tile_world2d_orthoNeighbors4_7")
+  assertEqInt(test_ortho_tile_world2d_orthoNeighbors8_8(), 0, "test_ortho_tile_world2d_orthoNeighbors8_8")
+  assertEqInt(test_ortho_tile_world2d_orthoLineOfSightBresenham_9(), 0, "test_ortho_tile_world2d_orthoLineOfSightBresenham_9")
+  assertEqInt(test_ortho_tile_world2d_orthoFloodFill_10(), 0, "test_ortho_tile_world2d_orthoFloodFill_10")
+  assertEqInt(test_ortho_tile_world2d_orthoRaycastCells_11(), 0, "test_ortho_tile_world2d_orthoRaycastCells_11")
+  ret 0

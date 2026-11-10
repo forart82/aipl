@@ -1,0 +1,173 @@
+/// # Module: `std/compress/lz4` (`Lz4`)
+///
+/// ## Purpose & Domain Scope
+/// Real-time byte-oriented LZ4 block and frame format (magic `0x184D2204`)
+/// compressor and decompressor.
+module Lz4
+
+pub struct Lz4BlockHeader:
+  compressedSize: int
+  uncompressedSize: int
+
+pub struct Lz4FrameHeader:
+  blockSizeMax: int
+  blockMode: int
+  contentChecksum: bool
+
+pub fn lz4CompressBlock(src: bytes): bytes:
+  let n = src.len()
+  if n == 0:
+    ret bytesNew(0)
+  mut out: [int] = []
+  mut anchor = 0
+  mut pos = 0
+  while pos + 4 <= n:
+    let searchStart = if pos > 65535: pos - 65535 else: 0
+    mut bestLen = 0
+    mut bestDist = 0
+    mut cand = pos - 1
+    mut probes = 0
+    while cand >= searchStart and probes < 256:
+      if src[cand] == src[pos] and src[cand + 1] == src[pos + 1] and src[cand + 2] == src[pos + 2] and src[cand + 3] == src[pos + 3]:
+        mut mLen = 4
+        while pos + mLen < n and src[cand + mLen] == src[pos + mLen]:
+          mLen = mLen + 1
+        if mLen > bestLen:
+          bestLen = mLen
+          bestDist = pos - cand
+          if bestLen >= 64:
+            break
+      cand = cand - 1
+      probes = probes + 1
+    if bestLen >= 4:
+      let litLen = pos - anchor
+      let matchExtra = bestLen - 4
+      let tokenLit = if litLen >= 15: 15 else: litLen
+      let tokenMatch = if matchExtra >= 15: 15 else: matchExtra
+      out.push((tokenLit << 4) | tokenMatch)
+      if litLen >= 15:
+        mut remLit = litLen - 15
+        while remLit >= 255:
+          out.push(255)
+          remLit = remLit - 255
+        out.push(remLit)
+      mut li = 0
+      while li < litLen:
+        out.push(src[anchor + li] & 255)
+        li = li + 1
+      out.push(bestDist & 255)
+      out.push((bestDist >> 8) & 255)
+      if matchExtra >= 15:
+        mut remMatch = matchExtra - 15
+        while remMatch >= 255:
+          out.push(255)
+          remMatch = remMatch - 255
+        out.push(remMatch)
+      pos = pos + bestLen
+      anchor = pos
+    else:
+      pos = pos + 1
+  // Emit trailing literals if any remain
+  if anchor < n:
+    let litLen = n - anchor
+    let tokenLit = if litLen >= 15: 15 else: litLen
+    out.push(tokenLit << 4)
+    if litLen >= 15:
+      mut remLit = litLen - 15
+      while remLit >= 255:
+        out.push(255)
+        remLit = remLit - 255
+      out.push(remLit)
+    mut li = 0
+    while li < litLen:
+      out.push(src[anchor + li] & 255)
+      li = li + 1
+  ret bytesFromArray(out)
+
+pub fn lz4DecompressBlock(src: bytes, uncompressedSize: int): Result[bytes, str]:
+  let n = src.len()
+  if uncompressedSize <= 0 or n == 0:
+    ret Ok(bytesNew(0))
+  mut out: [int] = []
+  mut pos = 0
+  while pos < n and out.len < uncompressedSize:
+    let token = src[pos] & 255
+    pos = pos + 1
+    mut litLen = (token >> 4) & 15
+    if litLen == 15:
+      while pos < n:
+        let ext = src[pos] & 255
+        pos = pos + 1
+        litLen = litLen + ext
+        if ext < 255:
+          break
+    if pos + litLen > n:
+      ret Err("lz4DecompressBlock: literal run exceeds input block")
+    mut li = 0
+    while li < litLen:
+      out.push(src[pos + li] & 255)
+      li = li + 1
+    pos = pos + litLen
+    if pos >= n or out.len >= uncompressedSize:
+      break
+    if pos + 2 > n:
+      ret Err("lz4DecompressBlock: truncated match offset")
+    let dist = (src[pos] & 255) | ((src[pos + 1] & 255) << 8)
+    pos = pos + 2
+    if dist <= 0 or dist > out.len:
+      ret Err("lz4DecompressBlock: invalid match offset")
+    mut matchLen = (token & 15) + 4
+    if (token & 15) == 15:
+      while pos < n:
+        let ext = src[pos] & 255
+        pos = pos + 1
+        matchLen = matchLen + ext
+        if ext < 255:
+          break
+    let copyStart = out.len - dist
+    mut mi = 0
+    while mi < matchLen:
+      out.push(out[copyStart + mi])
+      mi = mi + 1
+  ret Ok(bytesFromArray(out))
+
+pub fn lz4CompressFrame(src: bytes): bytes:
+  // LZ4 Frame Magic 0x184D2204 (LE: 0x04, 0x22, 0x4D, 0x18)
+  // FLG=0x60, BD=0x40, HC=0x00, uncompressedSize (u32 LE), compressedSize (u32 LE), block, endMark (0x00000000)
+  let rawLen = src.len()
+  let blk = lz4CompressBlock(src)
+  let blkLen = blk.len()
+  mut out: [int] = [
+    4, 34, 77, 24,
+    96, 64, 0,
+    rawLen & 255,
+    (rawLen >> 8) & 255,
+    (rawLen >> 16) & 255,
+    (rawLen >> 24) & 255,
+    blkLen & 255,
+    (blkLen >> 8) & 255,
+    (blkLen >> 16) & 255,
+    (blkLen >> 24) & 255
+  ]
+  mut i = 0
+  while i < blkLen:
+    out.push(blk[i] & 255)
+    i = i + 1
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  out.push(0)
+  ret bytesFromArray(out)
+
+pub fn lz4DecompressFrame(src: bytes): Result[bytes, str]:
+  let n = src.len()
+  if n < 19:
+    ret Err("lz4DecompressFrame: frame too short")
+  if (src[0] & 255) != 4 or (src[1] & 255) != 34 or (src[2] & 255) != 77 or (src[3] & 255) != 24:
+    ret Err("lz4DecompressFrame: invalid LZ4 frame magic (expected 0x184D2204)")
+  let rawLen = (src[7] & 255) | ((src[8] & 255) << 8) | ((src[9] & 255) << 16) | ((src[10] & 255) << 24)
+  let blkLen = (src[11] & 255) | ((src[12] & 255) << 8) | ((src[13] & 255) << 16) | ((src[14] & 255) << 24)
+  if 15 + blkLen > n:
+    ret Err("lz4DecompressFrame: truncated block payload")
+  let blkSlice = src.slice(15, 15 + blkLen)
+  ret lz4DecompressBlock(blkSlice, rawLen)

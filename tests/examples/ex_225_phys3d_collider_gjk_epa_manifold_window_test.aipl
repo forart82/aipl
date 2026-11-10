@@ -1,0 +1,65 @@
+module Ex225Phys3dColliderGjkEpaManifoldWindowTest
+
+import {
+  PhysicsMaterial3D, Collider3D, sphereColliderNew,
+  boxCollider3dNew, capsuleCollider3dNew, collider3dComputeAABB
+} from "../../std/phys3d/collider3d"
+import {
+  ContactPoint3D, ContactManifold3D, testSphereSphere3D,
+  testSphereBox3D, testGjkEpa3D, contactManifold3dCache
+} from "../../std/phys3d/narrowphase3d"
+import { Transform3D } from "../../std/spatial/continuous_world3d"
+import { Vec3 } from "../../std/math/vec_math"
+import { Quat } from "../../std/math/quat"
+import {
+  GjkEpaScene, createGjkEpaScene, stepScene, auditPhys3dColliderGjkEpaManifold
+} from "../../examples/ex_225_phys3d_collider_gjk_epa_manifold_window"
+
+pub fn test_phys3d_collider_gjk_epa_manifold(): void:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  let mSS = testSphereSphere3D(Vec3(x = 0.0, y = 0.0, z = 0.0), 5.0, Vec3(x = 8.0, y = 0.0, z = 0.0), 5.0)
+  assert(mSS.isSome(), "testSphereSphere3D hit")
+  mut man1: ContactManifold3D = mSS.unwrap()
+  let cp0: ContactPoint3D = man1.points[0]
+  assert(cp0.penetration == 2.0, "Sphere penetration == 2.0")
+
+  let mSB = testSphereBox3D(Vec3(x = 6.0, y = 0.0, z = 0.0), 2.0, Vec3(x = 0.0, y = 0.0, z = 0.0), idRot, Vec3(x = 5.0, y = 5.0, z = 5.0))
+  assert(mSB.isSome(), "testSphereBox3D hit")
+  let man2: ContactManifold3D = mSB.unwrap()
+  contactManifold3dCache(man1, man2)
+  assert(man1.isColliding, "contactManifold3dCache updated")
+
+  let mat = PhysicsMaterial3D(restitution = 0.2, staticFriction = 0.5, dynamicFriction = 0.4, density = 1.0)
+  let cA = boxCollider3dNew(Vec3(x = 5.0, y = 5.0, z = 5.0), mat)
+  let cB = boxCollider3dNew(Vec3(x = 5.0, y = 5.0, z = 5.0), mat)
+  let tA = Transform3D(position = Vec3(x = 0.0, y = 0.0, z = 0.0), rotation = idRot, scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let tB = Transform3D(position = Vec3(x = 8.0, y = 0.0, z = 0.0), rotation = idRot, scale = Vec3(x = 1.0, y = 1.0, z = 1.0))
+  let mGjk = testGjkEpa3D(cA, tA, cB, tB)
+  assert(mGjk.isSome(), "testGjkEpa3D overlap")
+
+  mut scene: GjkEpaScene = createGjkEpaScene()
+  let pen0 = scene.gjkPenetration
+  stepScene(scene, 0, 0.05)
+  let pen1 = scene.gjkPenetration
+  assert(pen1 != pen0, "t=0 -> t=1 updates GJK/EPA penetration depth")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let pen20 = scene.gjkPenetration
+  assert(pen20 != pen1 and scene.spherePenetration > 0.0, "t=1 -> t=20 progresses 3D narrowphase manifolds")
+
+  while f <= 100:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let pen100 = scene.gjkPenetration
+  assert(pen100 != pen20 and scene.spherePenetration > 0.0, "t=20 -> t=100 continues oscillating 3D manifold penetrations")
+
+  let audit = auditPhys3dColliderGjkEpaManifold()
+  assert(audit == 23, "3D GJK/EPA manifold audit")
+
+pub fn main(): int:
+  test_phys3d_collider_gjk_epa_manifold()
+  println("PASS: ex_225_phys3d_collider_gjk_epa_manifold_window_test")
+  ret 0

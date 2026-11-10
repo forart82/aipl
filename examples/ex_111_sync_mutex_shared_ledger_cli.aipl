@@ -1,0 +1,70 @@
+// ============================================================================
+// Example 111: Mutex Guard, SpinLock & CondVar Shared Ledger (CLI)
+// Demonstrates: mutexNew, mutexLock, mutexTryLock, mutexUnlock, spinLockNew,
+//               spinLockAcquire, spinLockRelease, condVarNew, condVarSignal,
+//               condVarWait, condVarWaitTimeout, and condVarBroadcast
+//               from std/sync.
+// ============================================================================
+module Ex111SyncMutexSharedLedgerCli
+
+import {
+  mutexNew,
+  mutexLock,
+  mutexTryLock,
+  mutexUnlock,
+  spinLockNew,
+  spinLockAcquire,
+  spinLockRelease,
+  condVarNew,
+  condVarSignal,
+  condVarWait,
+  condVarWaitTimeout,
+  condVarBroadcast
+} from "../std/sync"
+
+// Executes a deposit and withdrawal inside Mutex-guarded critical sections and returns the final balance.
+pub fn evaluateProtectedLedgerBalance(initialBal: int, deposit: int, withdraw: int): int:
+  mut mtx = mutexNew()
+  assert(not mtx.locked, "Mutex starts unlocked")
+  let _ = mutexLock(mtx)
+  assert(mtx.locked and mutexTryLock(mtx).isNone(), "tryLock rejected while locked")
+  mut balance = initialBal + deposit
+  assert(mutexUnlock(mtx), "unlock after deposit")
+
+  assert(mutexTryLock(mtx).isSome(), "tryLock succeeds after unlock")
+  balance = balance - withdraw
+  assert(mutexUnlock(mtx), "unlock after withdrawal")
+  ret balance
+
+// Verifies SpinLock acquire/release and CondVar signal, wait, timed wait, and broadcast.
+pub fn verifySpinLockAndCondVarWakeup(): int:
+  mut sl = spinLockNew()
+  spinLockAcquire(sl)
+  let heldFlag = sl.flag
+  spinLockRelease(sl)
+  let releasedFlag = sl.flag
+
+  mut mtx = mutexNew()
+  mut guard = mutexLock(mtx)
+  mut cv = condVarNew()
+  condVarSignal(cv)
+  condVarWait(cv, guard)
+  let timedOk = condVarWaitTimeout(cv, guard, 10)
+  condVarBroadcast(cv)
+  let _ = mutexUnlock(mtx)
+  if heldFlag == 1 and releasedFlag == 0 and timedOk:
+    ret 1
+  ret 0
+
+// Returns a canonical label for a Mutex lock state.
+pub fn describeMutexContentionState(locked: bool): str:
+  if locked:
+    ret "MUTEX:EXCLUSIVE_GUARD_HELD"
+  ret "MUTEX:UNLOCKED_IDLE"
+
+pub fn main(): int:
+  let bal = evaluateProtectedLedgerBalance(500, 250, 120)
+  let syncOk = verifySpinLockAndCondVarWakeup()
+  let state = describeMutexContentionState(true)
+  println("ex_111_sync_mutex_shared_ledger_cli: bal=" + str(bal) + " syncOk=" + str(syncOk) + " state=" + state)
+  ret 0

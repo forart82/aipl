@@ -1,0 +1,44 @@
+module Ex163Gfx2dBatch2dTenThousandSpritesWindowTest
+
+import {
+  buildBatch2dCoalescingAudit,
+  stepSpriteBatchFrame
+} from "../../examples/ex_163_gfx2d_batch2d_ten_thousand_sprites_window"
+import {
+  BatchVertex2D, createSpriteBatch2D, beginSpriteBatch,
+  pushBatchQuad, flushSpriteBatch
+} from "../../std/gfx2d/batch2d"
+
+pub fn test_gfx2d_batch2d_ten_thousand_sprites(): void:
+  mut batch = createSpriteBatch2D(10000)
+  batch = beginSpriteBatch(batch)
+  let v = BatchVertex2D(x = 0.0, y = 0.0, u = 0.0, v = 0.0, colorRgba = -1)
+
+  // Push 4 quads sharing Texture 1 & BlendMode 0 -> coalesced into 1 draw call
+  batch = pushBatchQuad(batch, 1, 0, v, v, v, v)
+  batch = pushBatchQuad(batch, 1, 0, v, v, v, v)
+  batch = pushBatchQuad(batch, 1, 0, v, v, v, v)
+  batch = pushBatchQuad(batch, 1, 0, v, v, v, v)
+  assert(batch.vertices.len() == 16 and batch.indices.len() == 24, "4 quads emit 16 vertices and 24 indices")
+  assert(batch.drawCalls.len() == 1, "Same texture/blend coalesces into 1 draw call")
+
+  // Push 2 quads with Texture 2 -> starts 2nd draw call
+  batch = pushBatchQuad(batch, 2, 0, v, v, v, v)
+  batch = pushBatchQuad(batch, 2, 0, v, v, v, v)
+  assert(batch.drawCalls.len() == 2, "Texture switch emits 2nd draw call")
+  assert(batch.drawCalls[0].indexCount == 24 and batch.drawCalls[1].indexCount == 12, "DrawCall index counts")
+
+  let flushed = flushSpriteBatch(batch)
+  assert(flushed.vertices.len() == 0 and flushed.drawCalls.len() == 0, "flushSpriteBatch resets batch queues")
+
+  let b0 = stepSpriteBatchFrame(flushed, 0)
+  let b1 = stepSpriteBatchFrame(flushed, 1)
+  let b20 = stepSpriteBatchFrame(flushed, 20)
+  let b100 = stepSpriteBatchFrame(flushed, 100)
+  assert(b0.indices.len() != b1.indices.len() and b1.indices.len() != b20.indices.len() and b20.indices.len() != b100.indices.len(), "stepSpriteBatchFrame progresses across t=0, t=1, t=20, t=100")
+  assert(buildBatch2dCoalescingAudit() == 10062, "buildBatch2dCoalescingAudit returns 10000 + 24 + 36 + 2 == 10062")
+
+pub fn main(): int:
+  test_gfx2d_batch2d_ten_thousand_sprites()
+  println("PASS: ex_163_gfx2d_batch2d_ten_thousand_sprites_window_test")
+  ret 0

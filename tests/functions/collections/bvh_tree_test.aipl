@@ -1,0 +1,78 @@
+module tests.functions.collections.bvh_tree_test
+
+import * from "std/collections/bvh_tree"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { absFloat } from "std/math/consts"
+import { minFloat, maxFloat } from "std/prelude"
+
+pub fn test_bvh_tree_bvhAabbUnion_1(): int:
+  let arg_a = BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 2.0, maxY = 2.0, maxZ = 2.0)
+  let edge_a = BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 1.0, maxY = 1.0, maxZ = 1.0)
+  let arg_b = BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 2.0, maxY = 2.0, maxZ = 2.0)
+  let edge_b = BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 1.0, maxY = 1.0, maxZ = 1.0)
+  let resNom = bvhAabbUnion(arg_a, arg_b)
+  let resEdge = bvhAabbUnion(edge_a, edge_b)
+  assertApproxEq(resNom.minX, 0.0, 0.001, "bvhAabbUnion nominal resNom.minX ~= 0.0")
+  assertApproxEq(resEdge.minX, 0.0, 0.001, "bvhAabbUnion boundary resEdge.minX ~= 0.0")
+  ret 0
+
+pub fn test_bvh_tree_bvhAabbSurfaceArea_2(): int:
+  let arg_b = BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 2.0, maxY = 2.0, maxZ = 2.0)
+  let edge_b = BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 1.0, maxY = 1.0, maxZ = 1.0)
+  let resNom = bvhAabbSurfaceArea(arg_b)
+  let resEdge = bvhAabbSurfaceArea(edge_b)
+  assertApproxEq(resNom, 24.0, 0.001, "bvhAabbSurfaceArea nominal resNom ~= 24.0")
+  assertApproxEq(resEdge, 6.0, 0.001, "bvhAabbSurfaceArea boundary resEdge ~= 6.0")
+  ret 0
+
+pub fn test_bvh_tree_bvhAabbRayHit_3(): int:
+  let arg_b = BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 2.0, maxY = 2.0, maxZ = 2.0)
+  let edge_b = BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 1.0, maxY = 1.0, maxZ = 1.0)
+  let arg_ox = 1.0
+  let edge_ox = 0.5
+  let arg_oy = 1.0
+  let edge_oy = 0.5
+  let arg_oz = 1.0
+  let edge_oz = 0.5
+  let arg_dx = 1.0
+  let edge_dx = 0.5
+  let arg_dy = 1.0
+  let edge_dy = 0.5
+  let arg_dz = 1.0
+  let edge_dz = 0.5
+  let resNom = bvhAabbRayHit(arg_b, arg_ox, arg_oy, arg_oz, arg_dx, arg_dy, arg_dz)
+  let resEdge = bvhAabbRayHit(edge_b, edge_ox, edge_oy, edge_oz, edge_dx, edge_dy, edge_dz)
+  assert(resNom == true, "bvhAabbRayHit nominal resNom == true")
+  assert(resEdge == true, "bvhAabbRayHit boundary resEdge == true")
+  ret 0
+
+pub fn test_bvh_tree_bvhBuildSAH_4(): int:
+  let arg_boxes = [BvhAabb(minX = 0.0, minY = 0.0, minZ = 0.0, maxX = 2.0, maxY = 2.0, maxZ = 2.0)]
+  let edge_boxes = []
+  let resNom = bvhBuildSAH(arg_boxes)
+  let resEdge = bvhBuildSAH(edge_boxes)
+  assertEqInt(resNom.nodes.len(), 1, "bvhBuildSAH nominal resNom.nodes.len() == 1")
+  assertEqInt(resEdge.nodes.len(), 0, "bvhBuildSAH boundary resEdge.nodes.len() == 0")
+  ret 0
+
+pub fn test_bvh_tree_BvhTree3D_rayIntersect_5(): int:
+  let recv_self = BvhTree3D(nodes = [], rootIndex = 4)
+  let edge_self = BvhTree3D(nodes = [], rootIndex = 1)
+  let arg_rayOriginX = 1.0
+  let edge_rayOriginX = 0.5
+  let arg_rayOriginY = 1.0
+  let edge_rayOriginY = 0.5
+  let arg_rayOriginZ = 1.0
+  let edge_rayOriginZ = 0.5
+  let arg_rayDirX = 1.0
+  let edge_rayDirX = 0.5
+  let arg_rayDirY = 1.0
+  let edge_rayDirY = 0.5
+  let arg_rayDirZ = 1.0
+  let edge_rayDirZ = 0.5
+  let resNom = recv_self.rayIntersect(arg_rayOriginX, arg_rayOriginY, arg_rayOriginZ, arg_rayDirX, arg_rayDirY, arg_rayDirZ)
+  let resEdge = edge_self.rayIntersect(edge_rayOriginX, edge_rayOriginY, edge_rayOriginZ, edge_rayDirX, edge_rayDirY, edge_rayDirZ)
+  assertEqInt(resNom.len(), 0, "rayIntersect nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "rayIntersect boundary resEdge.len() == 0")
+  ret 0

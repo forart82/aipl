@@ -1,0 +1,63 @@
+module Bench08ExprVm
+
+fn evalRpnVm(tokens: [str], env: Map[str, int]): int:
+  mut stack: [int] = []
+  for tok in tokens:
+    if tok == "+" or tok == "-" or tok == "*" or tok == "/" or tok == ">" or tok == "==":
+      let b = stack.pop().unwrapOr(0)
+      let a = stack.pop().unwrapOr(0)
+      if tok == "+": stack.push(a + b)
+      else if tok == "-": stack.push(a - b)
+      else if tok == "*": stack.push(a * b)
+      else if tok == "/": stack.push(if b != 0: a / b else: 0)
+      else if tok == ">": stack.push(if a > b: 1 else: 0)
+      else if tok == "==": stack.push(if a == b: 1 else: 0)
+    else if env.containsKey(tok):
+      stack.push(env.getOr(tok, 0))
+    else:
+      stack.push(int(tok))
+  ret if stack.len > 0: stack[stack.len - 1] else: 0
+
+fn precedence(op: str): int:
+  if op == "*" or op == "/": ret 3
+  if op == "+" or op == "-": ret 2
+  if op == ">" or op == "==": ret 1
+  ret 0
+
+fn compileInfixToRpn(expr: str): [str]:
+  let raw = expr.split(" ")
+  mut out: [str] = []
+  mut ops: [str] = []
+  for tok in raw:
+    let t = tok.trim()
+    if t.len > 0:
+      if t == "(":
+        ops.push(t)
+      else if t == ")":
+        while ops.len > 0 and ops[ops.len - 1] != "(":
+          out.push(ops.pop().unwrapOr(""))
+        if ops.len > 0:
+          let _ = ops.pop()
+      else if precedence(t) > 0:
+        while ops.len > 0 and precedence(ops[ops.len - 1]) >= precedence(t):
+          out.push(ops.pop().unwrapOr(""))
+        ops.push(t)
+      else:
+        out.push(t)
+  while ops.len > 0:
+    out.push(ops.pop().unwrapOr(""))
+  ret out
+
+fn main(): void:
+  mut env: Map[str, int] = Map.new()
+  env.set("x", 12)
+  env.set("y", 5)
+  let rpn1 = compileInfixToRpn("( x + y * 4 ) - 2")
+  let v1 = evalRpnVm(rpn1, env)
+  assert(v1 == 30)
+
+  let rpn2 = compileInfixToRpn("x * 2 > y + 10")
+  let v2 = evalRpnVm(rpn2, env)
+  assert(v2 == 1)
+  println("v1={v1} v2={v2}")
+  println("BENCH_08_OK")

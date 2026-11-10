@@ -1,0 +1,92 @@
+// ============================================================================
+// Step 3.9: Exhaustive Per-Function Unit Tests for std/rt/rt_alloc.aipl (14)
+// Target: tests/functions/rt/rt_alloc_test.aipl
+// ============================================================================
+module RtAllocTest
+
+import {
+  assert,
+  assertEqInt,
+  assertApproxEq
+} from "../../../std/prelude.aipl"
+
+import {
+  RtArena,
+  RtArenaCheckpoint,
+  RtFreeList,
+  rtArenaNew,
+  rtArenaAlloc,
+  rtArenaAllocZeroed,
+  rtArenaSave,
+  rtArenaRestore,
+  rtArenaReset,
+  rtArenaFree,
+  rtArenaRemaining,
+  rtArenaUsedRatio,
+  rtFreeListNew,
+  rtFreeListAlloc,
+  rtFreeListFree,
+  rtFreeListReset,
+  rtFreeListFreePool
+} from "../../../std/rt/rt_alloc.aipl"
+
+pub fn test_rt_arena_lifecycle(): int:
+  mut arena = rtArenaNew(1024)
+  assert(arena.base > 0, "arena base > 0")
+  assertEqInt(arena.capacity, 1024, "arena capacity 1024")
+  assertEqInt(arena.offset, 0, "initial offset 0")
+
+  let a1 = rtArenaAlloc(arena, 64)
+  assert(a1 > 0, "alloc 64 bytes")
+  assertEqInt(arena.offset, 64, "offset is 64")
+  assertEqInt(arena.allocCount, 1, "allocCount is 1")
+
+  let cp = rtArenaSave(arena)
+  assertEqInt(cp.offset, 64, "checkpoint offset 64")
+
+  let a2 = rtArenaAllocZeroed(arena, 128)
+  assert(a2 > 0, "allocZeroed 128 bytes")
+  assert(a2 >= a1 + 64, "bump allocator monotonically increases")
+  assertEqInt(arena.allocCount, 2, "allocCount is 2")
+
+  assert(rtArenaRemaining(arena) < 1024, "remaining < capacity")
+  assert(rtArenaUsedRatio(arena) > 0.0, "usedRatio > 0")
+
+  rtArenaRestore(arena, cp)
+  assertEqInt(arena.offset, 64, "offset restored to checkpoint")
+  assertEqInt(arena.allocCount, 1, "allocCount restored to checkpoint")
+
+  rtArenaReset(arena)
+  assertEqInt(arena.offset, 0, "offset reset to 0")
+
+  rtArenaFree(arena)
+  assertEqInt(arena.base, 0, "arena base 0 after free")
+  ret 0
+
+pub fn test_rt_free_list_lifecycle(): int:
+  mut fl = rtFreeListNew(4096, 64)
+  assert(fl.poolBase > 0, "free list poolBase > 0")
+  assert(fl.freeCount > 0, "freeCount > 0")
+
+  let blk1 = rtFreeListAlloc(fl, 64)
+  assert(blk1 > 0, "free list alloc block 1")
+  assert(fl.allocatedBytes > 0, "allocatedBytes > 0")
+
+  let blk2 = rtFreeListAlloc(fl, 64)
+  assert(blk2 > 0, "free list alloc block 2")
+
+  rtFreeListFree(fl, blk1)
+  rtFreeListFree(fl, blk2)
+
+  rtFreeListReset(fl)
+  assertEqInt(fl.allocatedBytes, 0, "allocatedBytes 0 after reset")
+
+  rtFreeListFreePool(fl)
+  assertEqInt(fl.poolBase, 0, "poolBase 0 after freePool")
+  ret 0
+
+pub fn main(): int:
+  test_rt_arena_lifecycle()
+  test_rt_free_list_lifecycle()
+  println("PASS: rt_alloc_test")
+  ret 0

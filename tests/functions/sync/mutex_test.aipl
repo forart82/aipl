@@ -1,0 +1,129 @@
+// Generated function test suite for std/sync/mutex.aipl (12 functions)
+module tests.functions.sync.mutex_test
+
+import * from "std/sync/mutex"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_mutex_mutexNew_1(): int:
+  let resNom = mutexNew()
+  let resEdge = mutexNew()
+  assert(resNom.locked == false, "mutexNew nominal resNom.locked == false")
+  assert(resEdge.locked == false, "mutexNew boundary resEdge.locked == false")
+  ret 0
+
+pub fn test_mutex_mutexLock_2(): int:
+  let arg_m = Mutex(locked = true, ownerThreadId = 4)
+  let edge_m = Mutex(locked = false, ownerThreadId = 1)
+  let resNom = mutexLock(arg_m)
+  let resEdge = mutexLock(edge_m)
+  assert(resNom.mutexRef.locked == true, "mutexLock nominal resNom.mutexRef.locked == true")
+  assert(resEdge.mutexRef.locked == true, "mutexLock boundary resEdge.mutexRef.locked == true")
+  ret 0
+
+pub fn test_mutex_mutexTryLock_3(): int:
+  let arg_m = Mutex(locked = true, ownerThreadId = 4)
+  let edge_m = Mutex(locked = false, ownerThreadId = 1)
+  let resNom = mutexTryLock(arg_m)
+  let resEdge = mutexTryLock(edge_m)
+  assert(resNom.isSome() == false, "mutexTryLock nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == true, "mutexTryLock boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_mutex_mutexUnlock_4(): int:
+  let arg_m = Mutex(locked = true, ownerThreadId = 4)
+  let edge_m = Mutex(locked = false, ownerThreadId = 1)
+  let resNom = mutexUnlock(arg_m)
+  let resEdge = mutexUnlock(edge_m)
+  assert(resNom == true, "mutexUnlock nominal resNom == true")
+  assert(resEdge == false, "mutexUnlock boundary resEdge == false")
+  ret 0
+
+pub fn test_mutex_spinLockNew_5(): int:
+  let resNom = spinLockNew()
+  let resEdge = spinLockNew()
+  assertEqInt(resNom.flag, 0, "spinLockNew nominal resNom.flag == 0")
+  assertEqInt(resEdge.flag, 0, "spinLockNew boundary resEdge.flag == 0")
+  ret 0
+
+pub fn test_mutex_spinLockAcquire_6(): int:
+  let arg_sl = SpinLock(flag = 2)
+  let edge_sl = SpinLock(flag = 0)
+  spinLockAcquire(arg_sl)
+  spinLockAcquire(edge_sl)
+  assertEqInt(arg_sl.flag, 1, "spinLockAcquire nominal arg_sl.flag == 1")
+  assertEqInt(edge_sl.flag, 1, "spinLockAcquire boundary edge_sl.flag == 1")
+  ret 0
+
+pub fn test_mutex_spinLockRelease_7(): int:
+  let arg_sl = SpinLock(flag = 2)
+  let edge_sl = SpinLock(flag = 0)
+  spinLockRelease(arg_sl)
+  spinLockRelease(edge_sl)
+  assertEqInt(arg_sl.flag, 0, "spinLockRelease nominal arg_sl.flag == 0")
+  assertEqInt(edge_sl.flag, 0, "spinLockRelease boundary edge_sl.flag == 0")
+  ret 0
+
+pub fn test_mutex_condVarNew_8(): int:
+  let resNom = condVarNew()
+  let resEdge = condVarNew()
+  assertEqInt(resNom.waitingCount, 0, "condVarNew nominal resNom.waitingCount == 0")
+  assertEqInt(resEdge.waitingCount, 0, "condVarNew boundary resEdge.waitingCount == 0")
+  ret 0
+
+pub fn test_mutex_condVarWait_9(): int:
+  let arg_cv = CondVar(waitingCount = 4, signaledCount = 4)
+  let edge_cv = CondVar(waitingCount = 1, signaledCount = 1)
+  let arg_guard = MutexGuard(mutexRef = Mutex(locked = true, ownerThreadId = 4))
+  let edge_guard = MutexGuard(mutexRef = Mutex(locked = false, ownerThreadId = 1))
+  condVarWait(arg_cv, arg_guard)
+  condVarWait(edge_cv, edge_guard)
+  assertEqInt(arg_cv.signaledCount, 3, "condVarWait nominal arg_cv.signaledCount == 3")
+  assertEqInt(edge_cv.signaledCount, 0, "condVarWait boundary edge_cv.signaledCount == 0")
+  ret 0
+
+pub fn test_mutex_condVarWaitTimeout_10(): int:
+  let arg_cv = CondVar(waitingCount = 4, signaledCount = 4)
+  let edge_cv = CondVar(waitingCount = 1, signaledCount = 1)
+  let arg_guard = MutexGuard(mutexRef = Mutex(locked = true, ownerThreadId = 4))
+  let edge_guard = MutexGuard(mutexRef = Mutex(locked = false, ownerThreadId = 1))
+  let arg_timeoutMs = 4
+  let edge_timeoutMs = 1
+  let resNom = condVarWaitTimeout(arg_cv, arg_guard, arg_timeoutMs)
+  let resEdge = condVarWaitTimeout(edge_cv, edge_guard, edge_timeoutMs)
+  assert(resNom == true, "condVarWaitTimeout nominal resNom == true")
+  assert(resEdge == true, "condVarWaitTimeout boundary resEdge == true")
+  ret 0
+
+pub fn test_mutex_condVarSignal_11(): int:
+  let arg_cv = CondVar(waitingCount = 4, signaledCount = 4)
+  let edge_cv = CondVar(waitingCount = 1, signaledCount = 1)
+  condVarSignal(arg_cv)
+  condVarSignal(edge_cv)
+  assertEqInt(arg_cv.waitingCount, 3, "condVarSignal nominal arg_cv.waitingCount == 3")
+  assertEqInt(edge_cv.waitingCount, 0, "condVarSignal boundary edge_cv.waitingCount == 0")
+  ret 0
+
+pub fn test_mutex_condVarBroadcast_12(): int:
+  let arg_cv = CondVar(waitingCount = 4, signaledCount = 4)
+  let edge_cv = CondVar(waitingCount = 1, signaledCount = 1)
+  condVarBroadcast(arg_cv)
+  condVarBroadcast(edge_cv)
+  assertEqInt(arg_cv.waitingCount, 0, "condVarBroadcast nominal arg_cv.waitingCount == 0")
+  assertEqInt(edge_cv.waitingCount, 0, "condVarBroadcast boundary edge_cv.waitingCount == 0")
+  ret 0
+
+pub fn main(): int:
+  test_mutex_mutexNew_1()
+  test_mutex_mutexLock_2()
+  test_mutex_mutexTryLock_3()
+  test_mutex_mutexUnlock_4()
+  test_mutex_spinLockNew_5()
+  test_mutex_spinLockAcquire_6()
+  test_mutex_spinLockRelease_7()
+  test_mutex_condVarNew_8()
+  test_mutex_condVarWait_9()
+  test_mutex_condVarWaitTimeout_10()
+  test_mutex_condVarSignal_11()
+  test_mutex_condVarBroadcast_12()
+  println("PASS: tests/functions/sync/mutex_test.aipl")
+  ret 0

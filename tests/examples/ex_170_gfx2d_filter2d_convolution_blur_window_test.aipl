@@ -1,0 +1,40 @@
+module Ex170Gfx2dFilter2dConvolutionBlurWindowTest
+
+import {
+  buildFilter2dConvolutionAudit,
+  stepGaussianSigma
+} from "../../examples/ex_170_gfx2d_filter2d_convolution_blur_window"
+import {
+  generateGaussianKernel1D, generateSobelKernels, applyConvolution2D
+} from "../../std/gfx2d/filter2d"
+
+pub fn test_gfx2d_filter2d_convolution_blur(): void:
+  let gauss = generateGaussianKernel1D(2, 1.0)
+  let gaussWide = generateGaussianKernel1D(2, 2.0)
+  assert(gauss.len() == 5, "Radius 2 Gaussian 1D kernel has 5 weights")
+  assert(gauss[2] > gaussWide[2], "Increasing sigma flattens center Gaussian peak")
+  let sum = gauss[0] + gauss[1] + gauss[2] + gauss[3] + gauss[4]
+  assert(sum > 0.999 and sum < 1.001, "Gaussian kernel normalized to sum=1.0")
+  assert(gauss[2] > gauss[1] and gauss[1] > gauss[0], "Gaussian bell curve symmetry")
+
+  let sobels = generateSobelKernels()
+  assert(sobels.len() == 2, "Sobel Gx and Gy kernels")
+  let stepGrid = [
+    0, 0, 200,
+    0, 0, 200,
+    0, 0, 200
+  ]
+  let gxOut = applyConvolution2D(stepGrid, 3, 3, sobels[0])
+  assert(gxOut.len() == 9 and gxOut[4] > 0, "Sobel Gx detects vertical intensity step at center")
+
+  let s0 = stepGaussianSigma(0)
+  let s1 = stepGaussianSigma(1)
+  let s20 = stepGaussianSigma(20)
+  let s100 = stepGaussianSigma(100)
+  assert(s0 != s1 and s1 != s20 and s20 != s100, "stepGaussianSigma progresses across t=0, t=1, t=20, t=100")
+  assert(buildFilter2dConvolutionAudit() == 814, "buildFilter2dConvolutionAudit returns 5 + 9 + 800 == 814")
+
+pub fn main(): int:
+  test_gfx2d_filter2d_convolution_blur()
+  println("PASS: ex_170_gfx2d_filter2d_convolution_blur_window_test")
+  ret 0

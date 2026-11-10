@@ -1,0 +1,67 @@
+// ============================================================================
+// Twin Test Suite 253: Game GLX Snake Arcade Classic (WINDOW - X11 + libGL)
+// Verifies examples/ex_253_game_glx_snake_arcade_window.aipl
+// ============================================================================
+module Ex253GameGlxSnakeArcadeWindowTest
+
+import {
+  createSnakeGame,
+  steerSnake,
+  stepSnakeGame,
+  snakeOccupiesCell,
+  pickUnoccupiedAppleCell,
+  renderSnakeArena,
+  renderFrameStep
+} from "../../examples/ex_253_game_glx_snake_arcade_window.aipl"
+import { getWindowMode } from "../../std/gfx2d/shape2d.aipl"
+
+pub fn test_game_glx_snake_arcade_window(): int:
+  mut g = createSnakeGame(20)
+  assert(g.body.len == 4 and g.score == 0 and not g.gameOver, "initial snake length=4 score=0")
+
+  // Attempt 180-degree reversal from moving right (+1, 0) to left (-1, 0) -> must be ignored
+  g = steerSnake(g, -1, 0)
+  assert(g.nextDirX == 1 and g.nextDirY == 0, "180-degree self-reversal prevented")
+
+  // Step 5 cells right from x=10 to apple at x=15 (row y=7)
+  mut s = 0
+  while s < 5:
+    g = stepSnakeGame(g)
+    s = s + 1
+  assert(g.score == 10 and g.body.len == 5, "eating apple increments score +10 and grows snake to 5")
+  assert(not snakeOccupiesCell(g.body, g.appleCell, false), "new apple spawns on unoccupied cell")
+
+  // Verify self-tail collision triggers gameOver when curling back into body
+  mut selfG = createSnakeGame(20)
+  selfG.body = [7 * 24 + 10, 7 * 24 + 11, 8 * 24 + 11, 8 * 24 + 10, 8 * 24 + 9, 7 * 24 + 9]
+  selfG.dirX = 0
+  selfG.dirY = -1
+  selfG = steerSnake(selfG, 0, 1)
+  selfG.dirX = 0
+  selfG.dirY = 1
+  selfG.nextDirX = 0
+  selfG.nextDirY = 1
+  selfG = stepSnakeGame(selfG)
+  assert(selfG.gameOver, "hitting self-tail enters gameOver state")
+
+  // Step until hitting the right wall (x >= 24)
+  mut w = 0
+  while w < 12 and not g.gameOver:
+    g = stepSnakeGame(g)
+    w = w + 1
+  assert(g.gameOver, "hitting arena wall enters gameOver state")
+
+  let freeCell = pickUnoccupiedAppleCell(g.body, 99)
+  assert(not snakeOccupiesCell(g.body, freeCell, false), "pickUnoccupiedAppleCell returns free cell")
+
+  let m0 = renderSnakeArena(g, 0)
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  assert(getWindowMode() == "glx", "window mode is glx")
+  assert(m0 > 500 and f0 > 500 and f0 != f1, "snake arena renders and advances across frames")
+  ret 0
+
+pub fn main(): int:
+  test_game_glx_snake_arcade_window()
+  println("PASS: ex_253_game_glx_snake_arcade_window_test")
+  ret 0

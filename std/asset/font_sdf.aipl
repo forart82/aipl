@@ -1,0 +1,79 @@
+module AssetFontSdf
+
+// ============================================================================
+// std/asset/font_sdf.aipl — TrueType Tables & Signed Distance Field Generation
+// ============================================================================
+
+pub struct GlyphMetric(codepoint: int, advanceX: float, bearingX: float, bearingY: float, width: float, height: float, uvMinX: float, uvMinY: float, uvMaxX: float, uvMaxY: float)
+
+pub struct FontSdfAtlas(textureWidth: int, textureHeight: int, sdfRadiusPx: float, glyphs: Map[int, GlyphMetric], distanceFieldBytes: [int])
+
+pub fn parseTtfTables(fontFileBytes: [int]): bool:
+  if fontFileBytes.len < 12:
+    ret false
+  // TrueType 1.0 magic (0x00, 0x01, 0x00, 0x00) or 'true' (0x74, 0x72, 0x75, 0x65) or 'OTTO'
+  let b0 = fontFileBytes[0] & 255
+  let b1 = fontFileBytes[1] & 255
+  let b2 = fontFileBytes[2] & 255
+  let b3 = fontFileBytes[3] & 255
+  if b0 == 0 and b1 == 1 and b2 == 0 and b3 == 0:
+    ret true
+  if b0 == 116 and b1 == 114 and b2 == 117 and b3 == 101:
+    ret true
+  if b0 == 79 and b1 == 84 and b2 == 84 and b3 == 79:
+    ret true
+  ret false
+
+pub fn computeSignedDistance(px: float, py: float, curvePoints: [float]): float:
+  if curvePoints.len < 4:
+    ret 1000.0
+  mut minDist = 1000000.0
+  mut inside = false
+  let hasClosedLoop = curvePoints.len >= 8 and curvePoints[0] == curvePoints[curvePoints.len - 2] and curvePoints[1] == curvePoints[curvePoints.len - 1]
+  mut i = 0
+  while i + 3 < curvePoints.len:
+    let x0 = curvePoints[i]
+    let y0 = curvePoints[i + 1]
+    let x1 = curvePoints[i + 2]
+    let y1 = curvePoints[i + 3]
+    let dx = x1 - x0
+    let dy = y1 - y0
+    let lenSq = dx * dx + dy * dy
+    mut t = 0.0
+    if lenSq > 0.000001:
+      t = ((px - x0) * dx + (py - y0) * dy) / lenSq
+      if t < 0.0:
+        t = 0.0
+      if t > 1.0:
+        t = 1.0
+    let projX = x0 + t * dx
+    let projY = y0 + t * dy
+    let dist = sqrt((px - projX) * (px - projX) + (py - projY) * (py - projY))
+    if dist < minDist:
+      minDist = dist
+    if hasClosedLoop and ((y0 > py) != (y1 > py)):
+      let xIntersect = (x1 - x0) * (py - y0) / (y1 - y0) + x0
+      if px < xIntersect:
+        inside = not inside
+    i += 2
+  ret if inside: -minDist else: minDist
+
+pub fn generateSdfGlyph(glyphCurves: [float], width: int, height: int, radius: float): [int]:
+  mut out: [int] = []
+  let safeR = if radius > 0.0: radius else: 4.0
+  mut y = 0
+  while y < height:
+    mut x = 0
+    while x < width:
+      let d = computeSignedDistance(float(x) + 0.5, float(y) + 0.5, glyphCurves)
+      let norm = 0.5 + (d / (2.0 * safeR))
+      let clamped = if norm < 0.0: 0.0 else: (if norm > 1.0: 1.0 else: norm)
+      out.push(int(clamped * 255.0 + 0.5))
+      x += 1
+    y += 1
+  ret out
+
+pub fn sampleSdfAtlas(atlas: FontSdfAtlas, codepoint: int): Option[GlyphMetric]:
+  if atlas.glyphs.containsKey(codepoint):
+    ret atlas.glyphs.get(codepoint)
+  ret None

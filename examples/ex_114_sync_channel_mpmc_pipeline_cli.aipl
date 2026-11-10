@@ -1,0 +1,91 @@
+// ============================================================================
+// Canonical Example 114: Bounded MPSC, SPSC & Broadcast Channel Pipeline (CLI)
+// Target Profile: CLI | Standard Library Module: std/sync
+// ============================================================================
+module Ex114SyncChannelMpmcPipelineCli
+
+import {
+  mpscChannelNew,
+  mpscSend,
+  mpscTrySend,
+  mpscRecv,
+  mpscTryRecv,
+  mpscClose,
+  mpscIsClosed,
+  mpscLen,
+  mpscCapacity,
+  spscChannelNew,
+  spscSend,
+  spscTrySend,
+  spscRecv,
+  spscTryRecv,
+  broadcastChannelNew,
+  broadcastSubscribe,
+  broadcastSend,
+  broadcastRecv
+} from "../std/sync/sync.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub fn evaluateMpscAndBroadcastDrainedSum(): int:
+  mut mpsc = mpscChannelNew(4)
+  let _ = mpscSend(mpsc, 10)
+  let _ = mpscSend(mpsc, 20)
+  let _ = mpscSend(mpsc, 30)
+  let v1 = mpscRecv(mpsc).unwrap()
+  let v2 = mpscRecv(mpsc).unwrap()
+  let v3 = mpscRecv(mpsc).unwrap()
+
+  mut bcast = broadcastChannelNew(8)
+  let sub0 = broadcastSubscribe(bcast)
+  let sub1 = broadcastSubscribe(bcast)
+  let _ = broadcastSend(bcast, 777)
+  let b0 = broadcastRecv(bcast, sub0).unwrap()
+  let b1 = broadcastRecv(bcast, sub1).unwrap()
+  ret v1 + v2 + v3 + b0 + b1
+
+pub fn verifyChannelCloseDrainAndSpscOrder(): int:
+  mut mpsc = mpscChannelNew(4)
+  if mpscCapacity(mpsc) != 4:
+    ret 0
+  let _ = mpscSend(mpsc, 10)
+  let _ = mpscSend(mpsc, 20)
+  let _ = mpscSend(mpsc, 30)
+  if mpscLen(mpsc) != 3:
+    ret 0
+  if mpscRecv(mpsc).unwrap() != 10:
+    ret 0
+  if mpscRecv(mpsc).unwrap() != 20:
+    ret 0
+  let _ = mpscClose(mpsc)
+  if not mpscIsClosed(mpsc):
+    ret 0
+  if not mpscTrySend(mpsc, 99).isErr():
+    ret 0
+  if mpscRecv(mpsc).unwrap() != 30:
+    ret 0
+  if not mpscTryRecv(mpsc).isErr():
+    ret 0
+
+  mut spsc = spscChannelNew(8)
+  let _ = spscSend(spsc, 1001)
+  let _ = spscTrySend(spsc, 1002)
+  if spscRecv(spsc).unwrap() != 1001:
+    ret 0
+  if spscTryRecv(spsc).unwrap() != 1002:
+    ret 0
+  ret 1
+
+pub fn describeChannelBackpressureMode(capacity: int): str:
+  let c = clampInt(capacity, 0, 65536)
+  if c == 0:
+    ret "CHAN:RENDEZVOUS_UNBOUNDED"
+  ret "CHAN:BOUNDED_RING_CAPACITY_" + str(c)
+
+pub fn main(): int:
+  let drainedSum = evaluateMpscAndBroadcastDrainedSum()
+  let spscOk = verifyChannelCloseDrainAndSpscOrder()
+  let tag = describeChannelBackpressureMode(4)
+  assert(drainedSum == 1614, "MPSC + Broadcast drained sum check")
+  assert(spscOk == 1, "MPSC close/drain and SPSC FIFO verification")
+  println(tag + " | sum=" + str(drainedSum))
+  ret 0

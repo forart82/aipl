@@ -1,0 +1,179 @@
+/// # Module: `std/procgen/noise_field` (`NoiseFieldMod`)
+///
+/// ## Purpose & Domain Scope
+/// Coherent gradient noise (Perlin 2D/3D, Simplex 2D), Worley Voronoi cellular noise,
+/// Fractional Brownian Motion (FBM), and domain-warped FBM.
+module NoiseFieldMod
+
+import { SQRT3, clampFloat } from "std/math/consts"
+import { floor, sqrt, sin, cos } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+
+pub enum NoiseType:
+  Perlin
+  Simplex
+  OpenSimplex2
+  Worley
+
+pub struct FbmConfig(octaves: int, lacunarity: float, persistence: float, seed: int)
+
+pub struct WorleyResult(f1: float, f2: float, cellId: int, cellCenter: Vec2)
+
+fn hash2D(ix: int, iy: int, seed: int): int:
+  mut h = ix * 374761393 + iy * 668265263 + seed * 1442695041
+  h = (h ^ (h >> 13)) * 1274126177
+  ret (h ^ (h >> 16)) & 2147483647
+
+fn hash3D(ix: int, iy: int, iz: int, seed: int): int:
+  mut h = ix * 374761393 + iy * 668265263 + iz * 2147483647 + seed * 1442695041
+  h = (h ^ (h >> 13)) * 1274126177
+  ret (h ^ (h >> 16)) & 2147483647
+
+fn quinticFade(t: float): float:
+  ret t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+fn lerpScalar(a: float, b: float, t: float): float:
+  ret a + (b - a) * t
+
+fn gradDot2D(ix: int, iy: int, dx: float, dy: float, seed: int): float:
+  let h = hash2D(ix, iy, seed) & 7
+  if h == 0: ret dx + dy
+  if h == 1: ret -dx + dy
+  if h == 2: ret dx - dy
+  if h == 3: ret -dx - dy
+  if h == 4: ret dx
+  if h == 5: ret -dx
+  if h == 6: ret dy
+  ret -dy
+
+pub fn samplePerlin2D(x: float, y: float, seed: int): float:
+  let x0 = int(floor(x))
+  let y0 = int(floor(y))
+  let x1 = x0 + 1
+  let y1 = y0 + 1
+
+  let sx = x - float(x0)
+  let sy = y - float(y0)
+  let u = quinticFade(sx)
+  let v = quinticFade(sy)
+
+  let n00 = gradDot2D(x0, y0, sx, sy, seed)
+  let n10 = gradDot2D(x1, y0, sx - 1.0, sy, seed)
+  let n01 = gradDot2D(x0, y1, sx, sy - 1.0, seed)
+  let n11 = gradDot2D(x1, y1, sx - 1.0, sy - 1.0, seed)
+
+  let nx0 = lerpScalar(n00, n10, u)
+  let nx1 = lerpScalar(n01, n11, u)
+  ret clampFloat(lerpScalar(nx0, nx1, v) * 0.70710678, -1.0, 1.0)
+
+fn gradDot3D(ix: int, iy: int, iz: int, dx: float, dy: float, dz: float, seed: int): float:
+  let h = hash3D(ix, iy, iz, seed) & 15
+  let u = if h < 8: dx else: dy
+  let v = if h < 4: dy else: (if h == 12 or h == 14: dx else: dz)
+  let su = if (h & 1) == 0: u else: -u
+  let sv = if (h & 2) == 0: v else: -v
+  ret su + sv
+
+pub fn samplePerlin3D(x: float, y: float, z: float, seed: int): float:
+  let x0 = int(floor(x))
+  let y0 = int(floor(y))
+  let z0 = int(floor(z))
+  let sx = x - float(x0)
+  let sy = y - float(y0)
+  let sz = z - float(z0)
+  let u = quinticFade(sx)
+  let v = quinticFade(sy)
+  let w = quinticFade(sz)
+
+  let c000 = gradDot3D(x0, y0, z0, sx, sy, sz, seed)
+  let c100 = gradDot3D(x0 + 1, y0, z0, sx - 1.0, sy, sz, seed)
+  let c010 = gradDot3D(x0, y0 + 1, z0, sx, sy - 1.0, sz, seed)
+  let c110 = gradDot3D(x0 + 1, y0 + 1, z0, sx - 1.0, sy - 1.0, sz, seed)
+  let c001 = gradDot3D(x0, y0, z0 + 1, sx, sy, sz - 1.0, seed)
+  let c101 = gradDot3D(x0 + 1, y0, z0 + 1, sx - 1.0, sy, sz - 1.0, seed)
+  let c011 = gradDot3D(x0, y0 + 1, z0 + 1, sx, sy - 1.0, sz - 1.0, seed)
+  let c111 = gradDot3D(x0 + 1, y0 + 1, z0 + 1, sx - 1.0, sy - 1.0, sz - 1.0, seed)
+
+  let x00 = lerpScalar(c000, c100, u)
+  let x10 = lerpScalar(c010, c110, u)
+  let x01 = lerpScalar(c001, c101, u)
+  let x11 = lerpScalar(c011, c111, u)
+  let y0v = lerpScalar(x00, x10, v)
+  let y1v = lerpScalar(x01, x11, v)
+  ret clampFloat(lerpScalar(y0v, y1v, w) * 0.57735027, -1.0, 1.0)
+
+pub fn sampleSimplex2D(x: float, y: float, seed: int): float:
+  let f2 = 0.5 * (SQRT3 - 1.0)
+  let g2 = (3.0 - SQRT3) / 6.0
+  let s = (x + y) * f2
+  let i = int(floor(x + s))
+  let j = int(floor(y + s))
+  let t = float(i + j) * g2
+  let x0 = x - (float(i) - t)
+  let y0 = y - (float(j) - t)
+
+  let i1 = if x0 > y0: 1 else: 0
+  let j1 = if x0 > y0: 0 else: 1
+
+  let x1 = x0 - float(i1) + g2
+  let y1 = y0 - float(j1) + g2
+  let x2 = x0 - 1.0 + 2.0 * g2
+  let y2 = y0 - 1.0 + 2.0 * g2
+
+  let t0 = 0.5 - x0 * x0 - y0 * y0
+  let n0 = if t0 < 0.0: 0.0 else: (t0 * t0 * t0 * t0) * gradDot2D(i, j, x0, y0, seed)
+  let t1 = 0.5 - x1 * x1 - y1 * y1
+  let n1 = if t1 < 0.0: 0.0 else: (t1 * t1 * t1 * t1) * gradDot2D(i + i1, j + j1, x1, y1, seed)
+  let t2 = 0.5 - x2 * x2 - y2 * y2
+  let n2 = if t2 < 0.0: 0.0 else: (t2 * t2 * t2 * t2) * gradDot2D(i + 1, j + 1, x2, y2, seed)
+
+  ret clampFloat(45.0 * (n0 + n1 + n2), -1.0, 1.0)
+
+pub fn sampleWorley2D(x: float, y: float, seed: int): WorleyResult:
+  let cx = int(floor(x))
+  let cy = int(floor(y))
+  mut f1 = 1000000000.0
+  mut f2 = 1000000000.0
+  mut bestId = 0
+  mut bestCenter = Vec2(x = 0.0, y = 0.0)
+
+  mut dy = -1
+  while dy <= 1:
+    mut dx = -1
+    while dx <= 1:
+      let nx = cx + dx
+      let ny = cy + dy
+      let h1 = hash2D(nx, ny, seed)
+      let h2 = hash2D(nx, ny, seed + 7919)
+      let px = float(nx) + float(h1 % 10000) / 10000.0
+      let py = float(ny) + float(h2 % 10000) / 10000.0
+      let dist = sqrt((x - px) * (x - px) + (y - py) * (y - py))
+      if dist < f1:
+        f2 = f1
+        f1 = dist
+        bestId = h1
+        bestCenter = Vec2(x = px, y = py)
+      else:
+        if dist < f2:
+          f2 = dist
+      dx = dx + 1
+    dy = dy + 1
+
+  ret WorleyResult(f1 = f1, f2 = f2, cellId = bestId, cellCenter = bestCenter)
+
+pub fn sampleFbm2D(x: float, y: float, config: FbmConfig): float:
+  mut total = 0.0
+  mut amp = 1.0
+  mut freq = 1.0
+  mut i = 0
+  while i < config.octaves:
+    total = total + amp * samplePerlin2D(x * freq, y * freq, config.seed + i * 101)
+    freq = freq * config.lacunarity
+    amp = amp * config.persistence
+    i = i + 1
+  ret total
+
+pub fn sampleDomainWarpedFbm2D(x: float, y: float, config: FbmConfig, warpStrength: float): float:
+  let qx = sampleFbm2D(x, y, config)
+  let qy = sampleFbm2D(x + 5.2, y + 1.3, config)
+  ret sampleFbm2D(x + warpStrength * qx, y + warpStrength * qy, config)

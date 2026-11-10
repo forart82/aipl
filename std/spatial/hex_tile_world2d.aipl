@@ -1,0 +1,132 @@
+/// # Module: `std/spatial/hex_tile_world2d` (`HexTileWorld2DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Hexagonal tile world supporting Axial and Cube coordinates, exact hex distance,
+/// ring/spiral iterators, pixel projection/unprojection, and hex grid line interpolation.
+module HexTileWorld2DMod
+
+import { SQRT3, absInt, absFloat } from "std/math/consts"
+import { round } from "std/math/trig"
+import { Vec2 } from "std/math/vec_math"
+
+pub enum HexOrientation:
+  PointyTop
+  FlatTop
+
+pub struct HexCubeCoord(x: int, y: int, z: int)
+
+pub struct HexAxialCoord(q: int, r: int)
+
+pub struct HexTileCell2D(terrainId: int, resourceCost: float, passable: bool)
+
+pub struct HexTileWorld2D(radius: int, orientation: HexOrientation, hexSize: float, cells: [HexTileCell2D])
+
+pub fn hexCubeNew(x: int, y: int, z: int): HexCubeCoord:
+  assert(x + y + z == 0, "HexCubeCoord invariant x + y + z == 0 violated")
+  ret HexCubeCoord(x = x, y = y, z = z)
+
+pub fn hexAxialToCube(axial: HexAxialCoord): HexCubeCoord:
+  ret HexCubeCoord(x = axial.q, y = -axial.q - axial.r, z = axial.r)
+
+pub fn hexCubeToAxial(cube: HexCubeCoord): HexAxialCoord:
+  ret HexAxialCoord(q = cube.x, r = cube.z)
+
+pub fn hexDistance(a: HexCubeCoord, b: HexCubeCoord): int:
+  ret (absInt(a.x - b.x) + absInt(a.y - b.y) + absInt(a.z - b.z)) / 2
+
+pub fn hexRing(center: HexCubeCoord, radius: int): [HexCubeCoord]:
+  mut out: [HexCubeCoord] = []
+  if radius <= 0:
+    out.push(center)
+    ret out
+
+  let dirX = [1, 1, 0, -1, -1, 0]
+  let dirY = [-1, 0, 1, 1, 0, -1]
+  let dirZ = [0, -1, -1, 0, 1, 1]
+
+  mut cx = center.x + dirX[4] * radius
+  mut cy = center.y + dirY[4] * radius
+  mut cz = center.z + dirZ[4] * radius
+
+  mut side = 0
+  while side < 6:
+    mut step = 0
+    while step < radius:
+      out.push(HexCubeCoord(x = cx, y = cy, z = cz))
+      cx = cx + dirX[side]
+      cy = cy + dirY[side]
+      cz = cz + dirZ[side]
+      step = step + 1
+    side = side + 1
+  ret out
+
+pub fn hexSpiral(center: HexCubeCoord, maxRadius: int): [HexCubeCoord]:
+  mut out: [HexCubeCoord] = [center]
+  mut r = 1
+  while r <= maxRadius:
+    let ring = hexRing(center, r)
+    mut i = 0
+    while i < ring.len:
+      out.push(ring[i])
+      i = i + 1
+    r = r + 1
+  ret out
+
+fn cubeRound(fx: float, fy: float, fz: float): HexCubeCoord:
+  mut rx = int(round(fx))
+  mut ry = int(round(fy))
+  mut rz = int(round(fz))
+
+  let dx = absFloat(float(rx) - fx)
+  let dy = absFloat(float(ry) - fy)
+  let dz = absFloat(float(rz) - fz)
+
+  if dx > dy and dx > dz:
+    rx = -ry - rz
+  else:
+    if dy > dz:
+      ry = -rx - rz
+    else:
+      rz = -rx - ry
+  ret HexCubeCoord(x = rx, y = ry, z = rz)
+
+pub fn hexToPixel(coord: HexAxialCoord, orientation: HexOrientation, size: float): Vec2:
+  let qf = float(coord.q)
+  let rf = float(coord.r)
+  if orientation == HexOrientation.PointyTop:
+    let px = size * (SQRT3 * qf + (SQRT3 * 0.5) * rf)
+    let py = size * (1.5 * rf)
+    ret Vec2(x = px, y = py)
+  let pxFlat = size * (1.5 * qf)
+  let pyFlat = size * ((SQRT3 * 0.5) * qf + SQRT3 * rf)
+  ret Vec2(x = pxFlat, y = pyFlat)
+
+pub fn hexPixelToAxial(pixel: Vec2, orientation: HexOrientation, size: float): HexAxialCoord:
+  let s = if size > 0.0: size else: 1.0
+  mut qf = 0.0
+  mut rf = 0.0
+  if orientation == HexOrientation.PointyTop:
+    qf = ((SQRT3 / 3.0) * pixel.x - (1.0 / 3.0) * pixel.y) / s
+    rf = ((2.0 / 3.0) * pixel.y) / s
+  else:
+    qf = ((2.0 / 3.0) * pixel.x) / s
+    rf = ((-1.0 / 3.0) * pixel.x + (SQRT3 / 3.0) * pixel.y) / s
+  let cube = cubeRound(qf, -qf - rf, rf)
+  ret hexCubeToAxial(cube)
+
+pub fn hexLine(a: HexCubeCoord, b: HexCubeCoord): [HexCubeCoord]:
+  let n = hexDistance(a, b)
+  mut out: [HexCubeCoord] = []
+  if n == 0:
+    out.push(a)
+    ret out
+  let nf = float(n)
+  mut i = 0
+  while i <= n:
+    let t = float(i) / nf
+    let fx = float(a.x) + (float(b.x - a.x)) * t + 0.000001
+    let fy = float(a.y) + (float(b.y - a.y)) * t + 0.000001
+    let fz = float(a.z) + (float(b.z - a.z)) * t - 0.000002
+    out.push(cubeRound(fx, fy, fz))
+    i = i + 1
+  ret out

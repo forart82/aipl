@@ -1,0 +1,95 @@
+// ============================================================================
+// Step 3.5: Exhaustive Per-Function Unit Tests for std/sys/sys_mem.aipl (28)
+// Target: tests/functions/sys/sys_mem_test.aipl
+// ============================================================================
+module SysMemTest
+
+import {
+  assert,
+  assertEqInt,
+  assertApproxEq
+} from "../../../std/prelude.aipl"
+
+import {
+  SysMemStats,
+  MemoryRegion,
+  sysPtrAlloc,
+  sysPtrFree,
+  sysPtrReadU8,
+  sysPtrWriteU8,
+  sysPtrReadI64,
+  sysPtrWriteI64,
+  sysPtrCopy,
+  sysPtrSet,
+  sysPtrCompare,
+  sysPageAlloc,
+  sysPageFree,
+  sysPageProtect,
+  sysSizeofType,
+  sysBitcastF64ToI64,
+  sysBitcastI64ToF64
+} from "../../../std/sys/sys_mem.aipl"
+
+pub fn test_ptr_alloc_read_write(): int:
+  let p = sysPtrAlloc(64)
+  assert(p > 0, "sysPtrAlloc returns valid pointer")
+
+  sysPtrWriteU8(p, 250)
+  assertEqInt(sysPtrReadU8(p), 250, "readU8 matches written byte")
+
+  sysPtrWriteI64(p, 123456789012345)
+  assertEqInt(sysPtrReadI64(p), 123456789012345, "readI64 matches written value")
+
+  // Test set and compare
+  let p2 = sysPtrAlloc(64)
+  sysPtrSet(p, 42, 16)
+  sysPtrSet(p2, 42, 16)
+  assertEqInt(sysPtrCompare(p, p2, 16), 0, "equal buffers compare 0")
+
+  sysPtrWriteU8(p2, 43)
+  assert(sysPtrCompare(p, p2, 16) < 0, "p < p2")
+
+  // Copy
+  sysPtrCopy(p, p2, 16)
+  assertEqInt(sysPtrCompare(p, p2, 16), 0, "after copy compare 0")
+
+  sysPtrFree(p)
+  sysPtrFree(p2)
+  ret 0
+
+pub fn test_page_alloc_and_types(): int:
+  let page = sysPageAlloc(4096)
+  assert(page > 0, "sysPageAlloc returns page address")
+  assertEqInt(sysPageProtect(page, 4096, 3), 0, "pageProtect returns 0")
+  assertEqInt(sysPageFree(page, 4096), 0, "pageFree returns 0")
+
+  assert(sysSizeofType("int") >= 4, "sizeofType int")
+  assert(sysSizeofType("float") >= 4, "sizeofType float")
+
+  let f = 3.14159
+  let bits = sysBitcastF64ToI64(f)
+  let fBack = sysBitcastI64ToF64(bits)
+  assertApproxEq(fBack, f, 0.00001, "bitcast roundtrip")
+  ret 0
+
+pub fn test_memory_region_struct(): int:
+  let mr = MemoryRegion.new(128)
+  assert(mr.active == true, "MemoryRegion active")
+  assert(mr.address > 0, "MemoryRegion valid address")
+  assertEqInt(mr.size, 128, "MemoryRegion size is 128")
+
+  mr.writeU8(0, 77)
+  mr.writeU8(127, 88)
+  assertEqInt(mr.readU8(0), 77, "readU8 offset 0")
+  assertEqInt(mr.readU8(127), 88, "readU8 offset 127")
+  assertEqInt(mr.readU8(200), 0, "oob read returns 0")
+
+  mr.free()
+  ret 0
+
+pub fn main(): int:
+  test_ptr_alloc_read_write()
+  test_page_alloc_and_types()
+  test_memory_region_struct()
+  println("PASS: sys_mem_test")
+  ret 0

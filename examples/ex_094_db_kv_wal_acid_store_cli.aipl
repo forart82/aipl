@@ -1,0 +1,83 @@
+// ============================================================================
+// Example 094: Write-Ahead Log (WAL) ACID Key-Value Store & Replay (CLI)
+// Demonstrates: WalConfig, walOpen, walClose, walPut, walGet, walDelete,
+//               walExists, walNewBatch, walBatchPut, walBatchDelete,
+//               walCommitBatch, walFlush, walCheckpoint, walCompact,
+//               walScanPrefix, walReplayLog, and walVerifyChecksums from std/db.
+// ============================================================================
+module Ex094DbKvWalAcidStoreCli
+
+import {
+  WalConfig,
+  walOpen,
+  walClose,
+  walPut,
+  walGet,
+  walDelete,
+  walExists,
+  walNewBatch,
+  walBatchPut,
+  walBatchDelete,
+  walCommitBatch,
+  walFlush,
+  walCheckpoint,
+  walCompact,
+  walScanPrefix,
+  walReplayLog,
+  walVerifyChecksums
+} from "../std/db"
+
+// Executes single-key puts/deletes, an atomic 3-operation batch, and a prefix scan.
+pub fn evaluateWalBatchAndPrefixScanCount(): int:
+  let cfg = WalConfig(maxSegmentSizeBytes = 65536, syncEveryWrite = true, autoCompactThreshold = 100)
+  mut store = walOpen("/tmp/aipl_ex094_wal", cfg).unwrap()
+  walPut(store, "system.status", "RUNNING")
+  walPut(store, "temp.key", "drop_me")
+  walDelete(store, "temp.key")
+  assert(not walExists(store, "temp.key") and walGet(store, "system.status").unwrap() == "RUNNING", "basic put/delete")
+
+  mut batch = walNewBatch()
+  batch = walBatchPut(batch, "metric.cpu", "42")
+  batch = walBatchPut(batch, "metric.ram", "88")
+  batch = walBatchDelete(batch, "system.status")
+  let committed = walCommitBatch(store, batch).unwrap()
+  let prefixHits = walScanPrefix(store, "metric.")
+  walClose(store)
+  ret committed + prefixHits.len()
+
+// Verifies WAL CRC32 checksums, crash recovery log replay into a fresh store, and compaction.
+pub fn verifyWalCrashReplayAndCompaction(): int:
+  let cfg = WalConfig(maxSegmentSizeBytes = 65536, syncEveryWrite = true, autoCompactThreshold = 100)
+  mut primary = walOpen("/tmp/aipl_ex094_primary", cfg).unwrap()
+  walPut(primary, "metric.cpu", "42")
+  walPut(primary, "metric.ram", "88")
+  walPut(primary, "obsolete.flag", "1")
+  walDelete(primary, "obsolete.flag")
+  assert(walFlush(primary).unwrap() and walCheckpoint(primary).unwrap() > 0, "flush & checkpoint")
+
+  let logRecords = primary.walLog
+  let crcOk = walVerifyChecksums(logRecords)
+
+  mut replica = walOpen("/tmp/aipl_ex094_replica", cfg).unwrap()
+  let replayed = walReplayLog(replica, logRecords)
+  let ramVal = walGet(replica, "metric.ram").unwrap()
+  let tombRespected = not walExists(replica, "obsolete.flag")
+  let compactStats = walCompact(replica).unwrap()
+  walClose(primary)
+  walClose(replica)
+  if crcOk and replayed > 0 and ramVal == "88" and tombRespected and compactStats.tombstoneCount >= 1:
+    ret 1
+  ret 0
+
+// Returns a canonical label for WAL CRC32 log verification.
+pub fn describeWalChecksumIntegrity(verified: bool): str:
+  if verified:
+    ret "WAL:CRC32_LOG_INTEGRITY_VERIFIED"
+  ret "WAL:CORRUPTED_SEGMENT_DETECTED"
+
+pub fn main(): int:
+  let count = evaluateWalBatchAndPrefixScanCount()
+  let replayOk = verifyWalCrashReplayAndCompaction()
+  let status = describeWalChecksumIntegrity(replayOk == 1)
+  println("ex_094_db_kv_wal_acid_store_cli: count=" + str(count) + " replayOk=" + str(replayOk) + " status=" + status)
+  ret 0

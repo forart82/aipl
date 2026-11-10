@@ -1,0 +1,22 @@
+struct HttpRequest(method, path, authHeader, body)
+struct HttpResponse(status, body)
+
+fn handleRequest(req, mut sessions):
+  if req.path.startsWith("/admin") and req.authHeader != "Bearer secret-token":
+    ret HttpResponse(401, "Unauthorized")
+  if req.method == "POST" and req.path == "/session/incr":
+    let user = if req.body.len > 0: req.body else: "guest"
+    let nextVal = (sessions[user] ?? 0) + 1
+    sessions[user] = nextVal
+    ret HttpResponse(200, "user={user} count={nextVal}")
+  if req.method == "GET" and req.path == "/admin/status":
+    ret HttpResponse(200, "status=healthy")
+  ret HttpResponse(404, "Not Found")
+
+mut sessions = {}
+let r1 = handleRequest(HttpRequest("POST", "/session/incr", "", "alice"), sessions)
+let r2 = handleRequest(HttpRequest("POST", "/session/incr", "", "alice"), sessions)
+let r3 = handleRequest(HttpRequest("GET", "/admin/status", "Bearer wrong", ""), sessions)
+let r4 = handleRequest(HttpRequest("GET", "/admin/status", "Bearer secret-token", ""), sessions)
+assert(r1.status == 200 and r2.body == "user=alice count=2" and r3.status == 401 and r4.status == 200)
+println("{r2.body} | {r4.body}\nBENCH_11_OK")

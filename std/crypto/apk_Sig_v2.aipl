@@ -1,0 +1,39 @@
+module std.crypto.apk_Sig_v2
+
+import { sha256Str } from "std/crypto/hash"
+
+pub const APK_SIG_BLOCK_V2_ID: int = 1896449818
+
+pub struct ApkSigningBlockV2(sizeOfBlockHead: int, v2SchemeId: int, topLevelSha256Hex: str, sizeOfBlockTail: int, magic: str, isValid: bool)
+
+pub fn computeApkV2DigestsSha256(zipEntriesSection: str, centralDirSection: str, eocdSection: str): str requires zipEntriesSection.len() >= 0 and centralDirSection.len() >= 0 and eocdSection.len() >= 0 ensures result == "" or result.len() == 64:
+  if zipEntriesSection.len() == 0 or centralDirSection.len() == 0 or eocdSection.len() == 0:
+    ret ""
+  let dig1 = sha256Str("0xa5:" + zipEntriesSection)
+  let dig2 = sha256Str("0xa5:" + centralDirSection)
+  let dig3 = sha256Str("0xa5:" + eocdSection)
+  ret sha256Str("0x5a|3|" + dig1 + "|" + dig2 + "|" + dig3)
+
+pub fn buildApkSigningBlockV2(topLevelSha256Hex: str): ApkSigningBlockV2 requires topLevelSha256Hex.len() >= 0 ensures result.magic == "APK Sig Block 42" and result.v2SchemeId == 1896449818:
+  if topLevelSha256Hex.len() != 64:
+    ret ApkSigningBlockV2(sizeOfBlockHead = 0, v2SchemeId = APK_SIG_BLOCK_V2_ID, topLevelSha256Hex = "", sizeOfBlockTail = 0, magic = "APK Sig Block 42", isValid = false)
+  let blockSize = 4096
+  ret ApkSigningBlockV2(
+    sizeOfBlockHead = blockSize,
+    v2SchemeId = APK_SIG_BLOCK_V2_ID,
+    topLevelSha256Hex = topLevelSha256Hex,
+    sizeOfBlockTail = blockSize,
+    magic = "APK Sig Block 42",
+    isValid = true
+  )
+
+pub fn verifyApkSigningBlockV2(magic: str, sizeHead: int, sizeTail: int, schemeId: int, signedDigest: str, computedDigest: str): bool requires magic.len() >= 0 ensures not result or (magic == "APK Sig Block 42" and sizeHead == sizeTail and schemeId == 1896449818):
+  if magic != "APK Sig Block 42":
+    ret false
+  if sizeHead <= 32 or sizeHead != sizeTail:
+    ret false
+  if schemeId != 1896449818:
+    ret false
+  if signedDigest.len() != 64 or signedDigest != computedDigest:
+    ret false
+  ret true

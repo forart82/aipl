@@ -1,0 +1,82 @@
+/// # Module: `std/alloc/ring_alloc` (`RingAlloc`)
+///
+/// ## Purpose & Domain Scope
+/// Lock-free circular ring buffer allocator for temporal, per-frame,
+/// or streaming packet allocations.
+module RingAlloc
+
+import { ptrAlloc, ptrFree, ptrMemset } from "std/rt/rt_ptr"
+
+pub struct RingBufferAllocator:
+  baseAddr: int
+  capacity: int
+  head: int
+  tail: int
+  usedBytes: int
+  allocatedCount: int
+
+pub fn ringAllocNew(capacity: int): RingBufferAllocator:
+  let cap = if capacity > 0: capacity else: 4096
+  let ptr = ptrAlloc(cap)
+  if ptr != 0:
+    ptrMemset(ptr, 0, 0, cap)
+  ret RingBufferAllocator(
+    baseAddr = ptr,
+    capacity = cap,
+    head = 0,
+    tail = 0,
+    usedBytes = 0,
+    allocatedCount = 0
+  )
+
+pub fn ringAvailable(ring: RingBufferAllocator): int:
+  let rem = ring.capacity - ring.usedBytes
+  ret if rem > 0: rem else: 0
+
+pub fn ringAlloc(mut ring: RingBufferAllocator, bytes: int): int:
+  if bytes <= 0 or ring.baseAddr == 0 or bytes > ringAvailable(ring):
+    ret 0
+  if ring.head + bytes <= ring.capacity:
+    let addr = ring.baseAddr + ring.head
+    ring.head = (ring.head + bytes) % ring.capacity
+    ring.usedBytes += bytes
+    ring.allocatedCount += 1
+    ret addr
+  // Wrap-around to start of ring buffer if contiguous space at end is insufficient
+  let tailGap = ring.capacity - ring.head
+  if bytes + tailGap > ringAvailable(ring) and ring.tail > 0 and bytes > ring.tail:
+    ret 0
+  let addr = ring.baseAddr
+  ring.head = bytes % ring.capacity
+  ring.usedBytes += bytes
+  ring.allocatedCount += 1
+  ret addr
+
+pub fn ringFreeOldest(mut ring: RingBufferAllocator, bytes: int): void:
+  if bytes <= 0:
+    ret
+  let reclaim = if bytes > ring.usedBytes: ring.usedBytes else: bytes
+  ring.tail = (ring.tail + reclaim) % ring.capacity
+  ring.usedBytes -= reclaim
+  if ring.usedBytes == 0:
+    ring.head = 0
+    ring.tail = 0
+  ret
+
+pub fn ringReset(mut ring: RingBufferAllocator): void:
+  ring.head = 0
+  ring.tail = 0
+  ring.usedBytes = 0
+  ring.allocatedCount = 0
+  ret
+
+pub fn ringDestroy(mut ring: RingBufferAllocator): void:
+  if ring.baseAddr != 0:
+    ptrFree(ring.baseAddr)
+    ring.baseAddr = 0
+  ring.capacity = 0
+  ring.head = 0
+  ring.tail = 0
+  ring.usedBytes = 0
+  ring.allocatedCount = 0
+  ret

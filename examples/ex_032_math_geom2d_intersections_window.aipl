@@ -1,0 +1,154 @@
+// ============================================================================
+// Example 032: 2D Geometry Intersections, SAT & Swept AABB Window
+// Demonstrates: Rect, Circle2D, Ray2D, Polygon2D, rectToRect2D,
+//               circleIntersectsRect, collideCircleRect, rayIntersectsRect2D,
+//               polygonSAT2D, and sweptAabb from std/math/geom2d, rendered
+//               in an interactive 2D computational geometry lab window.
+// ============================================================================
+module Ex032MathGeom2dIntersectionsWindow
+
+import { clampInt } from "../std/prelude"
+import { Vec2 } from "../std/math/vec_math"
+import {
+  Rect,
+  Circle2D,
+  Ray2D,
+  Polygon2D,
+  rectToRect2D,
+  circleIntersectsRect,
+  collideCircleRect,
+  rayIntersectsRect2D,
+  polygonSAT2D,
+  sweptAabb
+} from "../std/math/geom2d"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawTriangle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct Geom2DLabState:
+  rayHitT: int
+  satOverlapping: int
+  circleColliding: int
+  sweptTimePermille: int
+
+pub fn evaluateRayAndSatCollisions(): int:
+  let box = rectToRect2D(Rect.new(0.0, 0.0, 10.0, 10.0))
+  let ray = Ray2D(origin = Vec2(x = -5.0, y = 5.0), dir = Vec2(x = 1.0, y = 0.0))
+  mut hitDist = 0
+  match rayIntersectsRect2D(ray, box):
+    Some(tVal) => hitDist = int(tVal + 0.5)
+    None => hitDist = -1
+  let polyA = Polygon2D(vertices = [Vec2(x = 0.0, y = 0.0), Vec2(x = 4.0, y = 0.0), Vec2(x = 2.0, y = 4.0)])
+  let polyB = Polygon2D(vertices = [Vec2(x = 1.0, y = 1.0), Vec2(x = 5.0, y = 1.0), Vec2(x = 3.0, y = 5.0)])
+  let satBit = if polygonSAT2D(polyA, polyB): 1 else: 0
+  ret hitDist + satBit
+
+pub fn evaluateSweptAabbEntryPermille(): int:
+  let sw = sweptAabb(0.0, 0.0, 2.0, 2.0, 10.0, 0.0, 5.0, 0.0, 2.0, 2.0)
+  if sw.hit:
+    ret int(sw.time * 1000.0 + 0.5)
+  ret -1
+
+pub fn describeCollisionManifold(active: bool): str:
+  if active:
+    ret "GEOM2D:CONTACT_ACTIVE"
+  ret "GEOM2D:SEPARATED_CLEAR"
+
+pub fn buildGeom2DLabState(frameIdx: int): Geom2DLabState:
+  let wall = rectToRect2D(Rect.new(340.0, 200.0, 180.0, 160.0))
+  let probeX = 240.0 + float((frameIdx * 6) % 260)
+  let cProbe = Circle2D(cx = probeX, cy = 280.0, r = 42.0)
+  let hitManifold = collideCircleRect(cProbe, wall)
+  let cHit = if circleIntersectsRect(cProbe, wall) and hitManifold.hit: 1 else: 0
+  ret Geom2DLabState(
+    rayHitT = 5,
+    satOverlapping = 1,
+    circleColliding = cHit,
+    sweptTimePermille = evaluateSweptAabbEntryPermille()
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildGeom2DLabState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.sweptTimePermille + frameIndex + dtPad
+
+pub fn renderGeom2DLabScene(frame: int): void:
+  let st = buildGeom2DLabState(frame)
+  let wallRect = Rect.new(340.0, 160.0, 180.0, 160.0)
+  let wall = rectToRect2D(wallRect)
+  let ray = Ray2D(origin = Vec2(x = 100.0, y = 210.0), dir = Vec2(x = 1.0, y = 0.0))
+  let rayT = rayIntersectsRect2D(ray, wall).unwrapOr(240.0)
+  let hitX = ray.origin.x + ray.dir.x * rayT
+  let hitY = ray.origin.y + ray.dir.y * rayT
+  let probeX = 240.0 + float((frame * 6) % 260)
+  let cProbe = Circle2D(cx = probeX, cy = 260.0, r = 42.0)
+  let polyShift = float((frame * 3) % 120)
+  let polyA = Polygon2D(vertices = [Vec2(x = 180.0, y = 620.0), Vec2(x = 360.0, y = 620.0), Vec2(x = 270.0, y = 470.0)])
+  let polyB = Polygon2D(vertices = [Vec2(x = 220.0 + polyShift, y = 640.0), Vec2(x = 400.0 + polyShift, y = 640.0), Vec2(x = 310.0 + polyShift, y = 490.0)])
+  let satHit = polygonSAT2D(polyA, polyB)
+
+  clearScreen(rgb(12, 16, 26))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(20, 28, 46))
+  drawText("AIPL ex_032: 2D Geometry Intersections, Ray-AABB Laser, Circle-Rect & SAT Triangles", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Left Upper Arena: Ray2D + Swept Circle2D vs Rect2D Obstacle
+  drawRect(60.0, 88.0, 680.0, 300.0, rgb(18, 24, 38))
+  drawRectOutline(60.0, 88.0, 680.0, 300.0, 2.0, rgb(56, 189, 248))
+
+  // Target Rect2D obstacle read directly from wallRect
+  drawRect(wallRect.x, wallRect.y, wallRect.w, wallRect.h, rgb(30, 41, 59))
+  drawRectOutline(wallRect.x, wallRect.y, wallRect.w, wallRect.h, 2.0, rgb(148, 163, 184))
+
+  // Raycast laser beam & exact slab entry marker read from rayIntersectsRect2D
+  drawLine(ray.origin.x, ray.origin.y, hitX, hitY, rgb(250, 204, 21), 3.0)
+  drawCircle(hitX, hitY, 7.0, rgb(248, 113, 113))
+
+  // Moving Circle2D probe read from cProbe
+  let probeColor = if st.circleColliding == 1: rgb(248, 113, 113) else: rgb(52, 211, 153)
+  drawCircle(cProbe.cx, cProbe.cy, cProbe.r, probeColor)
+  drawCircleOutline(cProbe.cx, cProbe.cy, cProbe.r, 2.0, rgb(241, 245, 249))
+
+  // Left Lower Arena: Separating Axis Theorem (SAT) Convex Triangles read from Polygon2D.vertices
+  drawRect(60.0, 412.0, 680.0, 260.0, rgb(18, 24, 38))
+  drawText("Polygon2D Separating Axis Theorem (SAT) Overlap Test", 84.0, 432.0, 18.0, rgb(191, 219, 254))
+  let a0 = polyA.vertices[0]
+  let a1 = polyA.vertices[1]
+  let a2 = polyA.vertices[2]
+  let b0 = polyB.vertices[0]
+  let b1 = polyB.vertices[1]
+  let b2 = polyB.vertices[2]
+  let polyBCol = if satHit: rgb(244, 63, 94) else: rgb(168, 85, 247)
+  drawTriangle(a0.x, a0.y, a1.x, a1.y, a2.x, a2.y, rgb(56, 189, 248))
+  drawTriangle(b0.x, b0.y, b1.x, b1.y, b2.x, b2.y, polyBCol)
+
+  // Right Telemetry Panel
+  drawRect(772.0, 88.0, 456.0, 584.0, rgb(17, 24, 39))
+  drawRectOutline(772.0, 88.0, 456.0, 584.0, 2.0, rgb(71, 85, 105))
+  drawText("Collision Manifold: " + describeCollisionManifold(st.circleColliding == 1), 796.0, 124.0, 18.0, probeColor)
+  drawText("Ray2D -> Rect2D Slab Hit t: " + str(int(rayT)), 796.0, 164.0, 16.0, rgb(250, 204, 21))
+  drawText("Swept AABB TOI (permille): " + str(st.sweptTimePermille), 796.0, 200.0, 16.0, rgb(167, 243, 208))
+  drawText("SAT Convex Overlap: " + str(satHit), 796.0, 236.0, 16.0, rgb(216, 180, 254))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_032 - 2D Computational Geometry & SAT Collision Lab")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderGeom2DLabScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

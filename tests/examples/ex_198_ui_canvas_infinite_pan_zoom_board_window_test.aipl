@@ -1,0 +1,41 @@
+module Ex198UiCanvasInfinitePanZoomBoardWindowTest
+
+import {
+  buildUiCanvasBoardAudit, stepBoardPanX, stepBoardPanY, stepBoardZoomPct
+} from "../../examples/ex_198_ui_canvas_infinite_pan_zoom_board_window"
+import {
+  ScissorRect, UiCanvas, pushScissor, popScissor,
+  computeAspectViewport, viewportPanZoomBoardToScreenX, viewportPanZoomBoardToScreenY
+} from "../../std/ui/ui_canvas"
+
+pub fn test_ui_canvas_infinite_pan_zoom_board(): void:
+  mut canvas = UiCanvas(width = 1280.0, height = 720.0, scissorStack = [])
+  canvas = pushScissor(canvas, ScissorRect(x = 0, y = 0, w = 600, h = 400))
+  canvas = pushScissor(canvas, ScissorRect(x = 200, y = 100, w = 600, h = 400))
+  assert(canvas.scissorStack[1].x == 200 and canvas.scissorStack[1].w == 400, "Nested pushScissor intersects clipping bounds")
+  canvas = popScissor(canvas)
+  assert(canvas.scissorStack.len() == 1, "popScissor restores parent clipping rectangle")
+
+  let vp = computeAspectViewport(1920.0, 1080.0, 1280.0, 720.0)
+  assert(vp.scale == 1.5, "computeAspectViewport scales 1280x720 to 1920x1080 by 1.5x")
+
+  let sx = viewportPanZoomBoardToScreenX(100.0, 40.0, 150.0, 0.0)
+  let sy = viewportPanZoomBoardToScreenY(80.0, 20.0, 150.0, 0.0)
+  assert(sx == 210.0 and sy == 150.0, "viewportPanZoomBoardToScreen transforms world board coords with 150% zoom")
+  assert(buildUiCanvasBoardAudit() == 761, "buildUiCanvasBoardAudit returns 400 + 1 + 210 + 150 == 761")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let px0 = stepBoardPanX(0)
+  let px1 = stepBoardPanX(1)
+  let px20 = stepBoardPanX(20)
+  let px100 = stepBoardPanX(100)
+  assert(px0 != px1 and px1 != px20 and px20 != px100, "Board panX progresses across t=0, 1, 20, 100")
+  let z0 = stepBoardZoomPct(0)
+  let z20 = stepBoardZoomPct(20)
+  let z100 = stepBoardZoomPct(100)
+  assert(z0 != z20 and z20 != z100, "Board zoomPct progresses across t=0, 20, 100 without aliasing")
+
+pub fn main(): int:
+  test_ui_canvas_infinite_pan_zoom_board()
+  println("PASS: ex_198_ui_canvas_infinite_pan_zoom_board_window_test")
+  ret 0

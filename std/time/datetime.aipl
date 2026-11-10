@@ -1,0 +1,621 @@
+// ============================================================================
+// Module: std/time/datetime (DatetimeMod)
+// Layer 1 (Core Primitives & Math) — Proleptic Gregorian Calendar & ISO-8601
+// ============================================================================
+module DatetimeMod
+
+import { NANOS_PER_SECOND } from "./duration"
+
+pub struct CivilDate:
+  year: int
+  month: int
+  day: int
+
+pub struct CivilTime:
+  hour: int
+  minute: int
+  second: int
+  nanosecond: int
+
+pub struct TimeZoneOffset:
+  offsetMinutes: int
+  name: str
+
+pub struct DateTimeUtc:
+  date: CivilDate
+  time: CivilTime
+  offset: TimeZoneOffset
+  unixNanos: int
+  year: int = 0
+  month: int = 0
+  day: int = 0
+  hour: int = 0
+  minute: int = 0
+  second: int = 0
+
+// Compatibility structs for legacy callers
+pub struct Date:
+  year: int
+  month: int
+  day: int
+
+pub struct Time:
+  hour: int
+  minute: int
+
+pub struct CivilDateTime:
+  year: int
+  month: int
+  day: int
+  hour: int
+  minute: int
+  second: int
+
+pub struct DateTime:
+  year: int
+  month: int
+  day: int
+  hour: int
+  minute: int
+  second: int
+
+pub fn timeZoneUtc(): TimeZoneOffset:
+  ret TimeZoneOffset(offsetMinutes = 0, name = "UTC")
+
+pub fn timeZoneOffsetNew(offsetMinutes: int, name: str = ""): TimeZoneOffset:
+  mut label = name
+  if label.len == 0:
+    if offsetMinutes == 0:
+      label = "UTC"
+    else:
+      let signCh = if offsetMinutes >= 0: "+" else: "-"
+      mut absMins = offsetMinutes
+      if absMins < 0:
+        absMins = -absMins
+      let hh = absMins / 60
+      let mm = absMins % 60
+      let hStr = if hh < 10: "0{hh}" else: "{hh}"
+      let mStr = if mm < 10: "0{mm}" else: "{mm}"
+      label = "{signCh}{hStr}:{mStr}"
+  ret TimeZoneOffset(offsetMinutes = offsetMinutes, name = label)
+
+pub fn civilDateNew(year: int, month: int, day: int): CivilDate:
+  ret CivilDate(year = year, month = month, day = day)
+
+pub fn civilTimeNew(hour: int, minute: int, second: int = 0, nanosecond: int = 0): CivilTime:
+  ret CivilTime(hour = hour, minute = minute, second = second, nanosecond = nanosecond)
+
+pub fn createDate(year: int, month: int, day: int): Date:
+  ret Date(year = year, month = month, day = day)
+
+pub fn createTime(hour: int, minute: int): Time:
+  ret Time(hour = hour, minute = minute)
+
+pub fn isLeapYear(year: int): bool:
+  if (year % 400) == 0:
+    ret true
+  if (year % 100) == 0:
+    ret false
+  ret (year % 4) == 0
+
+pub fn daysInMonth(year: int, month: int): int:
+  if month == 2:
+    if isLeapYear(year):
+      ret 29
+    ret 28
+  if month == 4 or month == 6 or month == 9 or month == 11:
+    ret 30
+  ret 31
+
+pub fn daysInYear(year: int): int:
+  if isLeapYear(year):
+    ret 366
+  ret 365
+
+// Sakamoto's algorithm: 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+pub fn dayOfWeek(year: int, month: int = 1, day: int = 1): int:
+  mut y = year
+  if month < 3:
+    y -= 1
+  let offsets = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4]
+  mut mIdx = month - 1
+  if mIdx < 0:
+    mIdx = 0
+  if mIdx > 11:
+    mIdx = 11
+  let raw = (y + y / 4 - y / 100 + y / 400 + offsets[mIdx] + day) % 7
+  if raw < 0:
+    ret raw + 7
+  ret raw
+
+pub fn dayOfYear(year: int, month: int, day: int): int:
+  mut total = 0
+  mut m = 1
+  while m < month and m <= 12:
+    total += daysInMonth(year, m)
+    m += 1
+  ret total + day
+
+pub fn isValidCivilDate(year: int, month: int, day: int): bool:
+  if month < 1 or month > 12:
+    ret false
+  let dim = daysInMonth(year, month)
+  ret day >= 1 and day <= dim
+
+pub fn isValidCivilTime(hour: int, minute: int, second: int, nanosecond: int = 0): bool:
+  if hour < 0 or hour > 23:
+    ret false
+  if minute < 0 or minute > 59:
+    ret false
+  if second < 0 or second > 60:
+    ret false
+  ret nanosecond >= 0 and nanosecond < 1000000000
+
+pub fn monthName(m: int): str:
+  if m == 1:
+    ret "January"
+  if m == 2:
+    ret "February"
+  if m == 3:
+    ret "March"
+  if m == 4:
+    ret "April"
+  if m == 5:
+    ret "May"
+  if m == 6:
+    ret "June"
+  if m == 7:
+    ret "July"
+  if m == 8:
+    ret "August"
+  if m == 9:
+    ret "September"
+  if m == 10:
+    ret "October"
+  if m == 11:
+    ret "November"
+  if m == 12:
+    ret "December"
+  ret "Unknown"
+
+pub fn monthShortName(m: int): str:
+  if m == 1:
+    ret "Jan"
+  if m == 2:
+    ret "Feb"
+  if m == 3:
+    ret "Mar"
+  if m == 4:
+    ret "Apr"
+  if m == 5:
+    ret "May"
+  if m == 6:
+    ret "Jun"
+  if m == 7:
+    ret "Jul"
+  if m == 8:
+    ret "Aug"
+  if m == 9:
+    ret "Sep"
+  if m == 10:
+    ret "Oct"
+  if m == 11:
+    ret "Nov"
+  if m == 12:
+    ret "Dec"
+  ret "Unk"
+
+pub fn dayOfWeekName(dow: int): str:
+  if dow == 0 or dow == 7:
+    ret "Sunday"
+  if dow == 1:
+    ret "Monday"
+  if dow == 2:
+    ret "Tuesday"
+  if dow == 3:
+    ret "Wednesday"
+  if dow == 4:
+    ret "Thursday"
+  if dow == 5:
+    ret "Friday"
+  if dow == 6:
+    ret "Saturday"
+  ret "Unknown"
+
+pub fn dayOfWeekShortName(dow: int): str:
+  if dow == 0 or dow == 7:
+    ret "Sun"
+  if dow == 1:
+    ret "Mon"
+  if dow == 2:
+    ret "Tue"
+  if dow == 3:
+    ret "Wed"
+  if dow == 4:
+    ret "Thu"
+  if dow == 5:
+    ret "Fri"
+  if dow == 6:
+    ret "Sat"
+  ret "Unk"
+
+pub fn dateDayOfWeek(d: Date): int:
+  let dow = dayOfWeek(d.year, d.month, d.day)
+  if dow == 0:
+    ret 7
+  ret dow
+
+// Howard Hinnant civil_from_days algorithm (proleptic Gregorian calendar)
+pub fn unixToCivil(unixSec: int): CivilDateTime:
+  mut days = unixSec / 86400
+  mut rem = unixSec % 86400
+  if rem < 0:
+    rem += 86400
+    days -= 1
+
+  let hour = rem / 3600
+  let minute = (rem % 3600) / 60
+  let second = rem % 60
+
+  let z = days + 719468
+  mut era = z / 146097
+  if z < 0 and (z % 146097) != 0:
+    era -= 1
+  let doe = z - era * 146097
+  let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+  mut y = yoe + era * 400
+  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+  let mp = (5 * doy + 2) / 153
+  let d = doy - (153 * mp + 2) / 5 + 1
+  mut m = mp + 3
+  if mp >= 10:
+    m = mp - 9
+  if m <= 2:
+    y += 1
+
+  ret CivilDateTime(year = y, month = m, day = d, hour = hour, minute = minute, second = second)
+
+// Howard Hinnant days_from_civil algorithm
+pub fn civilToUnix(dt: CivilDateTime): int:
+  mut y = dt.year
+  let m = dt.month
+  let d = dt.day
+  if m <= 2:
+    y -= 1
+  mut era = y / 400
+  if y < 0 and (y % 400) != 0:
+    era -= 1
+  let yoe = y - era * 400
+  mut mPrime = m - 3
+  if m <= 2:
+    mPrime = m + 9
+  let doy = (153 * mPrime + 2) / 5 + d - 1
+  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+  let days = era * 146097 + doe - 719468
+  ret days * 86400 + dt.hour * 3600 + dt.minute * 60 + dt.second
+
+pub fn unixToDateTimeUtc(unixSec: int, unixNano: int = 0): DateTimeUtc:
+  mut adjSec = unixSec + (unixNano / NANOS_PER_SECOND)
+  mut remNano = unixNano % NANOS_PER_SECOND
+  if remNano < 0:
+    remNano += NANOS_PER_SECOND
+    adjSec -= 1
+  let civ = unixToCivil(adjSec)
+  let cd = CivilDate(year = civ.year, month = civ.month, day = civ.day)
+  let ct = CivilTime(hour = civ.hour, minute = civ.minute, second = civ.second, nanosecond = remNano)
+  let tz = timeZoneUtc()
+  ret DateTimeUtc(
+    date = cd,
+    time = ct,
+    offset = tz,
+    unixNanos = adjSec * NANOS_PER_SECOND + remNano,
+    year = cd.year,
+    month = cd.month,
+    day = cd.day,
+    hour = ct.hour,
+    minute = ct.minute,
+    second = ct.second
+  )
+
+pub fn dateTimeUtcToUnix(dt: DateTimeUtc): int:
+  let civ = CivilDateTime(
+    year = dt.date.year,
+    month = dt.date.month,
+    day = dt.date.day,
+    hour = dt.time.hour,
+    minute = dt.time.minute,
+    second = dt.time.second
+  )
+  let localSec = civilToUnix(civ)
+  ret localSec - (dt.offset.offsetMinutes * 60)
+
+pub fn (self: DateTimeUtc) toUnixSeconds(): int:
+  ret dateTimeUtcToUnix(self)
+
+pub fn (self: DateTimeUtc) toUnixMillis(): int:
+  ret dateTimeUtcToUnix(self) * 1000 + (self.time.nanosecond / 1000000)
+
+pub fn (self: DateTimeUtc) toLocal(offset: TimeZoneOffset): DateTimeUtc:
+  let utcSec = dateTimeUtcToUnix(self)
+  let shiftedSec = utcSec + offset.offsetMinutes * 60
+  let civ = unixToCivil(shiftedSec)
+  ret DateTimeUtc(
+    date = CivilDate(year = civ.year, month = civ.month, day = civ.day),
+    time = CivilTime(hour = civ.hour, minute = civ.minute, second = civ.second, nanosecond = self.time.nanosecond),
+    offset = offset,
+    unixNanos = self.unixNanos,
+    year = civ.year,
+    month = civ.month,
+    day = civ.day,
+    hour = civ.hour,
+    minute = civ.minute,
+    second = civ.second
+  )
+
+fn pad2(n: int): str:
+  if n < 10:
+    ret "0{n}"
+  ret "{n}"
+
+fn pad3(n: int): str:
+  if n < 10:
+    ret "00{n}"
+  if n < 100:
+    ret "0{n}"
+  ret "{n}"
+
+fn pad4(n: int): str:
+  if n < 10:
+    ret "000{n}"
+  if n < 100:
+    ret "00{n}"
+  if n < 1000:
+    ret "0{n}"
+  ret "{n}"
+
+fn parseDigitsRange(s: str, start: int, end: int): Result[int, str]:
+  if end > s.len or start >= end:
+    ret Err("invalid date field")
+  let digits = "0123456789"
+  mut acc = 0
+  mut i = start
+  while i < end:
+    let dig = digits.indexOf(s.charAt(i))
+    if dig < 0:
+      ret Err("non-digit in date")
+    acc = acc * 10 + dig
+    i += 1
+  ret Ok(acc)
+
+pub fn parseIso8601(s: str): Result[DateTimeUtc, str]:
+  let trimmed = s.trim()
+  if trimmed.len < 10:
+    ret Err("ISO-8601 string too short")
+  let yRes = parseDigitsRange(trimmed, 0, 4)
+  let mRes = parseDigitsRange(trimmed, 5, 7)
+  let dRes = parseDigitsRange(trimmed, 8, 10)
+  match yRes:
+    Err(e) => ret Err(e)
+    Ok(year) =>
+      match mRes:
+        Err(e) => ret Err(e)
+        Ok(month) =>
+          match dRes:
+            Err(e) => ret Err(e)
+            Ok(day) =>
+              if not isValidCivilDate(year, month, day):
+                ret Err("ISO-8601 invalid calendar date")
+              if trimmed.len < 19:
+                let civ = CivilDateTime(year = year, month = month, day = day, hour = 0, minute = 0, second = 0)
+                let uSec = civilToUnix(civ)
+                ret Ok(unixToDateTimeUtc(uSec, 0))
+              let hRes = parseDigitsRange(trimmed, 11, 13)
+              let minRes = parseDigitsRange(trimmed, 14, 16)
+              let secRes = parseDigitsRange(trimmed, 17, 19)
+              match hRes:
+                Err(e) => ret Err(e)
+                Ok(hour) =>
+                  match minRes:
+                    Err(e) => ret Err(e)
+                    Ok(minute) =>
+                      match secRes:
+                        Err(e) => ret Err(e)
+                        Ok(second) =>
+                          if not isValidCivilTime(hour, minute, second, 0):
+                            ret Err("ISO-8601 invalid clock time")
+                          mut tzOffsetMins = 0
+                          mut tzName = "UTC"
+                          if trimmed.len > 19:
+                            let tail = trimmed.slice(19, trimmed.len)
+                            if tail == "Z" or tail == "z":
+                              tzOffsetMins = 0
+                              tzName = "UTC"
+                            elif (tail.startsWith("+") or tail.startsWith("-")) and tail.len >= 6:
+                              let signFactor = if tail.startsWith("-"): -1 else: 1
+                              let tzH = parseDigitsRange(tail, 1, 3)
+                              let tzM = parseDigitsRange(tail, 4, 6)
+                              match tzH:
+                                Ok(th) =>
+                                  match tzM:
+                                    Ok(tm) =>
+                                      tzOffsetMins = signFactor * (th * 60 + tm)
+                                      tzName = tail.slice(0, 6)
+                                    Err(_) => tzOffsetMins = 0
+                                Err(_) => tzOffsetMins = 0
+                          let civ = CivilDateTime(year = year, month = month, day = day, hour = hour, minute = minute, second = second)
+                          let localSec = civilToUnix(civ)
+                          let utcSec = localSec - tzOffsetMins * 60
+                          let cd = CivilDate(year = year, month = month, day = day)
+                          let ct = CivilTime(hour = hour, minute = minute, second = second, nanosecond = 0)
+                          let tz = TimeZoneOffset(offsetMinutes = tzOffsetMins, name = tzName)
+                          ret Ok(DateTimeUtc(
+                            date = cd,
+                            time = ct,
+                            offset = tz,
+                            unixNanos = utcSec * NANOS_PER_SECOND,
+                            year = year,
+                            month = month,
+                            day = day,
+                            hour = hour,
+                            minute = minute,
+                            second = second
+                          ))
+
+pub fn formatIso8601(dt: DateTimeUtc): str:
+  let ys = pad4(dt.date.year)
+  let ms = pad2(dt.date.month)
+  let ds = pad2(dt.date.day)
+  let hs = pad2(dt.time.hour)
+  let mins = pad2(dt.time.minute)
+  let secs = pad2(dt.time.second)
+  if dt.offset.offsetMinutes == 0:
+    ret "{ys}-{ms}-{ds}T{hs}:{mins}:{secs}Z"
+  let signCh = if dt.offset.offsetMinutes >= 0: "+" else: "-"
+  mut absMins = dt.offset.offsetMinutes
+  if absMins < 0:
+    absMins = -absMins
+  let tzh = pad2(absMins / 60)
+  let tzm = pad2(absMins % 60)
+  ret "{ys}-{ms}-{ds}T{hs}:{mins}:{secs}{signCh}{tzh}:{tzm}"
+
+fn parseMonthAbbrev(mon: str): int:
+  let m = mon.toLowerCase()
+  if m == "jan":
+    ret 1
+  if m == "feb":
+    ret 2
+  if m == "mar":
+    ret 3
+  if m == "apr":
+    ret 4
+  if m == "may":
+    ret 5
+  if m == "jun":
+    ret 6
+  if m == "jul":
+    ret 7
+  if m == "aug":
+    ret 8
+  if m == "sep":
+    ret 9
+  if m == "oct":
+    ret 10
+  if m == "nov":
+    ret 11
+  if m == "dec":
+    ret 12
+  ret -1
+
+// Formats e.g. "Wed, 04 Nov 2026 12:30:00 +0000"
+pub fn formatRfc2822(dt: DateTimeUtc): str:
+  let dow = dayOfWeek(dt.date.year, dt.date.month, dt.date.day)
+  let wName = dayOfWeekShortName(dow)
+  let mName = monthShortName(dt.date.month)
+  let dStr = pad2(dt.date.day)
+  let yStr = pad4(dt.date.year)
+  let hStr = pad2(dt.time.hour)
+  let minStr = pad2(dt.time.minute)
+  let secStr = pad2(dt.time.second)
+  let signCh = if dt.offset.offsetMinutes >= 0: "+" else: "-"
+  mut absMins = dt.offset.offsetMinutes
+  if absMins < 0:
+    absMins = -absMins
+  let tzh = pad2(absMins / 60)
+  let tzm = pad2(absMins % 60)
+  ret "{wName}, {dStr} {mName} {yStr} {hStr}:{minStr}:{secStr} {signCh}{tzh}{tzm}"
+
+pub fn formatRfc822(dt: DateTimeUtc): str:
+  ret formatRfc2822(dt)
+
+pub fn parseRfc2822(s: str): Result[DateTimeUtc, str]:
+  let trimmed = s.trim()
+  mut body = trimmed
+  let commaIdx = trimmed.indexOf(",")
+  if commaIdx >= 0:
+    body = trimmed.slice(commaIdx + 1, trimmed.len).trim()
+  mut parts: [str] = []
+  for rawPart in body.split(" "):
+    let p = rawPart.trim()
+    if p.len > 0:
+      parts.push(p)
+  if parts.len < 4:
+    ret Err("Invalid RFC-2822 timestamp")
+  let dayRes = parseDigitsRange(parts[0], 0, parts[0].len)
+  let month = parseMonthAbbrev(parts[1])
+  let yearRes = parseDigitsRange(parts[2], 0, parts[2].len)
+  let hms = parts[3]
+  if month < 1 or hms.len < 8:
+    ret Err("Invalid month or time in RFC-2822")
+  match dayRes:
+    Err(e) => ret Err(e)
+    Ok(day) =>
+      match yearRes:
+        Err(e) => ret Err(e)
+        Ok(year) =>
+          let hRes = parseDigitsRange(hms, 0, 2)
+          let mRes = parseDigitsRange(hms, 3, 5)
+          let sRes = parseDigitsRange(hms, 6, 8)
+          match hRes:
+            Err(e) => ret Err(e)
+            Ok(hour) =>
+              match mRes:
+                Err(e) => ret Err(e)
+                Ok(minute) =>
+                  match sRes:
+                    Err(e) => ret Err(e)
+                    Ok(second) =>
+                      let civ = CivilDateTime(year = year, month = month, day = day, hour = hour, minute = minute, second = second)
+                      let uSec = civilToUnix(civ)
+                      ret Ok(unixToDateTimeUtc(uSec, 0))
+
+pub fn parseRfc822(s: str): Result[DateTimeUtc, str]:
+  ret parseRfc2822(s)
+
+pub fn formatDate(d: Date): str:
+  let mStr = pad2(d.month)
+  let dStr = pad2(d.day)
+  ret "{d.year}-{mStr}-{dStr}"
+
+pub fn formatTime(t: Time): str:
+  let hStr = pad2(t.hour)
+  let mStr = pad2(t.minute)
+  ret "{hStr}:{mStr}"
+
+pub fn compareDates(a: Date, b: Date): int:
+  if a.year < b.year:
+    ret -1
+  if a.year > b.year:
+    ret 1
+  if a.month < b.month:
+    ret -1
+  if a.month > b.month:
+    ret 1
+  if a.day < b.day:
+    ret -1
+  if a.day > b.day:
+    ret 1
+  ret 0
+
+pub fn isDateBefore(a: Date, b: Date): bool:
+  ret compareDates(a, b) < 0
+
+pub fn isDateAfter(a: Date, b: Date): bool:
+  ret compareDates(a, b) > 0
+
+pub fn isDateEqual(a: Date, b: Date): bool:
+  ret compareDates(a, b) == 0
+
+pub fn dateToDays(d: Date): int:
+  mut y = d.year
+  mut m = d.month
+  if m <= 2:
+    y -= 1
+    m += 12
+  ret 365 * y + (y / 4) - (y / 100) + (y / 400) + ((153 * (m - 3) + 2) / 5) + d.day - 1
+
+pub fn daysBetween(a: Date, b: Date): int:
+  let da = dateToDays(a)
+  let db = dateToDays(b)
+  if db >= da:
+    ret db - da
+  ret da - db

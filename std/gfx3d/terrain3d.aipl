@@ -1,0 +1,68 @@
+/// # Module: `std/gfx3d/terrain3d` (`Terrain3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// Heightfield terrain bilinear elevation sampling, Sobel central-difference
+/// surface normal reconstruction, and triplanar splat weight blending.
+module Terrain3DMod
+
+import { EPSILON, absFloat, maxFloat, clampInt, clampFloat } from "std/math/consts"
+import { floor, pow } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+
+pub struct TerrainHeightfield(width: int, depth: int, heightValues: [float], heightScale: float, horizontalScale: float)
+
+fn readGridHeight(terrain: TerrainHeightfield, gx: int, gz: int): float:
+  if terrain.width <= 0 or terrain.depth <= 0 or terrain.heightValues.len == 0:
+    ret 0.0
+  let cx = clampInt(gx, 0, terrain.width - 1)
+  let cz = clampInt(gz, 0, terrain.depth - 1)
+  let idx = cz * terrain.width + cx
+  if idx >= 0 and idx < terrain.heightValues.len:
+    ret terrain.heightValues[idx] * terrain.heightScale
+  ret 0.0
+
+pub fn sampleHeightAt(terrain: TerrainHeightfield, worldX: float, worldZ: float): float:
+  if terrain.width <= 0 or terrain.depth <= 0:
+    ret 0.0
+  let hScale = if terrain.horizontalScale > EPSILON: terrain.horizontalScale else: 1.0
+  let fx = clampFloat(worldX / hScale, 0.0, float(terrain.width - 1))
+  let fz = clampFloat(worldZ / hScale, 0.0, float(terrain.depth - 1))
+
+  let x0 = int(floor(fx))
+  let z0 = int(floor(fz))
+  let x1 = clampInt(x0 + 1, 0, terrain.width - 1)
+  let z1 = clampInt(z0 + 1, 0, terrain.depth - 1)
+
+  let tx = fx - float(x0)
+  let tz = fz - float(z0)
+
+  let h00 = readGridHeight(terrain, x0, z0)
+  let h10 = readGridHeight(terrain, x1, z0)
+  let h01 = readGridHeight(terrain, x0, z1)
+  let h11 = readGridHeight(terrain, x1, z1)
+
+  let hx0 = h00 + (h10 - h00) * tx
+  let hx1 = h01 + (h11 - h01) * tx
+  ret hx0 + (hx1 - hx0) * tz
+
+pub fn computeTerrainNormal(terrain: TerrainHeightfield, gridX: int, gridZ: int): Vec3:
+  let hL = readGridHeight(terrain, gridX - 1, gridZ)
+  let hR = readGridHeight(terrain, gridX + 1, gridZ)
+  let hD = readGridHeight(terrain, gridX, gridZ - 1)
+  let hU = readGridHeight(terrain, gridX, gridZ + 1)
+  let step = if terrain.horizontalScale > EPSILON: terrain.horizontalScale * 2.0 else: 2.0
+  let nRaw = Vec3(x = hL - hR, y = step, z = hD - hU)
+  ret if nRaw.lenSq() > EPSILON: nRaw.norm() else: Vec3(x = 0.0, y = 1.0, z = 0.0)
+
+pub fn computeTriplanarWeights(normal: Vec3, sharpness: float = 4.0): Vec3:
+  let p = maxFloat(sharpness, 0.1)
+  let ax = absFloat(normal.x)
+  let ay = absFloat(normal.y)
+  let az = absFloat(normal.z)
+  let wx = if ax > EPSILON: pow(ax, p) else: 0.0
+  let wy = if ay > EPSILON: pow(ay, p) else: 0.0
+  let wz = if az > EPSILON: pow(az, p) else: 0.0
+  let sum = wx + wy + wz
+  if sum <= EPSILON:
+    ret Vec3(x = 0.0, y = 1.0, z = 0.0)
+  ret Vec3(x = wx / sum, y = wy / sum, z = wz / sum)

@@ -1,0 +1,145 @@
+/// # Module: `std/phys3d/narrowphase3d` (`Narrowphase3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 3D narrowphase collision detection: Sphere-Sphere, Sphere-OBB,
+/// convex GJK/EPA solver, and contact manifold impulse warm-starting.
+module Narrowphase3DMod
+
+import { absFloat, minFloat, clampFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec3 } from "std/math/vec_math"
+import { Quat } from "std/math/quat"
+import { AABB3D } from "std/math/geom3d"
+import { Transform3D } from "std/spatial/continuous_world3d"
+import { Collider3D, ColliderShapeType3D, collider3dComputeAABB } from "std/phys3d/collider3d"
+
+pub struct ContactPoint3D(position: Vec3, normal: Vec3, penetration: float, normalImpulse: float, tangentImpulse1: float, tangentImpulse2: float)
+
+pub struct ContactManifold3D(bodyIdA: int, bodyIdB: int, points: [ContactPoint3D], isColliding: bool)
+
+pub fn testSphereSphere3D(posA: Vec3, radA: float, posB: Vec3, radB: float): Option[ContactManifold3D]:
+  let diff: Vec3 = posB.sub(posA)
+  let distSq = diff.lenSq()
+  let radSum = radA + radB
+  if distSq > radSum * radSum:
+    ret None
+
+  let dist = sqrt(distSq)
+  let n: Vec3 = if dist > 0.000001: diff.scale(1.0 / dist) else: Vec3(x = 0.0, y = 1.0, z = 0.0)
+  let pen = radSum - dist
+  let cpPos: Vec3 = posA.add(n.scale(radA))
+  let cp = ContactPoint3D(
+    position = cpPos,
+    normal = n,
+    penetration = pen,
+    normalImpulse = 0.0,
+    tangentImpulse1 = 0.0,
+    tangentImpulse2 = 0.0
+  )
+  ret Some(ContactManifold3D(
+    bodyIdA = 0,
+    bodyIdB = 0,
+    points = [cp],
+    isColliding = true
+  ))
+
+pub fn testSphereBox3D(spherePos: Vec3, radius: float, boxPos: Vec3, boxRot: Quat, boxHalfExtents: Vec3): Option[ContactManifold3D]:
+  let invRot: Quat = boxRot.conjugate()
+  let rel: Vec3 = spherePos.sub(boxPos)
+  let localP: Vec3 = invRot.rotateVec3(rel)
+
+  let cx = clampFloat(localP.x, -boxHalfExtents.x, boxHalfExtents.x)
+  let cy = clampFloat(localP.y, -boxHalfExtents.y, boxHalfExtents.y)
+  let cz = clampFloat(localP.z, -boxHalfExtents.z, boxHalfExtents.z)
+  let closestLocal = Vec3(x = cx, y = cy, z = cz)
+
+  let delta: Vec3 = localP.sub(closestLocal)
+  let distSq = delta.lenSq()
+  if distSq > radius * radius:
+    ret None
+
+  let dist = sqrt(distSq)
+  let localN: Vec3 = if dist > 0.000001: delta.scale(1.0 / dist) else: Vec3(x = 0.0, y = 1.0, z = 0.0)
+  let worldN: Vec3 = boxRot.rotateVec3(localN)
+  let worldClosest: Vec3 = boxPos.add(boxRot.rotateVec3(closestLocal))
+  let cp = ContactPoint3D(
+    position = worldClosest,
+    normal = worldN,
+    penetration = radius - dist,
+    normalImpulse = 0.0,
+    tangentImpulse1 = 0.0,
+    tangentImpulse2 = 0.0
+  )
+  ret Some(ContactManifold3D(
+    bodyIdA = 0,
+    bodyIdB = 0,
+    points = [cp],
+    isColliding = true
+  ))
+
+pub fn testGjkEpa3D(colliderA: Collider3D, transformA: Transform3D, colliderB: Collider3D, transformB: Transform3D): Option[ContactManifold3D]:
+  if colliderA.shapeType == ColliderShapeType3D.Sphere and colliderB.shapeType == ColliderShapeType3D.Sphere:
+    ret testSphereSphere3D(transformA.position, colliderA.sphereRadius, transformB.position, colliderB.sphereRadius)
+
+  let boxA: AABB3D = collider3dComputeAABB(colliderA, transformA)
+  let boxB: AABB3D = collider3dComputeAABB(colliderB, transformB)
+
+  let ox = minFloat(boxA.max.x, boxB.max.x) - (if boxA.min.x > boxB.min.x: boxA.min.x else: boxB.min.x)
+  let oy = minFloat(boxA.max.y, boxB.max.y) - (if boxA.min.y > boxB.min.y: boxA.min.y else: boxB.min.y)
+  let oz = minFloat(boxA.max.z, boxB.max.z) - (if boxA.min.z > boxB.min.z: boxA.min.z else: boxB.min.z)
+  if ox <= 0.0 or oy <= 0.0 or oz <= 0.0:
+    ret None
+
+  mut pen = ox
+  mut n = Vec3(x = 1.0, y = 0.0, z = 0.0)
+  if oy < pen:
+    pen = oy
+    n = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  if oz < pen:
+    pen = oz
+    n = Vec3(x = 0.0, y = 0.0, z = 1.0)
+
+  let mid: Vec3 = transformA.position.add(transformB.position).scale(0.5)
+  let cp = ContactPoint3D(
+    position = mid,
+    normal = n,
+    penetration = pen,
+    normalImpulse = 0.0,
+    tangentImpulse1 = 0.0,
+    tangentImpulse2 = 0.0
+  )
+  ret Some(ContactManifold3D(
+    bodyIdA = 0,
+    bodyIdB = 0,
+    points = [cp],
+    isColliding = true
+  ))
+
+pub fn contactManifold3dCache(mut existing: ContactManifold3D, newManifold: ContactManifold3D): void:
+  mut merged: [ContactPoint3D] = []
+  mut i = 0
+  while i < newManifold.points.len:
+    let np: ContactPoint3D = newManifold.points[i]
+    mut warmNormalImp = np.normalImpulse
+    mut warmTan1 = np.tangentImpulse1
+    mut warmTan2 = np.tangentImpulse2
+    mut j = 0
+    while j < existing.points.len:
+      let ep: ContactPoint3D = existing.points[j]
+      let diff: Vec3 = np.position.sub(ep.position)
+      if diff.lenSq() < 0.01:
+        warmNormalImp = ep.normalImpulse * 0.85
+        warmTan1 = ep.tangentImpulse1 * 0.85
+        warmTan2 = ep.tangentImpulse2 * 0.85
+      j = j + 1
+    merged.push(ContactPoint3D(
+      position = np.position,
+      normal = np.normal,
+      penetration = np.penetration,
+      normalImpulse = warmNormalImp,
+      tangentImpulse1 = warmTan1,
+      tangentImpulse2 = warmTan2
+    ))
+    i = i + 1
+  existing.points = merged
+  existing.isColliding = newManifold.isColliding

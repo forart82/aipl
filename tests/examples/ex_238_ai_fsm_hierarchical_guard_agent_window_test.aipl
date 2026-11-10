@@ -1,0 +1,55 @@
+module Ex238AiFsmHierarchicalGuardAgentWindowTest
+
+import {
+  HierarchicalStateMachine, fsmNew, fsmAddState, fsmAddTransition,
+  fsmTriggerEvent, fsmCurrentStateId, fsmCurrentStateName,
+  fsmHasState, fsmReset, fsmGetValidEvents
+} from "../../std/ai/fsm"
+import {
+  GuardFsmScene, createGuardFsmScene, stepScene, auditAiFsmGuardAgent
+} from "../../examples/ex_238_ai_fsm_hierarchical_guard_agent_window"
+
+pub fn test_ai_fsm_hierarchical_guard_agent(): void:
+  mut sm = fsmNew(1)
+  fsmAddState(sm, 1, "Idle")
+  fsmAddState(sm, 2, "Patrol")
+  fsmAddState(sm, 3, "Chase")
+  fsmAddTransition(sm, 1, 2, "StartPatrol")
+  fsmAddTransition(sm, 2, 3, "SpotIntruder")
+  assert(fsmCurrentStateId(sm) == 1 and fsmCurrentStateName(sm) == "Idle", "Initial Idle state")
+  assert(fsmHasState(sm, 3) and fsmGetValidEvents(sm).len() == 1, "Valid events from Idle")
+  assert(fsmTriggerEvent(sm, "StartPatrol") and fsmCurrentStateId(sm) == 2, "Transition to Patrol")
+  assert(fsmTriggerEvent(sm, "SpotIntruder") and fsmCurrentStateId(sm) == 3, "Transition to Chase")
+  sm = fsmReset(sm, 1)
+  assert(fsmCurrentStateId(sm) == 1, "fsmReset back to Idle")
+
+  mut scene: GuardFsmScene = createGuardFsmScene()
+  let s0 = fsmCurrentStateId(scene.fsm)
+  let gx0 = scene.guardX
+  assert(s0 == 1, "Guard starts in Idle state 1")
+  stepScene(scene, 0, 0.1)
+  let s1 = fsmCurrentStateId(scene.fsm)
+  let gx1 = scene.guardX
+  assert(s1 == 2 and gx1 > gx0, "t=0 -> t=1 transitions guard to Patrol and advances position")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let s20 = fsmCurrentStateId(scene.fsm)
+  let gx20 = scene.guardX
+  assert(s20 >= 3 and gx20 > gx1, "t=1 -> t=20 transitions guard through Investigate/Chase as distance closes")
+
+  while f <= 100:
+    stepScene(scene, f, 0.1)
+    f = f + 1
+  let s100 = fsmCurrentStateId(scene.fsm)
+  assert(s100 >= 2 and scene.guardX != gx20 and scene.validEventCount >= 1, "t=20 -> t=100 continues cyclic patrol/investigate/chase FSM loop")
+
+  let audit = auditAiFsmGuardAgent()
+  assert(audit == 43, "Hierarchical FSM guard agent audit")
+
+pub fn main(): int:
+  test_ai_fsm_hierarchical_guard_agent()
+  println("PASS: ex_238_ai_fsm_hierarchical_guard_agent_window_test")
+  ret 0

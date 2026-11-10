@@ -1,0 +1,182 @@
+/// # Module: `std/math/prng` (`MathPrng`)
+///
+/// ## Purpose & Domain Scope
+/// High-speed deterministic pseudo-random number generators (`Pcg32Rng`, `Xoshiro256Rng`,
+/// `SplitMix64`, `Rng`) for reproducible simulations and procedural sampling.
+module MathPrng
+
+import { TAU } from "std/math/consts"
+import { sin, cos, sqrt } from "std/math/trig"
+
+pub struct Pcg32Rng:
+  mut state: int
+  mut inc: int
+
+pub struct Xoshiro256Rng:
+  mut s0: int
+  mut s1: int
+  mut s2: int
+  mut s3: int
+
+pub struct Rng:
+  mut state: int
+
+pub struct RngState:
+  mut state: int = 0
+  mut seed: int = 0
+
+pub fn splitMix64Next(state: int): [int]:
+  let nextState = (state + 0x1e3779b97f4a7c15) & 0x3fffffffffffffff
+  mut z = nextState
+  z = ((z ^ (z >> 30)) * 0x1f58476d1ce4e5b9) & 0x3fffffffffffffff
+  z = ((z ^ (z >> 27)) * 0x14d049bb133111eb) & 0x3fffffffffffffff
+  let out = (z ^ (z >> 31)) & 0x3fffffffffffffff
+  ret [nextState, out]
+
+pub fn pcg32Next(state: int, inc: int): [int]:
+  let oldState = state & 0x3fffffffffffffff
+  let stream = ((inc << 1) | 1) & 0x3fffffff
+  let nextState = (oldState * 6364136223846793005 + stream) & 0x3fffffffffffffff
+  let xorshifted = (((oldState >> 18) ^ oldState) >> 27) & 0xffffffff
+  let rot = (oldState >> 57) & 31
+  let negRot = (32 - rot) & 31
+  let out = ((xorshifted >> rot) | ((xorshifted << negRot) & 0xffffffff)) & 0x7fffffff
+  ret [nextState, out]
+
+pub fn pcg32Init(seed: int, seq: int = 54): Pcg32Rng:
+  let s = if seed != 0: seed else: 42
+  let step1 = pcg32Next(0, seq)
+  let step2 = pcg32Next(step1[0] + s, seq)
+  ret Pcg32Rng(state = step2[0], inc = seq)
+
+pub fn (mut self: Pcg32Rng) nextU32(): int:
+  let res = pcg32Next(self.state, self.inc)
+  self.state = res[0]
+  ret res[1]
+
+pub fn (mut self: Pcg32Rng) nextFloat(): float:
+  let u = self.nextU32()
+  ret float(u % 16777216) / 16777216.0
+
+pub fn (mut self: Pcg32Rng) rangeInt(minVal: int, maxVal: int): int:
+  if maxVal <= minVal:
+    ret minVal
+  let span = maxVal - minVal + 1
+  let u = self.nextU32()
+  ret minVal + (u % span)
+
+pub fn xoshiro256Init(seed: int): Xoshiro256Rng:
+  let sm0 = splitMix64Next(seed)
+  let sm1 = splitMix64Next(sm0[0])
+  let sm2 = splitMix64Next(sm1[0])
+  let sm3 = splitMix64Next(sm2[0])
+  ret Xoshiro256Rng(s0 = sm0[1], s1 = sm1[1], s2 = sm2[1], s3 = sm3[1])
+
+pub fn (mut self: Xoshiro256Rng) nextU64(): int:
+  let result = (self.s0 + self.s3) & 0x3fffffffffffffff
+  let t = (self.s1 << 17) & 0x3fffffffffffffff
+  self.s2 = self.s2 ^ self.s0
+  self.s3 = self.s3 ^ self.s1
+  self.s1 = self.s1 ^ self.s2
+  self.s0 = self.s0 ^ self.s3
+  self.s2 = self.s2 ^ t
+  self.s3 = ((self.s3 << 45) | (self.s3 >> 19)) & 0x3fffffffffffffff
+  ret result
+
+pub fn rngNew(seed: int): Rng:
+  let s = if seed != 0: seed else: 123456789
+  ret Rng(state = s)
+
+pub fn rngNext(mut rng: Rng): (Rng, int):
+  let sm = splitMix64Next(rng.state)
+  ret (Rng(state = sm[0]), sm[1])
+
+pub fn rngNextInt(mut rng: Rng, minVal: int, maxVal: int): (Rng, int):
+  if maxVal <= minVal:
+    ret (rng, minVal)
+  let (nextRng, raw) = rngNext(rng)
+  let span = maxVal - minVal + 1
+  ret (nextRng, minVal + (raw % span))
+
+pub fn rngNextFloat(mut rng: Rng): (Rng, float):
+  let (nextRng, raw) = rngNext(rng)
+  ret (nextRng, float(raw % 16777216) / 16777216.0)
+
+pub fn setRandomSeed(seed: int): void:
+  ret
+
+pub fn randomFloat(): float:
+  ret randFloat()
+
+pub fn randomRange(minVal: float, maxVal: float): float:
+  ret minVal + (maxVal - minVal) * randomFloat()
+
+pub fn randomIntRange(minVal: int, maxVal: int): int:
+  if maxVal <= minVal:
+    ret minVal
+  let span = float(maxVal - minVal + 1)
+  let r = int(randomFloat() * span)
+  if r > maxVal - minVal:
+    ret maxVal
+  ret minVal + r
+
+pub fn randomBool(probability: float = 0.5): bool:
+  ret randomFloat() < probability
+
+pub fn randomSign(): float:
+  ret if randomFloat() < 0.5: -1.0 else: 1.0
+
+pub fn randomAngle(): float:
+  ret randomFloat() * TAU
+
+pub fn randomGaussian(): float:
+  let u = randomFloat() + randomFloat() + randomFloat() + randomFloat() + randomFloat() + randomFloat()
+  ret (u - 3.0) * 1.41421356237
+
+pub fn randomInCircleX(radius: float): float:
+  let r = radius * sqrt(randomFloat())
+  ret cos(randomAngle()) * r
+
+pub fn randomInCircleY(radius: float): float:
+  let r = radius * sqrt(randomFloat())
+  ret sin(randomAngle()) * r
+
+pub fn shuffleInts(arr: [int], seed: int): [int]:
+  mut out: [int] = []
+  mut i = 0
+  let n = arr.len
+  while i < n:
+    out.push(arr[i])
+    i += 1
+  if n <= 1:
+    ret out
+  mut rng = rngNew(seed)
+  mut j = n - 1
+  while j > 0:
+    let (nextRng, pick) = rngNextInt(rng, 0, j)
+    rng = nextRng
+    let temp = out[j]
+    out[j] = out[pick]
+    out[pick] = temp
+    j -= 1
+  ret out
+
+pub fn createRng(initialSeed: int): RngState:
+  mut s = initialSeed
+  if s == 0:
+    s = 123456789
+  ret RngState(state = s, seed = s)
+
+pub fn nextRng(rng: RngState): RngState:
+  let baseSeed = if rng.seed != 0: rng.seed else: rng.state
+  let nextSeed = (baseSeed * 1103515245 + 12345) % 2147483647
+  ret RngState(state = nextSeed, seed = nextSeed)
+
+pub fn randomInt(rng: RngState, minVal: int, maxVal: int): int:
+  if maxVal <= minVal:
+    ret minVal
+  let range = maxVal - minVal + 1
+  let baseSeed = if rng.seed != 0: rng.seed else: rng.state
+  let absSeed = if baseSeed < 0: -baseSeed else: baseSeed
+  let val = absSeed % range
+  ret minVal + val

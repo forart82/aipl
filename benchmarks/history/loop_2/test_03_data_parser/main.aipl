@@ -1,0 +1,20 @@
+struct ConfigRecord(service, port, tls, tags)
+
+fn parseRecords(src):
+  mut out = []
+  for line in src.lines():
+    let p = line.split("|").map(|s| s.trim())
+    if p.len >= 4 and not p[0].startsWith("#"):
+      out.push(ConfigRecord(p[0], int(p[1]), p[2] == "true", p[3].split(",")))
+  ret out
+
+fn validateAndMutate(records) = [ConfigRecord(r.service, r.port + 100, true, r.tags.map(|t| t.trim()) + ["verified"]) for r in records if r.service.len > 0 and r.port > 0 and r.port <= 65535]
+
+fn serializeJson(records) = records.toJson()
+
+let raw = "# Services\nauth | 8000 | false | core,jwt\ngateway | 8080 | true | edge,http\ninvalid | -5 | false | bad\n"
+let parsed = parseRecords(raw)
+let valid = validateAndMutate(parsed)
+let jsonOut = serializeJson(valid)
+assert(parsed.len == 3 and valid.len == 2 and valid[0].port == 8100 and jsonOut.contains("\"service\":\"auth\""))
+println("{jsonOut}\nBENCH_03_OK")

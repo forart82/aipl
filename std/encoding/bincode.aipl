@@ -1,0 +1,259 @@
+// ============================================================================
+// Module: std/encoding/bincode
+// Layer 2: Serialization, Text & Binary Encoding Codecs
+// Deterministic binary serialization and deserialization with LEB128 VarInt.
+// ============================================================================
+module EncodingBincode
+
+pub struct BitStream:
+  bytes: [int]
+  bitOffset: int
+
+pub struct BincodeWriter:
+  buffer: bytes
+  offset: int
+  littleEndian: bool
+  mut data: [int] = []
+
+pub struct BincodeReader:
+  buffer: bytes
+  offset: int
+  littleEndian: bool
+
+pub fn bincodeWriterNew(initialCapacity: int = 128, littleEndian: bool = true): BincodeWriter:
+  mut empty: [int] = []
+  let cap = if initialCapacity > 0: initialCapacity else: 0
+  ret BincodeWriter(
+    buffer = bytesNew(cap),
+    offset = 0,
+    littleEndian = littleEndian,
+    data = empty
+  )
+
+pub fn (mut self: BincodeWriter) writeU8(val: int): void:
+  self.data.push(val & 255)
+  self.offset = self.data.len
+
+pub fn (mut self: BincodeWriter) writeI32(val: int): void:
+  if self.littleEndian:
+    self.data.push(val & 255)
+    self.data.push((val >> 8) & 255)
+    self.data.push((val >> 16) & 255)
+    self.data.push((val >> 24) & 255)
+  else:
+    self.data.push((val >> 24) & 255)
+    self.data.push((val >> 16) & 255)
+    self.data.push((val >> 8) & 255)
+    self.data.push(val & 255)
+  self.offset = self.data.len
+
+pub fn (mut self: BincodeWriter) writeI64(val: int): void:
+  if self.littleEndian:
+    mut i = 0
+    while i < 8:
+      self.data.push((val >> (i * 8)) & 255)
+      i = i + 1
+  else:
+    mut i = 7
+    while i >= 0:
+      self.data.push((val >> (i * 8)) & 255)
+      i = i - 1
+  self.offset = self.data.len
+
+fn f64ToF32Bits(val: float): int:
+  if val == 0.0:
+    ret 0
+  let bits64 = bitcastF64ToI64(val)
+  let sign = (bits64 >> 63) & 1
+  let exp64 = ((bits64 >> 52) & 2047) - 1023
+  let mant64 = bits64 & 4503599627370495
+  mut exp32 = exp64 + 127
+  if exp32 <= 0:
+    ret sign << 31
+  if exp32 >= 255:
+    ret (sign << 31) | (255 << 23)
+  mut mant32 = (mant64 + 268435456) >> 29
+  if mant32 >= 8388608:
+    exp32 = exp32 + 1
+    mant32 = 0
+  ret (sign << 31) | (exp32 << 23) | (mant32 & 8388607)
+
+fn f32BitsToF64(bits32: int): float:
+  let u = bits32 & 4294967295
+  if (u & 2147483647) == 0:
+    ret 0.0
+  let sign = (u >> 31) & 1
+  let exp32 = (u >> 23) & 255
+  let mant32 = u & 8388607
+  if exp32 == 255:
+    let infBits = (sign << 63) | (2047 << 52) | (mant32 << 29)
+    ret bitcastI64ToF64(infBits)
+  let exp64 = (exp32 - 127) + 1023
+  let bits64 = (sign << 63) | (exp64 << 52) | (mant32 << 29)
+  ret bitcastI64ToF64(bits64)
+
+pub fn (mut self: BincodeWriter) writeF32(val: float): void:
+  let bits32 = f64ToF32Bits(val)
+  self.writeI32(bits32)
+
+pub fn (mut self: BincodeWriter) writeF64(val: float): void:
+  let bits = bitcastF64ToI64(val)
+  self.writeI64(bits)
+
+pub fn (mut self: BincodeWriter) writeVarInt(val: int): void:
+  mut v = if val < 0: 0 else: val
+  while v >= 128:
+    self.data.push((v & 127) | 128)
+    v = v >> 7
+  self.data.push(v & 127)
+  self.offset = self.data.len
+
+pub fn (mut self: BincodeWriter) writeString(s: str): void:
+  let b = s.toBytes()
+  let n = b.len()
+  self.writeVarInt(n)
+  mut i = 0
+  while i < n:
+    self.data.push(b[i] & 255)
+    i = i + 1
+  self.offset = self.data.len
+
+pub fn (self: BincodeWriter) toBytes(): bytes:
+  ret bytesFromArray(self.data)
+
+pub fn bincodeReaderNew(data: bytes, littleEndian: bool = true): BincodeReader:
+  ret BincodeReader(buffer = data, offset = 0, littleEndian = littleEndian)
+
+pub fn (mut self: BincodeReader) readU8(): Result[int, str]:
+  if self.offset >= self.buffer.len():
+    ret Err("bincodeReader.readU8: unexpected EOF")
+  let b = self.buffer[self.offset] & 255
+  self.offset = self.offset + 1
+  ret Ok(b)
+
+pub fn (mut self: BincodeReader) readI32(): Result[int, str]:
+  if self.offset + 4 > self.buffer.len():
+    ret Err("bincodeReader.readI32: unexpected EOF")
+  let b0 = self.buffer[self.offset] & 255
+  let b1 = self.buffer[self.offset + 1] & 255
+  let b2 = self.buffer[self.offset + 2] & 255
+  let b3 = self.buffer[self.offset + 3] & 255
+  self.offset = self.offset + 4
+  mut raw = 0
+  if self.littleEndian:
+    raw = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+  else:
+    raw = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3
+  if (raw & 2147483648) != 0:
+    raw = raw - 4294967296
+  ret Ok(raw)
+
+pub fn (mut self: BincodeReader) readI64(): Result[int, str]:
+  if self.offset + 8 > self.buffer.len():
+    ret Err("bincodeReader.readI64: unexpected EOF")
+  mut raw = 0
+  if self.littleEndian:
+    mut i = 0
+    while i < 8:
+      raw = raw | ((self.buffer[self.offset + i] & 255) << (i * 8))
+      i = i + 1
+  else:
+    mut i = 0
+    while i < 8:
+      raw = (raw << 8) | (self.buffer[self.offset + i] & 255)
+      i = i + 1
+  self.offset = self.offset + 8
+  ret Ok(raw)
+
+pub fn (mut self: BincodeReader) readF32(): Result[float, str]:
+  let r = self.readI32()
+  if r.isErr():
+    ret Err(r.unwrapErr())
+  ret Ok(f32BitsToF64(r.unwrap()))
+
+pub fn (mut self: BincodeReader) readF64(): Result[float, str]:
+  let r = self.readI64()
+  if r.isErr():
+    ret Err(r.unwrapErr())
+  ret Ok(bitcastI64ToF64(r.unwrap()))
+
+pub fn (mut self: BincodeReader) readVarInt(): Result[int, str]:
+  mut result = 0
+  mut shift = 0
+  while true:
+    if self.offset >= self.buffer.len():
+      ret Err("bincodeReader.readVarInt: unexpected EOF")
+    let byteVal = self.buffer[self.offset] & 255
+    self.offset = self.offset + 1
+    result = result | ((byteVal & 127) << shift)
+    if (byteVal & 128) == 0:
+      ret Ok(result)
+    shift = shift + 7
+    if shift > 63:
+      ret Err("bincodeReader.readVarInt: VarInt overflow")
+  ret Ok(result)
+
+pub fn (mut self: BincodeReader) readString(): Result[str, str]:
+  let lenRes = self.readVarInt()
+  if lenRes.isErr():
+    ret Err(lenRes.unwrapErr())
+  let strLen = lenRes.unwrap()
+  if self.offset + strLen > self.buffer.len():
+    ret Err("bincodeReader.readString: unexpected EOF")
+  mut arr: [int] = []
+  mut i = 0
+  while i < strLen:
+    arr.push(self.buffer[self.offset + i] & 255)
+    i = i + 1
+  self.offset = self.offset + strLen
+  ret Ok(bytesFromArray(arr).toStringLossy())
+
+pub fn bitStreamNew(): BitStream:
+  mut empty: [int] = []
+  ret BitStream(bytes = empty, bitOffset = 0)
+
+pub fn bitStreamWriteBits(mut bs: BitStream, val: int, count: int): BitStream:
+  mut c = count
+  while c > 0:
+    let bit = (val >> (c - 1)) & 1
+    let byteIdx = bs.bitOffset / 8
+    let bitInByte = bs.bitOffset % 8
+    if bitInByte == 0:
+      bs.bytes.push(bit << 7)
+    else:
+      let cur = bs.bytes[byteIdx]
+      bs.bytes[byteIdx] = cur | (bit << (7 - bitInByte))
+    bs.bitOffset = bs.bitOffset + 1
+    c = c - 1
+  ret bs
+
+pub fn bitStreamToBytes(bs: BitStream): bytes:
+  ret bytesFromArray(bs.bytes)
+
+pub fn bitStreamBitCount(bs: BitStream): int:
+  ret bs.bitOffset
+
+pub fn bincodePackIntArray(vals: [int]): bytes:
+  mut w = bincodeWriterNew(vals.len * 4 + 8, true)
+  w.writeVarInt(vals.len)
+  mut i = 0
+  while i < vals.len:
+    w.writeI32(vals[i])
+    i = i + 1
+  ret w.toBytes()
+
+pub fn bincodeUnpackIntArray(data: bytes): Result[[int], str]:
+  mut r = bincodeReaderNew(data, true)
+  let lenRes = r.readVarInt()
+  if lenRes.isErr():
+    ret Err(lenRes.unwrapErr())
+  let n = lenRes.unwrap()
+  mut out: [int] = []
+  mut i = 0
+  while i < n:
+    let vRes = r.readI32()
+    if vRes.isErr():
+      ret Err(vRes.unwrapErr())
+    out.push(vRes.unwrap())
+    i = i + 1
+  ret Ok(out)

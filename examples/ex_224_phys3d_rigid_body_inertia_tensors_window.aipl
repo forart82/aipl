@@ -1,0 +1,178 @@
+module Ex224Phys3dRigidBodyInertiaTensorsWindow
+
+import {
+  BodyType3D, InertiaTensor3x3, RigidBody3D, rigidBody3dNew,
+  rigidBody3dSetBoxInertia, rigidBody3dSetSphereInertia,
+  rigidBody3dApplyForceAtPoint, rigidBody3dApplyLinearImpulse,
+  rigidBody3dApplyAngularImpulse, rigidBody3dIntegrate
+} from "../std/phys3d/rigid_body3d"
+import { Vec3 } from "../std/math/vec_math"
+import { Quat } from "../std/math/quat"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline,
+  drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct InertiaTensorScene(boxBody: RigidBody3D, sphBody: RigidBody3D)
+
+pub fn createInertiaTensorScene(): InertiaTensorScene:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut boxBody = rigidBody3dNew(1, BodyType3D.Dynamic, Vec3(x = 0.0, y = 2.0, z = 0.0), idRot)
+  rigidBody3dSetBoxInertia(boxBody, 12.0, Vec3(x = 4.0, y = 2.0, z = 6.0))
+  rigidBody3dApplyAngularImpulse(boxBody, Vec3(x = 12.0, y = 24.0, z = 18.0))
+
+  mut sphBody = rigidBody3dNew(2, BodyType3D.Dynamic, Vec3(x = 0.0, y = 3.0, z = 0.0), idRot)
+  rigidBody3dSetSphereInertia(sphBody, 10.0, 3.0)
+  rigidBody3dApplyForceAtPoint(sphBody, Vec3(x = 12.0, y = 18.0, z = 0.0), Vec3(x = 0.0, y = 5.0, z = 0.0))
+
+  ret InertiaTensorScene(boxBody = boxBody, sphBody = sphBody)
+
+pub fn stepScene(mut scene: InertiaTensorScene, frame: int, dt: float): void:
+  mut boxBody = scene.boxBody
+  mut sphBody = scene.sphBody
+  if frame % 45 == 0 and frame > 0:
+    rigidBody3dApplyAngularImpulse(boxBody, Vec3(x = 4.0, y = -8.0, z = 6.0))
+  rigidBody3dIntegrate(boxBody, Vec3(x = 0.0, y = -9.8, z = 0.0), dt)
+  if boxBody.position.y < -3.0:
+    boxBody.position = Vec3(x = boxBody.position.x, y = -3.0, z = boxBody.position.z)
+    let bounceVy = if -boxBody.linearVelocity.y * 0.85 < 7.8: 8.2 else: -boxBody.linearVelocity.y * 0.85
+    boxBody.linearVelocity = Vec3(x = boxBody.linearVelocity.x, y = bounceVy, z = boxBody.linearVelocity.z)
+
+  rigidBody3dIntegrate(sphBody, Vec3(x = 0.0, y = -9.8, z = 0.0), dt)
+  if sphBody.position.y < -3.0:
+    sphBody.position = Vec3(x = sphBody.position.x, y = -3.0, z = sphBody.position.z)
+    let sphVy = if -sphBody.linearVelocity.y * 0.85 < 8.0: 8.6 else: -sphBody.linearVelocity.y * 0.85
+    sphBody.linearVelocity = Vec3(x = sphBody.linearVelocity.x, y = sphVy, z = sphBody.linearVelocity.z)
+  if sphBody.position.x > 4.0:
+    sphBody.position = Vec3(x = 4.0, y = sphBody.position.y, z = sphBody.position.z)
+    sphBody.linearVelocity = Vec3(x = -sphBody.linearVelocity.x * 0.95, y = sphBody.linearVelocity.y, z = sphBody.linearVelocity.z)
+  if sphBody.position.x < -4.0:
+    sphBody.position = Vec3(x = -4.0, y = sphBody.position.y, z = sphBody.position.z)
+    sphBody.linearVelocity = Vec3(x = -sphBody.linearVelocity.x * 0.95, y = sphBody.linearVelocity.y, z = sphBody.linearVelocity.z)
+
+  scene.boxBody = boxBody
+  scene.sphBody = sphBody
+
+fn projectBoxVert(cx: float, cy: float, q: Quat, lx: float, ly: float, lz: float): Vec3:
+  let r: Vec3 = q.rotateVec3(Vec3(x = lx, y = ly, z = lz))
+  ret Vec3(x = cx + r.x * 24.0 + r.z * 9.0, y = cy - r.y * 24.0 + r.z * 7.0, z = r.z)
+
+pub fn auditRigidBody3dInertiaTensors(): int:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut b = rigidBody3dNew(1, BodyType3D.Dynamic, Vec3(x = 0.0, y = 0.0, z = 0.0), idRot)
+  rigidBody3dSetBoxInertia(b, 12.0, Vec3(x = 2.0, y = 2.0, z = 2.0))
+  let itBox: InertiaTensor3x3 = b.localInertia
+  let boxIxx = int(itBox.ixx)
+  rigidBody3dSetSphereInertia(b, 5.0, 2.0)
+  rigidBody3dApplyLinearImpulse(b, Vec3(x = 0.0, y = 15.0, z = 0.0))
+  rigidBody3dIntegrate(b, Vec3(x = 0.0, y = 0.0, z = 0.0), 1.0)
+  ret boxIxx + int(b.position.y)
+
+pub fn main(): int:
+  let audit = auditRigidBody3dInertiaTensors()
+  println("EX_224_PHYS3D_INERTIA_AUDIT=" + str(audit))
+
+  mut scene = createInertiaTensorScene()
+
+  initWindow(1280, 720, "AIPL ex_224: 3D Rigid Body Inertia Tensors & Impulse Integration")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.05)
+    let boxBody: RigidBody3D = scene.boxBody
+    let sphBody: RigidBody3D = scene.sphBody
+    let itBox: InertiaTensor3x3 = boxBody.localInertia
+    let itSph: InertiaTensor3x3 = sphBody.localInertia
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_224: 3D RIGID BODY INERTIA TENSORS (3x3) & QUATERNION SPIN", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Box diag(I)=[" + str(int(itBox.ixx)) + ", " + str(int(itBox.iyy)) + ", " + str(int(itBox.izz)) + "] | Sphere diag(I)=[" + str(int(itSph.ixx)) + ", " + str(int(itSph.iyy)) + ", " + str(int(itSph.izz)) + "]", 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    // Left Panel: Anisotropic 3D Cuboid Wireframe & Principal Inertia Tensor Axes
+    drawRect(52.0, 108.0, 568.0, 576.0, rgb(15, 23, 42))
+    drawRectOutline(52.0, 108.0, 568.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("ANISOTROPIC 3D CUBOID (4x2x6m, M=12kg, Ixx!=Iyy!=Izz)", 76.0, 128.0, 16.0, rgb(125, 211, 252))
+
+    let bx = 336.0 + boxBody.position.x * 16.0
+    let by = 325.0 - boxBody.position.y * 22.0
+    let qBox: Quat = boxBody.rotation
+    let v000 = projectBoxVert(bx, by, qBox, -2.0, -1.0, -3.0)
+    let v100 = projectBoxVert(bx, by, qBox, 2.0, -1.0, -3.0)
+    let v110 = projectBoxVert(bx, by, qBox, 2.0, 1.0, -3.0)
+    let v010 = projectBoxVert(bx, by, qBox, -2.0, 1.0, -3.0)
+    let v001 = projectBoxVert(bx, by, qBox, -2.0, -1.0, 3.0)
+    let v101 = projectBoxVert(bx, by, qBox, 2.0, -1.0, 3.0)
+    let v111 = projectBoxVert(bx, by, qBox, 2.0, 1.0, 3.0)
+    let v011 = projectBoxVert(bx, by, qBox, -2.0, 1.0, 3.0)
+
+    // Back face + connecting edges + front face of 3D rotated box
+    drawLine(v000.x, v000.y, v100.x, v100.y, rgb(59, 130, 246), 2.0)
+    drawLine(v100.x, v100.y, v110.x, v110.y, rgb(59, 130, 246), 2.0)
+    drawLine(v110.x, v110.y, v010.x, v010.y, rgb(59, 130, 246), 2.0)
+    drawLine(v010.x, v010.y, v000.x, v000.y, rgb(59, 130, 246), 2.0)
+    drawLine(v000.x, v000.y, v001.x, v001.y, rgb(96, 165, 250), 2.0)
+    drawLine(v100.x, v100.y, v101.x, v101.y, rgb(96, 165, 250), 2.0)
+    drawLine(v110.x, v110.y, v111.x, v111.y, rgb(96, 165, 250), 2.0)
+    drawLine(v010.x, v010.y, v011.x, v011.y, rgb(96, 165, 250), 2.0)
+    drawLine(v001.x, v001.y, v101.x, v101.y, rgb(125, 211, 252), 2.5)
+    drawLine(v101.x, v101.y, v111.x, v111.y, rgb(125, 211, 252), 2.5)
+    drawLine(v111.x, v111.y, v011.x, v011.y, rgb(125, 211, 252), 2.5)
+    drawLine(v011.x, v011.y, v001.x, v001.y, rgb(125, 211, 252), 2.5)
+
+    // Principal Inertia Axes rotated by qBox
+    let axX = projectBoxVert(bx, by, qBox, 3.2, 0.0, 0.0)
+    let axY = projectBoxVert(bx, by, qBox, 0.0, 2.6, 0.0)
+    let axZ = projectBoxVert(bx, by, qBox, 0.0, 0.0, 3.8)
+    drawLine(bx, by, axX.x, axX.y, rgb(239, 68, 68), 3.0)
+    drawLine(bx, by, axY.x, axY.y, rgb(34, 197, 94), 3.0)
+    drawLine(bx, by, axZ.x, axZ.y, rgb(250, 204, 21), 3.0)
+    drawCircle(bx, by, 5.0, rgb(255, 255, 255))
+
+    // Floor plane & 3x3 Inertia Tensor Bars
+    drawLine(90.0, 445.0, 580.0, 445.0, rgb(71, 85, 105), 2.0)
+    drawText("Diagonal Inertia Tensor J = M/12 * diag(y^2+z^2, x^2+z^2, x^2+y^2)", 76.0, 470.0, 14.0, rgb(148, 163, 184))
+    drawText("Ixx = " + str(int(itBox.ixx)), 76.0, 504.0, 15.0, rgb(248, 113, 113))
+    drawRect(176.0, 504.0, itBox.ixx * 5.5, 16.0, rgb(239, 68, 68))
+    drawText("Iyy = " + str(int(itBox.iyy)), 76.0, 534.0, 15.0, rgb(74, 222, 128))
+    drawRect(176.0, 534.0, itBox.iyy * 5.5, 16.0, rgb(34, 197, 94))
+    drawText("Izz = " + str(int(itBox.izz)), 76.0, 564.0, 15.0, rgb(250, 204, 21))
+    drawRect(176.0, 564.0, itBox.izz * 5.5, 16.0, rgb(250, 204, 21))
+    drawText("quat=(" + str(int(qBox.x * 100.0)) + "%, " + str(int(qBox.y * 100.0)) + "%, " + str(int(qBox.z * 100.0)) + "%, " + str(int(qBox.w * 100.0)) + "%)", 76.0, 646.0, 14.0, rgb(226, 232, 240))
+
+    // Right Panel: Isotropic 3D Sphere & Off-Center Torque Impulse
+    drawRect(652.0, 108.0, 576.0, 576.0, rgb(15, 23, 42))
+    drawRectOutline(652.0, 108.0, 576.0, 576.0, 2.0, rgb(168, 85, 247))
+    drawText("ISOTROPIC 3D SPHERE (R=3.0m, M=10kg, Ixx=Iyy=Izz=2/5*M*R^2)", 676.0, 128.0, 16.0, rgb(216, 180, 254))
+
+    let sx = 940.0 + sphBody.position.x * 24.0
+    let sy = 325.0 - sphBody.position.y * 22.0
+    let qSph: Quat = sphBody.rotation
+    drawCircle(sx, sy, 68.0, rgb(59, 7, 100))
+    drawCircleOutline(sx, sy, 68.0, 3.0, rgb(192, 132, 252))
+
+    let sAxX = projectBoxVert(sx, sy, qSph, 2.5, 0.0, 0.0)
+    let sAxY = projectBoxVert(sx, sy, qSph, 0.0, 2.5, 0.0)
+    let sAxZ = projectBoxVert(sx, sy, qSph, 0.0, 0.0, 2.5)
+    drawLine(sx, sy, sAxX.x, sAxX.y, rgb(239, 68, 68), 3.0)
+    drawLine(sx, sy, sAxY.x, sAxY.y, rgb(34, 197, 94), 3.0)
+    drawLine(sx, sy, sAxZ.x, sAxZ.y, rgb(56, 189, 248), 3.0)
+    drawLine(sx, sy, sx + sphBody.linearVelocity.x * 9.0, sy - sphBody.linearVelocity.y * 5.0, rgb(250, 204, 21), 2.5)
+    drawCircle(sx, sy, 5.0, rgb(255, 255, 255))
+
+    drawLine(690.0, 445.0, 1190.0, 445.0, rgb(71, 85, 105), 2.0)
+    drawText("Isotropic Sphere Tensor J = (2/5)*M*R^2 * I_3x3 + Torque r x F", 676.0, 470.0, 14.0, rgb(148, 163, 184))
+    drawText("Ixx = " + str(int(itSph.ixx)), 676.0, 504.0, 15.0, rgb(216, 180, 254))
+    drawRect(776.0, 504.0, itSph.ixx * 5.5, 16.0, rgb(168, 85, 247))
+    drawText("Iyy = " + str(int(itSph.iyy)), 676.0, 534.0, 15.0, rgb(216, 180, 254))
+    drawRect(776.0, 534.0, itSph.iyy * 5.5, 16.0, rgb(168, 85, 247))
+    drawText("Izz = " + str(int(itSph.izz)), 676.0, 564.0, 15.0, rgb(216, 180, 254))
+    drawRect(776.0, 564.0, itSph.izz * 5.5, 16.0, rgb(168, 85, 247))
+    drawText("pos=(" + str(int(sphBody.position.x * 10.0)) + ", " + str(int(sphBody.position.y * 10.0)) + ") | omegaZ=" + str(int(sphBody.angularVelocity.z * 10.0)), 676.0, 646.0, 14.0, rgb(226, 232, 240))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

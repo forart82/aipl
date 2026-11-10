@@ -1,0 +1,41 @@
+// ============================================================================
+// Twin Test Suite 013: Low-Level POSIX File Descriptors, Seek & Fsync CLI
+// Verifies examples/ex_013_sys_fs_lowlevel_descriptor_cli.aipl
+// ============================================================================
+module Ex013SysFsLowlevelDescriptorCliTest
+
+import {
+  DescriptorIoSummary,
+  computeRdwrCreateFlags,
+  roundtripDescriptorPayload,
+  classifyDescriptorState,
+  buildDescriptorIoSummary
+} from "../../examples/ex_013_sys_fs_lowlevel_descriptor_cli.aipl"
+
+pub fn test_open_flags_and_descriptor_roundtrip(): int:
+  let flags = computeRdwrCreateFlags()
+  assert(flags > 0, "SYS_O_RDWR + SYS_O_CREAT + SYS_O_TRUNC > 0")
+  let firstByte = roundtripDescriptorPayload("/tmp/aipl_ex_013_test.bin", 65, 4)
+  assert(firstByte == 65, "writes 4 bytes starting at 'A' (65) and reads back byte 0 == 65")
+  ret 0
+
+pub fn test_descriptor_state_classification(): int:
+  assert(classifyDescriptorState(3, 4, 4) == "FD:SYNCED_COMPLETE", "all bytes written and read")
+  assert(classifyDescriptorState(-1, 0, 0) == "FD:OPEN_ERROR", "negative fd")
+  assert(classifyDescriptorState(3, 4, 2) == "FD:SHORT_READ", "partial read")
+  ret 0
+
+pub fn test_build_descriptor_io_summary(): int:
+  let summary = buildDescriptorIoSummary("/tmp/aipl_ex_013_summary.bin", 5)
+  assert(summary.bytesWritten == 5, "bytesWritten == 5")
+  assert(summary.bytesRead == 5, "bytesRead == 5")
+  assert(summary.statSize == 5, "statSize == 5")
+  assert(summary.firstByte == 65, "firstByte == 65")
+  ret 0
+
+pub fn main(): int:
+  test_open_flags_and_descriptor_roundtrip()
+  test_descriptor_state_classification()
+  test_build_descriptor_io_summary()
+  println("PASS: ex_013_sys_fs_lowlevel_descriptor_cli_test")
+  ret 0

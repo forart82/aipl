@@ -1,0 +1,66 @@
+module tests.functions.compress.compress_mod_test
+
+import * from "std/compress/compress_mod"
+import * from "std/prelude"
+import { DeflateOptions, HuffmanTree, Lz77Token, buildHuffmanTree, lz77FindMatches, deflateCompress, deflateDecompress } from "std/compress/deflate"
+import { GzipHeader, ZlibHeader, computeAdler32, computeCrc32, gzipCompress, gzipDecompress, zlibCompress, zlibDecompress } from "std/compress/gzip"
+import { Lz4BlockHeader, Lz4FrameHeader, lz4CompressBlock, lz4DecompressBlock, lz4CompressFrame, lz4DecompressFrame } from "std/compress/lz4"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { TarEntry, TarArchive, tarPack, tarUnpack } from "std/compress/tar_archive"
+import { ZstdFrameHeader, ZstdBlockHeader, zstdCompress, zstdDecompress } from "std/compress/zstd"
+
+pub fn test_compress_mod_compressGzip_1(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = compressGzip(arg_data)
+  let resEdge = compressGzip(edge_data)
+  assertEqInt(resNom.len(), 23, "compressGzip nominal resNom.len() == 23")
+  assertEqInt(resEdge.len(), 20, "compressGzip boundary resEdge.len() == 20")
+  ret 0
+
+pub fn test_compress_mod_decompressGzip_2(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = decompressGzip(arg_data)
+  let resEdge = decompressGzip(edge_data)
+  assert(resNom.isOk() == false, "decompressGzip nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "decompressGzip boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_compress_mod_compressLz4_3(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = compressLz4(arg_data)
+  let resEdge = compressLz4(edge_data)
+  assertEqInt(resNom.len(), 24, "compressLz4 nominal resNom.len() == 24")
+  assertEqInt(resEdge.len(), 21, "compressLz4 boundary resEdge.len() == 21")
+  ret 0
+
+pub fn test_compress_mod_decompressLz4_4(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = decompressLz4(arg_data)
+  let resEdge = decompressLz4(edge_data)
+  assert(resNom.isOk() == false, "decompressLz4 nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "decompressLz4 boundary resEdge.isOk() == false")
+  ret 0
+
+pub fn test_compress_mod_compressZstd_5(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let arg_level = 2
+  let edge_level = 0
+  let resNom = compressZstd(arg_data, arg_level)
+  let resEdge = compressZstd(edge_data, edge_level)
+  assertEqInt(resNom.len(), 21, "compressZstd nominal resNom.len() == 21")
+  assertEqInt(resEdge.len(), 18, "compressZstd boundary resEdge.len() == 18")
+  ret 0
+
+pub fn test_compress_mod_decompressZstd_6(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = decompressZstd(arg_data)
+  let resEdge = decompressZstd(edge_data)
+  assert(resNom.isOk() == false, "decompressZstd nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == false, "decompressZstd boundary resEdge.isOk() == false")
+  ret 0

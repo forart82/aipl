@@ -1,0 +1,48 @@
+module Ex192UiTextWrappingAndRichtextWindowTest
+
+import {
+  buildUiTextWrappingAudit, stepNarrowWrapWidth, stepWideWrapWidth
+} from "../../examples/ex_192_ui_text_wrapping_and_richtext_window"
+import { ColorRgba8 } from "../../std/gfx/color"
+import {
+  TextStyle, measureTextWidth, wrapTextToLines,
+  truncateTextWithEllipsis, richSpanPlain, richSpansTotalLength
+} from "../../std/ui/ui_text"
+
+pub fn test_ui_text_wrapping_and_richtext(): void:
+  let style = TextStyle(
+    fontId = 1,
+    fontSize = 10.0,
+    lineHeight = 14.0,
+    color = ColorRgba8(r = 255, g = 255, b = 255, a = 255),
+    letterSpacing = 0.0
+  )
+  let wHello = measureTextWidth("Hello", style)
+  assert(wHello == 30.0, "5 chars at 6px advance == 30.0")
+
+  let layout = wrapTextToLines("Hello world from AIPL standard library", 65.0, style)
+  assert(layout.lines.len() >= 3, "wrapTextToLines breaks paragraph into >= 3 lines")
+
+  let trunc = truncateTextWithEllipsis("Hello world from AIPL", 40.0, style)
+  assert(trunc.endsWith("..."), "truncateTextWithEllipsis appends ellipsis")
+
+  let s1 = richSpanPlain("AIPL ", 0x38BDF8)
+  let s2 = richSpanPlain("RichText", 0xF8FAFC)
+  assert(richSpansTotalLength([s1, s2]) == 13, "richSpansTotalLength sums span character counts")
+  assert(buildUiTextWrappingAudit() == 48, "buildUiTextWrappingAudit returns 30 + 5 + 13 == 48")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let nw0 = stepNarrowWrapWidth(0)
+  let nw1 = stepNarrowWrapWidth(1)
+  let nw20 = stepNarrowWrapWidth(20)
+  let nw100 = stepNarrowWrapWidth(100)
+  assert(nw0 != nw1 and nw1 != nw20 and nw20 != nw100, "Narrow wrap width progresses across t=0, 1, 20, 100")
+  let ww0 = stepWideWrapWidth(0)
+  let ww20 = stepWideWrapWidth(20)
+  let ww100 = stepWideWrapWidth(100)
+  assert(ww0 != ww20 and ww20 != ww100, "Wide wrap width progresses across t=0, 20, 100")
+
+pub fn main(): int:
+  test_ui_text_wrapping_and_richtext()
+  println("PASS: ex_192_ui_text_wrapping_and_richtext_window_test")
+  ret 0

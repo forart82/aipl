@@ -1,0 +1,1208 @@
+module tests.functions.encoding.json_yaml_toml_and_ini_test
+
+import * from "std/encoding/ini_dotenv"
+import * from "std/encoding/json"
+import * from "std/encoding/toml"
+import * from "std/encoding/yaml"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_json_jsonNull_1(): int:
+  let resNom = jsonNull()
+  let resEdge = jsonNull()
+  assertEqStr(resNom.kind, "null", "jsonNull nominal string matches")
+  assertEqStr(resEdge.kind, "null", "jsonNull boundary string matches")
+  ret 0
+
+pub fn test_json_jsonBool_2(): int:
+  let arg_b = true
+  let edge_b = false
+  let resNom = jsonBool(arg_b)
+  let resEdge = jsonBool(edge_b)
+  assertEqStr(resNom.kind, "bool", "jsonBool nominal string matches")
+  assertEqStr(resEdge.kind, "bool", "jsonBool boundary string matches")
+  ret 0
+
+pub fn test_json_jsonNumber_3(): int:
+  let arg_n = 1.0
+  let edge_n = 0.5
+  let resNom = jsonNumber(arg_n)
+  let resEdge = jsonNumber(edge_n)
+  assertEqStr(resNom.kind, "number", "jsonNumber nominal string matches")
+  assertEqStr(resEdge.kind, "number", "jsonNumber boundary string matches")
+  ret 0
+
+pub fn test_json_jsonString_4(): int:
+  let arg_s = "{\"a\":1}"
+  let edge_s = "{}"
+  let resNom = jsonString(arg_s)
+  let resEdge = jsonString(edge_s)
+  assertEqStr(resNom.kind, "string", "jsonString nominal string matches")
+  assertEqStr(resEdge.kind, "string", "jsonString boundary string matches")
+  ret 0
+
+pub fn test_json_jsonArray_5(): int:
+  let arg_items = [JsonValue(kind = "{\"a\":1}", numVal = 1.0, strVal = "{\"a\":1}", boolVal = true, arrayVal = [], objectVal = [])]
+  let edge_items = []
+  let resNom = jsonArray(arg_items)
+  let resEdge = jsonArray(edge_items)
+  assertEqStr(resNom.kind, "array", "jsonArray nominal string matches")
+  assertEqStr(resEdge.kind, "array", "jsonArray boundary string matches")
+  ret 0
+
+pub fn test_json_jsonObject_6(): int:
+  let arg_entries = [("{\"a\":1}", JsonValue(kind = "{\"a\":1}", numVal = 1.0, strVal = "{\"a\":1}", boolVal = true, arrayVal = [], objectVal = []))]
+  let edge_entries = []
+  let resNom = jsonObject(arg_entries)
+  let resEdge = jsonObject(edge_entries)
+  assertEqStr(resNom.kind, "object", "jsonObject nominal string matches")
+  assertEqStr(resEdge.kind, "object", "jsonObject boundary string matches")
+  ret 0
+
+pub fn test_json_skipJsonWs_7(): int:
+  let arg_text = "{\"a\":1}"
+  let edge_text = "{}"
+  let arg_start = 1
+  let edge_start = 0
+  let resNom = skipJsonWs(arg_text, arg_start)
+  let resEdge = skipJsonWs(edge_text, edge_start)
+  assertEqInt(resNom, 1, "skipJsonWs nominal resNom == 1")
+  assertEqInt(resEdge, 0, "skipJsonWs boundary resEdge == 0")
+  ret 0
+
+pub fn test_json_parseJsonStringAt_8(): int:
+  let arg_text = "{\"a\":1}"
+  let edge_text = "{}"
+  let arg_start = 1
+  let edge_start = 0
+  let resNom = parseJsonStringAt(arg_text, arg_start)
+  let resEdge = parseJsonStringAt(edge_text, edge_start)
+  let (n_t0, n_t1, n_t2) = resNom
+  let (e_t0, e_t1, e_t2) = resEdge
+  assertEqInt(n_t0, 4, "parseJsonStringAt nominal n_t0 == 4")
+  assertEqInt(e_t0, 0, "parseJsonStringAt boundary e_t0 == 0")
+  ret 0
+
+pub fn test_json_parseJsonNumberAt_9(): int:
+  let arg_text = "{\"a\":1}"
+  let edge_text = "{}"
+  let arg_start = 1
+  let edge_start = 0
+  let resNom = parseJsonNumberAt(arg_text, arg_start)
+  let resEdge = parseJsonNumberAt(edge_text, edge_start)
+  assertEqInt(resNom.pos, 1, "parseJsonNumberAt nominal resNom.pos == 1")
+  assertEqInt(resEdge.pos, 0, "parseJsonNumberAt boundary resEdge.pos == 0")
+  ret 0
+
+pub fn test_json_parseJsonValueAt_10(): int:
+  let arg_text = "{\"a\":1}"
+  let edge_text = "{}"
+  let arg_start = 1
+  let edge_start = 0
+  let resNom = parseJsonValueAt(arg_text, arg_start)
+  let resEdge = parseJsonValueAt(edge_text, edge_start)
+  assertEqInt(resNom.pos, 4, "parseJsonValueAt nominal resNom.pos == 4")
+  assertEqInt(resEdge.pos, 2, "parseJsonValueAt boundary resEdge.pos == 2")
+  ret 0
+
+pub fn test_json_jsonParse_11(): int:
+  let arg_text = "{\"a\":1}"
+  let edge_text = "{}"
+  let resNom = jsonParse(arg_text)
+  let resEdge = jsonParse(edge_text)
+  assert(resNom.isOk() == true, "jsonParse nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "jsonParse boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_json_escapeJsonString_12(): int:
+  let arg_s = "{\"a\":1}"
+  let edge_s = "{}"
+  let resNom = escapeJsonString(arg_s)
+  let resEdge = escapeJsonString(edge_s)
+  assertEqInt(resNom.len(), 9, "escapeJsonString nominal string length == 9")
+  assertEqInt(resEdge.len(), 2, "escapeJsonString boundary string length == 2")
+  ret 0
+
+pub fn test_json_formatJsonNumber_13(): int:
+  let arg_n = 1.0
+  let edge_n = 0.5
+  let resNom = formatJsonNumber(arg_n)
+  let resEdge = formatJsonNumber(edge_n)
+  assertEqStr(resNom, "1", "formatJsonNumber nominal string matches")
+  assertEqStr(resEdge, "0.5", "formatJsonNumber boundary string matches")
+  ret 0
+
+pub fn test_json_jsonStringify_14(): int:
+  let arg_val = JsonValue(kind = "{\"a\":1}", numVal = 1.0, strVal = "{\"a\":1}", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_val = JsonValue(kind = "{}", numVal = 0.5, strVal = "{}", boolVal = false, arrayVal = [], objectVal = [])
+  let resNom = jsonStringify(arg_val)
+  let resEdge = jsonStringify(edge_val)
+  assertEqStr(resNom, "null", "jsonStringify nominal string matches")
+  assertEqStr(resEdge, "null", "jsonStringify boundary string matches")
+  ret 0
+
+pub fn test_json_makeSpaces_15(): int:
+  let arg_count = 4
+  let edge_count = 1
+  let resNom = makeSpaces(arg_count)
+  let resEdge = makeSpaces(edge_count)
+  assertEqStr(resNom, "    ", "makeSpaces nominal string matches")
+  assertEqStr(resEdge, " ", "makeSpaces boundary string matches")
+  ret 0
+
+pub fn test_json_jsonStringifyIndent_16(): int:
+  let arg_val = JsonValue(kind = "{\"a\":1}", numVal = 1.0, strVal = "{\"a\":1}", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_val = JsonValue(kind = "{}", numVal = 0.5, strVal = "{}", boolVal = false, arrayVal = [], objectVal = [])
+  let arg_indent = 4
+  let edge_indent = 1
+  let arg_depth = 4
+  let edge_depth = 1
+  let resNom = jsonStringifyIndent(arg_val, arg_indent, arg_depth)
+  let resEdge = jsonStringifyIndent(edge_val, edge_indent, edge_depth)
+  assertEqStr(resNom, "null", "jsonStringifyIndent nominal string matches")
+  assertEqStr(resEdge, "null", "jsonStringifyIndent boundary string matches")
+  ret 0
+
+pub fn test_json_jsonStringifyPretty_17(): int:
+  let arg_val = JsonValue(kind = "{\"a\":1}", numVal = 1.0, strVal = "{\"a\":1}", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_val = JsonValue(kind = "{}", numVal = 0.5, strVal = "{}", boolVal = false, arrayVal = [], objectVal = [])
+  let arg_indent = 4
+  let edge_indent = 1
+  let resNom = jsonStringifyPretty(arg_val, arg_indent)
+  let resEdge = jsonStringifyPretty(edge_val, edge_indent)
+  assertEqStr(resNom, "null", "jsonStringifyPretty nominal string matches")
+  assertEqStr(resEdge, "null", "jsonStringifyPretty boundary string matches")
+  ret 0
+
+pub fn test_json_JsonValue_get_18(): int:
+  let recv_self = JsonValue(kind = "test", numVal = 1.0, strVal = "test", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_self = JsonValue(kind = "a", numVal = 0.5, strVal = "a", boolVal = false, arrayVal = [], objectVal = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = recv_self.get(arg_key)
+  let resEdge = edge_self.get(edge_key)
+  assert(resNom.isSome() == false, "get nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "get boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_JsonValue_getIndex_19(): int:
+  let recv_self = JsonValue(kind = "test", numVal = 1.0, strVal = "test", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_self = JsonValue(kind = "a", numVal = 0.5, strVal = "a", boolVal = false, arrayVal = [], objectVal = [])
+  let arg_idx = 1
+  let edge_idx = 0
+  let resNom = recv_self.getIndex(arg_idx)
+  let resEdge = edge_self.getIndex(edge_idx)
+  assert(resNom.isSome() == false, "getIndex nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "getIndex boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_JsonValue_asStr_20(): int:
+  let recv_self = JsonValue(kind = "test", numVal = 1.0, strVal = "test", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_self = JsonValue(kind = "a", numVal = 0.5, strVal = "a", boolVal = false, arrayVal = [], objectVal = [])
+  let resNom = recv_self.asStr()
+  let resEdge = edge_self.asStr()
+  assert(resNom.isSome() == false, "asStr nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "asStr boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_JsonValue_asInt_21(): int:
+  let recv_self = JsonValue(kind = "42", numVal = 1.0, strVal = "42", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_self = JsonValue(kind = "0", numVal = 0.5, strVal = "0", boolVal = false, arrayVal = [], objectVal = [])
+  let resNom = recv_self.asInt()
+  let resEdge = edge_self.asInt()
+  assert(resNom.isSome() == false, "asInt nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "asInt boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_JsonValue_asFloat_22(): int:
+  let recv_self = JsonValue(kind = "42", numVal = 1.0, strVal = "42", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_self = JsonValue(kind = "0", numVal = 0.5, strVal = "0", boolVal = false, arrayVal = [], objectVal = [])
+  let resNom = recv_self.asFloat()
+  let resEdge = edge_self.asFloat()
+  assert(resNom.isSome() == false, "asFloat nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "asFloat boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_JsonValue_asBool_23(): int:
+  let recv_self = JsonValue(kind = "test", numVal = 1.0, strVal = "test", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_self = JsonValue(kind = "a", numVal = 0.5, strVal = "a", boolVal = false, arrayVal = [], objectVal = [])
+  let resNom = recv_self.asBool()
+  let resEdge = edge_self.asBool()
+  assert(resNom.isSome() == false, "asBool nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "asBool boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_jsonQueryPath_24(): int:
+  let arg_val = JsonValue(kind = "{\"a\":1}", numVal = 1.0, strVal = "{\"a\":1}", boolVal = true, arrayVal = [], objectVal = [])
+  let edge_val = JsonValue(kind = "{}", numVal = 0.5, strVal = "{}", boolVal = false, arrayVal = [], objectVal = [])
+  let arg_path = "{\"a\":1}"
+  let edge_path = "{}"
+  let resNom = jsonQueryPath(arg_val, arg_path)
+  let resEdge = jsonQueryPath(edge_val, edge_path)
+  assert(resNom.isSome() == false, "jsonQueryPath nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "jsonQueryPath boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_fastJsonGetInt_25(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let arg_defaultVal = 2
+  let edge_defaultVal = 0
+  let resNom = fastJsonGetInt(arg_jsonStr, arg_key, arg_defaultVal)
+  let resEdge = fastJsonGetInt(edge_jsonStr, edge_key, edge_defaultVal)
+  assertEqInt(resNom, 2, "fastJsonGetInt nominal resNom == 2")
+  assertEqInt(resEdge, 0, "fastJsonGetInt boundary resEdge == 0")
+  ret 0
+
+pub fn test_json_fastJsonGetFloat_26(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let arg_defaultVal = 1.0
+  let edge_defaultVal = 0.5
+  let resNom = fastJsonGetFloat(arg_jsonStr, arg_key, arg_defaultVal)
+  let resEdge = fastJsonGetFloat(edge_jsonStr, edge_key, edge_defaultVal)
+  assertApproxEq(resNom, 1.0, 0.001, "fastJsonGetFloat nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "fastJsonGetFloat boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_json_fastJsonGetStr_27(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let arg_defaultVal = "{\"a\":1}"
+  let edge_defaultVal = "{}"
+  let resNom = fastJsonGetStr(arg_jsonStr, arg_key, arg_defaultVal)
+  let resEdge = fastJsonGetStr(edge_jsonStr, edge_key, edge_defaultVal)
+  assertEqInt(resNom.len(), 7, "fastJsonGetStr nominal string length == 7")
+  assertEqInt(resEdge.len(), 2, "fastJsonGetStr boundary string length == 2")
+  ret 0
+
+pub fn test_json_fastJsonGetIntArray_28(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let resNom = fastJsonGetIntArray(arg_jsonStr, arg_key)
+  let resEdge = fastJsonGetIntArray(edge_jsonStr, edge_key)
+  assertEqInt(resNom.len(), 0, "fastJsonGetIntArray nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "fastJsonGetIntArray boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_json_jsonGet_29(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let resNom = jsonGet(arg_jsonStr, arg_key)
+  let resEdge = jsonGet(edge_jsonStr, edge_key)
+  assert(resNom.isSome() == false, "jsonGet nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "jsonGet boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_formatJsonPrettyString_30(): int:
+  let arg_jsonStr = "{\"a\":1}"
+  let edge_jsonStr = "{}"
+  let arg_indent = 4
+  let edge_indent = 1
+  let resNom = formatJsonPrettyString(arg_jsonStr, arg_indent)
+  let resEdge = formatJsonPrettyString(edge_jsonStr, edge_indent)
+  assertEqInt(resNom.len(), 14, "formatJsonPrettyString nominal string length == 14")
+  assertEqInt(resEdge.len(), 2, "formatJsonPrettyString boundary string length == 2")
+  ret 0
+
+pub fn test_json_skipJsonWs_31(): int:
+  let arg_s = "{\"a\":1}"
+  let edge_s = "{}"
+  let arg_idx = 1
+  let edge_idx = 0
+  let resNom = skipJsonWs(arg_s, arg_idx)
+  let resEdge = skipJsonWs(edge_s, edge_idx)
+  assertEqInt(resNom, 1, "skipJsonWs nominal resNom == 1")
+  assertEqInt(resEdge, 0, "skipJsonWs boundary resEdge == 0")
+  ret 0
+
+pub fn test_json_findJsonValueEnd_32(): int:
+  let arg_s = "{\"a\":1}"
+  let edge_s = "{}"
+  let arg_startIdx = 1
+  let edge_startIdx = 0
+  let resNom = findJsonValueEnd(arg_s, arg_startIdx)
+  let resEdge = findJsonValueEnd(edge_s, edge_startIdx)
+  assertEqInt(resNom, 4, "findJsonValueEnd nominal resNom == 4")
+  assertEqInt(resEdge, 2, "findJsonValueEnd boundary resEdge == 2")
+  ret 0
+
+pub fn test_json_unquoteJsonValue_33(): int:
+  let arg_raw = "{\"a\":1}"
+  let edge_raw = "{}"
+  let resNom = unquoteJsonValue(arg_raw)
+  let resEdge = unquoteJsonValue(edge_raw)
+  assertEqInt(resNom.len(), 7, "unquoteJsonValue nominal string length == 7")
+  assertEqInt(resEdge.len(), 2, "unquoteJsonValue boundary string length == 2")
+  ret 0
+
+pub fn test_json_extractObjectKeyRaw_34(): int:
+  let arg_jsonObj = "{\"a\":1}"
+  let edge_jsonObj = "{}"
+  let arg_targetKey = "test"
+  let edge_targetKey = "a"
+  let resNom = extractObjectKeyRaw(arg_jsonObj, arg_targetKey)
+  let resEdge = extractObjectKeyRaw(edge_jsonObj, edge_targetKey)
+  assert(resNom.isSome() == false, "extractObjectKeyRaw nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "extractObjectKeyRaw boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_extractArrayIndexRaw_35(): int:
+  let arg_jsonArr = "{\"a\":1}"
+  let edge_jsonArr = "{}"
+  let arg_targetIdx = 1
+  let edge_targetIdx = 0
+  let resNom = extractArrayIndexRaw(arg_jsonArr, arg_targetIdx)
+  let resEdge = extractArrayIndexRaw(edge_jsonArr, edge_targetIdx)
+  assert(resNom.isSome() == false, "extractArrayIndexRaw nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "extractArrayIndexRaw boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_parseNonNegInt_36(): int:
+  let arg_s = "42"
+  let edge_s = "0"
+  let resNom = parseNonNegInt(arg_s)
+  let resEdge = parseNonNegInt(edge_s)
+  assert(resNom.isSome() == true, "parseNonNegInt nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "parseNonNegInt boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_json_jsonQueryRaw_37(): int:
+  let arg_jsonText = "{\"a\":1}"
+  let edge_jsonText = "{}"
+  let arg_queryPath = "{\"a\":1}"
+  let edge_queryPath = "{}"
+  let resNom = jsonQueryRaw(arg_jsonText, arg_queryPath)
+  let resEdge = jsonQueryRaw(edge_jsonText, edge_queryPath)
+  assert(resNom.isSome() == false, "jsonQueryRaw nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "jsonQueryRaw boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_jsonQuery_38(): int:
+  let arg_jsonText = "{\"a\":1}"
+  let edge_jsonText = "{}"
+  let arg_path = "{\"a\":1}"
+  let edge_path = "{}"
+  let resNom = jsonQuery(arg_jsonText, arg_path)
+  let resEdge = jsonQuery(edge_jsonText, edge_path)
+  assert(resNom.isSome() == false, "jsonQuery nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "jsonQuery boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_json_jsonGetPathStr_39(): int:
+  let arg_jsonText = "{\"a\":1}"
+  let edge_jsonText = "{}"
+  let arg_path = "{\"a\":1}"
+  let edge_path = "{}"
+  let arg_defaultVal = "{\"a\":1}"
+  let edge_defaultVal = "{}"
+  let resNom = jsonGetPathStr(arg_jsonText, arg_path, arg_defaultVal)
+  let resEdge = jsonGetPathStr(edge_jsonText, edge_path, edge_defaultVal)
+  assertEqInt(resNom.len(), 7, "jsonGetPathStr nominal string length == 7")
+  assertEqInt(resEdge.len(), 2, "jsonGetPathStr boundary string length == 2")
+  ret 0
+
+pub fn test_json_jsonGetPathFloat_40(): int:
+  let arg_jsonText = "{\"a\":1}"
+  let edge_jsonText = "{}"
+  let arg_path = "{\"a\":1}"
+  let edge_path = "{}"
+  let arg_defaultVal = 1.0
+  let edge_defaultVal = 0.5
+  let resNom = jsonGetPathFloat(arg_jsonText, arg_path, arg_defaultVal)
+  let resEdge = jsonGetPathFloat(edge_jsonText, edge_path, edge_defaultVal)
+  assertApproxEq(resNom, 1.0, 0.001, "jsonGetPathFloat nominal resNom ~= 1.0")
+  assertApproxEq(resEdge, 0.5, 0.001, "jsonGetPathFloat boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_json_jsonGetPathInt_41(): int:
+  let arg_jsonText = "{\"a\":1}"
+  let edge_jsonText = "{}"
+  let arg_path = "{\"a\":1}"
+  let edge_path = "{}"
+  let arg_defaultVal = 2
+  let edge_defaultVal = 0
+  let resNom = jsonGetPathInt(arg_jsonText, arg_path, arg_defaultVal)
+  let resEdge = jsonGetPathInt(edge_jsonText, edge_path, edge_defaultVal)
+  assertEqInt(resNom, 2, "jsonGetPathInt nominal resNom == 2")
+  assertEqInt(resEdge, 0, "jsonGetPathInt boundary resEdge == 0")
+  ret 0
+
+pub fn test_json_jsonStringifyIntArray_42(): int:
+  let arg_arr = [2]
+  let edge_arr = []
+  let resNom = jsonStringifyIntArray(arg_arr)
+  let resEdge = jsonStringifyIntArray(edge_arr)
+  assertEqStr(resNom, "[2]", "jsonStringifyIntArray nominal string matches")
+  assertEqStr(resEdge, "[]", "jsonStringifyIntArray boundary string matches")
+  ret 0
+
+pub fn test_json_jsonGetPathIntArray_43(): int:
+  let arg_jsonText = "{\"a\":1}"
+  let edge_jsonText = "{}"
+  let arg_path = "{\"a\":1}"
+  let edge_path = "{}"
+  let resNom = jsonGetPathIntArray(arg_jsonText, arg_path)
+  let resEdge = jsonGetPathIntArray(edge_jsonText, edge_path)
+  assertEqInt(resNom.len(), 0, "jsonGetPathIntArray nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "jsonGetPathIntArray boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_json_jsonFieldInt_44(): int:
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let arg_val = 2
+  let edge_val = 0
+  let resNom = jsonFieldInt(arg_key, arg_val)
+  let resEdge = jsonFieldInt(edge_key, edge_val)
+  assertEqInt(resNom.len(), 13, "jsonFieldInt nominal string length == 13")
+  assertEqInt(resEdge.len(), 6, "jsonFieldInt boundary string length == 6")
+  ret 0
+
+pub fn test_json_jsonFieldFloat_45(): int:
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let resNom = jsonFieldFloat(arg_key, arg_val)
+  let resEdge = jsonFieldFloat(edge_key, edge_val)
+  assertEqInt(resNom.len(), 13, "jsonFieldFloat nominal string length == 13")
+  assertEqInt(resEdge.len(), 8, "jsonFieldFloat boundary string length == 8")
+  ret 0
+
+pub fn test_json_jsonFieldStr_46(): int:
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let arg_val = "{\"a\":1}"
+  let edge_val = "{}"
+  let resNom = jsonFieldStr(arg_key, arg_val)
+  let resEdge = jsonFieldStr(edge_key, edge_val)
+  assertEqInt(resNom.len(), 23, "jsonFieldStr nominal string length == 23")
+  assertEqInt(resEdge.len(), 9, "jsonFieldStr boundary string length == 9")
+  ret 0
+
+pub fn test_json_jsonFieldBool_47(): int:
+  let arg_key = "{\"a\":1}"
+  let edge_key = "{}"
+  let arg_val = true
+  let edge_val = false
+  let resNom = jsonFieldBool(arg_key, arg_val)
+  let resEdge = jsonFieldBool(edge_key, edge_val)
+  assertEqInt(resNom.len(), 16, "jsonFieldBool nominal string length == 16")
+  assertEqInt(resEdge.len(), 10, "jsonFieldBool boundary string length == 10")
+  ret 0
+
+pub fn test_json_jsonObject2_48(): int:
+  let arg_f1 = "{\"a\":1}"
+  let edge_f1 = "{}"
+  let arg_f2 = "{\"a\":1}"
+  let edge_f2 = "{}"
+  let resNom = jsonObject2(arg_f1, arg_f2)
+  let resEdge = jsonObject2(edge_f1, edge_f2)
+  assertEqInt(resNom.len(), 17, "jsonObject2 nominal string length == 17")
+  assertEqInt(resEdge.len(), 7, "jsonObject2 boundary string length == 7")
+  ret 0
+
+pub fn test_json_jsonObject3_49(): int:
+  let arg_f1 = "{\"a\":1}"
+  let edge_f1 = "{}"
+  let arg_f2 = "{\"a\":1}"
+  let edge_f2 = "{}"
+  let arg_f3 = "{\"a\":1}"
+  let edge_f3 = "{}"
+  let resNom = jsonObject3(arg_f1, arg_f2, arg_f3)
+  let resEdge = jsonObject3(edge_f1, edge_f2, edge_f3)
+  assertEqInt(resNom.len(), 25, "jsonObject3 nominal string length == 25")
+  assertEqInt(resEdge.len(), 10, "jsonObject3 boundary string length == 10")
+  ret 0
+
+pub fn test_json_jsonObject4_50(): int:
+  let arg_f1 = "{\"a\":1}"
+  let edge_f1 = "{}"
+  let arg_f2 = "{\"a\":1}"
+  let edge_f2 = "{}"
+  let arg_f3 = "{\"a\":1}"
+  let edge_f3 = "{}"
+  let arg_f4 = "{\"a\":1}"
+  let edge_f4 = "{}"
+  let resNom = jsonObject4(arg_f1, arg_f2, arg_f3, arg_f4)
+  let resEdge = jsonObject4(edge_f1, edge_f2, edge_f3, edge_f4)
+  assertEqInt(resNom.len(), 33, "jsonObject4 nominal string length == 33")
+  assertEqInt(resEdge.len(), 13, "jsonObject4 boundary string length == 13")
+  ret 0
+
+pub fn test_json_jsonObject5_51(): int:
+  let arg_f1 = "{\"a\":1}"
+  let edge_f1 = "{}"
+  let arg_f2 = "{\"a\":1}"
+  let edge_f2 = "{}"
+  let arg_f3 = "{\"a\":1}"
+  let edge_f3 = "{}"
+  let arg_f4 = "{\"a\":1}"
+  let edge_f4 = "{}"
+  let arg_f5 = "{\"a\":1}"
+  let edge_f5 = "{}"
+  let resNom = jsonObject5(arg_f1, arg_f2, arg_f3, arg_f4, arg_f5)
+  let resEdge = jsonObject5(edge_f1, edge_f2, edge_f3, edge_f4, edge_f5)
+  assertEqInt(resNom.len(), 41, "jsonObject5 nominal string length == 41")
+  assertEqInt(resEdge.len(), 16, "jsonObject5 boundary string length == 16")
+  ret 0
+
+pub fn test_json_jsonObject6_52(): int:
+  let arg_f1 = "{\"a\":1}"
+  let edge_f1 = "{}"
+  let arg_f2 = "{\"a\":1}"
+  let edge_f2 = "{}"
+  let arg_f3 = "{\"a\":1}"
+  let edge_f3 = "{}"
+  let arg_f4 = "{\"a\":1}"
+  let edge_f4 = "{}"
+  let arg_f5 = "{\"a\":1}"
+  let edge_f5 = "{}"
+  let arg_f6 = "{\"a\":1}"
+  let edge_f6 = "{}"
+  let resNom = jsonObject6(arg_f1, arg_f2, arg_f3, arg_f4, arg_f5, arg_f6)
+  let resEdge = jsonObject6(edge_f1, edge_f2, edge_f3, edge_f4, edge_f5, edge_f6)
+  assertEqInt(resNom.len(), 49, "jsonObject6 nominal string length == 49")
+  assertEqInt(resEdge.len(), 19, "jsonObject6 boundary string length == 19")
+  ret 0
+
+pub fn test_json_jsonObject7_53(): int:
+  let arg_f1 = "{\"a\":1}"
+  let edge_f1 = "{}"
+  let arg_f2 = "{\"a\":1}"
+  let edge_f2 = "{}"
+  let arg_f3 = "{\"a\":1}"
+  let edge_f3 = "{}"
+  let arg_f4 = "{\"a\":1}"
+  let edge_f4 = "{}"
+  let arg_f5 = "{\"a\":1}"
+  let edge_f5 = "{}"
+  let arg_f6 = "{\"a\":1}"
+  let edge_f6 = "{}"
+  let arg_f7 = "{\"a\":1}"
+  let edge_f7 = "{}"
+  let resNom = jsonObject7(arg_f1, arg_f2, arg_f3, arg_f4, arg_f5, arg_f6, arg_f7)
+  let resEdge = jsonObject7(edge_f1, edge_f2, edge_f3, edge_f4, edge_f5, edge_f6, edge_f7)
+  assertEqInt(resNom.len(), 57, "jsonObject7 nominal string length == 57")
+  assertEqInt(resEdge.len(), 22, "jsonObject7 boundary string length == 22")
+  ret 0
+
+pub fn test_json_jsonObject8_54(): int:
+  let arg_f1 = "{\"a\":1}"
+  let edge_f1 = "{}"
+  let arg_f2 = "{\"a\":1}"
+  let edge_f2 = "{}"
+  let arg_f3 = "{\"a\":1}"
+  let edge_f3 = "{}"
+  let arg_f4 = "{\"a\":1}"
+  let edge_f4 = "{}"
+  let arg_f5 = "{\"a\":1}"
+  let edge_f5 = "{}"
+  let arg_f6 = "{\"a\":1}"
+  let edge_f6 = "{}"
+  let arg_f7 = "{\"a\":1}"
+  let edge_f7 = "{}"
+  let arg_f8 = "{\"a\":1}"
+  let edge_f8 = "{}"
+  let resNom = jsonObject8(arg_f1, arg_f2, arg_f3, arg_f4, arg_f5, arg_f6, arg_f7, arg_f8)
+  let resEdge = jsonObject8(edge_f1, edge_f2, edge_f3, edge_f4, edge_f5, edge_f6, edge_f7, edge_f8)
+  assertEqInt(resNom.len(), 65, "jsonObject8 nominal string length == 65")
+  assertEqInt(resEdge.len(), 25, "jsonObject8 boundary string length == 25")
+  ret 0
+
+pub fn test_json_jsonObjectFields_55(): int:
+  let arg_fields = ["{\"a\":1}"]
+  let edge_fields = []
+  let resNom = jsonObjectFields(arg_fields)
+  let resEdge = jsonObjectFields(edge_fields)
+  assertEqInt(resNom.len(), 9, "jsonObjectFields nominal string length == 9")
+  assertEqInt(resEdge.len(), 2, "jsonObjectFields boundary string length == 2")
+  ret 0
+
+pub fn test_json_jsonArrayFields_56(): int:
+  let arg_items = ["{\"a\":1}"]
+  let edge_items = []
+  let resNom = jsonArrayFields(arg_items)
+  let resEdge = jsonArrayFields(edge_items)
+  assertEqInt(resNom.len(), 9, "jsonArrayFields nominal string length == 9")
+  assertEqStr(resEdge, "[]", "jsonArrayFields boundary string matches")
+  ret 0
+
+pub fn test_json_jsonArrayStr_57(): int:
+  let arg_items = ["{\"a\":1}"]
+  let edge_items = []
+  let resNom = jsonArrayStr(arg_items)
+  let resEdge = jsonArrayStr(edge_items)
+  assertEqInt(resNom.len(), 13, "jsonArrayStr nominal string length == 13")
+  assertEqStr(resEdge, "[]", "jsonArrayStr boundary string matches")
+  ret 0
+
+pub fn test_json_jsonArrayInt_58(): int:
+  let arg_items = [4]
+  let edge_items = []
+  let resNom = jsonArrayInt(arg_items)
+  let resEdge = jsonArrayInt(edge_items)
+  assertEqStr(resNom, "[4]", "jsonArrayInt nominal string matches")
+  assertEqStr(resEdge, "[]", "jsonArrayInt boundary string matches")
+  ret 0
+
+pub fn test_yaml_yamlScalar_1(): int:
+  let arg_s = "a: 1"
+  let edge_s = "a: 1"
+  let resNom = yamlScalar(arg_s)
+  let resEdge = yamlScalar(edge_s)
+  assertEqStr(resNom.kind, "scalar", "yamlScalar nominal string matches")
+  assertEqStr(resEdge.kind, "scalar", "yamlScalar boundary string matches")
+  ret 0
+
+pub fn test_yaml_yamlSequence_2(): int:
+  let arg_items = [YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])]
+  let edge_items = []
+  let resNom = yamlSequence(arg_items)
+  let resEdge = yamlSequence(edge_items)
+  assertEqStr(resNom.kind, "sequence", "yamlSequence nominal string matches")
+  assertEqStr(resEdge.kind, "sequence", "yamlSequence boundary string matches")
+  ret 0
+
+pub fn test_yaml_yamlMapping_3(): int:
+  let arg_entries = [("a: 1", YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = []))]
+  let edge_entries = []
+  let resNom = yamlMapping(arg_entries)
+  let resEdge = yamlMapping(edge_entries)
+  assertEqStr(resNom.kind, "mapping", "yamlMapping nominal string matches")
+  assertEqStr(resEdge.kind, "mapping", "yamlMapping boundary string matches")
+  ret 0
+
+pub fn test_yaml_countLeadingSpaces_4(): int:
+  let arg_line = "test"
+  let edge_line = "a"
+  let resNom = countLeadingSpaces(arg_line)
+  let resEdge = countLeadingSpaces(edge_line)
+  assertEqInt(resNom, 0, "countLeadingSpaces nominal resNom == 0")
+  assertEqInt(resEdge, 0, "countLeadingSpaces boundary resEdge == 0")
+  ret 0
+
+pub fn test_yaml_cleanYamlScalarText_5(): int:
+  let arg_raw = "a: 1"
+  let edge_raw = "a: 1"
+  let resNom = cleanYamlScalarText(arg_raw)
+  let resEdge = cleanYamlScalarText(edge_raw)
+  assertEqStr(resNom, "a: 1", "cleanYamlScalarText nominal string matches")
+  assertEqStr(resEdge, "a: 1", "cleanYamlScalarText boundary string matches")
+  ret 0
+
+pub fn test_yaml_parseYamlLines_6(): int:
+  let arg_lines = ["a: 1"]
+  let edge_lines = []
+  let arg_startIdx = 1
+  let edge_startIdx = 0
+  let arg_minIndent = 4
+  let edge_minIndent = 1
+  let resNom = parseYamlLines(arg_lines, arg_startIdx, arg_minIndent)
+  let resEdge = parseYamlLines(edge_lines, edge_startIdx, edge_minIndent)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0, 1, "parseYamlLines nominal n_t0 == 1")
+  assertEqInt(e_t0, 0, "parseYamlLines boundary e_t0 == 0")
+  ret 0
+
+pub fn test_yaml_parseYaml_7(): int:
+  let arg_text = "a: 1"
+  let edge_text = "a: 1"
+  let resNom = parseYaml(arg_text)
+  let resEdge = parseYaml(edge_text)
+  assert(resNom.isOk() == true, "parseYaml nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseYaml boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_yaml_makeYamlPad_8(): int:
+  let arg_spaces = 2
+  let edge_spaces = 0
+  let resNom = makeYamlPad(arg_spaces)
+  let resEdge = makeYamlPad(edge_spaces)
+  assertEqStr(resNom, "  ", "makeYamlPad nominal string matches")
+  assertEqStr(resEdge, "", "makeYamlPad boundary string matches")
+  ret 0
+
+pub fn test_yaml_serializeYamlDepth_9(): int:
+  let arg_node = YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])
+  let edge_node = YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])
+  let arg_indentStep = 4
+  let edge_indentStep = 1
+  let arg_depth = 4
+  let edge_depth = 1
+  let resNom = serializeYamlDepth(arg_node, arg_indentStep, arg_depth)
+  let resEdge = serializeYamlDepth(edge_node, edge_indentStep, edge_depth)
+  assertEqStr(resNom, "", "serializeYamlDepth nominal string matches")
+  assertEqStr(resEdge, "", "serializeYamlDepth boundary string matches")
+  ret 0
+
+pub fn test_yaml_serializeYaml_10(): int:
+  let arg_node = YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])
+  let edge_node = YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])
+  let arg_indent = 4
+  let edge_indent = 1
+  let resNom = serializeYaml(arg_node, arg_indent)
+  let resEdge = serializeYaml(edge_node, edge_indent)
+  assertEqStr(resNom, "", "serializeYaml nominal string matches")
+  assertEqStr(resEdge, "", "serializeYaml boundary string matches")
+  ret 0
+
+pub fn test_yaml_parseYamlEntries_11(): int:
+  let arg_src = "a: 1"
+  let edge_src = "a: 1"
+  let resNom = parseYamlEntries(arg_src)
+  let resEdge = parseYamlEntries(edge_src)
+  assertEqInt(resNom.len(), 1, "parseYamlEntries nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseYamlEntries boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_yaml_parseYamlMap_12(): int:
+  let arg_src = "a: 1"
+  let edge_src = "a: 1"
+  let resNom = parseYamlMap(arg_src)
+  let resEdge = parseYamlMap(edge_src)
+  assertEqInt(resNom.len(), 1, "parseYamlMap nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseYamlMap boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_yaml_getYamlValue_13(): int:
+  let arg_src = "a: 1"
+  let edge_src = "a: 1"
+  let arg_key = "a: 1"
+  let edge_key = "a: 1"
+  let arg_defaultVal = "a: 1"
+  let edge_defaultVal = "a: 1"
+  let resNom = getYamlValue(arg_src, arg_key, arg_defaultVal)
+  let resEdge = getYamlValue(edge_src, edge_key, edge_defaultVal)
+  assertEqStr(resNom, "a: 1", "getYamlValue nominal string matches")
+  assertEqStr(resEdge, "a: 1", "getYamlValue boundary string matches")
+  ret 0
+
+pub fn test_yaml_parseYamlList_14(): int:
+  let arg_src = "a: 1"
+  let edge_src = "a: 1"
+  let resNom = parseYamlList(arg_src)
+  let resEdge = parseYamlList(edge_src)
+  assertEqInt(resNom.len(), 0, "parseYamlList nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "parseYamlList boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_yaml_toYamlMap_15(): int:
+  let arg_m = {}
+  let edge_m = {}
+  let resNom = toYamlMap(arg_m)
+  let resEdge = toYamlMap(edge_m)
+  assertEqStr(resNom, "", "toYamlMap nominal string matches")
+  assertEqStr(resEdge, "", "toYamlMap boundary string matches")
+  ret 0
+
+pub fn test_yaml_toYamlList_16(): int:
+  let arg_items = ["a: 1"]
+  let edge_items = []
+  let resNom = toYamlList(arg_items)
+  let resEdge = toYamlList(edge_items)
+  assertEqStr(resNom, "- a: 1", "toYamlList nominal string matches")
+  assertEqStr(resEdge, "", "toYamlList boundary string matches")
+  ret 0
+
+pub fn test_yaml_yamlNodeToJsonStr_17(): int:
+  let arg_node = YamlNode(kind = "{\"a\":1}", scalar = "{\"a\":1}", sequence = [], mapping = [])
+  let edge_node = YamlNode(kind = "{}", scalar = "{}", sequence = [], mapping = [])
+  let resNom = yamlNodeToJsonStr(arg_node)
+  let resEdge = yamlNodeToJsonStr(edge_node)
+  assertEqStr(resNom, "null", "yamlNodeToJsonStr nominal string matches")
+  assertEqStr(resEdge, "null", "yamlNodeToJsonStr boundary string matches")
+  ret 0
+
+pub fn test_yaml_yamlToJson_18(): int:
+  let arg_src = "{\"a\":1}"
+  let edge_src = "{}"
+  let resNom = yamlToJson(arg_src)
+  let resEdge = yamlToJson(edge_src)
+  assertEqInt(resNom.len(), 15, "yamlToJson nominal string length == 15")
+  assertEqInt(resEdge.len(), 4, "yamlToJson boundary string length == 4")
+  ret 0
+
+pub fn test_toml_tomlStrVal_1(): int:
+  let arg_s = "a = 1"
+  let edge_s = "a = 1"
+  let resNom = tomlStrVal(arg_s)
+  let resEdge = tomlStrVal(edge_s)
+  assertEqStr(resNom.kind, "string", "tomlStrVal nominal string matches")
+  assertEqStr(resEdge.kind, "string", "tomlStrVal boundary string matches")
+  ret 0
+
+pub fn test_toml_tomlIntVal_2(): int:
+  let arg_n = 4
+  let edge_n = 1
+  let resNom = tomlIntVal(arg_n)
+  let resEdge = tomlIntVal(edge_n)
+  assertEqStr(resNom.kind, "int", "tomlIntVal nominal string matches")
+  assertEqStr(resEdge.kind, "int", "tomlIntVal boundary string matches")
+  ret 0
+
+pub fn test_toml_tomlFloatVal_3(): int:
+  let arg_f = 1.0
+  let edge_f = 0.5
+  let resNom = tomlFloatVal(arg_f)
+  let resEdge = tomlFloatVal(edge_f)
+  assertEqStr(resNom.kind, "float", "tomlFloatVal nominal string matches")
+  assertEqStr(resEdge.kind, "float", "tomlFloatVal boundary string matches")
+  ret 0
+
+pub fn test_toml_tomlBoolVal_4(): int:
+  let arg_b = true
+  let edge_b = false
+  let resNom = tomlBoolVal(arg_b)
+  let resEdge = tomlBoolVal(edge_b)
+  assertEqStr(resNom.kind, "bool", "tomlBoolVal nominal string matches")
+  assertEqStr(resEdge.kind, "bool", "tomlBoolVal boundary string matches")
+  ret 0
+
+pub fn test_toml_tomlListVal_5(): int:
+  let arg_items = [TomlValue(kind = "a = 1", strVal = "a = 1", intVal = 4, floatVal = 0.0, boolVal = true, listVal = [], tableVal = [])]
+  let edge_items = []
+  let resNom = tomlListVal(arg_items)
+  let resEdge = tomlListVal(edge_items)
+  assertEqStr(resNom.kind, "list", "tomlListVal nominal string matches")
+  assertEqStr(resEdge.kind, "list", "tomlListVal boundary string matches")
+  ret 0
+
+pub fn test_toml_stripTomlComment_6(): int:
+  let arg_line = "a = 1"
+  let edge_line = "a = 1"
+  let resNom = stripTomlComment(arg_line)
+  let resEdge = stripTomlComment(edge_line)
+  assertEqStr(resNom, "a = 1", "stripTomlComment nominal string matches")
+  assertEqStr(resEdge, "a = 1", "stripTomlComment boundary string matches")
+  ret 0
+
+pub fn test_toml_parseTomlScalar_7(): int:
+  let arg_raw = "a = 1"
+  let edge_raw = "a = 1"
+  let resNom = parseTomlScalar(arg_raw)
+  let resEdge = parseTomlScalar(edge_raw)
+  assertEqStr(resNom.kind, "int", "parseTomlScalar nominal string matches")
+  assertEqStr(resEdge.kind, "int", "parseTomlScalar boundary string matches")
+  ret 0
+
+pub fn test_toml_parseToml_8(): int:
+  let arg_text = "a = 1"
+  let edge_text = "a = 1"
+  let resNom = parseToml(arg_text)
+  let resEdge = parseToml(edge_text)
+  assert(resNom.isOk() == true, "parseToml nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseToml boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_toml_TomlDocument_getString_9(): int:
+  let recv_self = TomlDocument(rootTable = [])
+  let edge_self = TomlDocument(rootTable = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = recv_self.getString(arg_key)
+  let resEdge = edge_self.getString(edge_key)
+  assert(resNom.isSome() == false, "getString nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "getString boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_toml_TomlDocument_getInt_10(): int:
+  let recv_self = TomlDocument(rootTable = [])
+  let edge_self = TomlDocument(rootTable = [])
+  let arg_key = "42"
+  let edge_key = "0"
+  let resNom = recv_self.getInt(arg_key)
+  let resEdge = edge_self.getInt(edge_key)
+  assert(resNom.isSome() == false, "getInt nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "getInt boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_toml_TomlDocument_getBool_11(): int:
+  let recv_self = TomlDocument(rootTable = [])
+  let edge_self = TomlDocument(rootTable = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = recv_self.getBool(arg_key)
+  let resEdge = edge_self.getBool(edge_key)
+  assert(resNom.isSome() == false, "getBool nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "getBool boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_toml_formatTomlValue_12(): int:
+  let arg_v = TomlValue(kind = "a = 1", strVal = "a = 1", intVal = 4, floatVal = 0.0, boolVal = true, listVal = [], tableVal = [])
+  let edge_v = TomlValue(kind = "a = 1", strVal = "a = 1", intVal = 1, floatVal = 0.0, boolVal = false, listVal = [], tableVal = [])
+  let resNom = formatTomlValue(arg_v)
+  let resEdge = formatTomlValue(edge_v)
+  assertEqInt(resNom.len(), 7, "formatTomlValue nominal string length == 7")
+  assertEqInt(resEdge.len(), 7, "formatTomlValue boundary string length == 7")
+  ret 0
+
+pub fn test_toml_serializeToml_13(): int:
+  let arg_doc = TomlDocument(rootTable = [])
+  let edge_doc = TomlDocument(rootTable = [])
+  let resNom = serializeToml(arg_doc)
+  let resEdge = serializeToml(edge_doc)
+  assertEqStr(resNom, "", "serializeToml nominal string matches")
+  assertEqStr(resEdge, "", "serializeToml boundary string matches")
+  ret 0
+
+pub fn test_toml_tomlGetFloat_14(): int:
+  let arg_doc = TomlDocument(rootTable = [])
+  let edge_doc = TomlDocument(rootTable = [])
+  let arg_key = "a = 1"
+  let edge_key = "a = 1"
+  let resNom = tomlGetFloat(arg_doc, arg_key)
+  let resEdge = tomlGetFloat(edge_doc, edge_key)
+  assert(resNom.isSome() == false, "tomlGetFloat nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "tomlGetFloat boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_toml_parseTomlSection_15(): int:
+  let arg_src = "a = 1"
+  let edge_src = "a = 1"
+  let arg_section = "a = 1"
+  let edge_section = "a = 1"
+  let resNom = parseTomlSection(arg_src, arg_section)
+  let resEdge = parseTomlSection(edge_src, edge_section)
+  assertEqInt(resNom.len(), 0, "parseTomlSection nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "parseTomlSection boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_toml_parseTomlSections_16(): int:
+  let arg_src = "a = 1"
+  let edge_src = "a = 1"
+  let resNom = parseTomlSections(arg_src)
+  let resEdge = parseTomlSections(edge_src)
+  assertEqInt(resNom.len(), 0, "parseTomlSections nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "parseTomlSections boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_toml_getTomlValue_17(): int:
+  let arg_src = "a = 1"
+  let edge_src = "a = 1"
+  let arg_section = "a = 1"
+  let edge_section = "a = 1"
+  let arg_key = "a = 1"
+  let edge_key = "a = 1"
+  let arg_defaultVal = "a = 1"
+  let edge_defaultVal = "a = 1"
+  let resNom = getTomlValue(arg_src, arg_section, arg_key, arg_defaultVal)
+  let resEdge = getTomlValue(edge_src, edge_section, edge_key, edge_defaultVal)
+  assertEqStr(resNom, "a = 1", "getTomlValue nominal string matches")
+  assertEqStr(resEdge, "a = 1", "getTomlValue boundary string matches")
+  ret 0
+
+pub fn test_toml_toToml_18(): int:
+  let arg_section = "a = 1"
+  let edge_section = "a = 1"
+  let arg_m = {}
+  let edge_m = {}
+  let resNom = toToml(arg_section, arg_m)
+  let resEdge = toToml(edge_section, edge_m)
+  assertEqStr(resNom, "[a = 1]", "toToml nominal string matches")
+  assertEqStr(resEdge, "[a = 1]", "toToml boundary string matches")
+  ret 0
+
+pub fn test_ini_dotenv_stripIniInlineComment_1(): int:
+  let arg_line = "[s]\nk=v"
+  let edge_line = "[s]\nk=v"
+  let resNom = stripIniInlineComment(arg_line)
+  let resEdge = stripIniInlineComment(edge_line)
+  assertEqInt(resNom.len(), 7, "stripIniInlineComment nominal string length == 7")
+  assertEqInt(resEdge.len(), 7, "stripIniInlineComment boundary string length == 7")
+  ret 0
+
+pub fn test_ini_dotenv_unquoteIniVal_2(): int:
+  let arg_v = "[s]\nk=v"
+  let edge_v = "[s]\nk=v"
+  let resNom = unquoteIniVal(arg_v)
+  let resEdge = unquoteIniVal(edge_v)
+  assertEqInt(resNom.len(), 7, "unquoteIniVal nominal string length == 7")
+  assertEqInt(resEdge.len(), 7, "unquoteIniVal boundary string length == 7")
+  ret 0
+
+pub fn test_ini_dotenv_parseIni_3(): int:
+  let arg_text = "[s]\nk=v"
+  let edge_text = "[s]\nk=v"
+  let resNom = parseIni(arg_text)
+  let resEdge = parseIni(edge_text)
+  assert(resNom.isOk() == true, "parseIni nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseIni boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_ini_dotenv_IniDocument_get_4(): int:
+  let recv_self = IniDocument(sections = [])
+  let edge_self = IniDocument(sections = [])
+  let arg_section = "test"
+  let edge_section = "a"
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = recv_self.get(arg_section, arg_key)
+  let resEdge = edge_self.get(edge_section, edge_key)
+  assert(resNom.isSome() == false, "get nominal resNom.isSome() == false")
+  assert(resEdge.isSome() == false, "get boundary resEdge.isSome() == false")
+  ret 0
+
+pub fn test_ini_dotenv_serializeIni_5(): int:
+  let arg_doc = IniDocument(sections = [])
+  let edge_doc = IniDocument(sections = [])
+  let resNom = serializeIni(arg_doc)
+  let resEdge = serializeIni(edge_doc)
+  assertEqStr(resNom, "", "serializeIni nominal string matches")
+  assertEqStr(resEdge, "", "serializeIni boundary string matches")
+  ret 0
+
+pub fn test_ini_dotenv_parseDotEnv_6(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseDotEnv(arg_text)
+  let resEdge = parseDotEnv(edge_text)
+  assertEqInt(resNom.entries.len(), 0, "parseDotEnv nominal resNom.entries.len() == 0")
+  assertEqInt(resEdge.entries.len(), 0, "parseDotEnv boundary resEdge.entries.len() == 0")
+  ret 0
+
+pub fn test_ini_dotenv_DotEnvMap_get_7(): int:
+  let recv_self = DotEnvMap(entries = [])
+  let edge_self = DotEnvMap(entries = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let arg_fallback = "test"
+  let edge_fallback = "a"
+  let resNom = recv_self.get(arg_key, arg_fallback)
+  let resEdge = edge_self.get(edge_key, edge_fallback)
+  assertEqStr(resNom, "test", "get nominal string matches")
+  assertEqStr(resEdge, "a", "get boundary string matches")
+  ret 0
+
+pub fn test_ini_dotenv_DotEnvMap_containsKey_8(): int:
+  let recv_self = DotEnvMap(entries = [])
+  let edge_self = DotEnvMap(entries = [])
+  let arg_key = "test"
+  let edge_key = "a"
+  let resNom = recv_self.containsKey(arg_key)
+  let resEdge = edge_self.containsKey(edge_key)
+  assert(resNom == false, "containsKey nominal resNom == false")
+  assert(resEdge == false, "containsKey boundary resEdge == false")
+  ret 0
+
+pub fn test_ini_dotenv_fastIniGetValue_9(): int:
+  let arg_iniText = "[s]\nk=v"
+  let edge_iniText = "[s]\nk=v"
+  let arg_section = "[s]\nk=v"
+  let edge_section = "[s]\nk=v"
+  let arg_key = "[s]\nk=v"
+  let edge_key = "[s]\nk=v"
+  let arg_defaultVal = "[s]\nk=v"
+  let edge_defaultVal = "[s]\nk=v"
+  let resNom = fastIniGetValue(arg_iniText, arg_section, arg_key, arg_defaultVal)
+  let resEdge = fastIniGetValue(edge_iniText, edge_section, edge_key, edge_defaultVal)
+  assertEqInt(resNom.len(), 7, "fastIniGetValue nominal string length == 7")
+  assertEqInt(resEdge.len(), 7, "fastIniGetValue boundary string length == 7")
+  ret 0
+
+pub fn test_ini_dotenv_parseDotenv_10(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = parseDotenv(arg_text)
+  let resEdge = parseDotenv(edge_text)
+  assertEqInt(resNom.len(), 0, "parseDotenv nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "parseDotenv boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ini_dotenv_loadDotEnv_11(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = loadDotEnv(arg_text)
+  let resEdge = loadDotEnv(edge_text)
+  assertEqInt(resNom.len(), 0, "loadDotEnv nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "loadDotEnv boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ini_dotenv_loadDotenv_12(): int:
+  let arg_text = "test"
+  let edge_text = "a"
+  let resNom = loadDotenv(arg_text)
+  let resEdge = loadDotenv(edge_text)
+  assertEqInt(resNom.len(), 0, "loadDotenv nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "loadDotenv boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ini_dotenv_validateDotEnvSchema_13(): int:
+  let arg_envMap = {}
+  let edge_envMap = {}
+  let arg_requiredKeys = ["test"]
+  let edge_requiredKeys = []
+  let resNom = validateDotEnvSchema(arg_envMap, arg_requiredKeys)
+  let resEdge = validateDotEnvSchema(edge_envMap, edge_requiredKeys)
+  assert(resNom.isOk() == false, "validateDotEnvSchema nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == true, "validateDotEnvSchema boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_ini_dotenv_validateSchema_14(): int:
+  let arg_envMap = {}
+  let edge_envMap = {}
+  let arg_requiredKeys = ["test"]
+  let edge_requiredKeys = []
+  let resNom = validateSchema(arg_envMap, arg_requiredKeys)
+  let resEdge = validateSchema(edge_envMap, edge_requiredKeys)
+  assert(resNom.isOk() == false, "validateSchema nominal resNom.isOk() == false")
+  assert(resEdge.isOk() == true, "validateSchema boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_ini_dotenv_parseIniSection_15(): int:
+  let arg_src = "[s]\nk=v"
+  let edge_src = "[s]\nk=v"
+  let arg_section = "[s]\nk=v"
+  let edge_section = "[s]\nk=v"
+  let resNom = parseIniSection(arg_src, arg_section)
+  let resEdge = parseIniSection(edge_src, edge_section)
+  assertEqInt(resNom.len(), 0, "parseIniSection nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "parseIniSection boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_ini_dotenv_parseIniSections_16(): int:
+  let arg_src = "[s]\nk=v"
+  let edge_src = "[s]\nk=v"
+  let resNom = parseIniSections(arg_src)
+  let resEdge = parseIniSections(edge_src)
+  assertEqInt(resNom.len(), 1, "parseIniSections nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseIniSections boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_ini_dotenv_getIniValue_17(): int:
+  let arg_src = "[s]\nk=v"
+  let edge_src = "[s]\nk=v"
+  let arg_section = "[s]\nk=v"
+  let edge_section = "[s]\nk=v"
+  let arg_key = "[s]\nk=v"
+  let edge_key = "[s]\nk=v"
+  let arg_defaultVal = "[s]\nk=v"
+  let edge_defaultVal = "[s]\nk=v"
+  let resNom = getIniValue(arg_src, arg_section, arg_key, arg_defaultVal)
+  let resEdge = getIniValue(edge_src, edge_section, edge_key, edge_defaultVal)
+  assertEqInt(resNom.len(), 7, "getIniValue nominal string length == 7")
+  assertEqInt(resEdge.len(), 7, "getIniValue boundary string length == 7")
+  ret 0
+
+pub fn test_ini_dotenv_toIni_18(): int:
+  let arg_section = "[s]\nk=v"
+  let edge_section = "[s]\nk=v"
+  let arg_m = {}
+  let edge_m = {}
+  let resNom = toIni(arg_section, arg_m)
+  let resEdge = toIni(edge_section, edge_m)
+  assertEqInt(resNom.len(), 9, "toIni nominal string length == 9")
+  assertEqInt(resEdge.len(), 9, "toIni boundary string length == 9")
+  ret 0

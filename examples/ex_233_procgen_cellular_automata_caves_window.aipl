@@ -1,0 +1,155 @@
+module Ex233ProcgenCellularAutomataCavesWindow
+
+import {
+  GrayScottConfig, CellularGrid2D, ScalarField2D,
+  caveAutomataInit, caveAutomataStep, conwayStep2D, grayScottStep2D
+} from "../std/procgen/cellular_automata"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct CellularCaveScene(caveGrid: CellularGrid2D, conwayGrid: CellularGrid2D, grayU: ScalarField2D, grayV: ScalarField2D, gsConfig: GrayScottConfig, generation: int, caveEpoch: int, smoothPass: int)
+
+pub fn createCellularCaveScene(): CellularCaveScene:
+  let rawCave = caveAutomataInit(12, 12, 0.45, 123)
+  let conway = caveAutomataInit(12, 12, 0.42, 456)
+  let gu = ScalarField2D(width = 3, height = 3, values = [1.0, 1.0, 1.0, 1.0, 0.5, 1.0, 1.0, 1.0, 1.0])
+  let gv = ScalarField2D(width = 3, height = 3, values = [0.0, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0])
+  let gsCfg = GrayScottConfig(feedRate = 0.055, killRate = 0.062, diffusionU = 0.16, diffusionV = 0.08)
+  ret CellularCaveScene(
+    caveGrid = rawCave,
+    conwayGrid = conway,
+    grayU = gu,
+    grayV = gv,
+    gsConfig = gsCfg,
+    generation = 0,
+    caveEpoch = 1,
+    smoothPass = 0
+  )
+
+pub fn stepScene(mut scene: CellularCaveScene, frame: int, dt: float): void:
+  if frame > 0 and frame % 38 == 0:
+    scene.caveGrid = caveAutomataInit(12, 12, 0.45, 123 + frame * 41)
+    scene.conwayGrid = caveAutomataInit(12, 12, 0.42, 456 + frame * 59)
+    scene.grayU = ScalarField2D(width = 3, height = 3, values = [1.0, 0.9, 1.0, 0.9, 0.45, 0.9, 1.0, 0.9, 1.0])
+    scene.grayV = ScalarField2D(width = 3, height = 3, values = [0.0, 0.08, 0.0, 0.08, 0.30, 0.08, 0.0, 0.08, 0.0])
+    scene.caveEpoch = scene.caveEpoch + 1
+    scene.smoothPass = 0
+  else:
+    if frame % 7 == 0:
+      scene.caveGrid = caveAutomataStep(scene.caveGrid, 4, 3)
+      scene.smoothPass = scene.smoothPass + 1
+  scene.conwayGrid = conwayStep2D(scene.conwayGrid)
+  mut gu = scene.grayU
+  mut gv = scene.grayV
+  grayScottStep2D(gu, gv, scene.gsConfig, dt)
+  scene.grayU = gu
+  scene.grayV = gv
+  scene.generation = scene.generation + 1
+
+pub fn auditProcgenCellularCaves(): int:
+  let grid = caveAutomataInit(16, 16, 0.45, 123)
+  let smoothed = caveAutomataStep(grid, 4, 3)
+  let conway = conwayStep2D(smoothed)
+  mut gu = ScalarField2D(width = 3, height = 3, values = [1.0, 1.0, 1.0, 1.0, 0.5, 1.0, 1.0, 1.0, 1.0])
+  mut gv = ScalarField2D(width = 3, height = 3, values = [0.0, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0])
+  let gsCfg = GrayScottConfig(feedRate = 0.055, killRate = 0.062, diffusionU = 0.16, diffusionV = 0.08)
+  grayScottStep2D(gu, gv, gsCfg, 0.1)
+  mut ok = 0
+  if gu.values[4] != 0.5:
+    ok = 1
+  ret conway.cells.len() + ok
+
+pub fn main(): int:
+  let audit = auditProcgenCellularCaves()
+  println("EX_233_PROCGEN_CAVES_AUDIT=" + str(audit))
+
+  mut scene = createCellularCaveScene()
+
+  initWindow(1280, 720, "AIPL ex_233: Cellular Automata Cave Smoothing & Reaction-Diffusion")
+  mut frame = 0
+  while not windowShouldClose():
+    stepScene(scene, frame, 0.1)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawRect(32.0, 20.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 20.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_233: B45/S34 CAVE CELLULAR AUTOMATA, CONWAY LIFE & GRAY-SCOTT PDE", 52.0, 36.0, 22.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | Epoch=#" + str(scene.caveEpoch) + " (Pass " + str(scene.smoothPass) + ") | Gen=" + str(scene.generation) + " | GrayScott U[4]=" + str(int(scene.grayU.values[4] * 1000.0)) + "m", 52.0, 62.0, 16.0, rgb(125, 211, 252))
+
+    // Left Panel: B45/S34 Cave Cellular Automata
+    drawRect(32.0, 108.0, 420.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(32.0, 108.0, 420.0, 576.0, 2.0, rgb(56, 189, 248))
+    drawText("CAVE AUTOMATA (B45/S34)", 60.0, 132.0, 16.0, rgb(125, 211, 252))
+    drawText("Epoch #" + str(scene.caveEpoch) + " | Smooth Pass: " + str(scene.smoothPass), 60.0, 156.0, 14.0, rgb(148, 163, 184))
+
+    // Center Panel: Conway B3/S23 Game of Life
+    drawRect(472.0, 108.0, 420.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(472.0, 108.0, 420.0, 576.0, 2.0, rgb(16, 185, 129))
+    drawText("CONWAY B3/S23 LIFE GRID", 500.0, 132.0, 16.0, rgb(110, 231, 183))
+    drawText("Generation: " + str(scene.generation), 500.0, 156.0, 14.0, rgb(148, 163, 184))
+
+    mut cy = 0
+    while cy < 12:
+      mut cx = 0
+      while cx < 12:
+        let idx = cy * 12 + cx
+        let cVal = scene.caveGrid.cells[idx]
+        let lVal = scene.conwayGrid.cells[idx]
+        let sx1 = 58.0 + float(cx * 31)
+        let sy1 = 192.0 + float(cy * 31)
+        if cVal > 0:
+          drawRect(sx1, sy1, 28.0, 28.0, rgb(51, 65, 85))
+          drawRectOutline(sx1, sy1, 28.0, 28.0, 1.0, rgb(100, 116, 139))
+        else:
+          drawRect(sx1, sy1, 28.0, 28.0, rgb(14, 165, 233))
+
+        let sx2 = 498.0 + float(cx * 31)
+        let sy2 = 192.0 + float(cy * 31)
+        if lVal > 0:
+          drawRect(sx2, sy2, 28.0, 28.0, rgb(16, 185, 129))
+        else:
+          drawRect(sx2, sy2, 28.0, 28.0, rgb(30, 41, 59))
+        cx = cx + 1
+      cy = cy + 1
+
+    drawText("Slate: Solid Rock | Blue: Open Cavern", 60.0, 592.0, 14.0, rgb(148, 163, 184))
+    drawText("Auto re-seeds cavern every 38 frames", 60.0, 616.0, 14.0, rgb(56, 189, 248))
+    drawText("Green: Alive (2-3 neighbors) | Dark: Dead", 500.0, 592.0, 14.0, rgb(148, 163, 184))
+
+    // Right Panel: Gray-Scott Reaction-Diffusion PDE
+    drawRect(912.0, 108.0, 336.0, 576.0, rgb(17, 24, 39))
+    drawRectOutline(912.0, 108.0, 336.0, 576.0, 2.0, rgb(168, 85, 247))
+    drawText("GRAY-SCOTT PDE (U & V)", 964.0, 132.0, 16.0, rgb(216, 180, 254))
+    drawText("grayScottStep2D() 3x3 Kernel", 964.0, 156.0, 14.0, rgb(148, 163, 184))
+
+    mut gy = 0
+    while gy < 3:
+      mut gx = 0
+      while gx < 3:
+        let gIdx = gy * 3 + gx
+        let uVal = scene.grayU.values[gIdx]
+        let vVal = scene.grayV.values[gIdx]
+        let bx = 954.0 + float(gx * 86)
+        let by = 196.0 + float(gy * 86)
+        let uCol = 40 + int(uVal * 180.0)
+        let vCol = 40 + int(vVal * 600.0)
+        drawRect(bx, by, 76.0, 76.0, rgb(vCol, 50, uCol))
+        drawRectOutline(bx, by, 76.0, 76.0, 2.0, rgb(192, 132, 252))
+        drawText("U:" + str(int(uVal * 100.0)), bx + 10.0, by + 18.0, 14.0, rgb(226, 232, 240))
+        drawText("V:" + str(int(vVal * 100.0)), bx + 10.0, by + 42.0, 14.0, rgb(250, 204, 21))
+        gx = gx + 1
+      gy = gy + 1
+
+    drawText("Feed Rate (F):      0.055", 944.0, 484.0, 15.0, rgb(125, 211, 252))
+    drawText("Kill Rate (k):      0.062", 944.0, 514.0, 15.0, rgb(248, 113, 113))
+    drawText("Diffusion Du / Dv:  0.16 / 0.08", 944.0, 544.0, 15.0, rgb(216, 180, 254))
+    drawText("Center U[4]:        " + str(int(scene.grayU.values[4] * 1000.0)) + " m", 944.0, 574.0, 15.0, rgb(52, 211, 153))
+    drawText("Center V[4]:        " + str(int(scene.grayV.values[4] * 1000.0)) + " m", 944.0, 604.0, 15.0, rgb(250, 204, 21))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,151 @@
+module Ex197UiNodegraphShaderBlueprintEditorWindow
+
+import { Vec2 } from "../std/math/vec_math"
+import {
+  GraphPin, GraphNode, computeBezierWireControlPoints, validatePinConnection,
+  auraUndoHistoryNew, auraUndoHistoryPush, auraUndoHistoryCanUndo
+} from "../std/ui/ui_nodegraph"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawCircle, drawCircleOutline, drawLine, drawText, rgb,
+  buildCubicBezierPoints
+} from "../std/gfx2d/shape2d"
+
+pub fn stepSampleNodePos(frame: int): Vec2:
+  ret Vec2(
+    x = 500.0 + cos(float(frame) * 0.045) * 32.0,
+    y = 170.0 + sin(float(frame) * 0.065) * 48.0
+  )
+
+pub fn buildUiNodegraphAudit(): int:
+  let pinOut = GraphPin(pinId = 1, nodeId = 10, name = "AlbedoRgb", isOutput = true, dataType = 3, pinPosition = Vec2(x = 200.0, y = 180.0))
+  let pinIn = GraphPin(pinId = 2, nodeId = 20, name = "BaseColor", isOutput = false, dataType = 3, pinPosition = Vec2(x = 500.0, y = 260.0))
+  let valid = validatePinConnection(pinOut, pinIn)
+  let pts = computeBezierWireControlPoints(pinOut.pinPosition, pinIn.pinPosition)
+  mut hist = auraUndoHistoryNew(16)
+  hist = auraUndoHistoryPush(hist, "connect_albedo_to_pbr")
+  ret int(pts[1].x) + pts.len() + (if valid: 1 else: 0) + (if auraUndoHistoryCanUndo(hist): 1 else: 0)
+
+pub fn main(): int:
+  let auditScore = buildUiNodegraphAudit()
+  mut hist = auraUndoHistoryNew(16)
+  hist = auraUndoHistoryPush(hist, "spawn_uv_node")
+  hist = auraUndoHistoryPush(hist, "connect_albedo_wire")
+
+  let pOut1 = GraphPin(pinId = 1, nodeId = 1, name = "UV Coord (vec2)", isOutput = true, dataType = 2, pinPosition = Vec2(x = 320.0, y = 260.0))
+  let pIn3 = GraphPin(pinId = 4, nodeId = 3, name = "BaseColor (vec3)", isOutput = false, dataType = 3, pinPosition = Vec2(x = 930.0, y = 300.0))
+  let pIn3Rough = GraphPin(pinId = 5, nodeId = 3, name = "Roughness (f32)", isOutput = false, dataType = 1, pinPosition = Vec2(x = 930.0, y = 360.0))
+
+  let n1 = GraphNode(nodeId = 1, title = "1. TexCoord2D", position = Vec2(x = 80.0, y = 180.0), size = Vec2(x = 240.0, y = 150.0), inputPins = [], outputPins = [pOut1])
+  let n3 = GraphNode(nodeId = 3, title = "3. PBR Master Output", position = Vec2(x = 930.0, y = 210.0), size = Vec2(x = 270.0, y = 220.0), inputPins = [pIn3, pIn3Rough], outputPins = [])
+
+  initWindow(1280, 720, "AIPL ex_197: UI NodeGraph Shader Blueprint Editor & Bezier Wires")
+  mut frame = 0
+  while not windowShouldClose():
+    let n2Pos = stepSampleNodePos(frame)
+    let pIn2 = GraphPin(pinId = 2, nodeId = 2, name = "UV In (vec2)", isOutput = false, dataType = 2, pinPosition = Vec2(x = n2Pos.x, y = n2Pos.y + 74.0))
+    let pOut2 = GraphPin(pinId = 3, nodeId = 2, name = "Albedo (vec3)", isOutput = true, dataType = 3, pinPosition = Vec2(x = n2Pos.x + 250.0, y = n2Pos.y + 98.0))
+    let pOut2Rough = GraphPin(pinId = 6, nodeId = 2, name = "AlphaRough (f32)", isOutput = true, dataType = 1, pinPosition = Vec2(x = n2Pos.x + 250.0, y = n2Pos.y + 138.0))
+    let n2 = GraphNode(nodeId = 2, title = "2. SampleTexture2D", position = n2Pos, size = Vec2(x = 250.0, y = 186.0), inputPins = [pIn2], outputPins = [pOut2, pOut2Rough])
+    let nodes = [n1, n2, n3]
+    let validLinks = validatePinConnection(pOut1, pIn2) and validatePinConnection(pOut2, pIn3) and validatePinConnection(pOut2Rough, pIn3Rough)
+    let canUndo = auraUndoHistoryCanUndo(hist)
+    let w1 = computeBezierWireControlPoints(pOut1.pinPosition, pIn2.pinPosition)
+    let w2 = computeBezierWireControlPoints(pOut2.pinPosition, pIn3.pinPosition)
+    let w3 = computeBezierWireControlPoints(pOut2Rough.pinPosition, pIn3Rough.pinPosition)
+    let curve1 = buildCubicBezierPoints(w1[0], w1[1], w1[2], w1[3], 24)
+    let curve2 = buildCubicBezierPoints(w2[0], w2[1], w2[2], w2[3], 24)
+    let curve3 = buildCubicBezierPoints(w3[0], w3[1], w3[2], w3[3], 24)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    // Subtle NodeGraph background grid
+    mut gx = 80.0
+    while gx < 1240.0:
+      drawLine(gx, 108.0, gx, 560.0, rgb(18, 25, 42), 1.0)
+      gx = gx + 40.0
+    mut gy = 120.0
+    while gy < 560.0:
+      drawLine(40.0, gy, 1240.0, gy, rgb(18, 25, 42), 1.0)
+      gy = gy + 40.0
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_197: UI NODEGRAPH SHADER BLUEPRINT EDITOR & CUBIC BEZIER WIRES", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("nodes=" + str(nodes.len()) + " | samplePos=(" + str(int(n2Pos.x)) + "," + str(int(n2Pos.y)) + ") | validLinks=" + str(validLinks) + " | canUndo=" + str(canUndo) + " | audit=" + str(auditScore), 52.0, 66.0, 15.0, rgb(125, 211, 252))
+
+    // Draw Nodes first so pins and Bezier wires connect cleanly on top
+    mut idx = 0
+    while idx < nodes.len():
+      let nd = nodes[idx]
+      let hdrCol = if idx == 0: rgb(14, 116, 144) elif idx == 1: rgb(37, 99, 235) else: rgb(109, 40, 217)
+      drawRect(nd.position.x, nd.position.y, nd.size.x, nd.size.y, rgb(20, 29, 47))
+      drawRect(nd.position.x, nd.position.y, nd.size.x, 34.0, hdrCol)
+      drawRectOutline(nd.position.x, nd.position.y, nd.size.x, nd.size.y, 2.0, rgb(96, 165, 250))
+      drawText(nd.title, nd.position.x + 14.0, nd.position.y + 9.0, 16.0, rgb(248, 250, 252))
+
+      mut ip = 0
+      while ip < nd.inputPins.len():
+        let pin = nd.inputPins[ip]
+        drawText(pin.name, pin.pinPosition.x + 14.0, pin.pinPosition.y - 7.0, 14.0, rgb(203, 213, 225))
+        ip = ip + 1
+
+      mut op = 0
+      while op < nd.outputPins.len():
+        let pin = nd.outputPins[op]
+        drawText(pin.name, pin.pinPosition.x - 132.0, pin.pinPosition.y - 7.0, 14.0, rgb(186, 230, 253))
+        op = op + 1
+      idx = idx + 1
+
+    // Node internal previews
+    drawText("Tiling: (2.0, 2.0)", n1.position.x + 16.0, n1.position.y + 112.0, 13.0, rgb(148, 163, 184))
+    drawRect(n3.position.x + 170.0, n3.position.y + 120.0, 76.0, 76.0, rgb(15, 23, 42))
+    drawCircle(n3.position.x + 208.0, n3.position.y + 158.0, 28.0, rgb(52, 211, 153))
+    drawCircle(n3.position.x + 198.0, n3.position.y + 148.0, 9.0, rgb(209, 250, 229))
+
+    // Draw Bezier Control Hulls (subtle) + Smooth Cubic Bezier Wires
+    drawLine(w1[0].x, w1[0].y, w1[1].x, w1[1].y, rgb(51, 65, 85), 1.0)
+    drawLine(w1[2].x, w1[2].y, w1[3].x, w1[3].y, rgb(51, 65, 85), 1.0)
+    drawLine(w2[0].x, w2[0].y, w2[1].x, w2[1].y, rgb(51, 65, 85), 1.0)
+    drawLine(w2[2].x, w2[2].y, w2[3].x, w2[3].y, rgb(51, 65, 85), 1.0)
+
+    mut s = 0
+    while s + 1 < curve1.len():
+      drawLine(curve1[s].x, curve1[s].y, curve1[s + 1].x, curve1[s + 1].y, rgb(56, 189, 248), 3.0)
+      drawLine(curve2[s].x, curve2[s].y, curve2[s + 1].x, curve2[s + 1].y, rgb(52, 211, 153), 3.0)
+      drawLine(curve3[s].x, curve3[s].y, curve3[s + 1].x, curve3[s + 1].y, rgb(250, 204, 21), 2.5)
+      s = s + 1
+
+    // Animated Data Packets along Bezier Wires
+    let pktIdx = (frame * 2) % curve1.len()
+    drawCircle(curve1[pktIdx].x, curve1[pktIdx].y, 6.0, rgb(240, 249, 255))
+    drawCircle(curve2[pktIdx].x, curve2[pktIdx].y, 6.0, rgb(209, 250, 229))
+    drawCircle(curve3[pktIdx].x, curve3[pktIdx].y, 5.0, rgb(254, 240, 138))
+
+    // Pin Socket Circles
+    drawCircle(pOut1.pinPosition.x, pOut1.pinPosition.y, 7.0, rgb(56, 189, 248))
+    drawCircle(pIn2.pinPosition.x, pIn2.pinPosition.y, 7.0, rgb(56, 189, 248))
+    drawCircle(pOut2.pinPosition.x, pOut2.pinPosition.y, 7.0, rgb(52, 211, 153))
+    drawCircle(pIn3.pinPosition.x, pIn3.pinPosition.y, 7.0, rgb(52, 211, 153))
+    drawCircle(pOut2Rough.pinPosition.x, pOut2Rough.pinPosition.y, 6.0, rgb(250, 204, 21))
+    drawCircle(pIn3Rough.pinPosition.x, pIn3Rough.pinPosition.y, 6.0, rgb(250, 204, 21))
+
+    // Bottom Undo/Redo Command History Strip
+    drawRect(32.0, 580.0, 1216.0, 108.0, rgb(15, 23, 42))
+    drawRectOutline(32.0, 580.0, 1216.0, 108.0, 2.0, rgb(168, 85, 247))
+    drawText("AuraUndoHistory Stack (depth=" + str(hist.undoStack.len()) + " | maxDepth=" + str(hist.maxDepth) + ") & Bezier Control Points:", 52.0, 598.0, 16.0, rgb(216, 180, 254))
+    drawRect(52.0, 628.0, 240.0, 42.0, rgb(30, 41, 59))
+    drawRectOutline(52.0, 628.0, 240.0, 42.0, 1.5, rgb(56, 189, 248))
+    drawText("#1: " + hist.undoStack[0], 68.0, 642.0, 15.0, rgb(226, 232, 240))
+    drawRect(308.0, 628.0, 260.0, 42.0, rgb(30, 41, 59))
+    drawRectOutline(308.0, 628.0, 260.0, 42.0, 1.5, rgb(52, 211, 153))
+    drawText("#2: " + hist.undoStack[1], 324.0, 642.0, 15.0, rgb(226, 232, 240))
+    drawText("Wire1 C1=(" + str(int(w1[1].x)) + "," + str(int(w1[1].y)) + ") C2=(" + str(int(w1[2].x)) + "," + str(int(w1[2].y)) + ") | Wire2 C1=(" + str(int(w2[1].x)) + "," + str(int(w2[1].y)) + ")", 592.0, 642.0, 15.0, rgb(148, 163, 184))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

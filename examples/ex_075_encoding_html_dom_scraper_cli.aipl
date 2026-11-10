@@ -1,0 +1,56 @@
+// ============================================================================
+// Example 075: HTML5 DOM Selector Scraper & XSS Sanitizer (CLI)
+// Demonstrates: parseHtml, innerText, htmlToPlainText, htmlNodeAttr,
+//               formatHtml, escapeHtml, unescapeHtml, and sanitizeUrl
+//               from std/encoding.
+// ============================================================================
+module Ex075EncodingHtmlDomScraperCli
+
+import {
+  parseHtml,
+  innerText,
+  htmlToPlainText,
+  htmlNodeAttr,
+  formatHtml,
+  escapeHtml,
+  unescapeHtml,
+  sanitizeUrl
+} from "../std/encoding"
+
+// Parses an HTML5 fragment and extracts its data-role attribute and inner text.
+pub fn scrapeHtmlCardInnerTextAndRole(): str:
+  let htmlSrc = "<div id=\"main\" class=\"card primary\" data-role=\"panel\"><p>Hello</p><br></div>"
+  let dom = parseHtml(htmlSrc)
+  let root = dom.root
+  let role = htmlNodeAttr(root, "data-role").unwrap()
+  let text = innerText(root)
+  assert(formatHtml(root).contains("<div"), "formatHtml serializes root tag")
+  ret role + ":" + text
+
+// Verifies CSS selectors (#id, .class), plain-text extraction, HTML escaping, and XSS URI sanitization.
+pub fn verifyHtmlSanitizerAndSelectors(): int:
+  let htmlSrc = "<div id=\"main\" class=\"card primary\" data-role=\"panel\"><p>Hello</p><br></div>"
+  let dom = parseHtml(htmlSrc)
+  let byId = dom.querySelector("#main")
+  let byClass = dom.querySelectorAll(".primary")
+  let cards = dom.root.getElementsByClassName("card")
+  let plain = htmlToPlainText("<div><p>Plain</p></div>")
+  let esc = escapeHtml("<b>")
+  let unesc = unescapeHtml(esc)
+  let safeHref = sanitizeUrl("javascript:alert(1)")
+  if byId.isSome() and byClass.len == 1 and cards.len == 1 and plain == "Plain" and unesc == "<b>" and safeHref == "about:blank":
+    ret 1
+  ret 0
+
+// Summarizes the result of URI sanitization against script injection.
+pub fn describeHtmlSanitizeVerdict(sanitizedHref: str): str:
+  if sanitizedHref == "about:blank":
+    ret "HTML:XSS_URI_NEUTRALIZED"
+  ret "HTML:SAFE_NAVIGATION_URI"
+
+pub fn main(): int:
+  let scraped = scrapeHtmlCardInnerTextAndRole()
+  let secOk = verifyHtmlSanitizerAndSelectors()
+  let verdict = describeHtmlSanitizeVerdict(sanitizeUrl("javascript:alert(1)"))
+  println("ex_075_encoding_html_dom_scraper_cli: scraped=" + scraped + " secOk=" + str(secOk) + " verdict=" + verdict)
+  ret 0

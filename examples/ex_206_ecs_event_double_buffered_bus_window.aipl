@@ -1,0 +1,122 @@
+module Ex206EcsEventDoubleBufferedBusWindow
+
+import {
+  EventEnvelope, EventReader, createEventBus,
+  publishEvent, swapEventBuffers, readNewEvents
+} from "../std/ecs/ecs_event"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow,
+  clearScreen, drawRect, drawRectOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepBufferSwapProgress(frame: int): float:
+  ret float(frame % 28) / 28.0
+
+pub fn buildEcsEventBusAudit(): int:
+  mut bus = createEventBus()
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 10, sourceEntityIndex = 1, payloadA = 42.0, payloadB = 1.0))
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 20, sourceEntityIndex = 2, payloadA = 99.0, payloadB = 2.0))
+  bus = swapEventBuffers(bus)
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 10, sourceEntityIndex = 3, payloadA = 58.0, payloadB = 3.0))
+  let reader0 = EventReader(readCursorPrev = 0, readCursorCurr = 0)
+  let (evList, nextReader) = readNewEvents(bus, reader0, 10)
+  let events: [EventEnvelope] = evList
+  let rAfter: EventReader = nextReader
+  ret int(events[0].payloadA) + int(events[1].payloadA) + events.len() + (rAfter.readCursorPrev + rAfter.readCursorCurr)
+
+pub fn main(): int:
+  let auditScore = buildEcsEventBusAudit()
+
+  mut bus = createEventBus()
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 10, sourceEntityIndex = 4, payloadA = 120.0, payloadB = 1.0))
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 10, sourceEntityIndex = 7, payloadA = 85.0, payloadB = 2.0))
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 20, sourceEntityIndex = 9, payloadA = 340.0, payloadB = 1.0))
+  bus = swapEventBuffers(bus)
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 10, sourceEntityIndex = 12, payloadA = 64.0, payloadB = 3.0))
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 20, sourceEntityIndex = 15, payloadA = 210.0, payloadB = 4.0))
+  mut swapGeneration = 1
+
+  initWindow(1280, 720, "AIPL ex_206: ECS Double-Buffered EventBus & EventReader Cursors")
+  mut frame = 0
+  while not windowShouldClose():
+    if frame > 0 and frame % 28 == 0:
+      bus = swapEventBuffers(bus)
+      swapGeneration = swapGeneration + 1
+      let src0 = 10 + (swapGeneration * 3) % 40
+      bus = publishEvent(bus, EventEnvelope(eventTypeId = 10, sourceEntityIndex = src0, payloadA = 90.0 + float((swapGeneration * 19) % 160), payloadB = 1.0))
+    else:
+      if frame > 0 and frame % 7 == 0 and bus.currentQueue.len() < 4:
+        let evType = if bus.currentQueue.len() % 2 == 1: 20 else: 10
+        let srcId = 12 + (frame / 7) % 50
+        let payA = 60.0 + float((frame * 13) % 240)
+        bus = publishEvent(bus, EventEnvelope(eventTypeId = evType, sourceEntityIndex = srcId, payloadA = payA, payloadB = float(bus.currentQueue.len() + 1)))
+
+    let (matched10, rAfter) = readNewEvents(bus, EventReader(readCursorPrev = 0, readCursorCurr = 0), 10)
+    let events10: [EventEnvelope] = matched10
+    let rState: EventReader = rAfter
+    let swapT = stepBufferSwapProgress(frame)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawRect(32.0, 24.0, 1216.0, 68.0, rgb(18, 28, 48))
+    drawRectOutline(32.0, 24.0, 1216.0, 68.0, 2.0, rgb(56, 189, 248))
+    drawText("EX_206: ECS DOUBLE-BUFFERED EVENT BUS & EVENT READER CURSORS", 52.0, 40.0, 22.0, rgb(240, 249, 255))
+    drawText("swapGen=#" + str(swapGeneration) + " | prevQueue=" + str(bus.previousQueue.len()) + " | currQueue=" + str(bus.currentQueue.len()) + " | cursor=(" + str(rState.readCursorPrev) + "," + str(rState.readCursorCurr) + ") | audit=" + str(auditScore), 52.0, 66.0, 16.0, rgb(125, 211, 252))
+
+    // Left Previous Frame Buffer
+    drawRect(60.0, 124.0, 360.0, 500.0, rgb(17, 24, 39))
+    drawRectOutline(60.0, 124.0, 360.0, 500.0, 2.0, rgb(168, 85, 247))
+    drawText("Previous Frame Queue (Read-Only):", 80.0, 146.0, 17.0, rgb(216, 180, 254))
+    mut p = 0
+    while p < bus.previousQueue.len() and p < 4:
+      let ev: EventEnvelope = bus.previousQueue[p]
+      let py = 186.0 + float(p) * 102.0
+      let isT10 = ev.eventTypeId == 10
+      drawRect(80.0, py, 320.0, 84.0, rgb(32, 24, 54))
+      drawRectOutline(80.0, py, 320.0, 84.0, 1.5, if isT10: rgb(52, 211, 153) else: rgb(168, 85, 247))
+      drawText("prev[" + str(p) + "] Type=" + str(ev.eventTypeId) + " | Src=#" + str(ev.sourceEntityIndex), 96.0, py + 16.0, 16.0, rgb(243, 232, 255))
+      drawText("PayloadA=" + str(int(ev.payloadA)) + " (" + (if isT10: "MATCHES T10" else: "SKIPPED T20") + ")", 96.0, py + 46.0, 14.0, if isT10: rgb(110, 231, 183) else: rgb(192, 132, 252))
+      p = p + 1
+
+    // Center Current Frame Buffer
+    drawRect(460.0, 124.0, 360.0, 500.0, rgb(17, 24, 39))
+    drawRectOutline(460.0, 124.0, 360.0, 500.0, 2.0, rgb(56, 189, 248))
+    drawText("Current Frame Queue (Publishing):", 480.0, 146.0, 17.0, rgb(125, 211, 252))
+    mut c = 0
+    while c < bus.currentQueue.len() and c < 4:
+      let ev: EventEnvelope = bus.currentQueue[c]
+      let cy = 186.0 + float(c) * 102.0
+      let isT10 = ev.eventTypeId == 10
+      drawRect(480.0, cy, 320.0, 84.0, rgb(20, 36, 58))
+      drawRectOutline(480.0, cy, 320.0, 84.0, 1.5, if isT10: rgb(52, 211, 153) else: rgb(56, 189, 248))
+      drawText("curr[" + str(c) + "] Type=" + str(ev.eventTypeId) + " | Src=#" + str(ev.sourceEntityIndex), 496.0, cy + 16.0, 16.0, rgb(240, 249, 255))
+      drawText("PayloadA=" + str(int(ev.payloadA)) + " (" + (if isT10: "MATCHES T10" else: "SKIPPED T20") + ")", 496.0, cy + 46.0, 14.0, if isT10: rgb(110, 231, 183) else: rgb(125, 211, 252))
+      c = c + 1
+
+    // Right Filtered EventReader Stream (eventTypeId == 10)
+    drawRect(860.0, 124.0, 360.0, 500.0, rgb(17, 24, 39))
+    drawRectOutline(860.0, 124.0, 360.0, 500.0, 2.0, rgb(52, 211, 153))
+    drawText("EventReader Stream (Type == 10):", 880.0, 146.0, 17.0, rgb(110, 231, 183))
+    mut r = 0
+    while r < events10.len() and r < 5:
+      let ev: EventEnvelope = events10[r]
+      let ry = 186.0 + float(r) * 82.0
+      drawRect(880.0, ry, 320.0, 68.0, rgb(18, 44, 38))
+      drawRectOutline(880.0, ry, 320.0, 68.0, 1.5, rgb(52, 211, 153))
+      drawText("Delivered #" + str(r + 1) + " <- Entity #" + str(ev.sourceEntityIndex), 896.0, ry + 14.0, 15.0, rgb(236, 253, 245))
+      drawText("PayloadA=" + str(int(ev.payloadA)), 896.0, ry + 38.0, 14.0, rgb(110, 231, 183))
+      r = r + 1
+
+    // Bottom Double-Buffer Swap Cycle Bar
+    drawRect(60.0, 640.0, 1160.0, 52.0, rgb(15, 23, 42))
+    drawRectOutline(60.0, 640.0, 1160.0, 52.0, 2.0, rgb(250, 204, 21))
+    drawText("Double-Buffer Swap Cycle (swapEventBuffers every 28 frames): " + str(int(swapT * 100.0)) + "%", 84.0, 650.0, 15.0, rgb(254, 240, 138))
+    drawRect(84.0, 672.0, 1112.0 * swapT, 10.0, rgb(250, 204, 21))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  println("Audit score: " + str(auditScore))
+  ret 0

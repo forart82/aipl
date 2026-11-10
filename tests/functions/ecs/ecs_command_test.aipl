@@ -1,0 +1,51 @@
+module tests.functions.ecs.ecs_command_test
+
+import * from "std/ecs/ecs_command"
+import { EntityId } from "std/ecs/entity"
+import { EcsWorld, spawnEntity, despawnEntity } from "std/ecs/ecs_world"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_ecs_command_createCommandBuffer_1(): int:
+  let resNom = createCommandBuffer()
+  let resEdge = createCommandBuffer()
+  assertEqInt(resNom.commands.len(), 0, "createCommandBuffer nominal resNom.commands.len() == 0")
+  assertEqInt(resEdge.commands.len(), 0, "createCommandBuffer boundary resEdge.commands.len() == 0")
+  ret 0
+
+pub fn test_ecs_command_recordSpawnCommand_2(): int:
+  let arg_buf = EcsCommandBuffer(commands = [])
+  let edge_buf = EcsCommandBuffer(commands = [])
+  let resNom = recordSpawnCommand(arg_buf)
+  let resEdge = recordSpawnCommand(edge_buf)
+  assertEqInt(resNom.commands.len(), 1, "recordSpawnCommand nominal resNom.commands.len() == 1")
+  assertEqInt(resEdge.commands.len(), 1, "recordSpawnCommand boundary resEdge.commands.len() == 1")
+  ret 0
+
+pub fn test_ecs_command_recordDespawnCommand_3(): int:
+  let arg_buf = EcsCommandBuffer(commands = [])
+  let edge_buf = EcsCommandBuffer(commands = [])
+  let arg_entity = EntityId(index = 0, generation = 4)
+  let edge_entity = EntityId(index = 0, generation = 1)
+  let resNom = recordDespawnCommand(arg_buf, arg_entity)
+  let resEdge = recordDespawnCommand(edge_buf, edge_entity)
+  assertEqInt(resNom.commands.len(), 1, "recordDespawnCommand nominal resNom.commands.len() == 1")
+  assertEqInt(resEdge.commands.len(), 1, "recordDespawnCommand boundary resEdge.commands.len() == 1")
+  ret 0
+
+pub fn test_ecs_command_flushCommandBuffer_4(): int:
+  let arg_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let edge_world = EcsWorld(entityPool = EntityPool(generations = [], alive = [], freeIndices = []), archetypes = [], locations = [], resources = [])
+  let arg_buf = EcsCommandBuffer(commands = [])
+  let edge_buf = EcsCommandBuffer(commands = [])
+  let resNom = flushCommandBuffer(arg_world, arg_buf)
+  let resEdge = flushCommandBuffer(edge_world, edge_buf)
+  assertEqInt(resNom.archetypes.len(), 0, "flushCommandBuffer nominal resNom.archetypes.len() == 0")
+  assertEqInt(resEdge.archetypes.len(), 0, "flushCommandBuffer boundary resEdge.archetypes.len() == 0")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_ecs_command_createCommandBuffer_1(), 0, "test_ecs_command_createCommandBuffer_1")
+  assertEqInt(test_ecs_command_recordSpawnCommand_2(), 0, "test_ecs_command_recordSpawnCommand_2")
+  assertEqInt(test_ecs_command_recordDespawnCommand_3(), 0, "test_ecs_command_recordDespawnCommand_3")
+  assertEqInt(test_ecs_command_flushCommandBuffer_4(), 0, "test_ecs_command_flushCommandBuffer_4")
+  ret 0

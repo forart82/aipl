@@ -1,0 +1,379 @@
+/// # Module: `std/ui/ui_canvas` (`UiCanvasMod`)
+///
+/// ## Purpose & Domain Scope
+/// 2D screen overlay canvas and hierarchical scissor clipping stack.
+module UiCanvasMod
+
+import { minInt, maxInt } from "std/math/consts"
+import { Vec2 } from "../math/vec_math"
+import { minInt, maxInt, clampInt, minFloat, maxFloat, clampFloat, absFloat } from "../math/consts"
+import { Color, rgba, rgb, colorHex, drawRect, drawRectOutline, drawLine, drawCircle, drawRoundedRect, drawText, measureTextWidthPx, setTargetFps, getFrameTime } from "../gfx2d/shape2d"
+
+pub struct ScissorRect(x: int, y: int, w: int, h: int)
+
+pub struct UiCanvas(width: float, height: float, scissorStack: [ScissorRect])
+
+pub fn pushScissor(canvas: UiCanvas, rect: ScissorRect): UiCanvas:
+  mut nextStack: [ScissorRect] = []
+  mut i = 0
+  while i < canvas.scissorStack.len:
+    nextStack.push(canvas.scissorStack[i])
+    i = i + 1
+
+  if nextStack.len == 0:
+    nextStack.push(rect)
+  else:
+    let prev: ScissorRect = nextStack[nextStack.len - 1]
+    let x1 = maxInt(prev.x, rect.x)
+    let y1 = maxInt(prev.y, rect.y)
+    let x2 = minInt(prev.x + prev.w, rect.x + rect.w)
+    let y2 = minInt(prev.y + prev.h, rect.y + rect.h)
+    nextStack.push(ScissorRect(
+      x = x1,
+      y = y1,
+      w = maxInt(0, x2 - x1),
+      h = maxInt(0, y2 - y1)
+    ))
+
+  ret UiCanvas(
+    width = canvas.width,
+    height = canvas.height,
+    scissorStack = nextStack
+  )
+
+pub fn popScissor(canvas: UiCanvas): UiCanvas:
+  mut nextStack: [ScissorRect] = []
+  let count = canvas.scissorStack.len
+  mut i = 0
+  while i + 1 < count:
+    nextStack.push(canvas.scissorStack[i])
+    i = i + 1
+  ret UiCanvas(
+    width = canvas.width,
+    height = canvas.height,
+    scissorStack = nextStack
+  )
+
+pub struct AspectViewport(winW: float, winH: float, logicalW: float, logicalH: float, scale: float, offsetX: float, offsetY: float, viewW: float, viewH: float, aspectRatio: float)
+
+pub fn computeAspectViewport(winW: float, winH: float, logicalW: float, logicalH: float): AspectViewport:
+  let safeLogW = if logicalW > 1.0: logicalW else: 1280.0
+  let safeLogH = if logicalH > 1.0: logicalH else: 720.0
+  let safeWinW = if winW > 1.0: winW else: safeLogW
+  let safeWinH = if winH > 1.0: winH else: safeLogH
+  let sx = float(safeWinW) / float(safeLogW)
+  let sy = float(safeWinH) / float(safeLogH)
+  let sc = if sx < sy: sx else: sy
+  let vw = safeLogW * sc
+  let vh = safeLogH * sc
+  let ox = (safeWinW - vw) * 0.5
+  let oy = (safeWinH - vh) * 0.5
+  let ratio = float(safeLogW) / float(safeLogH)
+  ret AspectViewport(
+    winW = safeWinW,
+    winH = safeWinH,
+    logicalW = safeLogW,
+    logicalH = safeLogH,
+    scale = sc,
+    offsetX = ox,
+    offsetY = oy,
+    viewW = vw,
+    viewH = vh,
+    aspectRatio = ratio
+  )
+
+pub fn drawAspectLetterboxBars(vp: AspectViewport, barHex: int):
+  let r = (barHex >> 16) & 255
+  let g = (barHex >> 8) & 255
+  let b = barHex & 255
+  let col = rgb(r, g, b)
+  if vp.offsetX > 0.5:
+    drawRect(0.0, 0.0, vp.offsetX, vp.winH, col)
+    drawRect(vp.offsetX + vp.viewW, 0.0, vp.winW - (vp.offsetX + vp.viewW) + 1.0, vp.winH, col)
+  if vp.offsetY > 0.5:
+    drawRect(0.0, 0.0, vp.winW, vp.offsetY, col)
+    drawRect(0.0, vp.offsetY + vp.viewH, vp.winW, vp.winH - (vp.offsetY + vp.viewH) + 1.0, col)
+  ret
+
+pub fn configureViewportMaxFps(maxFps: int): int:
+  let safeMax = if maxFps <= 0: 0 else: clampInt(maxFps, 15, 360)
+  setMaxFps(safeMax)
+  ret safeMax
+
+pub fn drawViewportFpsHudBadge(vp: AspectViewport, x: float, y: float, label: str, maxFps: int, accentHex: int):
+  let ar = (accentHex >> 16) & 255
+  let ag = (accentHex >> 8) & 255
+  let ab = accentHex & 255
+  let scalePct = int(vp.scale * 100.0 + 0.5)
+  let liveFps = getCurrentFps()
+  let capFps = getMaxFps(maxFps)
+  let dtMs10 = int(getFrameTimeMs() * 10.0 + 0.5)
+  let msWhole = dtMs10 / 10
+  let msFrac = dtMs10 % 10
+  let fpsSummary = if maxFps > 0: str(liveFps) + "/" + str(capFps) + " FPS" else: str(liveFps) + " FPS (Uncapped)"
+  let text = label + " " + str(int(vp.winW)) + "x" + str(int(vp.winH)) + " (" + str(scalePct) + "%) | " + fpsSummary + " (" + str(msWhole) + "." + str(msFrac) + "ms)"
+  let bw = maxFloat(230.0, float(text.len) * 6.0 + 16.0)
+  drawRoundedRect(x, y, bw, 20.0, 4.0, rgba(11, 15, 25, 220))
+  drawRoundedRectOutline(x, y, bw, 20.0, 4.0, 1.0, rgba(ar, ag, ab, 210))
+  drawCircle(x + 8.0, y + 10.0, 3.0, rgb(ar, ag, ab))
+  drawText(text, x + 15.0, y + 4.0, 0.62, rgb(226, 232, 240))
+  ret
+
+pub fn drawViewportResolutionHudBadge(vp: AspectViewport, x: float, y: float, label: str, accentHex: int):
+  let ar = (accentHex >> 16) & 255
+  let ag = (accentHex >> 8) & 255
+  let ab = accentHex & 255
+  let scalePct = int(vp.scale * 100.0 + 0.5)
+  let liveFps = getCurrentFps()
+  let dtMs10 = int(getFrameTimeMs() * 10.0 + 0.5)
+  let msWhole = dtMs10 / 10
+  let msFrac = dtMs10 % 10
+  let text = label + " " + str(int(vp.winW)) + "x" + str(int(vp.winH)) + " (" + str(scalePct) + "% Aspect) | " + str(liveFps) + " FPS (" + str(msWhole) + "." + str(msFrac) + "ms)"
+  let bw = maxFloat(220.0, float(text.len) * 6.0 + 16.0)
+  drawRoundedRect(x, y, bw, 20.0, 4.0, rgba(11, 15, 25, 220))
+  drawRoundedRectOutline(x, y, bw, 20.0, 4.0, 1.0, rgba(ar, ag, ab, 210))
+  drawCircle(x + 8.0, y + 10.0, 3.0, rgb(ar, ag, ab))
+  drawText(text, x + 15.0, y + 4.0, 0.62, rgb(226, 232, 240))
+  ret
+
+pub fn unprojectMouseX(vp: AspectViewport, rawX: float): float:
+  let sc = if vp.scale > 0.0001: vp.scale else: 1.0
+  ret clampFloat(float(rawX - vp.offsetX) / float(sc), 0.0, vp.logicalW)
+
+pub fn unprojectMouseY(vp: AspectViewport, rawY: float): float:
+  let sc = if vp.scale > 0.0001: vp.scale else: 1.0
+  ret clampFloat(float(rawY - vp.offsetY) / float(sc), 0.0, vp.logicalH)
+
+pub fn projectLogicalToScreenX(vp: AspectViewport, logicalX: float): float:
+  ret vp.offsetX + logicalX * vp.scale
+
+pub fn projectLogicalToScreenY(vp: AspectViewport, logicalY: float): float:
+  ret vp.offsetY + logicalY * vp.scale
+
+pub fn clampViewportX(vp: AspectViewport, logicalX: float, margin: float): float:
+  let m = maxFloat(0.0, margin)
+  let cx = clampFloat(logicalX, m, maxFloat(m, vp.logicalW - m))
+  ret vp.offsetX + cx * vp.scale
+
+pub fn clampViewportY(vp: AspectViewport, logicalY: float, margin: float): float:
+  let m = maxFloat(0.0, margin)
+  let cy = clampFloat(logicalY, m, maxFloat(m, vp.logicalH - m))
+  ret vp.offsetY + cy * vp.scale
+
+pub fn viewportCenterX(vp: AspectViewport): float:
+  ret vp.offsetX + vp.viewW * 0.5
+
+pub fn viewportCenterY(vp: AspectViewport): float:
+  ret vp.offsetY + vp.viewH * 0.5
+
+pub fn viewportAnchorTopLeft(vp: AspectViewport, padX: float, padY: float): Vec2:
+  ret Vec2(x = vp.offsetX + padX * vp.scale, y = vp.offsetY + padY * vp.scale)
+
+pub fn viewportAnchorTopRight(vp: AspectViewport, elemW: float, padX: float, padY: float): Vec2:
+  ret Vec2(x = vp.offsetX + vp.viewW - (elemW + padX) * vp.scale, y = vp.offsetY + padY * vp.scale)
+
+pub fn viewportAnchorBottomLeft(vp: AspectViewport, elemH: float, padX: float, padY: float): Vec2:
+  ret Vec2(x = vp.offsetX + padX * vp.scale, y = vp.offsetY + vp.viewH - (elemH + padY) * vp.scale)
+
+pub fn viewportAnchorBottomRight(vp: AspectViewport, elemW: float, elemH: float, padX: float, padY: float): Vec2:
+  ret Vec2(
+    x = vp.offsetX + vp.viewW - (elemW + padX) * vp.scale,
+    y = vp.offsetY + vp.viewH - (elemH + padY) * vp.scale
+  )
+
+pub fn viewportEffectiveDpiScale(vp: AspectViewport, systemDpiScale: float): float:
+  let sys = if systemDpiScale > 0.25: systemDpiScale else: 1.0
+  ret clampFloat(vp.scale * sys, 0.5, 4.0)
+
+pub fn viewportScaleFontPx(vp: AspectViewport, basePx: float, minPx: float, maxPx: float): float:
+  ret clampFloat(basePx * vp.scale, minPx, maxPx)
+
+/// Wave 11 (`v0.4.0`): Computes screen-space `[x, y, w, h]` for responsive horizontal split-pane
+/// layouts inside the aspect-preserved viewport.
+pub fn viewportSplitRectHorizontal(vp: AspectViewport, leftRatio: float, gapPx: float, isLeft: bool): [float]:
+  let r = clampFloat(leftRatio, 0.15, 0.85)
+  let gap = maxFloat(0.0, gapPx * vp.scale)
+  let usableW = maxFloat(32.0, vp.viewW - gap)
+  let leftW = usableW * r
+  let rightW = usableW - leftW
+  if isLeft:
+    ret [vp.offsetX, vp.offsetY, leftW, vp.viewH]
+  ret [vp.offsetX + leftW + gap, vp.offsetY, rightW, vp.viewH]
+
+/// Wave 11 (`v0.4.0`): Renders broadcast/cinematic action-safe (`90%`) and title-safe (`80%`)
+/// framing guides inside the active `AspectViewport`.
+pub fn drawViewportSafeZoneGuides(vp: AspectViewport, actionSafePct: float, titleSafePct: float, guideHex: int):
+  let aPct = clampFloat(actionSafePct, 0.50, 0.98)
+  let tPct = clampFloat(titleSafePct, 0.40, aPct)
+  let gR = (guideHex >> 16) & 255
+  let gG = (guideHex >> 8) & 255
+  let gB = guideHex & 255
+
+  let aw = vp.viewW * aPct
+  let ah = vp.viewH * aPct
+  let ax = vp.offsetX + (vp.viewW - aw) * 0.5
+  let ay = vp.offsetY + (vp.viewH - ah) * 0.5
+  drawRoundedRectOutline(ax, ay, aw, ah, 2.0, 1.0, rgba(gR, gG, gB, 115))
+
+  let tw = vp.viewW * tPct
+  let th = vp.viewH * tPct
+  let tx = vp.offsetX + (vp.viewW - tw) * 0.5
+  let ty = vp.offsetY + (vp.viewH - th) * 0.5
+  drawRoundedRectOutline(tx, ty, tw, th, 2.0, 1.0, rgba(gR, gG, gB, 175))
+  ret
+
+/// Wave 12 (`v0.4.0`): Wraps logical coordinates `(lx, ly)` seamlessly across
+/// `[0..vp.logicalW, 0..vp.logicalH)` toroidal boundaries and projects into screen space.
+pub fn viewportWrapToroidalPoint(vp: AspectViewport, lx: float, ly: float): Vec2:
+  let rw = maxFloat(1.0, vp.logicalW)
+  let rh = maxFloat(1.0, vp.logicalH)
+  mut wx = modFloat(lx, rw)
+  if wx < 0.0:
+    wx = wx + rw
+  mut wy = modFloat(ly, rh)
+  if wy < 0.0:
+    wy = wy + rh
+  ret Vec2(
+    x = vp.offsetX + wx * vp.scale,
+    y = vp.offsetY + wy * vp.scale
+  )
+
+/// Wave 12 (`v0.4.0`): Renders an N-by-N subdivision alignment grid inside the active `AspectViewport`.
+pub fn drawViewportQuadrantGrid(vp: AspectViewport, subdivs: int, gridHex: int):
+  let divs = clampInt(subdivs, 2, 16)
+  let gR = (gridHex >> 16) & 255
+  let gG = (gridHex >> 8) & 255
+  let gB = gridHex & 255
+  let col = rgba(gR, gG, gB, 95)
+  mut i = 1
+  while i < divs:
+    let frac = float(i) / float(divs)
+    let gx = vp.offsetX + vp.viewW * frac
+    let gy = vp.offsetY + vp.viewH * frac
+    drawLine(gx, vp.offsetY, gx, vp.offsetY + vp.viewH, col, 1.0)
+    drawLine(vp.offsetX, gy, vp.offsetX + vp.viewW, gy, col, 1.0)
+    i += 1
+  ret
+
+/// Wave 13 (`v0.4.0`): Transforms infinite spatial board world X (`worldX`) with pan (`panX`)
+/// and zoom percentage (`zoomPct` `10..800`) into viewport screen X (`viewX` origin).
+pub fn viewportPanZoomBoardToScreenX(worldX: float, panX: float, zoomPct: float, viewX: float): float:
+  let z = clampFloat(zoomPct, 10.0, 800.0) / 100.0
+  ret viewX + (worldX + panX) * z
+
+/// Wave 13 (`v0.4.0`): Transforms infinite spatial board world Y (`worldY`) with pan (`panY`)
+/// and zoom percentage (`zoomPct` `10..800`) into viewport screen Y (`viewY` origin).
+pub fn viewportPanZoomBoardToScreenY(worldY: float, panY: float, zoomPct: float, viewY: float): float:
+  let z = clampFloat(zoomPct, 10.0, 800.0) / 100.0
+  ret viewY + (worldY + panY) * z
+
+/// Wave 14 (`v0.4.0`): Computes clamped replay timeline scrub bar tick (`[0..totalTicks]`)
+/// from mouse cursor X (`mouseX`) across timeline track `[barX..barX+barW]`.
+pub fn viewportComputeReplayTimelineScrubTick(mouseX: float, barX: float, barW: float, totalTicks: int): int:
+  let safeW = maxFloat(1.0, barW)
+  let maxT = maxInt(0, totalTicks)
+  if maxT <= 0:
+    ret 0
+  let clampedX = clampFloat(mouseX, barX, barX + safeW)
+  let num = (float(clampedX - barX) * float(maxT)) + (float(safeW) * 0.5)
+  ret clampInt(int(float(num) / float(safeW)), 0, maxT)
+
+/// Wave 15 (`v0.4.0`): Computes radial N-fold mandala symmetry X coordinate for point `(px, py)`
+/// rotated around center `(cx, cy)` at sector `segmentIdx` of `totalSegments`.
+pub fn viewportComputeSymmetryMandalaPointX(cx: float, cy: float, px: float, py: float, segmentIdx: int, totalSegments: int): float:
+  let n = maxInt(1, totalSegments)
+  let idx = segmentIdx % n
+  let angleRad = float(float(idx) * 6.283185307179586) / float(n)
+  let dx = px - cx
+  let dy = py - cy
+  ret cx + dx * cos(angleRad) - dy * sin(angleRad)
+
+/// Wave 15 (`v0.4.0`): Computes radial N-fold mandala symmetry Y coordinate for point `(px, py)`
+/// rotated around center `(cx, cy)` at sector `segmentIdx` of `totalSegments`.
+pub fn viewportComputeSymmetryMandalaPointY(cx: float, cy: float, px: float, py: float, segmentIdx: int, totalSegments: int): float:
+  let n = maxInt(1, totalSegments)
+  let idx = segmentIdx % n
+  let angleRad = float(float(idx) * 6.283185307179586) / float(n)
+  let dx = px - cx
+  let dy = py - cy
+  ret cy + dx * sin(angleRad) + dy * cos(angleRad)
+
+/// Wave 16 (`v0.4.0`): Snaps cursor `(curX, curY)` onto the nearest 15-degree quantized perspective ray
+/// originating from vanishing point `(vpX, vpY)` and returns the snapped X coordinate.
+pub fn viewportSnapCursorToPerspectiveRayX(curX: float, curY: float, vpX: float, vpY: float): float:
+  let dx = curX - vpX
+  let dy = curY - vpY
+  let dist = sqrt(dx * dx + dy * dy)
+  if dist < 0.0001:
+    ret curX
+  let angleRad = atan2(dy, dx)
+  let stepRad = 0.2617993877991494
+  let shifted = angleRad + 12.566370614359172
+  let steps = int((float(shifted) / float(stepRad)) + 0.5)
+  let snappedRad = float(steps) * stepRad - 12.566370614359172
+  ret vpX + cos(snappedRad) * dist
+
+/// Wave 16 (`v0.4.0`): Snaps cursor `(curX, curY)` onto the nearest 15-degree quantized perspective ray
+/// originating from vanishing point `(vpX, vpY)` and returns the snapped Y coordinate.
+pub fn viewportSnapCursorToPerspectiveRayY(curX: float, curY: float, vpX: float, vpY: float): float:
+  let dx = curX - vpX
+  let dy = curY - vpY
+  let dist = sqrt(dx * dx + dy * dy)
+  if dist < 0.0001:
+    ret curY
+  let angleRad = atan2(dy, dx)
+  let stepRad = 0.2617993877991494
+  let shifted = angleRad + 12.566370614359172
+  let steps = int((float(shifted) / float(stepRad)) + 0.5)
+  let snappedRad = float(steps) * stepRad - 12.566370614359172
+  ret vpY + sin(snappedRad) * dist
+
+/// Wave 17 (`v0.4.0`): Computes normalized histogram bar height in `[0.0, maxBarHeight]`
+/// from `binCount`, peak `maxBinCount`, and vertical chart height `maxBarHeight`.
+pub fn viewportComputeHistogramBinHeight(binCount: int, maxBinCount: int, maxBarHeight: float): float:
+  let hMax = maxFloat(0.0, maxBarHeight)
+  if binCount <= 0 or maxBinCount <= 0 or hMax <= 0.0:
+    ret 0.0
+  let c = clampInt(binCount, 0, maxBinCount)
+  let ratio = clampFloat(float(c) / float(maxInt(1, maxBinCount)), 0.0, 1.0)
+  ret ratio * hMax
+
+pub struct VanishingPointGuide2D(vp1X: float, vp1Y: float, vp2X: float, vp2Y: float, horizonY: float, modePts: int)
+
+/// Projects/interpolates cursor X (`cursorX`) toward vanishing point `(vpX, vpY)` by `tFactor` (`[0.0, 1.0]`).
+pub fn perspProjectToVanishingPointX(cursorX: float, cursorY: float, vpX: float, vpY: float, tFactor: float): float:
+  let t = clampFloat(tFactor, 0.0, 1.0)
+  let _unusedY = cursorY + vpY
+  ret cursorX + (vpX - cursorX) * t
+
+/// Projects/interpolates cursor Y (`cursorY`) toward vanishing point `(vpX, vpY)` by `tFactor` (`[0.0, 1.0]`).
+pub fn perspProjectToVanishingPointY(cursorX: float, cursorY: float, vpX: float, vpY: float, tFactor: float): float:
+  let t = clampFloat(tFactor, 0.0, 1.0)
+  let _unusedX = cursorX + vpX
+  ret cursorY + (vpY - cursorY) * t
+
+/// Computes smooth quadratic-falloff radial Liquify mesh-warp displaced X coordinate
+/// for point `(px, py)` inside brush `(brushX, brushY)` of `radius` pushed by `pushDx`.
+pub fn warpComputeLiquifyRadialDisplaceX(px: float, py: float, brushX: float, brushY: float, radius: float, pushDx: float): float:
+  let safeR = maxFloat(0.001, radius)
+  let dx = px - brushX
+  let dy = py - brushY
+  let distSq = dx * dx + dy * dy
+  let rSq = safeR * safeR
+  if distSq >= rSq:
+    ret px
+  let falloff = 1.0 - (float(distSq) / float(rSq))
+  ret px + pushDx * falloff * falloff
+
+/// Computes smooth quadratic-falloff radial Liquify mesh-warp displaced Y coordinate
+/// for point `(px, py)` inside brush `(brushX, brushY)` of `radius` pushed by `pushDy`.
+pub fn warpComputeLiquifyRadialDisplaceY(px: float, py: float, brushX: float, brushY: float, radius: float, pushDy: float): float:
+  let safeR = maxFloat(0.001, radius)
+  let dx = px - brushX
+  let dy = py - brushY
+  let distSq = dx * dx + dy * dy
+  let rSq = safeR * safeR
+  if distSq >= rSq:
+    ret py
+  let falloff = 1.0 - (float(distSq) / float(rSq))
+  ret py + pushDy * falloff * falloff

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# AIPL Root Master Quality Gate Verification Script
+# Pure self-hosted AIPL - Zero Rust dependencies
+# ==============================================================================
+set -euo pipefail
+
+export PATH="$HOME/.nvm/versions/node/v24.18.0/bin:$HOME/.local/bin:$PATH"
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_ROOT"
+
+echo "=== [1/4] Running 3-Stage Fixed-Point Native Bootstrap ==="
+./bin/aipl bootstrap
+
+echo "=== [2/4] Running Compiler & Standard Library Self-Host Tests ==="
+./bin/aipl test tests/functions/core/prelude_test.aipl
+./bin/aipl test tests/functions/gfx25d/
+./bin/aipl test tests/functions/hebar/
+python3 tools/verify_stdlib.py --global-audit
+
+echo "=== [3/4] Running Python Test Suite & Parity Audits ==="
+pytest tests/
+
+echo "=== [4/4] Verifying 4-Layer Defense-in-Depth Shield ==="
+./tools/pre-commit-shield.sh
+
+if [ -f "$REPO_ROOT/bin/aipl" ]; then
+    mkdir -p "$HOME/.local/bin" "$HOME/.cargo/bin"
+    for dest in "$HOME/.local/bin/aipl" "$HOME/.cargo/bin/aipl"; do
+        # Destinations may already be symlinks to bin/aipl; copying a file onto itself fails.
+        if [ "$(readlink -f "$dest" 2>/dev/null)" != "$(readlink -f "$REPO_ROOT/bin/aipl")" ]; then
+            cp "$REPO_ROOT/bin/aipl" "$dest"
+            chmod +x "$dest"
+        fi
+    done
+fi
+
+echo "======================================================="
+echo "  ALL AIPL VERIFICATION QUALITY GATES PASSED (100%)    "
+echo "======================================================="

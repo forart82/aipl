@@ -1,0 +1,183 @@
+module tests.functions.encoding.yaml_test
+
+import * from "std/encoding/yaml"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_yaml_yamlScalar_1(): int:
+  let arg_s = "a: 1"
+  let edge_s = "a: 1"
+  let resNom = yamlScalar(arg_s)
+  let resEdge = yamlScalar(edge_s)
+  assertEqStr(resNom.kind, "scalar", "yamlScalar nominal string matches")
+  assertEqStr(resEdge.kind, "scalar", "yamlScalar boundary string matches")
+  ret 0
+
+pub fn test_yaml_yamlSequence_2(): int:
+  let arg_items = [YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])]
+  let edge_items = []
+  let resNom = yamlSequence(arg_items)
+  let resEdge = yamlSequence(edge_items)
+  assertEqStr(resNom.kind, "sequence", "yamlSequence nominal string matches")
+  assertEqStr(resEdge.kind, "sequence", "yamlSequence boundary string matches")
+  ret 0
+
+pub fn test_yaml_yamlMapping_3(): int:
+  let arg_entries = [("a: 1", YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = []))]
+  let edge_entries = []
+  let resNom = yamlMapping(arg_entries)
+  let resEdge = yamlMapping(edge_entries)
+  assertEqStr(resNom.kind, "mapping", "yamlMapping nominal string matches")
+  assertEqStr(resEdge.kind, "mapping", "yamlMapping boundary string matches")
+  ret 0
+
+pub fn test_yaml_countLeadingSpaces_4(): int:
+  let arg_line = "test"
+  let edge_line = "a"
+  let resNom = countLeadingSpaces(arg_line)
+  let resEdge = countLeadingSpaces(edge_line)
+  assertEqInt(resNom, 0, "countLeadingSpaces nominal resNom == 0")
+  assertEqInt(resEdge, 0, "countLeadingSpaces boundary resEdge == 0")
+  ret 0
+
+pub fn test_yaml_cleanYamlScalarText_5(): int:
+  let arg_raw = "a: 1"
+  let edge_raw = "a: 1"
+  let resNom = cleanYamlScalarText(arg_raw)
+  let resEdge = cleanYamlScalarText(edge_raw)
+  assertEqStr(resNom, "a: 1", "cleanYamlScalarText nominal string matches")
+  assertEqStr(resEdge, "a: 1", "cleanYamlScalarText boundary string matches")
+  ret 0
+
+pub fn test_yaml_parseYamlLines_6(): int:
+  let arg_lines = ["a: 1"]
+  let edge_lines = []
+  let arg_startIdx = 1
+  let edge_startIdx = 0
+  let arg_minIndent = 4
+  let edge_minIndent = 1
+  let resNom = parseYamlLines(arg_lines, arg_startIdx, arg_minIndent)
+  let resEdge = parseYamlLines(edge_lines, edge_startIdx, edge_minIndent)
+  let (n_t0, n_t1) = resNom
+  let (e_t0, e_t1) = resEdge
+  assertEqInt(n_t0, 1, "parseYamlLines nominal n_t0 == 1")
+  assertEqInt(e_t0, 0, "parseYamlLines boundary e_t0 == 0")
+  ret 0
+
+pub fn test_yaml_parseYaml_7(): int:
+  let arg_text = "a: 1"
+  let edge_text = "a: 1"
+  let resNom = parseYaml(arg_text)
+  let resEdge = parseYaml(edge_text)
+  assert(resNom.isOk() == true, "parseYaml nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseYaml boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_yaml_makeYamlPad_8(): int:
+  let arg_spaces = 2
+  let edge_spaces = 0
+  let resNom = makeYamlPad(arg_spaces)
+  let resEdge = makeYamlPad(edge_spaces)
+  assertEqStr(resNom, "  ", "makeYamlPad nominal string matches")
+  assertEqStr(resEdge, "", "makeYamlPad boundary string matches")
+  ret 0
+
+pub fn test_yaml_serializeYamlDepth_9(): int:
+  let arg_node = YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])
+  let edge_node = YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])
+  let arg_indentStep = 4
+  let edge_indentStep = 1
+  let arg_depth = 4
+  let edge_depth = 1
+  let resNom = serializeYamlDepth(arg_node, arg_indentStep, arg_depth)
+  let resEdge = serializeYamlDepth(edge_node, edge_indentStep, edge_depth)
+  assertEqStr(resNom, "", "serializeYamlDepth nominal string matches")
+  assertEqStr(resEdge, "", "serializeYamlDepth boundary string matches")
+  ret 0
+
+pub fn test_yaml_serializeYaml_10(): int:
+  let arg_node = YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])
+  let edge_node = YamlNode(kind = "a: 1", scalar = "a: 1", sequence = [], mapping = [])
+  let arg_indent = 4
+  let edge_indent = 1
+  let resNom = serializeYaml(arg_node, arg_indent)
+  let resEdge = serializeYaml(edge_node, edge_indent)
+  assertEqStr(resNom, "", "serializeYaml nominal string matches")
+  assertEqStr(resEdge, "", "serializeYaml boundary string matches")
+  ret 0
+
+pub fn test_yaml_parseYamlEntries_11(): int:
+  let arg_src = "a: 1"
+  let edge_src = "a: 1"
+  let resNom = parseYamlEntries(arg_src)
+  let resEdge = parseYamlEntries(edge_src)
+  assertEqInt(resNom.len(), 1, "parseYamlEntries nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseYamlEntries boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_yaml_parseYamlMap_12(): int:
+  let arg_src = "a: 1"
+  let edge_src = "a: 1"
+  let resNom = parseYamlMap(arg_src)
+  let resEdge = parseYamlMap(edge_src)
+  assertEqInt(resNom.len(), 1, "parseYamlMap nominal resNom.len() == 1")
+  assertEqInt(resEdge.len(), 1, "parseYamlMap boundary resEdge.len() == 1")
+  ret 0
+
+pub fn test_yaml_getYamlValue_13(): int:
+  let arg_src = "a: 1"
+  let edge_src = "a: 1"
+  let arg_key = "a: 1"
+  let edge_key = "a: 1"
+  let arg_defaultVal = "a: 1"
+  let edge_defaultVal = "a: 1"
+  let resNom = getYamlValue(arg_src, arg_key, arg_defaultVal)
+  let resEdge = getYamlValue(edge_src, edge_key, edge_defaultVal)
+  assertEqStr(resNom, "a: 1", "getYamlValue nominal string matches")
+  assertEqStr(resEdge, "a: 1", "getYamlValue boundary string matches")
+  ret 0
+
+pub fn test_yaml_parseYamlList_14(): int:
+  let arg_src = "a: 1"
+  let edge_src = "a: 1"
+  let resNom = parseYamlList(arg_src)
+  let resEdge = parseYamlList(edge_src)
+  assertEqInt(resNom.len(), 0, "parseYamlList nominal resNom.len() == 0")
+  assertEqInt(resEdge.len(), 0, "parseYamlList boundary resEdge.len() == 0")
+  ret 0
+
+pub fn test_yaml_toYamlMap_15(): int:
+  let arg_m = {}
+  let edge_m = {}
+  let resNom = toYamlMap(arg_m)
+  let resEdge = toYamlMap(edge_m)
+  assertEqStr(resNom, "", "toYamlMap nominal string matches")
+  assertEqStr(resEdge, "", "toYamlMap boundary string matches")
+  ret 0
+
+pub fn test_yaml_toYamlList_16(): int:
+  let arg_items = ["a: 1"]
+  let edge_items = []
+  let resNom = toYamlList(arg_items)
+  let resEdge = toYamlList(edge_items)
+  assertEqStr(resNom, "- a: 1", "toYamlList nominal string matches")
+  assertEqStr(resEdge, "", "toYamlList boundary string matches")
+  ret 0
+
+pub fn test_yaml_yamlNodeToJsonStr_17(): int:
+  let arg_node = YamlNode(kind = "{\"a\":1}", scalar = "{\"a\":1}", sequence = [], mapping = [])
+  let edge_node = YamlNode(kind = "{}", scalar = "{}", sequence = [], mapping = [])
+  let resNom = yamlNodeToJsonStr(arg_node)
+  let resEdge = yamlNodeToJsonStr(edge_node)
+  assertEqStr(resNom, "null", "yamlNodeToJsonStr nominal string matches")
+  assertEqStr(resEdge, "null", "yamlNodeToJsonStr boundary string matches")
+  ret 0
+
+pub fn test_yaml_yamlToJson_18(): int:
+  let arg_src = "{\"a\":1}"
+  let edge_src = "{}"
+  let resNom = yamlToJson(arg_src)
+  let resEdge = yamlToJson(edge_src)
+  assertEqInt(resNom.len(), 15, "yamlToJson nominal string length == 15")
+  assertEqInt(resEdge.len(), 4, "yamlToJson boundary string length == 4")
+  ret 0

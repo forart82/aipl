@@ -1,0 +1,37 @@
+module Ex206EcsEventDoubleBufferedBusWindowTest
+
+import {
+  buildEcsEventBusAudit, stepBufferSwapProgress
+} from "../../examples/ex_206_ecs_event_double_buffered_bus_window"
+import {
+  EventEnvelope, EventReader, createEventBus,
+  publishEvent, swapEventBuffers, readNewEvents
+} from "../../std/ecs/ecs_event"
+
+pub fn test_ecs_event_double_buffered_bus(): void:
+  mut bus = createEventBus()
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 10, sourceEntityIndex = 1, payloadA = 42.0, payloadB = 1.0))
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 20, sourceEntityIndex = 2, payloadA = 99.0, payloadB = 2.0))
+  bus = swapEventBuffers(bus)
+  assert(bus.previousQueue.len() == 2 and bus.currentQueue.len() == 0, "swapEventBuffers moves currentQueue into previousQueue")
+
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 10, sourceEntityIndex = 3, payloadA = 58.0, payloadB = 3.0))
+  let reader0 = EventReader(readCursorPrev = 0, readCursorCurr = 0)
+  let (evList, nextReader) = readNewEvents(bus, reader0, 10)
+  let events: [EventEnvelope] = evList
+  let rAfter: EventReader = nextReader
+  assert(events.len() == 2 and events[0].payloadA == 42.0 and events[1].payloadA == 58.0, "readNewEvents reads matching events across previous and current buffers")
+  assert(rAfter.readCursorPrev == 2 and rAfter.readCursorCurr == 1, "EventReader advances cursors")
+  assert(buildEcsEventBusAudit() == 105, "buildEcsEventBusAudit returns 42 + 58 + 2 + 3 == 105")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let s0 = stepBufferSwapProgress(0)
+  let s1 = stepBufferSwapProgress(1)
+  let s20 = stepBufferSwapProgress(20)
+  let s100 = stepBufferSwapProgress(100)
+  assert(s0 != s1 and s1 != s20 and s20 != s100, "double-buffer swap progress advances across t=0,1,20,100")
+
+pub fn main(): int:
+  test_ecs_event_double_buffered_bus()
+  println("PASS: ex_206_ecs_event_double_buffered_bus_window_test")
+  ret 0

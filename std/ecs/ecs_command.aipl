@@ -1,0 +1,55 @@
+/// # Module: `std/ecs/ecs_command` (`EcsCommandMod`)
+///
+/// ## Purpose & Domain Scope
+/// Deferred structural mutation buffer (`Spawn`, `Despawn`, `InsertComponent`,
+/// `RemoveComponent`) flushed at stage synchronization barriers.
+module EcsCommandMod
+
+import { EntityId } from "std/ecs/entity"
+import { EcsWorld, spawnEntity, despawnEntity } from "std/ecs/ecs_world"
+
+pub const CMD_SPAWN: int = 1
+pub const CMD_DESPAWN: int = 2
+pub const CMD_SET_RESOURCE: int = 3
+
+pub struct EcsCommand(cmdType: int, targetEntity: EntityId, paramId: int, paramValue: float)
+
+pub struct EcsCommandBuffer(commands: [EcsCommand])
+
+pub fn createCommandBuffer(): EcsCommandBuffer:
+  mut cmds: [EcsCommand] = []
+  ret EcsCommandBuffer(commands = cmds)
+
+pub fn recordSpawnCommand(buf: EcsCommandBuffer): EcsCommandBuffer:
+  mut cmds = buf.commands
+  cmds.push(EcsCommand(
+    cmdType = CMD_SPAWN,
+    targetEntity = EntityId(index = 0, generation = 0),
+    paramId = 0,
+    paramValue = 0.0
+  ))
+  ret EcsCommandBuffer(commands = cmds)
+
+pub fn recordDespawnCommand(buf: EcsCommandBuffer, entity: EntityId): EcsCommandBuffer:
+  mut cmds = buf.commands
+  cmds.push(EcsCommand(
+    cmdType = CMD_DESPAWN,
+    targetEntity = entity,
+    paramId = 0,
+    paramValue = 0.0
+  ))
+  ret EcsCommandBuffer(commands = cmds)
+
+pub fn flushCommandBuffer(world: EcsWorld, buf: EcsCommandBuffer): EcsWorld:
+  mut curWorld = world
+  mut i = 0
+  while i < buf.commands.len:
+    let cmd: EcsCommand = buf.commands[i]
+    if cmd.cmdType == CMD_SPAWN:
+      let (nextWorld, _ent) = spawnEntity(curWorld)
+      curWorld = nextWorld
+    else:
+      if cmd.cmdType == CMD_DESPAWN:
+        curWorld = despawnEntity(curWorld, cmd.targetEntity)
+    i = i + 1
+  ret curWorld

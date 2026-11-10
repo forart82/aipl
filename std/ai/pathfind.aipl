@@ -1,0 +1,922 @@
+/// # Module: `std/ai/pathfind` (`PathfindMod`)
+///
+/// ## Purpose & Domain Scope
+/// Grid and graph pathfinding: A*, Jump Point Search (JPS), Theta* any-angle
+/// line-of-sight smoothing, multi-source Dijkstra distance maps, and FlowField2D.
+module PathfindMod
+
+import { absInt, minFloat } from "std/math/consts"
+import { sqrt } from "std/math/trig"
+import { Vec2, IVec2 } from "std/math/vec_math"
+import { CellularGrid2D } from "std/procgen/cellular_automata"
+
+pub struct PathResult2D(found: bool, path: [Vec2], cost: float)
+
+pub struct DijkstraMap2D(width: int, height: int, distances: [float])
+
+pub struct FlowField2D(width: int, height: int, vectors: [Vec2])
+
+fn isWalkable(grid: CellularGrid2D, x: int, y: int): bool:
+  if x < 0 or x >= grid.width or y < 0 or y >= grid.height:
+    ret false
+  ret grid.cells[y * grid.width + x] == 0
+
+pub fn aStarPathfind(grid: CellularGrid2D, start: IVec2, goal: IVec2, allowDiagonal: bool): PathResult2D:
+  let w = grid.width
+  let h = grid.height
+  let total = w * h
+  mut emptyPath: [Vec2] = []
+  if (not isWalkable(grid, start.x, start.y)) or (not isWalkable(grid, goal.x, goal.y)):
+    ret PathResult2D(found = false, path = emptyPath, cost = 0.0)
+
+  let inf = 1000000000.0
+  mut gScore: [float] = []
+  mut fScore: [float] = []
+  mut cameFrom: [int] = []
+  mut closed: [bool] = []
+  mut inOpen: [bool] = []
+
+  mut i = 0
+  while i < total:
+    gScore.push(inf)
+    fScore.push(inf)
+    cameFrom.push(-1)
+    closed.push(false)
+    inOpen.push(false)
+    i = i + 1
+
+  let startIdx = start.y * w + start.x
+  let goalIdx = goal.y * w + goal.x
+  gScore[startIdx] = 0.0
+  fScore[startIdx] = float(absInt(goal.x - start.x) + absInt(goal.y - start.y))
+  inOpen[startIdx] = true
+
+  mut openList: [int] = [startIdx]
+  let dxs = [0, 1, 0, -1, 1, 1, -1, -1]
+  let dys = [-1, 0, 1, 0, -1, 1, 1, -1]
+  let dirCount = if allowDiagonal: 8 else: 4
+
+  while openList.len > 0:
+    mut bestPos = 0
+    mut bestNode = openList[0]
+    mut bestF = fScore[bestNode]
+    mut k = 1
+    while k < openList.len:
+      let cand = openList[k]
+      if fScore[cand] < bestF:
+        bestF = fScore[cand]
+        bestNode = cand
+        bestPos = k
+      k = k + 1
+
+    if bestNode == goalIdx:
+      mut rev: [Vec2] = []
+      mut cur = goalIdx
+      while cur >= 0:
+        let cx = cur % w
+        let cy = cur / w
+        rev.push(Vec2(x = float(cx), y = float(cy)))
+        cur = cameFrom[cur]
+      mut finalPath: [Vec2] = []
+      mut p = rev.len - 1
+      while p >= 0:
+        finalPath.push(rev[p])
+        p = p - 1
+      ret PathResult2D(found = true, path = finalPath, cost = gScore[goalIdx])
+
+    mut nextOpen: [int] = []
+    mut m = 0
+    while m < openList.len:
+      if m != bestPos:
+        nextOpen.push(openList[m])
+      m = m + 1
+    openList = nextOpen
+    inOpen[bestNode] = false
+    closed[bestNode] = true
+
+    let ux = bestNode % w
+    let uy = bestNode / w
+    mut d = 0
+    while d < dirCount:
+      let nx = ux + dxs[d]
+      let ny = uy + dys[d]
+      if isWalkable(grid, nx, ny):
+        let nIdx = ny * w + nx
+        if not closed[nIdx]:
+          let stepCost = if d < 4: 1.0 else: 1.41421356
+          let tentG = gScore[bestNode] + stepCost
+          if tentG < gScore[nIdx]:
+            cameFrom[nIdx] = bestNode
+            gScore[nIdx] = tentG
+            let hVal = float(absInt(goal.x - nx) + absInt(goal.y - ny))
+            fScore[nIdx] = tentG + hVal
+            if not inOpen[nIdx]:
+              openList.push(nIdx)
+              inOpen[nIdx] = true
+      d = d + 1
+
+  ret PathResult2D(found = false, path = emptyPath, cost = 0.0)
+
+pub fn jpsPathfind2D(grid: CellularGrid2D, start: IVec2, goal: IVec2): PathResult2D:
+  ret aStarPathfind(grid, start, goal, true)
+
+fn cellularGridLineOfSight(grid: CellularGrid2D, x0: int, y0: int, x1: int, y1: int): bool:
+  mut cx = x0
+  mut cy = y0
+  let dx = absInt(x1 - x0)
+  let dy = absInt(y1 - y0)
+  let sx = if x0 < x1: 1 else: -1
+  let sy = if y0 < y1: 1 else: -1
+  mut err = dx - dy
+  while true:
+    if not isWalkable(grid, cx, cy):
+      ret false
+    if cx == x1 and cy == y1:
+      ret true
+    let e2 = 2 * err
+    if e2 > -dy:
+      err = err - dy
+      cx = cx + sx
+    if e2 < dx:
+      err = err + dx
+      cy = cy + sy
+  ret true
+
+pub fn thetaStarPathfind2D(grid: CellularGrid2D, start: IVec2, goal: IVec2): PathResult2D:
+  let baseRes = aStarPathfind(grid, start, goal, true)
+  if (not baseRes.found) or baseRes.path.len <= 2:
+    ret baseRes
+
+  mut smoothed: [Vec2] = [baseRes.path[0]]
+  mut anchorIdx = 0
+  mut i = 2
+  while i < baseRes.path.len:
+    let aPt: Vec2 = baseRes.path[anchorIdx]
+    let cPt: Vec2 = baseRes.path[i]
+    if not cellularGridLineOfSight(grid, int(aPt.x), int(aPt.y), int(cPt.x), int(cPt.y)):
+      smoothed.push(baseRes.path[i - 1])
+      anchorIdx = i - 1
+    i = i + 1
+  smoothed.push(baseRes.path[baseRes.path.len - 1])
+
+  mut totalCost = 0.0
+  mut k = 0
+  while k < smoothed.len - 1:
+    let p0: Vec2 = smoothed[k]
+    let p1: Vec2 = smoothed[k + 1]
+    totalCost = totalCost + p1.sub(p0).len()
+    k = k + 1
+
+  ret PathResult2D(found = true, path = smoothed, cost = totalCost)
+
+pub fn computeDijkstraMap2D(grid: CellularGrid2D, goals: [IVec2]): DijkstraMap2D:
+  let w = grid.width
+  let h = grid.height
+  let total = w * h
+  let inf = 1000000000.0
+  mut dists: [float] = []
+  mut i = 0
+  while i < total:
+    dists.push(inf)
+    i = i + 1
+
+  mut queue: [IVec2] = []
+  mut g = 0
+  while g < goals.len:
+    let gp: IVec2 = goals[g]
+    if isWalkable(grid, gp.x, gp.y):
+      dists[gp.y * w + gp.x] = 0.0
+      queue.push(gp)
+    g = g + 1
+
+  let dxs = [0, 1, 0, -1]
+  let dys = [-1, 0, 1, 0]
+  mut head = 0
+  while head < queue.len:
+    let cur: IVec2 = queue[head]
+    head = head + 1
+    let curD = dists[cur.y * w + cur.x]
+    mut d = 0
+    while d < 4:
+      let nx = cur.x + dxs[d]
+      let ny = cur.y + dys[d]
+      if isWalkable(grid, nx, ny):
+        let nIdx = ny * w + nx
+        if curD + 1.0 < dists[nIdx]:
+          dists[nIdx] = curD + 1.0
+          queue.push(IVec2(x = nx, y = ny))
+      d = d + 1
+
+  ret DijkstraMap2D(width = w, height = h, distances = dists)
+
+pub fn computeFlowField2D(dijkstra: DijkstraMap2D): FlowField2D:
+  let w = dijkstra.width
+  let h = dijkstra.height
+  mut vecs: [Vec2] = []
+  let dxs = [0, 1, 0, -1, 1, 1, -1, -1]
+  let dys = [-1, 0, 1, 0, -1, 1, 1, -1]
+
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      mut bestD = dijkstra.distances[y * w + x]
+      mut bestVec = Vec2(x = 0.0, y = 0.0)
+      mut d = 0
+      while d < 8:
+        let nx = x + dxs[d]
+        let ny = y + dys[d]
+        if nx >= 0 and nx < w and ny >= 0 and ny < h:
+          let nd = dijkstra.distances[ny * w + nx]
+          if nd < bestD:
+            bestD = nd
+            bestVec = Vec2(x = float(dxs[d]), y = float(dys[d])).norm()
+        d = d + 1
+      vecs.push(bestVec)
+      x = x + 1
+    y = y + 1
+
+  ret FlowField2D(width = w, height = h, vectors = vecs)
+
+// ============================================================================
+// Grid2D, SpatialGrid2D, A* / Dijkstra / BFS / JPS, Smooth Path & DotGraph
+// ============================================================================
+
+pub struct Grid2D(width: int, height: int, cells: [int])
+
+pub struct SpatialGrid2D(cellSize: float, keys: [int], ids: [int])
+
+pub struct PathResult(found: bool, path: [Vec2], cost: float, visitedCount: int)
+
+pub struct DotNode(id: str, label: str)
+
+pub struct DotEdge(fromId: str, toId: str, label: str)
+
+pub struct DotGraph(name: str, nodes: [DotNode], edges: [DotEdge])
+
+pub fn gridNew(width: int, height: int, defaultVal: int = 0): Grid2D:
+  mut cells: [int] = []
+  let total = width * height
+  mut i = 0
+  while i < total:
+    cells.push(defaultVal)
+    i += 1
+  ret Grid2D(width = width, height = height, cells = cells)
+
+pub fn gridInBounds(grid: Grid2D, x: int, y: int): bool:
+  ret x >= 0 and x < grid.width and y >= 0 and y < grid.height
+
+pub fn gridGet(grid: Grid2D, x: int, y: int): int:
+  if not gridInBounds(grid, x, y):
+    ret 0
+  ret grid.cells[y * grid.width + x]
+
+pub fn gridSet(mut grid: Grid2D, x: int, y: int, val: int): Grid2D:
+  if gridInBounds(grid, x, y):
+    mut c = grid.cells
+    c[y * grid.width + x] = val
+    grid.cells = c
+  ret grid
+
+pub fn gridGetWrapped(grid: Grid2D, x: int, y: int): int:
+  if grid.width <= 0 or grid.height <= 0:
+    ret 0
+  let wx = ((x % grid.width) + grid.width) % grid.width
+  let wy = ((y % grid.height) + grid.height) % grid.height
+  ret grid.cells[wy * grid.width + wx]
+
+pub fn gridNeighbors4(grid: Grid2D, x: int, y: int): [Vec2]:
+  mut out: [Vec2] = []
+  if gridInBounds(grid, x, y - 1):
+    out.push(Vec2(x = float(x), y = float(y - 1)))
+  if gridInBounds(grid, x + 1, y):
+    out.push(Vec2(x = float(x + 1), y = float(y)))
+  if gridInBounds(grid, x, y + 1):
+    out.push(Vec2(x = float(x), y = float(y + 1)))
+  if gridInBounds(grid, x - 1, y):
+    out.push(Vec2(x = float(x - 1), y = float(y)))
+  ret out
+
+pub fn gridNeighbors8(grid: Grid2D, x: int, y: int): [Vec2]:
+  mut out: [Vec2] = []
+  mut dy = -1
+  while dy <= 1:
+    mut dx = -1
+    while dx <= 1:
+      if not (dx == 0 and dy == 0):
+        let nx = x + dx
+        let ny = y + dy
+        if gridInBounds(grid, nx, ny):
+          out.push(Vec2(x = float(nx), y = float(ny)))
+      dx += 1
+    dy += 1
+  ret out
+
+pub fn gridFloodFill(mut grid: Grid2D, startX: int, startY: int, newVal: int): Grid2D:
+  if not gridInBounds(grid, startX, startY):
+    ret grid
+  let targetVal = gridGet(grid, startX, startY)
+  if targetVal == newVal:
+    ret grid
+  mut qx: [int] = [startX]
+  mut qy: [int] = [startY]
+  while qx.len > 0:
+    let cx = qx.pop()
+    let cy = qy.pop()
+    if gridInBounds(grid, cx, cy) and gridGet(grid, cx, cy) == targetVal:
+      grid = gridSet(grid, cx, cy, newVal)
+      qx.push(cx + 1)
+      qy.push(cy)
+      qx.push(cx - 1)
+      qy.push(cy)
+      qx.push(cx)
+      qy.push(cy + 1)
+      qx.push(cx)
+      qy.push(cy - 1)
+  ret grid
+
+pub fn gridCountLineOfSight(grid: Grid2D, startX: int, startY: int, dx: int, dy: int, targetVal: int): int:
+  if dx == 0 and dy == 0:
+    ret 0
+  mut cx = startX + dx
+  mut cy = startY + dy
+  mut count = 0
+  while gridInBounds(grid, cx, cy) and gridGet(grid, cx, cy) == targetVal:
+    count += 1
+    cx += dx
+    cy += dy
+  ret count
+
+pub fn grid2dNew(width: int, height: int, initVal: int = 0): Grid2D:
+  ret gridNew(width, height, initVal)
+
+pub fn grid2dInBounds(grid: Grid2D, x: int, y: int): bool:
+  ret gridInBounds(grid, x, y)
+
+pub fn grid2dGet(grid: Grid2D, x: int, y: int): int:
+  ret gridGet(grid, x, y)
+
+pub fn grid2dSet(mut grid: Grid2D, x: int, y: int, val: int): Grid2D:
+  ret gridSet(grid, x, y, val)
+
+pub fn grid2dRow(grid: Grid2D, y: int): [int]:
+  mut out: [int] = []
+  if y < 0 or y >= grid.height:
+    ret out
+  let startIdx = y * grid.width
+  mut x = 0
+  while x < grid.width:
+    out.push(grid.cells[startIdx + x])
+    x += 1
+  ret out
+
+pub fn grid2dCol(grid: Grid2D, x: int): [int]:
+  mut out: [int] = []
+  if x < 0 or x >= grid.width:
+    ret out
+  mut y = 0
+  while y < grid.height:
+    out.push(grid.cells[y * grid.width + x])
+    y += 1
+  ret out
+
+pub fn grid2dCollapseRows(mut grid: Grid2D, emptyVal: int = 0): int:
+  mut collapsed = 0
+  mut y = grid.height - 1
+  while y >= 0:
+    mut isFull = true
+    mut x = 0
+    while x < grid.width:
+      if grid.cells[y * grid.width + x] == emptyVal:
+        isFull = false
+        x = grid.width
+      else:
+        x += 1
+    if isFull:
+      collapsed += 1
+      mut curY = y
+      while curY > 0:
+        mut cx = 0
+        while cx < grid.width:
+          grid.cells[curY * grid.width + cx] = grid.cells[(curY - 1) * grid.width + cx]
+          cx += 1
+        curY -= 1
+      mut cx = 0
+      while cx < grid.width:
+        grid.cells[cx] = emptyVal
+        cx += 1
+    else:
+      y -= 1
+  ret collapsed
+
+pub fn grid2dRayCount(grid: Grid2D, r: int, c: int, dr: int, dc: int, targetVal: int): int:
+  if dr == 0 and dc == 0:
+    ret 0
+  mut cr = r + dr
+  mut cc = c + dc
+  mut count = 0
+  while (cc >= 0 and cc < grid.width and cr >= 0 and cr < grid.height) and grid.cells[cr * grid.width + cc] == targetVal:
+    count += 1
+    cr += dr
+    cc += dc
+  ret count
+
+pub fn grid2dRotate90CW(grid: Grid2D): Grid2D:
+  let newW = grid.height
+  let newH = grid.width
+  mut newCells: [int] = []
+  let total = newW * newH
+  mut i = 0
+  while i < total:
+    newCells.push(0)
+    i += 1
+  mut y = 0
+  while y < grid.height:
+    mut x = 0
+    while x < grid.width:
+      let val = grid.cells[y * grid.width + x]
+      let nx = (grid.height - 1) - y
+      let ny = x
+      newCells[ny * newW + nx] = val
+      x += 1
+    y += 1
+  ret Grid2D(width = newW, height = newH, cells = newCells)
+
+pub fn grid2dFlipHorizontal(grid: Grid2D): Grid2D:
+  mut newCells: [int] = []
+  let total = grid.width * grid.height
+  mut i = 0
+  while i < total:
+    newCells.push(0)
+    i += 1
+  mut y = 0
+  while y < grid.height:
+    mut x = 0
+    while x < grid.width:
+      let val = grid.cells[y * grid.width + x]
+      let nx = (grid.width - 1) - x
+      newCells[y * grid.width + nx] = val
+      x += 1
+    y += 1
+  ret Grid2D(width = grid.width, height = grid.height, cells = newCells)
+
+pub fn grid2dNeighbors4(grid: Grid2D, x: int, y: int): [Vec2]:
+  ret gridNeighbors4(grid, x, y)
+
+pub fn grid2dNeighbors8(grid: Grid2D, x: int, y: int): [Vec2]:
+  ret gridNeighbors8(grid, x, y)
+
+fn spatialEncodeCellKey(cx: int, cy: int): int:
+  let ux = (cx + 32768) & 0xFFFF
+  let uy = (cy + 32768) & 0xFFFF
+  ret (ux << 16) | uy
+
+pub fn spatialGridNew(cellSize: float): SpatialGrid2D:
+  mut cs = cellSize
+  if cs <= 0.0:
+    cs = 32.0
+  let k: [int] = []
+  let i: [int] = []
+  ret SpatialGrid2D(cellSize = cs, keys = k, ids = i)
+
+pub fn spatialGridInsert(mut sg: SpatialGrid2D, id: int, x: float, y: float, w: float, h: float): SpatialGrid2D:
+  let cs = sg.cellSize
+  let startX = int(x / cs)
+  let endX = int((x + w) / cs)
+  let startY = int(y / cs)
+  let endY = int((y + h) / cs)
+  mut cy = startY
+  while cy <= endY:
+    mut cx = startX
+    while cx <= endX:
+      let key = spatialEncodeCellKey(cx, cy)
+      sg.keys.push(key)
+      sg.ids.push(id)
+      cx += 1
+    cy += 1
+  ret sg
+
+pub fn spatialGridQuery(sg: SpatialGrid2D, x: float, y: float, w: float, h: float): [int]:
+  let cs = sg.cellSize
+  let startX = int(x / cs)
+  let endX = int((x + w) / cs)
+  let startY = int(y / cs)
+  let endY = int((y + h) / cs)
+  mut out: [int] = []
+  mut cy = startY
+  while cy <= endY:
+    mut cx = startX
+    while cx <= endX:
+      let key = spatialEncodeCellKey(cx, cy)
+      for idx in 0..sg.keys.len:
+        if sg.keys[idx] == key:
+          let id = sg.ids[idx]
+          mut already = false
+          for sIdx in 0..out.len:
+            if out[sIdx] == id:
+              already = true
+          if not already:
+            out.push(id)
+      cx += 1
+    cy += 1
+  ret out
+
+pub fn spatialGridQueryRadius(sg: SpatialGrid2D, cx: float, cy: float, radius: float): [int]:
+  let r = if radius > 0.0: radius else: 0.0
+  ret spatialGridQuery(sg, cx - r, cy - r, r * 2.0, r * 2.0)
+
+pub fn spatialGridClear(mut sg: SpatialGrid2D): SpatialGrid2D:
+  let k: [int] = []
+  let i: [int] = []
+  sg.keys = k
+  sg.ids = i
+  ret sg
+
+pub fn gridLineOfSight(grid: Grid2D, x0: int, y0: int, x1: int, y1: int, obstacleVal: int = 1): bool:
+  let dx = if x1 >= x0: x1 - x0 else: x0 - x1
+  let dy = if y1 >= y0: -(y1 - y0) else: -(y0 - y1)
+  let sx = if x0 < x1: 1 else: -1
+  let sy = if y0 < y1: 1 else: -1
+  mut err = dx + dy
+  mut cx = x0
+  mut cy = y0
+
+  while true:
+    if gridInBounds(grid, cx, cy) and gridGet(grid, cx, cy) == obstacleVal:
+      ret false
+    if cx == x1 and cy == y1:
+      break
+    let e2 = 2 * err
+    if e2 >= dy:
+      err += dy
+      cx += sx
+    if e2 <= dx:
+      err += dx
+      cy += sy
+
+  ret true
+
+fn reconstructGridPath(cameFrom: [int], width: int, startIdx: int, goalIdx: int): [Vec2]:
+  mut rev: [Vec2] = []
+  mut cur = goalIdx
+  while cur >= 0:
+    let px = cur % width
+    let py = cur / width
+    rev.push(Vec2(x = float(px), y = float(py)))
+    if cur == startIdx:
+      cur = -1
+    else:
+      cur = cameFrom[cur]
+  mut out: [Vec2] = []
+  mut k = rev.len - 1
+  while k >= 0:
+    out.push(rev[k])
+    k -= 1
+  ret out
+
+fn gridHeuristicCost(x0: int, y0: int, x1: int, y1: int, allowDiagonal: bool): float:
+  let dx = float(absInt(x1 - x0))
+  let dy = float(absInt(y1 - y0))
+  if not allowDiagonal:
+    ret dx + dy
+  let mn = if dx < dy: dx else: dy
+  let mx = if dx > dy: dx else: dy
+  ret mx + 0.41421356 * mn
+
+fn searchGridWeighted(g: Grid2D, startX: int, startY: int, goalX: int, goalY: int, useHeuristic: bool, allowDiagonal: bool): PathResult:
+  let empty: [Vec2] = []
+  if not grid2dInBounds(g, startX, startY) or not grid2dInBounds(g, goalX, goalY):
+    ret PathResult(found = false, path = empty, cost = 0.0, visitedCount = 0)
+
+  let w = g.width
+  let h = g.height
+  let total = w * h
+  let inf = 1000000000.0
+  mut gScore: [float] = []
+  mut fScore: [float] = []
+  mut cameFrom: [int] = []
+  mut closed: [bool] = []
+  mut inOpen: [bool] = []
+  mut i = 0
+  while i < total:
+    gScore.push(inf)
+    fScore.push(inf)
+    cameFrom.push(-1)
+    closed.push(false)
+    inOpen.push(false)
+    i += 1
+  let startIdx = startY * w + startX
+  let goalIdx = goalY * w + goalX
+  gScore[startIdx] = 0.0
+  let h0 = if useHeuristic: gridHeuristicCost(startX, startY, goalX, goalY, allowDiagonal) else: 0.0
+  fScore[startIdx] = h0
+  mut openSet: [int] = [startIdx]
+  inOpen[startIdx] = true
+  mut visitedCount = 0
+
+  while openSet.len > 0:
+    mut bestPos = 0
+    mut bestNode = openSet[0]
+    mut bestF = fScore[bestNode]
+    mut oi = 1
+    while oi < openSet.len:
+      let cand = openSet[oi]
+      if fScore[cand] < bestF:
+        bestF = fScore[cand]
+        bestNode = cand
+        bestPos = oi
+      oi += 1
+    let lastOpen = openSet.pop()
+    if bestPos < openSet.len:
+      openSet[bestPos] = lastOpen
+    inOpen[bestNode] = false
+    if not closed[bestNode]:
+      closed[bestNode] = true
+      visitedCount += 1
+      if bestNode == goalIdx:
+        let finalPath = reconstructGridPath(cameFrom, w, startIdx, goalIdx)
+        ret PathResult(found = true, path = finalPath, cost = gScore[goalIdx], visitedCount = visitedCount)
+      let cx = bestNode % w
+      let cy = bestNode / w
+      let neighbors = if allowDiagonal: grid2dNeighbors8(g, cx, cy) else: grid2dNeighbors4(g, cx, cy)
+      for nb in neighbors:
+        let nx = int(nb.x)
+        let ny = int(nb.y)
+        let cellVal = grid2dGet(g, nx, ny)
+        if cellVal >= 0 and cellVal != 1:
+          let isDiag = nx != cx and ny != cy
+          let blockedCorner = if isDiag: (grid2dGet(g, nx, cy) == 1 and grid2dGet(g, cx, ny) == 1) else: false
+          if not blockedCorner:
+            let nIdx = ny * w + nx
+            if not closed[nIdx]:
+              let baseCost = if cellVal > 1: float(cellVal) else: 1.0
+              let stepCost = if isDiag: baseCost * 1.41421356 else: baseCost
+              let tentativeG = gScore[bestNode] + stepCost
+              if tentativeG < gScore[nIdx]:
+                cameFrom[nIdx] = bestNode
+                gScore[nIdx] = tentativeG
+                let hVal = if useHeuristic: gridHeuristicCost(nx, ny, goalX, goalY, allowDiagonal) else: 0.0
+                fScore[nIdx] = tentativeG + hVal
+                if not inOpen[nIdx]:
+                  openSet.push(nIdx)
+                  inOpen[nIdx] = true
+
+  ret PathResult(found = false, path = empty, cost = 0.0, visitedCount = visitedCount)
+
+pub fn gridDijkstra(g: Grid2D, startX: int, startY: int, goalX: int, goalY: int): PathResult:
+  ret searchGridWeighted(g, startX, startY, goalX, goalY, false, false)
+
+pub fn dijkstraGrid(g: Grid2D, startX: int, startY: int, goalX: int, goalY: int): PathResult:
+  ret gridDijkstra(g, startX, startY, goalX, goalY)
+
+pub fn gridAStar(g: Grid2D, startX: int, startY: int, goalX: int, goalY: int, allowDiagonal: bool = false): PathResult:
+  ret searchGridWeighted(g, startX, startY, goalX, goalY, true, allowDiagonal)
+
+pub fn astarGrid(g: Grid2D, startX: int, startY: int, goalX: int, goalY: int, allowDiagonal: bool = false): PathResult:
+  ret gridAStar(g, startX, startY, goalX, goalY, allowDiagonal)
+
+pub fn bfsGrid(g: Grid2D, startX: int, startY: int, goalX: int, goalY: int): PathResult:
+  ret searchGridWeighted(g, startX, startY, goalX, goalY, false, false)
+
+pub fn floodFillGrid(g: Grid2D, startX: int, startY: int, newVal: int): Grid2D:
+  ret bfsFloodFill(g, startX, startY, newVal)
+
+pub fn bfsFloodFill(mut g: Grid2D, startX: int, startY: int, newVal: int): Grid2D:
+  ret gridFloodFill(g, startX, startY, newVal)
+
+pub fn aStarGrid(g: Grid2D, startX: int, startY: int, goalX: int, goalY: int, allowDiagonal: bool = false): PathResult:
+  ret gridAStar(g, startX, startY, goalX, goalY, allowDiagonal)
+
+pub fn dotGraphNew(name: str = "G"): DotGraph:
+  let n: [DotNode] = []
+  let e: [DotEdge] = []
+  ret DotGraph(name = name, nodes = n, edges = e)
+
+pub fn dotAddNode(mut dg: DotGraph, id: str, label: str = ""): DotGraph:
+  let effLabel = if label.len > 0: label else: id
+  dg.nodes.push(DotNode(id = id, label = effLabel))
+  ret dg
+
+pub fn dotAddEdge(mut dg: DotGraph, fromId: str, toId: str, label: str = ""): DotGraph:
+  dg.edges.push(DotEdge(fromId = fromId, toId = toId, label = label))
+  ret dg
+
+pub fn dotRender(dg: DotGraph): str:
+  mut out = "digraph {dg.name} {\n"
+  for node in dg.nodes:
+    out = "{out}  \"{node.id}\" [label=\"{node.label}\"];\n"
+  for edge in dg.edges:
+    if edge.label.len > 0:
+      out = "{out}  \"{edge.fromId}\" -> \"{edge.toId}\" [label=\"{edge.label}\"];\n"
+    else:
+      out = "{out}  \"{edge.fromId}\" -> \"{edge.toId}\";\n"
+  out = "{out}}\n"
+  ret out
+
+pub fn smoothGridPath(g: Grid2D, path: [Vec2], obstacleVal: int = 1): [Vec2]:
+  let count = path.len
+  if count <= 2:
+    ret path
+  mut out: [Vec2] = [path[0]]
+  mut current = 0
+  while current < count - 1:
+    mut nextIdx = count - 1
+    mut found = false
+    while nextIdx > current + 1:
+      let p0: Vec2 = path[current]
+      let p1: Vec2 = path[nextIdx]
+      if gridLineOfSight(g, int(p0.x), int(p0.y), int(p1.x), int(p1.y), obstacleVal):
+        found = true
+        break
+      nextIdx -= 1
+    if found:
+      out.push(path[nextIdx])
+      current = nextIdx
+    else:
+      current += 1
+      out.push(path[current])
+  ret out
+
+fn jpsWalkable(g: Grid2D, x: int, y: int): bool:
+  if not grid2dInBounds(g, x, y):
+    ret false
+  let v = grid2dGet(g, x, y)
+  ret v >= 0 and v != 1
+
+fn jpsJump(g: Grid2D, startX: int, startY: int, dx: int, dy: int, goalX: int, goalY: int): int:
+  mut cx = startX
+  mut cy = startY
+  let w = g.width
+  while true:
+    let nx = cx + dx
+    let ny = cy + dy
+    if not jpsWalkable(g, nx, ny):
+      ret -1
+    if dx != 0 and dy != 0:
+      if not jpsWalkable(g, nx, cy) and not jpsWalkable(g, cx, ny):
+        ret -1
+    if nx == goalX and ny == goalY:
+      ret ny * w + nx
+    if dx != 0 and dy != 0:
+      if (not jpsWalkable(g, nx - dx, ny) and jpsWalkable(g, nx - dx, ny + dy)) or (not jpsWalkable(g, nx, ny - dy) and jpsWalkable(g, nx + dx, ny - dy)):
+        ret ny * w + nx
+      if jpsJump(g, nx, ny, dx, 0, goalX, goalY) >= 0 or jpsJump(g, nx, ny, 0, dy, goalX, goalY) >= 0:
+        ret ny * w + nx
+    elif dx != 0:
+      if (not jpsWalkable(g, nx, ny + 1) and jpsWalkable(g, nx + dx, ny + 1)) or (not jpsWalkable(g, nx, ny - 1) and jpsWalkable(g, nx + dx, ny - 1)):
+        ret ny * w + nx
+    else:
+      if (not jpsWalkable(g, nx + 1, ny) and jpsWalkable(g, nx + 1, ny + dy)) or (not jpsWalkable(g, nx - 1, ny) and jpsWalkable(g, nx - 1, ny + dy)):
+        ret ny * w + nx
+    cx = nx
+    cy = ny
+  ret -1
+
+pub fn gridJumpPointSearch(g: Grid2D, startX: int, startY: int, goalX: int, goalY: int): PathResult:
+  let empty: [Vec2] = []
+  if not jpsWalkable(g, startX, startY) or not jpsWalkable(g, goalX, goalY):
+    ret PathResult(found = false, path = empty, cost = 0.0, visitedCount = 0)
+  let w = g.width
+  let h = g.height
+  let total = w * h
+  let inf = 1000000000.0
+  mut gScore: [float] = []
+  mut fScore: [float] = []
+  mut cameFrom: [int] = []
+  mut closed: [bool] = []
+  mut inOpen: [bool] = []
+  mut i = 0
+  while i < total:
+    gScore.push(inf)
+    fScore.push(inf)
+    cameFrom.push(-1)
+    closed.push(false)
+    inOpen.push(false)
+    i += 1
+  let startIdx = startY * w + startX
+  let goalIdx = goalY * w + goalX
+  gScore[startIdx] = 0.0
+  fScore[startIdx] = gridHeuristicCost(startX, startY, goalX, goalY, true)
+  mut openSet: [int] = [startIdx]
+  inOpen[startIdx] = true
+  mut visitedCount = 0
+  let dirsX: [int] = [1, -1, 0, 0, 1, 1, -1, -1]
+  let dirsY: [int] = [0, 0, 1, -1, 1, -1, 1, -1]
+
+  while openSet.len > 0:
+    mut bestPos = 0
+    mut bestNode = openSet[0]
+    mut bestF = fScore[bestNode]
+    mut oi = 1
+    while oi < openSet.len:
+      let cand = openSet[oi]
+      if fScore[cand] < bestF:
+        bestF = fScore[cand]
+        bestNode = cand
+        bestPos = oi
+      oi += 1
+    let lastOpen = openSet.pop()
+    if bestPos < openSet.len:
+      openSet[bestPos] = lastOpen
+    inOpen[bestNode] = false
+    if not closed[bestNode]:
+      closed[bestNode] = true
+      visitedCount += 1
+      if bestNode == goalIdx:
+        let jpPath = reconstructGridPath(cameFrom, w, startIdx, goalIdx)
+        ret PathResult(
+          found = true,
+          path = smoothGridPath(g, jpPath, 1),
+          cost = gScore[goalIdx],
+          visitedCount = visitedCount
+        )
+      let cx = bestNode % w
+      let cy = bestNode / w
+      mut d = 0
+      while d < 8:
+        let jpIdx = jpsJump(g, cx, cy, dirsX[d], dirsY[d], goalX, goalY)
+        if jpIdx >= 0 and not closed[jpIdx]:
+          let jx = jpIdx % w
+          let jy = jpIdx / w
+          let stepDist = gridHeuristicCost(cx, cy, jx, jy, true)
+          let tentativeG = gScore[bestNode] + stepDist
+          if tentativeG < gScore[jpIdx]:
+            cameFrom[jpIdx] = bestNode
+            gScore[jpIdx] = tentativeG
+            fScore[jpIdx] = tentativeG + gridHeuristicCost(jx, jy, goalX, goalY, true)
+            if not inOpen[jpIdx]:
+              openSet.push(jpIdx)
+              inOpen[jpIdx] = true
+        d += 1
+
+  ret gridAStar(g, startX, startY, goalX, goalY, true)
+
+pub fn intGraphShortestPath(nodeCount: int, edgeFrom: [int], edgeTo: [int], startNode: int, goalNode: int): [int]:
+  mut empty: [int] = []
+  if nodeCount <= 0 or startNode < 0 or startNode >= nodeCount or goalNode < 0 or goalNode >= nodeCount:
+    ret empty
+  if startNode == goalNode:
+    ret [startNode]
+  mut visited: [bool] = []
+  mut parent: [int] = []
+  mut i = 0
+  while i < nodeCount:
+    visited.push(false)
+    parent.push(-1)
+    i += 1
+  visited[startNode] = true
+  mut queue: [int] = [startNode]
+  mut qHead = 0
+  let edgeCount = if edgeFrom.len < edgeTo.len: edgeFrom.len else: edgeTo.len
+  mut found = false
+  while qHead < queue.len:
+    let u = queue[qHead]
+    qHead += 1
+    if u == goalNode:
+      found = true
+      break
+    mut ei = 0
+    while ei < edgeCount:
+      if edgeFrom[ei] == u:
+        let v = edgeTo[ei]
+        if v >= 0 and v < nodeCount and not visited[v]:
+          visited[v] = true
+          parent[v] = u
+          queue.push(v)
+      ei += 1
+  if not found and not visited[goalNode]:
+    ret empty
+  mut revPath: [int] = []
+  mut cur = goalNode
+  while cur >= 0:
+    revPath.push(cur)
+    if cur == startNode:
+      break
+    cur = parent[cur]
+  mut path: [int] = []
+  mut ri = revPath.len - 1
+  while ri >= 0:
+    path.push(revPath[ri])
+    ri -= 1
+  ret path
+
+pub fn manhattanDist2D(x0: int, y0: int, x1: int, y1: int): int:
+  let dx = if x1 >= x0: x1 - x0 else: x0 - x1
+  let dy = if y1 >= y0: y1 - y0 else: y0 - y1
+  ret dx + dy
+
+pub fn octileDist2D(x0: int, y0: int, x1: int, y1: int): float:
+  let dx = float(if x1 >= x0: x1 - x0 else: x0 - x1)
+  let dy = float(if y1 >= y0: y1 - y0 else: y0 - y1)
+  let mn = if dx < dy: dx else: dy
+  let mx = if dx > dy: dx else: dy
+  ret mx + 0.41421356 * mn
+
+pub fn hexDistanceAxial(q1: int, r1: int, q2: int, r2: int): int:
+  let dq = q1 - q2
+  let dr = r1 - r2
+  let ds = dq + dr
+  let adq = if dq >= 0: dq else: -dq
+  let adr = if dr >= 0: dr else: -dr
+  let ads = if ds >= 0: ds else: -ds
+  ret (adq + adr + ads) / 2

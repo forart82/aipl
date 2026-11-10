@@ -1,0 +1,59 @@
+module Ex244AiVectorEmbeddingRagSearchCliTest
+
+import { VectorEmbedding, KnnSearchResult, cosineSimilarity, l2Distance, knnLinearSearch, buildGeminiRequest, parseAiToolCall, validateJsonAgainstSchema, renderPromptTemplate, estimateTokenCount, denseLayerForward } from "../../std/ai/vector_embedding"
+import { Map, mapNew } from "../../std/collections/hash_map"
+import { RagSearchState, initScene, stepScene, auditAiVectorEmbeddingRagSearch } from "../../examples/ex_244_ai_vector_embedding_rag_search_cli"
+
+fn test_ai_vector_embedding_rag_search_cli(): void:
+  let v1 = VectorEmbedding(dims = 3, values = [1.0, 0.0, 0.0])
+  let v2 = VectorEmbedding(dims = 3, values = [1.0, 0.0, 0.0])
+  let v3 = VectorEmbedding(dims = 3, values = [0.0, 1.0, 0.0])
+  assert(cosineSimilarity(v1, v2) == 1.0 and cosineSimilarity(v1, v3) == 0.0, "cosineSimilarity")
+  assert(l2Distance(v1, v2) == 0.0, "l2Distance")
+  let knn = knnLinearSearch(v1, [v3, v2], 1)
+  let best: KnnSearchResult = knn[0]
+  assert(knn.len() == 1 and best.id == 1, "knnLinearSearch")
+
+  let reqG = buildGeminiRequest("gemini-2.5-flash", "sys", "Hi", "{\"type\":\"object\"}")
+  assert(reqG.contains("gemini"), "buildGeminiRequest")
+  let tcRes = parseAiToolCall("{\"name\":\"calc\",\"arguments\":\"{\\\"x\\\":1}\"}")
+  assert(tcRes.isOk() and tcRes.unwrap().name == "calc", "parseAiToolCall")
+  let valRes = validateJsonAgainstSchema("{\"name\":\"Alice\"}", "{\"type\":\"object\",\"required\":[\"name\"]}")
+  assert(valRes.isOk() and valRes.unwrap(), "validateJsonAgainstSchema")
+
+  mut vars: Map[str, str] = mapNew()
+  vars.set("user", "Ada")
+  assert(renderPromptTemplate("Hello {{user}}!", vars) == "Hello Ada!", "renderPromptTemplate")
+  assert(estimateTokenCount("Hello world") == 2, "estimateTokenCount")
+  let dense = denseLayerForward([2.0, 3.0], [1.0, 2.0], [0.5], 2, 1)
+  assert(dense.len() == 1 and dense[0] == 8.5, "denseLayerForward")
+
+  mut scene = initScene()
+  let id0 = scene.bestDocId
+  let out0 = scene.denseOutput
+  scene = stepScene(scene, 1, 0.1)
+  let id1 = scene.bestDocId
+  let out1 = scene.denseOutput
+  assert(id1 != id0, "t=0 -> t=1 query vector shift selects new nearest document")
+  assert(out1 != out0, "t=0 -> t=1 dense layer output updates")
+
+  mut f = 2
+  while f <= 20:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  let out20 = scene.denseOutput
+  assert(out20 != out1, "t=1 -> t=20 dense layer output progresses")
+  assert(scene.stepCount == 20, "scene tracks 20 steps")
+
+  while f <= 100:
+    scene = stepScene(scene, f, 0.1)
+    f = f + 1
+  assert(scene.denseOutput != out20 and scene.stepCount == 100, "t=20 -> t=100 RAG search and dense forward pass continue evolving")
+
+  let audit = auditAiVectorEmbeddingRagSearch()
+  assert(audit == 29, "Vector embedding RAG search audit")
+
+pub fn main(): int:
+  test_ai_vector_embedding_rag_search_cli()
+  println("PASS: ex_244_ai_vector_embedding_rag_search_cli_test")
+  ret 0

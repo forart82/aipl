@@ -1,0 +1,48 @@
+// ============================================================================
+// Example 050: FlatArray2D/3D Stencil Neighbors & Flood Fill (CLI)
+// Demonstrates: flatArray2DNew, flatArray3DNew, .inBounds(), .index(),
+//               .fill(), .set(), .get(), .neighbors4(), and .neighbors8()
+//               from std/collections/grid2d_array.
+// ============================================================================
+module Ex050CollectionsGrid2dFloodFillCli
+
+import { flatArray2DNew, flatArray3DNew } from "../std/collections/grid2d_array"
+
+pub fn evaluateGrid2DNeighborsAndCrossFill(): int:
+  mut grid = flatArray2DNew[int](5, 5, 0)
+  grid.fill(0)
+  let _ = grid.set(2, 2, 7)
+  let _ = grid.set(2, 1, 7)
+  let _ = grid.set(3, 2, 7)
+  let _ = grid.set(2, 3, 7)
+  let _ = grid.set(1, 2, 7)
+  let cardinals = grid.neighbors4(2, 2)
+  let moore = grid.neighbors8(2, 2)
+  let centerIdx = grid.index(2, 2)
+
+  mut sumFilled = 0
+  for y in 0..5:
+    for x in 0..5:
+      if grid.inBounds(x, y):
+        sumFilled = sumFilled + grid.get(x, y).unwrap()
+  if cardinals.len == 4 and cardinals[0] == 7 and centerIdx == 12:
+    ret sumFilled + moore.len
+  ret -1
+
+pub fn verifyFlatArray3DVoxelWrite(voxelValue: int): int:
+  mut vox = flatArray3DNew[int](3, 3, 3, 0)
+  if vox.inBounds(1, 1, 1) and vox.set(1, 1, 1, voxelValue):
+    ret vox.get(1, 1, 1).unwrap()
+  ret -1
+
+pub fn describeGridNeighborhoodKind(conn: int): str:
+  if conn == 4:
+    ret "GRID2D:VON_NEUMANN_4_CONNECTED"
+  ret "GRID2D:MOORE_8_CONNECTED"
+
+pub fn main(): int:
+  let crossMetric = evaluateGrid2DNeighborsAndCrossFill()
+  let voxVal = verifyFlatArray3DVoxelWrite(42)
+  println("Grid2D Cardinal Cross Fill + Moore Count: " + str(crossMetric) + " (" + describeGridNeighborhoodKind(4) + ")")
+  println("FlatArray3D Center Voxel Readback: " + str(voxVal) + " (" + describeGridNeighborhoodKind(8) + ")")
+  ret 0

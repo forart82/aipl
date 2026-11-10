@@ -1,0 +1,52 @@
+module Ex162Gfx2dShape2dVectorGalleryWindowTest
+
+import {
+  buildShape2dTessellationAudit,
+  stepBezierControlY
+} from "../../examples/ex_162_gfx2d_shape2d_vector_gallery_window"
+import { Vec2 } from "../../std/math/vec_math"
+import { rgba8 } from "../../std/gfx/color"
+import {
+  StrokeStyle2D, buildLineQuads, buildCircleTris,
+  buildCapsuleTris, buildCubicBezierPoints
+} from "../../std/gfx2d/shape2d"
+
+pub fn test_gfx2d_shape2d_vector_gallery(): void:
+  let col = rgba8(56, 189, 248, 255)
+  let stroke = StrokeStyle2D(width = 4.0, color = col, capStyle = 0, joinStyle = 0)
+  let lineVerts = buildLineQuads(Vec2(x = 0.0, y = 0.0), Vec2(x = 100.0, y = 0.0), stroke)
+  assert(lineVerts.len() == 4, "buildLineQuads emits 4 quad vertices")
+
+  let circleVerts = buildCircleTris(Vec2(x = 50.0, y = 50.0), 30.0, col, 12)
+  assert(circleVerts.len() == 36, "buildCircleTris with 12 segments emits 36 triangle vertices")
+
+  let capsuleVerts = buildCapsuleTris(Vec2(x = 0.0, y = 0.0), Vec2(x = 80.0, y = 0.0), 16.0, col, 8)
+  assert(capsuleVerts.len() > 20, "buildCapsuleTris emits body + cap triangle vertices")
+
+  let bezPts = buildCubicBezierPoints(
+    Vec2(x = 0.0, y = 0.0),
+    Vec2(x = 40.0, y = 80.0),
+    Vec2(x = 120.0, y = -40.0),
+    Vec2(x = 160.0, y = 0.0),
+    16
+  )
+  let bezPtsShift = buildCubicBezierPoints(
+    Vec2(x = 0.0, y = 0.0),
+    Vec2(x = 40.0, y = 140.0),
+    Vec2(x = 120.0, y = -40.0),
+    Vec2(x = 160.0, y = 0.0),
+    16
+  )
+  assert(bezPts.len() == 17, "buildCubicBezierPoints(16) returns 17 polyline points")
+  assert(bezPts[8].y != bezPtsShift[8].y, "Animating control point updates cubic bezier midpoint")
+  let y0 = stepBezierControlY(0)
+  let y1 = stepBezierControlY(1)
+  let y20 = stepBezierControlY(20)
+  let y100 = stepBezierControlY(100)
+  assert(y0 != y1 and y1 != y20 and y20 != y100, "stepBezierControlY progresses across t=0, t=1, t=20, t=100")
+  assert(buildShape2dTessellationAudit() == 57 + capsuleVerts.len(), "buildShape2dTessellationAudit matches total vertex/point count")
+
+pub fn main(): int:
+  test_gfx2d_shape2d_vector_gallery()
+  println("PASS: ex_162_gfx2d_shape2d_vector_gallery_window_test")
+  ret 0

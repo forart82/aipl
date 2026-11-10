@@ -1,0 +1,133 @@
+// ============================================================================
+// Example 031: Quaternion SLERP Orientation & 3D Gimbal Window
+// Demonstrates: Quat.identity, Quat.fromAxisAngle, Quat.fromEuler, .slerp(),
+//               .rotateVec3(), .toMat4(), .norm(), and .conjugate() from
+//               std/math/quat, rendered as an interactive 3D gimbal & SLERP
+//               basis visualizer on a 1280x720 window canvas.
+// ============================================================================
+module Ex031MathQuatSlerpOrientationWindow
+
+import { clampInt } from "../std/prelude"
+import { PI } from "../std/math/consts"
+import { Vec3 } from "../std/math/vec_math"
+import { Quat } from "../std/math/quat"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawCircleOutline,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct QuatGimbalState:
+  tPermille: int
+  normCheckPermille: int
+  tipX: float
+  tipY: float
+  tipZ: float
+  quatW: float
+
+pub fn evaluateQuatSlerpBasisTipMilli(t: float): int:
+  let qStart = Quat.identity()
+  let qEnd = Quat.fromAxisAngle(Vec3(x = 0.0, y = 0.0, z = 1.0), PI / 2.0)
+  let qInterp = qStart.slerp(qEnd, t).norm()
+  let rotatedX = qInterp.rotateVec3(Vec3(x = 1.0, y = 0.0, z = 0.0))
+  let rotMat = qInterp.toMat4()
+  if rotMat.m33 == 1.0:
+    ret int(rotatedX.y * 1000.0 + 0.5)
+  ret -1
+
+pub fn describeQuatSlerpMode(modeId: int): str:
+  if modeId == 0:
+    ret "QUAT:GEODESIC_SLERP_UNIT_S3"
+  ret "QUAT:EULER_GIMBAL_LOCK_TEST"
+
+pub fn buildQuatGimbalState(frameIdx: int): QuatGimbalState:
+  let cycleFrame = frameIdx % 120
+  let t = float(cycleFrame) / 120.0
+  let q0 = Quat.identity()
+  let q1 = Quat.fromEuler(0.35, 0.85, 1.15)
+  let qCur = q0.slerp(q1, t).norm()
+  let qIdCheck = qCur.mul(qCur.conjugate())
+  let basisX = qCur.rotateVec3(Vec3(x = 160.0, y = 0.0, z = 0.0))
+  ret QuatGimbalState(
+    tPermille = int(t * 1000.0),
+    normCheckPermille = int(qIdCheck.w * 1000.0 + 0.5),
+    tipX = basisX.x,
+    tipY = basisX.y,
+    tipZ = basisX.z,
+    quatW = qCur.w
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildQuatGimbalState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.normCheckPermille + frameIndex + dtPad
+
+pub fn renderGimbalWindowScene(frameIdx: int): void:
+  let st = buildQuatGimbalState(frameIdx)
+  let t = float(st.tPermille) / 1000.0
+  let q0 = Quat.identity()
+  let q1 = Quat.fromEuler(0.35, 0.85, 1.15)
+  let qCur = q0.slerp(q1, t).norm()
+
+  clearScreen(rgb(11, 15, 25))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 44))
+  drawText("AIPL ex_031: Quaternion SLERP Geodesic Orientation & 3D Gimbal Basis Inspector", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Left viewport: 3D Gimbal Sphere & Orthonormal Triad
+  let cx = 380.0
+  let cy = 370.0
+  drawCircleOutline(cx, cy, 220.0, 2.0, rgb(51, 65, 85))
+  drawCircleOutline(cx, cy, 180.0, 2.0, rgb(71, 85, 105))
+  drawCircleOutline(cx, cy, 140.0, 1.5, rgb(30, 58, 138))
+
+  // Geodesic SLERP trail of X-basis tip from t = 0.0 to 1.0
+  for step in 0..16:
+    let ts = float(step) / 15.0
+    let qs = q0.slerp(q1, ts)
+    let pt = qs.rotateVec3(Vec3(x = 180.0, y = 0.0, z = 0.0))
+    drawCircle(cx + pt.x, cy - pt.y, 4.0, rgb(250, 204, 21))
+
+  // Rotate X, Y, Z basis vectors by current quaternion
+  let vx = qCur.rotateVec3(Vec3(x = 180.0, y = 0.0, z = 0.0))
+  let vy = qCur.rotateVec3(Vec3(x = 0.0, y = 180.0, z = 0.0))
+  let vz = qCur.rotateVec3(Vec3(x = 0.0, y = 0.0, z = 180.0))
+
+  drawLine(cx, cy, cx + vx.x, cy - vx.y, rgb(248, 113, 113), 3.0)
+  drawCircle(cx + vx.x, cy - vx.y, 7.0, rgb(248, 113, 113))
+  drawLine(cx, cy, cx + vy.x, cy - vy.y, rgb(74, 222, 128), 3.0)
+  drawCircle(cx + vy.x, cy - vy.y, 7.0, rgb(74, 222, 128))
+  drawLine(cx, cy, cx + vz.x * 0.7, cy + vz.z * 0.7, rgb(56, 189, 248), 3.0)
+  drawCircle(cx + vz.x * 0.7, cy + vz.z * 0.7, 7.0, rgb(56, 189, 248))
+
+  // Right telemetry panel
+  drawRect(720.0, 96.0, 512.0, 520.0, rgb(17, 24, 39))
+  drawRectOutline(720.0, 96.0, 512.0, 520.0, 2.0, rgb(56, 189, 248))
+  drawText("SLERP Parameter t (permille): " + str(st.tPermille) + " / 1000", 748.0, 130.0, 18.0, rgb(250, 204, 21))
+  drawText("Mode: " + describeQuatSlerpMode(0), 748.0, 168.0, 16.0, rgb(167, 243, 208))
+  drawText("Unit Norm Check (q * conj(q)).w: " + str(st.normCheckPermille) + " permille", 748.0, 204.0, 16.0, rgb(203, 213, 225))
+  drawText("SLERP Midpoint Y Basis (t=0.5): " + str(evaluateQuatSlerpBasisTipMilli(0.5)) + " milli", 748.0, 240.0, 16.0, rgb(125, 211, 252))
+
+  // Progress bar for SLERP parameter t
+  drawRect(748.0, 290.0, 440.0, 24.0, rgb(30, 41, 59))
+  drawRect(748.0, 290.0, 440.0 * t, 24.0, rgb(56, 189, 248))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_031 - Quaternion SLERP & 3D Gimbal Orientation")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderGimbalWindowScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

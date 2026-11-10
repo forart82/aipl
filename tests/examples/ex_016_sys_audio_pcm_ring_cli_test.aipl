@@ -1,0 +1,39 @@
+// ============================================================================
+// Twin Test Suite 016: Host PCM Audio Stream, Ring Latency & Frame Write CLI
+// Verifies examples/ex_016_sys_audio_pcm_ring_cli.aipl
+// ============================================================================
+module Ex016SysAudioPcmRingCliTest
+
+import {
+  AudioStreamProbe,
+  streamPcmBurstFrames,
+  computeLatencyMillis,
+  classifyAudioLatency,
+  buildAudioStreamProbe
+} from "../../examples/ex_016_sys_audio_pcm_ring_cli.aipl"
+
+pub fn test_pcm_stream_burst_and_latency_ms(): int:
+  assert(streamPcmBurstFrames(2, 48000, 16) == 16, "sysAudioWriteFrames writes 16 frames")
+  assert(computeLatencyMillis(256, 48000) == 5, "256 frames at 48kHz is ~5ms")
+  ret 0
+
+pub fn test_audio_latency_classification(): int:
+  assert(classifyAudioLatency(5) == "AUDIO:ULTRA_LOW_LATENCY", "<= 10ms")
+  assert(classifyAudioLatency(20) == "AUDIO:REALTIME_NOMINAL", "<= 30ms")
+  assert(classifyAudioLatency(60) == "AUDIO:HIGH_BUFFER_LAG", "> 30ms")
+  ret 0
+
+pub fn test_build_audio_stream_probe(): int:
+  let probe = buildAudioStreamProbe(2, 48000, 512, 16)
+  assert(probe.framesWritten == 16, "framesWritten == 16")
+  assert(probe.latencyFrames == 256, "sysAudioGetLatencyFrames == 256")
+  assert(probe.pauseResumeOk == true, "pause and resume returned 0")
+  assert(probe.latencyMs == 5, "latencyMs == 5")
+  ret 0
+
+pub fn main(): int:
+  test_pcm_stream_burst_and_latency_ms()
+  test_audio_latency_classification()
+  test_build_audio_stream_probe()
+  println("PASS: ex_016_sys_audio_pcm_ring_cli_test")
+  ret 0

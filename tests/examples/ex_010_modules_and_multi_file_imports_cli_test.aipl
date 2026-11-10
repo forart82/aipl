@@ -1,0 +1,40 @@
+// ============================================================================
+// Twin Test Suite 010: Modules, DAG Layer Imports & std_root Reflection CLI
+// Verifies examples/ex_010_modules_and_multi_file_imports_cli.aipl
+// ============================================================================
+module Ex010ModulesAndMultiFileImportsCliTest
+
+import {
+  ModuleDagSummary,
+  resolveDomainLayerDelta,
+  resolveBarrelImportPath,
+  verifyImportDirection,
+  buildModuleDagSummary
+} from "../../examples/ex_010_modules_and_multi_file_imports_cli.aipl"
+
+pub fn test_domain_layer_delta_and_barrel_path(): int:
+  assert(resolveDomainLayerDelta("mechanics", "math") == 4, "Layer 5 (mechanics) - Layer 1 (math) == 4")
+  assert(resolveDomainLayerDelta("sys", "alloc") == 0, "Layer 0 (sys) - Layer 0 (alloc) == 0")
+  assert(resolveBarrelImportPath("math") == "std/math/math_mod.aipl", "math barrel path")
+  ret 0
+
+pub fn test_import_direction_dag_law(): int:
+  assert(verifyImportDirection("mechanics", "math") == "DAG:ALLOWED_DOWNWARD", "Layer 5 can import Layer 1")
+  assert(verifyImportDirection("math", "mechanics") == "DAG:FORBIDDEN_UPWARD", "Layer 1 cannot import Layer 5")
+  assert(verifyImportDirection("unknown_dom", "math") == "DAG:UNKNOWN_DOMAIN", "unregistered domain")
+  ret 0
+
+pub fn test_build_module_dag_summary(): int:
+  let summary = buildModuleDagSummary("gfx3d", "math")
+  assert(summary.totalDomains >= 34, "at least 34 canonical stdlib domains")
+  assert(summary.totalLayers == 6, "6 architectural DAG layers (0..5)")
+  assert(summary.layerDelta == 3, "Layer 4 (gfx3d) - Layer 1 (math) == 3")
+  assert(summary.verdict == "DAG:ALLOWED_DOWNWARD", "gfx3d -> math allowed")
+  ret 0
+
+pub fn main(): int:
+  test_domain_layer_delta_and_barrel_path()
+  test_import_direction_dag_law()
+  test_build_module_dag_summary()
+  println("PASS: ex_010_modules_and_multi_file_imports_cli_test")
+  ret 0

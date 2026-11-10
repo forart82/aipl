@@ -1,0 +1,52 @@
+module tests.complex.lang_04_diamond_imports_and_namespace_shadowing_test
+
+import { clamp } from "std/math/consts"
+import { Vec2 } from "std/math/vec_math"
+import { Rect, rectContainsPoint } from "std/math/geom2d"
+import { createLayoutNode } from "std/ui/ui_layout"
+import { manhattanDist2D } from "std/ai/pathfind"
+import { assert, assertEqInt, assertApproxEq } from "std/prelude"
+import * from "std/math/math_mod"
+
+pub fn test_lang_04_diamond_import_20_stdlib_modules(): int:
+  let v = Vec2(x = 5.0, y = 5.0)
+  let r = Rect(x = 0.0, y = 0.0, w = 10.0, h = 10.0)
+  let node = createLayoutNode(1, 0)
+  assert(rectContainsPoint(r, v) == true, "Vec2 + Rect across diamond imports")
+  assertEqInt(node.id, 1, "ui_layout node id == 1")
+  assertEqInt(clamp(15, 0, 10), 10, "math/consts clamp == 10")
+  assertApproxEq(manhattanDist2D(0.0, 0.0, 3.0, 4.0), 7.0, 0.0001, "ai/pathfind manhattan == 7.0")
+  ret 0
+
+pub fn test_lang_04_transitive_barrel_reexport_parity(): int:
+  assertEqInt(absInt(-42), 42, "barrel re-exported absInt(-42) == 42")
+  assertEqInt(absInt(0), 0, "barrel re-exported absInt(0) == 0")
+  ret 0
+
+pub fn shadowHelper(x: int): int:
+  let clamp = x + 100
+  ret clamp
+
+pub fn test_lang_04_lexical_innermost_shadowing_priority(): int:
+  assertEqInt(shadowHelper(23), 123, "local shadowed binding clamp == 123")
+  assertEqInt(shadowHelper(0), 100, "local shadowed binding at 0 == 100")
+  ret 0
+
+pub fn localShadow(): int:
+  let clamp = 777
+  ret clamp
+
+pub fn siblingGlobalCaller(): int:
+  ret clamp(50, 0, 10)
+
+pub fn test_lang_04_sibling_function_global_symbol_preservation(): int:
+  assertEqInt(localShadow(), 777, "local shadow returns 777")
+  assertEqInt(siblingGlobalCaller(), 10, "sibling still calls global clamp(50, 0, 10) == 10")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_lang_04_diamond_import_20_stdlib_modules(), 0, "test_lang_04_diamond_import_20_stdlib_modules")
+  assertEqInt(test_lang_04_transitive_barrel_reexport_parity(), 0, "test_lang_04_transitive_barrel_reexport_parity")
+  assertEqInt(test_lang_04_lexical_innermost_shadowing_priority(), 0, "test_lang_04_lexical_innermost_shadowing_priority")
+  assertEqInt(test_lang_04_sibling_function_global_symbol_preservation(), 0, "test_lang_04_sibling_function_global_symbol_preservation")
+  ret 0

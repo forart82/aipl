@@ -1,0 +1,52 @@
+module Ex231ProcgenNoisePerlinSimplexWorleyWindowTest
+
+import {
+  NoiseType, FbmConfig, WorleyResult, samplePerlin2D,
+  samplePerlin3D, sampleSimplex2D, sampleWorley2D,
+  sampleFbm2D, sampleDomainWarpedFbm2D
+} from "../../std/procgen/noise_field"
+import {
+  NoiseScene, createNoiseScene, stepScene, auditProcgenNoiseFields
+} from "../../examples/ex_231_procgen_noise_perlin_simplex_worley_window"
+
+pub fn test_procgen_noise_perlin_simplex_worley(): void:
+  let p2a = samplePerlin2D(12.34, 56.78, 1337)
+  let p2b = samplePerlin2D(12.34, 56.78, 1337)
+  assert(p2a == p2b and p2a >= -1.0 and p2a <= 1.0, "samplePerlin2D deterministic and bounded")
+  let p3 = samplePerlin3D(3.1, 4.2, 5.3, 42)
+  assert(p3 >= -1.0 and p3 <= 1.0, "samplePerlin3D bounded")
+  let simp = sampleSimplex2D(2.5, 3.5, 99)
+  assert(simp >= -1.0 and simp <= 1.0, "sampleSimplex2D bounded")
+  let worley: WorleyResult = sampleWorley2D(10.0, 10.0, 999)
+  assert(worley.f1 >= 0.0 and worley.f2 >= worley.f1, "sampleWorley2D F2 >= F1 >= 0")
+  let fbmCfg = FbmConfig(octaves = 4, lacunarity = 2.0, persistence = 0.5, seed = 42)
+  let fbmVal = sampleFbm2D(5.0, 5.0, fbmCfg)
+  let warpVal = sampleDomainWarpedFbm2D(5.0, 5.0, fbmCfg, 2.0)
+  assert(fbmVal >= -2.0 and fbmVal <= 2.0 and warpVal >= -2.0 and warpVal <= 2.0, "FBM and domain warped FBM bounded")
+
+  mut scene: NoiseScene = createNoiseScene()
+  let v0 = scene.centerFbm
+  stepScene(scene, 0, 0.15)
+  let v1 = scene.centerFbm
+  assert(v1 != v0, "t=0 -> t=1 scrolls and resamples procedural noise fields")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.15)
+    f = f + 1
+  let v20 = scene.centerFbm
+  let p20 = scene.phaseOffset
+  assert(v20 != v1 and p20 > 1.0, "t=1 -> t=20 advances noise field phase")
+
+  while f <= 100:
+    stepScene(scene, f, 0.15)
+    f = f + 1
+  assert(scene.centerFbm != v20 and scene.phaseOffset > p20, "t=20 -> t=100 continues scrolling procedural noise fields without freezing")
+
+  let audit = auditProcgenNoiseFields()
+  assert(audit == 6, "Noise fields audit")
+
+pub fn main(): int:
+  test_procgen_noise_perlin_simplex_worley()
+  println("PASS: ex_231_procgen_noise_perlin_simplex_worley_window_test")
+  ret 0

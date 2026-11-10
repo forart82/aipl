@@ -1,0 +1,57 @@
+// ============================================================================
+// Example 088: RFC-2104 HMAC-SHA256/512 & Constant-Time JWT Verifier (CLI)
+// Demonstrates: hmacSha256, hmacSha256Hex, hmacSha256Str, hmacSha512,
+//               hmacSha512Str, constantTimeEqual, and constantTimeEqualStr
+//               from std/crypto, plus base64UrlEncode from std/encoding.
+// ============================================================================
+module Ex088CryptoHmacJwtTokenCli
+
+import {
+  hmacSha256,
+  hmacSha256Hex,
+  hmacSha256Str,
+  hmacSha512,
+  hmacSha512Str,
+  constantTimeEqual,
+  constantTimeEqualStr
+} from "../std/crypto"
+import { base64UrlEncode } from "../std/encoding"
+
+// Computes HMAC-SHA256 and HMAC-SHA512 binary tags and returns the sum of their byte lengths.
+pub fn evaluateHmacSha256And512LengthsSum(keyStr: str, msgStr: str): int:
+  let mac256 = hmacSha256(keyStr.toBytes(), msgStr.toBytes())
+  let mac512 = hmacSha512(keyStr.toBytes(), msgStr.toBytes())
+  assert(hmacSha512Str(keyStr, msgStr).len == 128, "HMAC-SHA512 hex length is 128")
+  ret mac256.len() + mac512.len()
+
+// Signs a JWT header.payload input with HMAC-SHA256 and verifies the MAC in constant time.
+pub fn verifyJwtHmacAndConstantTimeMac(): int:
+  let testVec = hmacSha256Hex("secret", "hello")
+  assert(testVec == "88aab3ede8d3adf94d26ab90d3bafd4a2083070c3bcce9c014ee04a443847c0b", "RFC-2104 HMAC-SHA256 vector")
+  assert(hmacSha256Str("secret", "hello") == testVec, "hmacSha256Str matches hmacSha256Hex")
+
+  let jwtHdr = base64UrlEncode("{\"alg\":\"HS256\",\"typ\":\"JWT\"}".toBytes())
+  let jwtPay = base64UrlEncode("{\"sub\":\"agent-01\",\"role\":\"admin\"}".toBytes())
+  let signingInput = jwtHdr + "." + jwtPay
+  let sigBytes = hmacSha256("jwt-signing-secret".toBytes(), signingInput.toBytes())
+  let sigB64 = base64UrlEncode(sigBytes)
+
+  let okBytes = constantTimeEqual(sigBytes, sigBytes)
+  let okStr = constantTimeEqualStr(sigB64, sigB64)
+  let rejectTampered = not constantTimeEqualStr(sigB64, sigB64 + "X")
+  if okBytes and okStr and rejectTampered:
+    ret 1
+  ret 0
+
+// Summarizes the result of constant-time JWT HS256 MAC verification.
+pub fn describeJwtMacVerificationStatus(verified: bool): str:
+  if verified:
+    ret "JWT:HS256_CONSTANT_TIME_VERIFIED"
+  ret "JWT:INVALID_MAC_REJECTED"
+
+pub fn main(): int:
+  let lenSum = evaluateHmacSha256And512LengthsSum("secret", "hello")
+  let jwtOk = verifyJwtHmacAndConstantTimeMac()
+  let status = describeJwtMacVerificationStatus(jwtOk == 1)
+  println("ex_088_crypto_hmac_jwt_token_cli: lenSum=" + str(lenSum) + " jwtOk=" + str(jwtOk) + " status=" + status)
+  ret 0

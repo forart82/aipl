@@ -1,0 +1,60 @@
+// ============================================================================
+// Example 077: INI Configuration & DotEnv Schema Validator (CLI)
+// Demonstrates: parseIni, fastIniGetValue, serializeIni, parseIniSection,
+//               toIni, parseDotEnv, parseDotenv, and validateDotEnvSchema
+//               from std/encoding.
+// ============================================================================
+module Ex077EncodingIniDotenvLoaderCli
+
+import {
+  parseIni,
+  fastIniGetValue,
+  serializeIni,
+  parseIniSection,
+  toIni,
+  parseDotEnv,
+  parseDotenv,
+  validateDotEnvSchema
+} from "../std/encoding"
+
+// Parses an INI configuration block and a .env file, returning "<db.host>:<MODE>".
+pub fn extractIniHostAndEnvMode(): str:
+  let iniSrc = "[db]\nhost = 127.0.0.1\nport = 5432\n"
+  let iniDoc = parseIni(iniSrc).unwrap()
+  let hostVal = iniDoc.get("db", "host").unwrap()
+  assert(fastIniGetValue(iniSrc, "db", "host", "") == hostVal, "fastIniGetValue matches iniDoc")
+
+  let envSrc = "export API_KEY=\"sec123\"\nMODE=prod\n"
+  let envMap = parseDotEnv(envSrc)
+  assert(envMap.get("API_KEY", "") == "sec123", "quoted export API_KEY")
+  let modeVal = envMap.get("MODE", "")
+  ret hostVal + ":" + modeVal
+
+// Verifies DotEnv required-key schema validation and INI section serialization.
+pub fn verifyDotEnvSchemaAndIniRoundTrip(): int:
+  let iniSrc = "[db]\nhost = 127.0.0.1\n"
+  let iniDoc = parseIni(iniSrc).unwrap()
+  let iniSec = parseIniSection(iniSrc, "db")
+  let serIni = serializeIni(iniDoc)
+  let secIni = toIni("db", iniSec)
+
+  let envSrc = "export API_KEY=\"sec123\"\nMODE=prod\n"
+  let dMap = parseDotenv(envSrc)
+  let okSchema = validateDotEnvSchema(dMap, ["API_KEY", "MODE"])
+  let badSchema = validateDotEnvSchema(dMap, ["API_KEY", "MISSING_SECRET"])
+  if serIni.contains("host = 127.0.0.1") and secIni.contains("[db]") and okSchema.isOk() and badSchema.isErr():
+    ret 1
+  ret 0
+
+// Summarizes the outcome of DotEnv schema validation.
+pub fn describeDotEnvSchemaVerdict(valid: bool): str:
+  if valid:
+    ret "DOTENV:SCHEMA_VALIDATED_OK"
+  ret "DOTENV:MISSING_REQUIRED_KEYS"
+
+pub fn main(): int:
+  let combined = extractIniHostAndEnvMode()
+  let schemaOk = verifyDotEnvSchemaAndIniRoundTrip()
+  let verdict = describeDotEnvSchemaVerdict(schemaOk == 1)
+  println("ex_077_encoding_ini_dotenv_loader_cli: combined=" + combined + " schemaOk=" + str(schemaOk) + " verdict=" + verdict)
+  ret 0

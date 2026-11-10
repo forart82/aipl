@@ -1,0 +1,1069 @@
+module CompilerCodegenX86_64
+
+import { AstArena, ExprNode, StmtNode } from "./ast.aipl"
+import { HirModule, HirFunction } from "./hir.aipl"
+
+// ============================================================================
+// Phase 14 (Step 14.3b): Direct Native ELF64 x86_64 Machine Code Emitter
+// Zero libc, zero gcc, pure standalone Linux ELF64 executable generator
+// ============================================================================
+
+pub struct X86StringEntry:
+  text: str
+  offset: int
+  length: int
+
+pub struct X86Reloc:
+  codeOffset: int
+  targetName: str
+  callNextOffset: int
+
+pub struct X86StrReloc:
+  codeOffset: int
+  stringIndex: int
+
+pub struct X86FuncEntry:
+  name: str
+  codeOffset: int
+
+pub struct X86Emitter:
+  code: [int]
+  callRelocs: [X86Reloc]
+  strRelocs: [X86StrReloc]
+  loopBreakOffsets: [int]
+
+pub struct X86FnContext:
+  paramNames: [str]
+  localNames: [str]
+  frameSize: int
+  stringPool: [X86StringEntry]
+  inLoop: bool = false
+  loopStartOffset: int = 0
+
+// ----------------------------------------------------------------------------
+// Low-level Byte & Serialization Helpers
+// ----------------------------------------------------------------------------
+
+fn pushU8(mut out: [int], b: int): [int]:
+  out.push(b & 0xFF)
+  ret out
+
+fn pushU16LE(mut out: [int], val: int): [int]:
+  out.push(val & 0xFF)
+  out.push((val >> 8) & 0xFF)
+  ret out
+
+fn pushU32LE(mut out: [int], val: int): [int]:
+  out.push(val & 0xFF)
+  out.push((val >> 8) & 0xFF)
+  out.push((val >> 16) & 0xFF)
+  out.push((val >> 24) & 0xFF)
+  ret out
+
+fn pushU64LE(mut out: [int], val: int): [int]:
+  out.push(val & 0xFF)
+  out.push((val >> 8) & 0xFF)
+  out.push((val >> 16) & 0xFF)
+  out.push((val >> 24) & 0xFF)
+  out.push((val >> 32) & 0xFF)
+  out.push((val >> 40) & 0xFF)
+  out.push((val >> 48) & 0xFF)
+  out.push((val >> 56) & 0xFF)
+  ret out
+
+fn patchU32LE(mut out: [int], offset: int, val: int): [int]:
+  out[offset] = val & 0xFF
+  out[offset + 1] = (val >> 8) & 0xFF
+  out[offset + 2] = (val >> 16) & 0xFF
+  out[offset + 3] = (val >> 24) & 0xFF
+  ret out
+
+fn patchU64LE(mut out: [int], offset: int, val: int): [int]:
+  out[offset] = val & 0xFF
+  out[offset + 1] = (val >> 8) & 0xFF
+  out[offset + 2] = (val >> 16) & 0xFF
+  out[offset + 3] = (val >> 24) & 0xFF
+  out[offset + 4] = (val >> 32) & 0xFF
+  out[offset + 5] = (val >> 40) & 0xFF
+  out[offset + 6] = (val >> 48) & 0xFF
+  out[offset + 7] = (val >> 56) & 0xFF
+  ret out
+
+fn appendBytes(mut dst: [int], src: [int]): [int]:
+  mut i = 0
+  while i < src.len:
+    dst.push(src[i])
+    i += 1
+  ret dst
+
+// ----------------------------------------------------------------------------
+// ELF64 Header & Program Header Constructors
+// ----------------------------------------------------------------------------
+
+fn buildElf64Header(eMachine: int, eEntry: int): [int]:
+  mut h: [int] = []
+  // e_ident[0..15]
+  h.push(0x7F) // ELF magic
+  h.push(0x45) // 'E'
+  h.push(0x4C) // 'L'
+  h.push(0x46) // 'F'
+  h.push(0x02) // ELFCLASS64
+  h.push(0x01) // ELFDATA2LSB (little endian)
+  h.push(0x01) // EV_CURRENT
+  h.push(0x00) // ELFOSABI_NONE / SYSV
+  h.push(0x00) // ABI Version
+  mut pad = 0
+  while pad < 7:
+    h.push(0x00)
+    pad += 1
+  // e_type = ET_EXEC (2)
+  h = pushU16LE(h, 2)
+  // e_machine = 62 (x86_64) or 183 (arm64)
+  h = pushU16LE(h, eMachine)
+  // e_version = 1
+  h = pushU32LE(h, 1)
+  // e_entry = entrypoint virtual address (e.g. 0x400078)
+  h = pushU64LE(h, eEntry)
+  // e_phoff = 64 (immediately after Ehdr)
+  h = pushU64LE(h, 64)
+  // e_shoff = 0
+  h = pushU64LE(h, 0)
+  // e_flags = 0
+  h = pushU32LE(h, 0)
+  // e_ehsize = 64
+  h = pushU16LE(h, 64)
+  // e_phentsize = 56
+  h = pushU16LE(h, 56)
+  // e_phnum = 1
+  h = pushU16LE(h, 1)
+  // e_shentsize = 0, e_shnum = 0, e_shstrndx = 0
+  h = pushU16LE(h, 0)
+  h = pushU16LE(h, 0)
+  h = pushU16LE(h, 0)
+  ret h
+
+fn buildElf64ProgramHeader(pFlags: int, totalSize: int): [int]:
+  mut ph: [int] = []
+  // p_type = PT_LOAD (1)
+  ph = pushU32LE(ph, 1)
+  // p_flags = PF_R | PF_W | PF_X (7)
+  ph = pushU32LE(ph, pFlags)
+  // p_offset = 0
+  ph = pushU64LE(ph, 0)
+  // p_vaddr = 0x400000
+  ph = pushU64LE(ph, 0x400000)
+  // p_paddr = 0x400000
+  ph = pushU64LE(ph, 0x400000)
+  // p_filesz = totalSize
+  ph = pushU64LE(ph, totalSize)
+  // p_memsz = totalSize
+  ph = pushU64LE(ph, totalSize)
+  // p_align = 0x1000 (4KB page alignment)
+  ph = pushU64LE(ph, 0x1000)
+  ret ph
+
+// ----------------------------------------------------------------------------
+// String Pool & Interning
+// ----------------------------------------------------------------------------
+
+fn lookupStringIndex(pool: [X86StringEntry], s: str): int:
+  mut i = 0
+  while i < pool.len:
+    if pool[i].text == s:
+      ret i
+    i += 1
+  ret -1
+
+fn internString(mut pool: [X86StringEntry], s: str): [X86StringEntry]:
+  if lookupStringIndex(pool, s) >= 0:
+    ret pool
+  mut nextOff = 0
+  if pool.len > 0:
+    let last = pool[pool.len - 1]
+    nextOff = last.offset + last.length
+  let entry = X86StringEntry(text = s, offset = nextOff, length = s.len)
+  pool.push(entry)
+  ret pool
+
+fn scanStringsFromExpr(arena: AstArena, exprId: int, mut pool: [X86StringEntry]): [X86StringEntry]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret pool
+  let e = arena.exprs[exprId]
+  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or e.kind == "StrLit":
+    pool = internString(pool, e.strVal)
+  if e.kind == "Call":
+    let callee = if e.left >= 0 and e.left < arena.exprs.len: arena.exprs[e.left].strVal else: ""
+    if callee == "println":
+      if e.children.len > 0:
+        let argId = e.children[0]
+        if argId >= 0 and argId < arena.exprs.len:
+          let ae = arena.exprs[argId]
+          if ae.kind == "STRING" or ae.kind == "RAW_STRING" or ae.kind == "INTERP_STRING" or ae.kind == "StrLit":
+            pool = internString(pool, ae.strVal + "\n")
+      else:
+        pool = internString(pool, "\n")
+  if e.left >= 0:
+    pool = scanStringsFromExpr(arena, e.left, pool)
+  if e.right >= 0:
+    pool = scanStringsFromExpr(arena, e.right, pool)
+  if e.cond >= 0:
+    pool = scanStringsFromExpr(arena, e.cond, pool)
+  mut ci = 0
+  while ci < e.children.len:
+    pool = scanStringsFromExpr(arena, e.children[ci], pool)
+    ci += 1
+  ret pool
+
+fn scanStringsFromStmts(arena: AstArena, stmtIds: [int], mut pool: [X86StringEntry]): [X86StringEntry]:
+  mut i = 0
+  while i < stmtIds.len:
+    let stId = stmtIds[i]
+    if stId >= 0 and stId < arena.stmts.len:
+      let st = arena.stmts[stId]
+      if st.exprId >= 0:
+        pool = scanStringsFromExpr(arena, st.exprId, pool)
+      if st.condExpr >= 0:
+        pool = scanStringsFromExpr(arena, st.condExpr, pool)
+      if st.bodyStmts.len > 0:
+        pool = scanStringsFromStmts(arena, st.bodyStmts, pool)
+      if st.elseStmts.len > 0:
+        pool = scanStringsFromStmts(arena, st.elseStmts, pool)
+    i += 1
+  ret pool
+
+// ----------------------------------------------------------------------------
+// Local Variable & Symbol Lookup
+// ----------------------------------------------------------------------------
+
+fn collectLocalsFromStmts(arena: AstArena, stmtIds: [int], paramNames: [str], mut locals: [str]): [str]:
+  mut i = 0
+  while i < stmtIds.len:
+    let stId = stmtIds[i]
+    if stId >= 0 and stId < arena.stmts.len:
+      let st = arena.stmts[stId]
+      if st.kind == "VarDecl" or st.kind == "Let" or st.kind == "TupleVarDecl" or st.kind == "For":
+        mut alreadyParam = false
+        mut pi = 0
+        while pi < paramNames.len:
+          if paramNames[pi] == st.name:
+            alreadyParam = true
+          pi += 1
+        mut alreadyLocal = false
+        mut li = 0
+        while li < locals.len:
+          if locals[li] == st.name:
+            alreadyLocal = true
+          li += 1
+        if not alreadyParam and not alreadyLocal and st.name.len > 0:
+          locals.push(st.name)
+      if st.bodyStmts.len > 0:
+        locals = collectLocalsFromStmts(arena, st.bodyStmts, paramNames, locals)
+      if st.elseStmts.len > 0:
+        locals = collectLocalsFromStmts(arena, st.elseStmts, paramNames, locals)
+    i += 1
+  ret locals
+
+fn lookupLocalIndex(paramNames: [str], localNames: [str], name: str): int:
+  mut i = 0
+  while i < paramNames.len:
+    if paramNames[i] == name:
+      ret i
+    i += 1
+  mut j = 0
+  while j < localNames.len:
+    if localNames[j] == name:
+      ret paramNames.len + j
+    j += 1
+  ret -1
+
+fn lookupFuncCodeOffset(fnOffsets: [X86FuncEntry], name: str): int:
+  mut i = 0
+  while i < fnOffsets.len:
+    if fnOffsets[i].name == name:
+      ret fnOffsets[i].codeOffset
+    i += 1
+  ret -1
+
+// ----------------------------------------------------------------------------
+// x86_64 Stack Offset & Addressing Helpers
+// ----------------------------------------------------------------------------
+
+fn emitMovRbpOffsetToRax(mut out: [int], offset: int): [int]:
+  if offset <= 128:
+    out.push(0x48)
+    out.push(0x8B)
+    out.push(0x45)
+    out.push(256 - offset)
+  else:
+    out.push(0x48)
+    out.push(0x8B)
+    out.push(0x85)
+    let negDisp = 0x100000000 - offset
+    out = pushU32LE(out, negDisp)
+  ret out
+
+fn emitMovRaxToRbpOffset(mut out: [int], offset: int): [int]:
+  if offset <= 128:
+    out.push(0x48)
+    out.push(0x89)
+    out.push(0x45)
+    out.push(256 - offset)
+  else:
+    out.push(0x48)
+    out.push(0x89)
+    out.push(0x85)
+    let negDisp = 0x100000000 - offset
+    out = pushU32LE(out, negDisp)
+  ret out
+
+fn emitMovZeroToRbpOffset(mut out: [int], offset: int): [int]:
+  if offset <= 128:
+    out.push(0x48)
+    out.push(0xC7)
+    out.push(0x45)
+    out.push(256 - offset)
+    out.push(0x00)
+    out.push(0x00)
+    out.push(0x00)
+    out.push(0x00)
+  else:
+    out.push(0x48)
+    out.push(0xC7)
+    out.push(0x85)
+    let negDisp = 0x100000000 - offset
+    out = pushU32LE(out, negDisp)
+    out.push(0x00)
+    out.push(0x00)
+    out.push(0x00)
+    out.push(0x00)
+  ret out
+
+// ----------------------------------------------------------------------------
+// Built-in Machine-Code Subroutines: _aipl_print_str & _aipl_print_int
+// ----------------------------------------------------------------------------
+
+fn emitBuiltinPrintStr(mut out: [int]): [int]:
+  // mov $1, %rax (sys_write)
+  out.push(0x48); out.push(0xC7); out.push(0xC0); out.push(0x01); out.push(0x00); out.push(0x00); out.push(0x00)
+  // mov $1, %rdi (stdout)
+  out.push(0x48); out.push(0xC7); out.push(0xC7); out.push(0x01); out.push(0x00); out.push(0x00); out.push(0x00)
+  // syscall
+  out.push(0x0F); out.push(0x05)
+  // ret
+  out.push(0xC3)
+  ret out
+
+fn emitBuiltinPrintInt(mut out: [int]): [int]:
+  // push %rbp
+  out.push(0x55)
+  // mov %rsp, %rbp
+  out.push(0x48); out.push(0x89); out.push(0xE5)
+  // sub $0x30, %rsp
+  out.push(0x48); out.push(0x83); out.push(0xEC); out.push(0x30)
+  // mov %rsi, -0x8(%rbp)
+  out.push(0x48); out.push(0x89); out.push(0x75); out.push(0xF8)
+  // movq $0, -0x10(%rbp)
+  out.push(0x48); out.push(0xC7); out.push(0x45); out.push(0xF0); out.push(0x00); out.push(0x00); out.push(0x00); out.push(0x00)
+  // cmp $0, %rdi
+  out.push(0x48); out.push(0x83); out.push(0xFF); out.push(0x00)
+  // jge .not_neg (+11 bytes)
+  out.push(0x7D); out.push(0x0B)
+  // movq $1, -0x10(%rbp)
+  out.push(0x48); out.push(0xC7); out.push(0x45); out.push(0xF0); out.push(0x01); out.push(0x00); out.push(0x00); out.push(0x00)
+  // neg %rdi
+  out.push(0x48); out.push(0xF7); out.push(0xDF)
+  // .not_neg: mov %rdi, %rax
+  out.push(0x48); out.push(0x89); out.push(0xF8)
+  // lea -0x1(%rbp), %r8
+  out.push(0x4C); out.push(0x8D); out.push(0x45); out.push(0xFF)
+  // cmpq $0, -0x8(%rbp)
+  out.push(0x48); out.push(0x83); out.push(0x7D); out.push(0xF8); out.push(0x00)
+  // je .no_nl (+7 bytes)
+  out.push(0x74); out.push(0x07)
+  // movb $10, (%r8)
+  out.push(0x41); out.push(0xC6); out.push(0x00); out.push(0x0A)
+  // dec %r8
+  out.push(0x49); out.push(0xFF); out.push(0xC8)
+  // .no_nl: cmp $0, %rax
+  out.push(0x48); out.push(0x83); out.push(0xF8); out.push(0x00)
+  // jne .loop_start (+9 bytes)
+  out.push(0x75); out.push(0x09)
+  // movb $48, (%r8)
+  out.push(0x41); out.push(0xC6); out.push(0x00); out.push(0x30)
+  // dec %r8
+  out.push(0x49); out.push(0xFF); out.push(0xC8)
+  // jmp .after_digits (+27 bytes)
+  out.push(0xEB); out.push(0x1B)
+  // .loop_start: mov $10, %rcx
+  out.push(0x48); out.push(0xC7); out.push(0xC1); out.push(0x0A); out.push(0x00); out.push(0x00); out.push(0x00)
+  // .loop_body: xor %rdx, %rdx
+  out.push(0x48); out.push(0x31); out.push(0xD2)
+  // div %rcx
+  out.push(0x48); out.push(0xF7); out.push(0xF1)
+  // add $48, %dl
+  out.push(0x80); out.push(0xC2); out.push(0x30)
+  // mov %dl, (%r8)
+  out.push(0x41); out.push(0x88); out.push(0x10)
+  // dec %r8
+  out.push(0x49); out.push(0xFF); out.push(0xC8)
+  // test %rax, %rax
+  out.push(0x48); out.push(0x85); out.push(0xC0)
+  // jne .loop_body (-20 bytes)
+  out.push(0x75); out.push(0xEC)
+  // .after_digits: cmpq $0, -0x10(%rbp)
+  out.push(0x48); out.push(0x83); out.push(0x7D); out.push(0xF0); out.push(0x00)
+  // je .do_print (+7 bytes)
+  out.push(0x74); out.push(0x07)
+  // movb $45, (%r8)
+  out.push(0x41); out.push(0xC6); out.push(0x00); out.push(0x2D)
+  // dec %r8
+  out.push(0x49); out.push(0xFF); out.push(0xC8)
+  // .do_print: lea 1(%r8), %rsi
+  out.push(0x49); out.push(0x8D); out.push(0x70); out.push(0x01)
+  // lea -1(%rbp), %rdx
+  out.push(0x48); out.push(0x8D); out.push(0x55); out.push(0xFF)
+  // sub %r8, %rdx
+  out.push(0x4C); out.push(0x29); out.push(0xC2)
+  // mov $1, %rax
+  out.push(0x48); out.push(0xC7); out.push(0xC0); out.push(0x01); out.push(0x00); out.push(0x00); out.push(0x00)
+  // mov $1, %rdi
+  out.push(0x48); out.push(0xC7); out.push(0xC7); out.push(0x01); out.push(0x00); out.push(0x00); out.push(0x00)
+  // syscall
+  out.push(0x0F); out.push(0x05)
+  // leave
+  out.push(0xC9)
+  // ret
+  out.push(0xC3)
+  ret out
+
+// ----------------------------------------------------------------------------
+// Expression Lowering
+// ----------------------------------------------------------------------------
+
+fn emitX86Expr(arena: AstArena, hir: HirModule, exprId: int, ctx: X86FnContext, mut em: X86Emitter): X86Emitter:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret em
+  let e = arena.exprs[exprId]
+
+  // Integer literal: movabs rax, imm64
+  if e.kind == "IntLit":
+    em.code.push(0x48)
+    em.code.push(0xB8)
+    em.code = pushU64LE(em.code, e.intVal)
+    ret em
+
+  // Boolean literal: mov rax, 0 / 1
+  if e.kind == "BoolLit" or e.kind == "Bool":
+    em.code.push(0x48)
+    em.code.push(0xC7)
+    em.code.push(0xC0)
+    let bVal = if e.boolVal: 1 else: 0
+    em.code.push(bVal)
+    em.code.push(0x00)
+    em.code.push(0x00)
+    em.code.push(0x00)
+    ret em
+
+  // String literal: load rodata vaddr into rsi, length into rdx, and ptr into rax
+  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or e.kind == "StrLit":
+    let sIdx = lookupStringIndex(ctx.stringPool, e.strVal)
+    let strLen = if sIdx >= 0: ctx.stringPool[sIdx].length else: e.strVal.len
+    // movabs rsi, placeholder_vaddr
+    em.code.push(0x48)
+    em.code.push(0xBE)
+    em.code = pushU64LE(em.code, 0)
+    if sIdx >= 0:
+      em.strRelocs.push(X86StrReloc(codeOffset = em.code.len - 8, stringIndex = sIdx))
+    // mov edx, len
+    em.code.push(0xBA)
+    em.code = pushU32LE(em.code, strLen)
+    // mov rax, rsi
+    em.code.push(0x48)
+    em.code.push(0x89)
+    em.code.push(0xF0)
+    ret em
+
+  // Identifier variable access: mov rax, [rbp - offset]
+  if e.kind == "Ident":
+    let locIdx = lookupLocalIndex(ctx.paramNames, ctx.localNames, e.strVal)
+    if locIdx >= 0:
+      let offset = (locIdx + 1) * 8
+      em.code = emitMovRbpOffsetToRax(em.code, offset)
+    else:
+      // Unknown variable fallback: mov rax, 0
+      em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+    ret em
+
+  // Unary expressions
+  if e.kind == "Unary":
+    em = emitX86Expr(arena, hir, e.left, ctx, em)
+    if e.op == "-":
+      // neg rax
+      em.code.push(0x48); em.code.push(0xF7); em.code.push(0xD8)
+    elif e.op == "not":
+      // test rax, rax; sete al; movzbq al, rax
+      em.code.push(0x48); em.code.push(0x85); em.code.push(0xC0)
+      em.code.push(0x0F); em.code.push(0x94); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
+    elif e.op == "~":
+      // not rax
+      em.code.push(0x48); em.code.push(0xF7); em.code.push(0xD0)
+    ret em
+
+  // Binary expressions
+  if e.kind == "Binary":
+    em = emitX86Expr(arena, hir, e.left, ctx, em)
+    em.code.push(0x50) // push rax
+    em = emitX86Expr(arena, hir, e.right, ctx, em)
+    em.code.push(0x59) // pop rcx (left in rcx, right in rax)
+
+    if e.op == "+":
+      // add rax, rcx
+      em.code.push(0x48); em.code.push(0x01); em.code.push(0xC8)
+    elif e.op == "-":
+      // sub rcx, rax; mov rax, rcx
+      em.code.push(0x48); em.code.push(0x29); em.code.push(0xC1)
+      em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8)
+    elif e.op == "*":
+      // imul rax, rcx
+      em.code.push(0x48); em.code.push(0x0F); em.code.push(0xAF); em.code.push(0xC1)
+    elif e.op == "/":
+      // mov r8, rax; mov rax, rcx; cqo; idiv r8
+      em.code.push(0x49); em.code.push(0x89); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8)
+      em.code.push(0x48); em.code.push(0x99)
+      em.code.push(0x49); em.code.push(0xF7); em.code.push(0xF8)
+    elif e.op == "%":
+      // mov r8, rax; mov rax, rcx; cqo; idiv r8; mov rax, rdx
+      em.code.push(0x49); em.code.push(0x89); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8)
+      em.code.push(0x48); em.code.push(0x99)
+      em.code.push(0x49); em.code.push(0xF7); em.code.push(0xF8)
+      em.code.push(0x48); em.code.push(0x89); em.code.push(0xD0)
+    elif e.op == "==":
+      // cmp rcx, rax; sete al; movzbq al, rax
+      em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
+      em.code.push(0x0F); em.code.push(0x94); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
+    elif e.op == "!=":
+      // cmp rcx, rax; setne al; movzbq al, rax
+      em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
+      em.code.push(0x0F); em.code.push(0x95); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
+    elif e.op == "<":
+      // cmp rcx, rax; setl al; movzbq al, rax
+      em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
+      em.code.push(0x0F); em.code.push(0x9C); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
+    elif e.op == "<=":
+      // cmp rcx, rax; setle al; movzbq al, rax
+      em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
+      em.code.push(0x0F); em.code.push(0x9E); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
+    elif e.op == ">":
+      // cmp rcx, rax; setg al; movzbq al, rax
+      em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
+      em.code.push(0x0F); em.code.push(0x9F); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
+    elif e.op == ">=":
+      // cmp rcx, rax; setge al; movzbq al, rax
+      em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
+      em.code.push(0x0F); em.code.push(0x9D); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
+    elif e.op == "and":
+      // and rax, rcx
+      em.code.push(0x48); em.code.push(0x21); em.code.push(0xC8)
+    elif e.op == "or":
+      // or rax, rcx
+      em.code.push(0x48); em.code.push(0x09); em.code.push(0xC8)
+    elif e.op == "xor" or e.op == "^":
+      // xor rax, rcx
+      em.code.push(0x48); em.code.push(0x31); em.code.push(0xC8)
+    elif e.op == "<<":
+      // mov r8, rcx; mov rcx, rax; mov rax, r8; shl cl, rax
+      em.code.push(0x49); em.code.push(0x89); em.code.push(0xC8)
+      em.code.push(0x48); em.code.push(0x89); em.code.push(0xC1)
+      em.code.push(0x4C); em.code.push(0x89); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0xD3); em.code.push(0xE0)
+    elif e.op == ">>":
+      // mov r8, rcx; mov rcx, rax; mov rax, r8; sar cl, rax
+      em.code.push(0x49); em.code.push(0x89); em.code.push(0xC8)
+      em.code.push(0x48); em.code.push(0x89); em.code.push(0xC1)
+      em.code.push(0x4C); em.code.push(0x89); em.code.push(0xC0)
+      em.code.push(0x48); em.code.push(0xD3); em.code.push(0xF8)
+    else:
+      // default: add
+      em.code.push(0x48); em.code.push(0x01); em.code.push(0xC8)
+    ret em
+
+  // If expression: (if cond then left else right)
+  if e.kind == "IfExpr":
+    em = emitX86Expr(arena, hir, e.cond, ctx, em)
+    em.code.push(0x48); em.code.push(0x85); em.code.push(0xC0) // test rax, rax
+    em.code.push(0x0F); em.code.push(0x84) // jz else
+    em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+    let jzPos = em.code.len - 4
+
+    em = emitX86Expr(arena, hir, e.left, ctx, em)
+    em.code.push(0xE9) // jmp end
+    em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+    let jmpEndPos = em.code.len - 4
+
+    let elseRel32 = em.code.len - (jzPos + 4)
+    em.code = patchU32LE(em.code, jzPos, elseRel32)
+
+    em = emitX86Expr(arena, hir, e.right, ctx, em)
+
+    let endRel32 = em.code.len - (jmpEndPos + 4)
+    em.code = patchU32LE(em.code, jmpEndPos, endRel32)
+    ret em
+
+  // Function calls
+  if e.kind == "Call":
+    let callee = if e.left >= 0 and e.left < arena.exprs.len: arena.exprs[e.left].strVal else: ""
+
+    // 1. Built-in print & println
+    if callee == "println" or callee == "print":
+      if e.children.len > 0:
+        let argId = e.children[0]
+        let ae = if argId >= 0 and argId < arena.exprs.len: arena.exprs[argId] else: arena.exprs[0]
+        if ae.kind == "STRING" or ae.kind == "RAW_STRING" or ae.kind == "INTERP_STRING" or ae.kind == "StrLit":
+          let lookupText = if callee == "println": ae.strVal + "\n" else: ae.strVal
+          let sIdx = lookupStringIndex(ctx.stringPool, lookupText)
+          let strLen = if sIdx >= 0: ctx.stringPool[sIdx].length else: lookupText.len
+          // movabs rsi, placeholder_vaddr
+          em.code.push(0x48); em.code.push(0xBE)
+          em.code = pushU64LE(em.code, 0)
+          if sIdx >= 0:
+            em.strRelocs.push(X86StrReloc(codeOffset = em.code.len - 8, stringIndex = sIdx))
+          // mov edx, len
+          em.code.push(0xBA)
+          em.code = pushU32LE(em.code, strLen)
+          // call _aipl_print_str
+          em.code.push(0xE8)
+          em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+          em.callRelocs.push(X86Reloc(codeOffset = em.code.len - 4, targetName = "_aipl_print_str", callNextOffset = em.code.len))
+          // mov rax, 0
+          em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+          ret em
+        else:
+          // Integer expression print
+          em = emitX86Expr(arena, hir, argId, ctx, em)
+          // mov rdi, rax
+          em.code.push(0x48); em.code.push(0x89); em.code.push(0xC7)
+          // mov rsi, append_newline (1 for println, 0 for print)
+          em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC6)
+          let nlFlag = if callee == "println": 1 else: 0
+          em.code.push(nlFlag); em.code.push(0); em.code.push(0); em.code.push(0)
+          // call _aipl_print_int
+          em.code.push(0xE8)
+          em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+          em.callRelocs.push(X86Reloc(codeOffset = em.code.len - 4, targetName = "_aipl_print_int", callNextOffset = em.code.len))
+          // mov rax, 0
+          em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+          ret em
+      else:
+        // Empty println(): print newline
+        let sIdx = lookupStringIndex(ctx.stringPool, "\n")
+        em.code.push(0x48); em.code.push(0xBE)
+        em.code = pushU64LE(em.code, 0)
+        if sIdx >= 0:
+          em.strRelocs.push(X86StrReloc(codeOffset = em.code.len - 8, stringIndex = sIdx))
+        em.code.push(0xBA)
+        em.code = pushU32LE(em.code, 1)
+        em.code.push(0xE8)
+        em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+        em.callRelocs.push(X86Reloc(codeOffset = em.code.len - 4, targetName = "_aipl_print_str", callNextOffset = em.code.len))
+        em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+        ret em
+
+    // 2. Built-in exit
+    if callee == "exit":
+      if e.children.len > 0:
+        em = emitX86Expr(arena, hir, e.children[0], ctx, em)
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0xC7) // mov rdi, rax
+      else:
+        em.code.push(0x48); em.code.push(0x31); em.code.push(0xFF) // xor rdi, rdi
+      em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0x3C); em.code.push(0); em.code.push(0); em.code.push(0) // mov rax, 60
+      em.code.push(0x0F); em.code.push(0x05) // syscall
+      ret em
+
+    // 3. User-defined function calls (System V AMD64 ABI: rdi, rsi, rdx, rcx, r8, r9)
+    mut ai = 0
+    while ai < e.children.len:
+      em = emitX86Expr(arena, hir, e.children[ai], ctx, em)
+      em.code.push(0x50) // push rax
+      ai += 1
+
+    // Pop arguments in reverse order into registers
+    mut popIdx = e.children.len - 1
+    while popIdx >= 0:
+      if popIdx == 0:
+        em.code.push(0x5F) // pop rdi
+      elif popIdx == 1:
+        em.code.push(0x5E) // pop rsi
+      elif popIdx == 2:
+        em.code.push(0x5A) // pop rdx
+      elif popIdx == 3:
+        em.code.push(0x59) // pop rcx
+      elif popIdx == 4:
+        em.code.push(0x41); em.code.push(0x58) // pop r8
+      elif popIdx == 5:
+        em.code.push(0x41); em.code.push(0x59) // pop r9
+      popIdx -= 1
+
+    // Emit call rel32
+    em.code.push(0xE8)
+    em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+    em.callRelocs.push(X86Reloc(codeOffset = em.code.len - 4, targetName = callee, callNextOffset = em.code.len))
+    ret em
+
+  ret em
+
+// ----------------------------------------------------------------------------
+// Statement Lowering
+// ----------------------------------------------------------------------------
+
+fn emitX86Stmt(arena: AstArena, hir: HirModule, stmtId: int, ctx: X86FnContext, mut em: X86Emitter): X86Emitter:
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret em
+  let st = arena.stmts[stmtId]
+
+  // Local variable declaration (Let / Mut)
+  if st.kind == "VarDecl" or st.kind == "Let" or st.kind == "TupleVarDecl":
+    let locIdx = lookupLocalIndex(ctx.paramNames, ctx.localNames, st.name)
+    if locIdx >= 0:
+      let offset = (locIdx + 1) * 8
+      if st.exprId >= 0:
+        em = emitX86Expr(arena, hir, st.exprId, ctx, em)
+      else:
+        em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+      em.code = emitMovRaxToRbpOffset(em.code, offset)
+    ret em
+
+  // Assignment
+  if st.kind == "Assign":
+    mut targetName = st.name
+    if st.condExpr >= 0 and arena.exprs[st.condExpr].kind == "Ident":
+      targetName = arena.exprs[st.condExpr].strVal
+
+    let locIdx = lookupLocalIndex(ctx.paramNames, ctx.localNames, targetName)
+    if locIdx >= 0 and st.exprId >= 0:
+      let offset = (locIdx + 1) * 8
+      if st.name == "+=":
+        em.code = emitMovRbpOffsetToRax(em.code, offset)
+        em.code.push(0x50) // push rax
+        em = emitX86Expr(arena, hir, st.exprId, ctx, em)
+        em.code.push(0x59) // pop rcx (original in rcx, delta in rax)
+        em.code.push(0x48); em.code.push(0x01); em.code.push(0xC8) // add rax, rcx
+        em.code = emitMovRaxToRbpOffset(em.code, offset)
+      elif st.name == "-=":
+        em.code = emitMovRbpOffsetToRax(em.code, offset)
+        em.code.push(0x50) // push rax
+        em = emitX86Expr(arena, hir, st.exprId, ctx, em)
+        em.code.push(0x59) // pop rcx (original in rcx, delta in rax)
+        em.code.push(0x48); em.code.push(0x29); em.code.push(0xC1) // sub rcx, rax
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8) // mov rax, rcx
+        em.code = emitMovRaxToRbpOffset(em.code, offset)
+      elif st.name == "*=":
+        em.code = emitMovRbpOffsetToRax(em.code, offset)
+        em.code.push(0x50)
+        em = emitX86Expr(arena, hir, st.exprId, ctx, em)
+        em.code.push(0x59)
+        em.code.push(0x48); em.code.push(0x0F); em.code.push(0xAF); em.code.push(0xC1) // imul rax, rcx
+        em.code = emitMovRaxToRbpOffset(em.code, offset)
+      elif st.name == "/=":
+        em.code = emitMovRbpOffsetToRax(em.code, offset)
+        em.code.push(0x50)
+        em = emitX86Expr(arena, hir, st.exprId, ctx, em)
+        em.code.push(0x59)
+        em.code.push(0x49); em.code.push(0x89); em.code.push(0xC0) // mov r8, rax
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8) // mov rax, rcx
+        em.code.push(0x48); em.code.push(0x99) // cqo
+        em.code.push(0x49); em.code.push(0xF7); em.code.push(0xF8) // idiv r8
+        em.code = emitMovRaxToRbpOffset(em.code, offset)
+      elif st.name == "%=":
+        em.code = emitMovRbpOffsetToRax(em.code, offset)
+        em.code.push(0x50)
+        em = emitX86Expr(arena, hir, st.exprId, ctx, em)
+        em.code.push(0x59)
+        em.code.push(0x49); em.code.push(0x89); em.code.push(0xC0)
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8)
+        em.code.push(0x48); em.code.push(0x99)
+        em.code.push(0x49); em.code.push(0xF7); em.code.push(0xF8)
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0xD0) // mov rax, rdx
+        em.code = emitMovRaxToRbpOffset(em.code, offset)
+      else:
+        em = emitX86Expr(arena, hir, st.exprId, ctx, em)
+        em.code = emitMovRaxToRbpOffset(em.code, offset)
+    ret em
+
+  // Return statement
+  if st.kind == "Return":
+    if st.exprId >= 0:
+      em = emitX86Expr(arena, hir, st.exprId, ctx, em)
+    else:
+      em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+    em.code.push(0xC9) // leave
+    em.code.push(0xC3) // ret
+    ret em
+
+  // Expression statement
+  if st.kind == "ExprStmt":
+    if st.exprId >= 0:
+      em = emitX86Expr(arena, hir, st.exprId, ctx, em)
+    ret em
+
+  // If statement
+  if st.kind == "If":
+    em = emitX86Expr(arena, hir, st.condExpr, ctx, em)
+    em.code.push(0x48); em.code.push(0x85); em.code.push(0xC0) // test rax, rax
+    em.code.push(0x0F); em.code.push(0x84) // jz else_or_end
+    em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+    let jzPos = em.code.len - 4
+
+    mut bi = 0
+    while bi < st.bodyStmts.len:
+      em = emitX86Stmt(arena, hir, st.bodyStmts[bi], ctx, em)
+      bi += 1
+
+    if st.elseStmts.len > 0:
+      em.code.push(0xE9) // jmp end
+      em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+      let jmpEndPos = em.code.len - 4
+
+      let elseRel32 = em.code.len - (jzPos + 4)
+      em.code = patchU32LE(em.code, jzPos, elseRel32)
+
+      mut ei = 0
+      while ei < st.elseStmts.len:
+        em = emitX86Stmt(arena, hir, st.elseStmts[ei], ctx, em)
+        ei += 1
+
+      let endRel32 = em.code.len - (jmpEndPos + 4)
+      em.code = patchU32LE(em.code, jmpEndPos, endRel32)
+    else:
+      let endRel32 = em.code.len - (jzPos + 4)
+      em.code = patchU32LE(em.code, jzPos, endRel32)
+    ret em
+
+  // While statement
+  if st.kind == "While":
+    let startOffset = em.code.len
+    em = emitX86Expr(arena, hir, st.condExpr, ctx, em)
+    em.code.push(0x48); em.code.push(0x85); em.code.push(0xC0) // test rax, rax
+    em.code.push(0x0F); em.code.push(0x84) // jz loop_exit
+    em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+    let jzExitPos = em.code.len - 4
+
+    let prevBreaks = em.loopBreakOffsets
+    em.loopBreakOffsets = []
+
+    let loopCtx = X86FnContext(
+      paramNames = ctx.paramNames,
+      localNames = ctx.localNames,
+      frameSize = ctx.frameSize,
+      stringPool = ctx.stringPool,
+      inLoop = true,
+      loopStartOffset = startOffset
+    )
+
+    mut wi = 0
+    while wi < st.bodyStmts.len:
+      em = emitX86Stmt(arena, hir, st.bodyStmts[wi], loopCtx, em)
+      wi += 1
+
+    // Back edge: jmp startOffset
+    em.code.push(0xE9)
+    let backRel32 = startOffset - (em.code.len + 4)
+    em.code = pushU32LE(em.code, backRel32)
+
+    // Patch jzExitPos
+    let exitRel32 = em.code.len - (jzExitPos + 4)
+    em.code = patchU32LE(em.code, jzExitPos, exitRel32)
+
+    // Patch breaks
+    mut bki = 0
+    while bki < em.loopBreakOffsets.len:
+      let bPos = em.loopBreakOffsets[bki]
+      let bRel32 = em.code.len - (bPos + 4)
+      em.code = patchU32LE(em.code, bPos, bRel32)
+      bki += 1
+
+    em.loopBreakOffsets = prevBreaks
+    ret em
+
+  // Break statement
+  if st.kind == "Break" or st.kind == "break":
+    if ctx.inLoop:
+      em.code.push(0xE9)
+      em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+      em.loopBreakOffsets.push(em.code.len - 4)
+    ret em
+
+  // Continue statement
+  if st.kind == "Continue" or st.kind == "continue":
+    if ctx.inLoop:
+      em.code.push(0xE9)
+      let contRel32 = ctx.loopStartOffset - (em.code.len + 4)
+      em.code = pushU32LE(em.code, contRel32)
+    ret em
+
+  // Pass statement
+  if st.kind == "Pass":
+    em.code.push(0x90) // nop
+    ret em
+
+  ret em
+
+// ----------------------------------------------------------------------------
+// Primary Public Native ELF64 x86_64 Executable Emitter
+// ----------------------------------------------------------------------------
+
+pub fn emitElf64X86_64Bytes(hir: HirModule, bundledSource: str): bytes:
+  // 1. Collect all literal strings across all HIR functions into stringPool
+  mut stringPool: [X86StringEntry] = []
+  mut fi = 0
+  while fi < hir.functions.len:
+    stringPool = scanStringsFromStmts(hir.arena, hir.functions[fi].bodyStmts, stringPool)
+    fi += 1
+
+  mut em = X86Emitter(code = [], callRelocs = [], strRelocs = [], loopBreakOffsets = [])
+  mut fnOffsets: [X86FuncEntry] = []
+
+  // 2. Emit _start stub at codeOffset 0 (virtual address 0x400078)
+  // call fn_main; mov rdi, rax; mov rax, 60; syscall
+  em.code.push(0xE8)
+  em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+  em.callRelocs.push(X86Reloc(codeOffset = em.code.len - 4, targetName = "main", callNextOffset = em.code.len))
+  // mov rdi, rax
+  em.code.push(0x48); em.code.push(0x89); em.code.push(0xC7)
+  // mov rax, 60 (sys_exit)
+  em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0x3C); em.code.push(0); em.code.push(0); em.code.push(0)
+  // syscall
+  em.code.push(0x0F); em.code.push(0x05)
+
+  // 3. Emit built-in _aipl_print_str subroutine
+  fnOffsets.push(X86FuncEntry(name = "_aipl_print_str", codeOffset = em.code.len))
+  em.code = emitBuiltinPrintStr(em.code)
+
+  // 4. Emit built-in _aipl_print_int subroutine
+  fnOffsets.push(X86FuncEntry(name = "_aipl_print_int", codeOffset = em.code.len))
+  em.code = emitBuiltinPrintInt(em.code)
+
+  // 5. Emit user functions defined in hir.functions
+  fi = 0
+  while fi < hir.functions.len:
+    let f = hir.functions[fi]
+    fnOffsets.push(X86FuncEntry(name = f.name, codeOffset = em.code.len))
+
+    let locals = collectLocalsFromStmts(hir.arena, f.bodyStmts, f.paramNames, [])
+    let totalSlots = f.paramNames.len + locals.len
+    mut frameSlots = ((totalSlots + 1) / 2) * 2
+    if frameSlots < 2:
+      frameSlots = 2
+    let frameSize = frameSlots * 8
+
+    let ctx = X86FnContext(
+      paramNames = f.paramNames,
+      localNames = locals,
+      frameSize = frameSize,
+      stringPool = stringPool,
+      inLoop = false,
+      loopStartOffset = 0
+    )
+
+    // Prologue: push rbp; mov rbp, rsp; sub rsp, frameSize
+    em.code.push(0x55)
+    em.code.push(0x48); em.code.push(0x89); em.code.push(0xE5)
+    em.code.push(0x48); em.code.push(0x81); em.code.push(0xEC)
+    em.code = pushU32LE(em.code, frameSize)
+
+    // Save register parameters to stack slots
+    mut pi = 0
+    while pi < f.paramNames.len and pi < 6:
+      let pOffset = (pi + 1) * 8
+      if pi == 0:
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0x7D); em.code.push(256 - pOffset) // rdi
+      elif pi == 1:
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0x75); em.code.push(256 - pOffset) // rsi
+      elif pi == 2:
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0x55); em.code.push(256 - pOffset) // rdx
+      elif pi == 3:
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0x4D); em.code.push(256 - pOffset) // rcx
+      elif pi == 4:
+        em.code.push(0x4C); em.code.push(0x89); em.code.push(0x45); em.code.push(256 - pOffset) // r8
+      elif pi == 5:
+        em.code.push(0x4C); em.code.push(0x89); em.code.push(0x4D); em.code.push(256 - pOffset) // r9
+      pi += 1
+
+    // Zero-initialize local variable slots
+    mut li = f.paramNames.len
+    while li < totalSlots:
+      let locOffset = (li + 1) * 8
+      em.code = emitMovZeroToRbpOffset(em.code, locOffset)
+      li += 1
+
+    // Emit function body statements
+    mut si = 0
+    while si < f.bodyStmts.len:
+      em = emitX86Stmt(hir.arena, hir, f.bodyStmts[si], ctx, em)
+      si += 1
+
+    // Epilogue fallback: mov rax, 0; leave; ret
+    em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+    em.code.push(0xC9)
+    em.code.push(0xC3)
+    fi += 1
+
+  // 6. Align code to 8-byte boundary with NOPs
+  while em.code.len % 8 != 0:
+    em.code.push(0x90)
+
+  // 7. Calculate .rodata virtual address
+  let rodataCodeOffset = em.code.len
+  let rodataVAddr = 0x400078 + rodataCodeOffset
+
+  // 8. Patch string relocations to point to .rodata virtual addresses
+  mut sri = 0
+  while sri < em.strRelocs.len:
+    let srel = em.strRelocs[sri]
+    if srel.stringIndex >= 0 and srel.stringIndex < stringPool.len:
+      let targetVAddr = rodataVAddr + stringPool[srel.stringIndex].offset
+      em.code = patchU64LE(em.code, srel.codeOffset, targetVAddr)
+    sri += 1
+
+  // 9. Patch call relocations with rel32 displacements
+  mut cri = 0
+  while cri < em.callRelocs.len:
+    let crel = em.callRelocs[cri]
+    let targetOffset = lookupFuncCodeOffset(fnOffsets, crel.targetName)
+    if targetOffset >= 0:
+      let rel32 = targetOffset - crel.callNextOffset
+      em.code = patchU32LE(em.code, crel.codeOffset, rel32)
+    cri += 1
+
+  // 10. Construct .rodata string payload
+  mut rodataBytes: [int] = []
+  mut spi = 0
+  while spi < stringPool.len:
+    let item = stringPool[spi]
+    mut chI = 0
+    while chI < item.text.len:
+      rodataBytes.push(item.text.charCodeAt(chI))
+      chI += 1
+    spi += 1
+
+  // 11. Assemble final ELF64 binary: Ehdr (64B) + Phdr (56B) + Code + Rodata
+  let totalFileSize = 120 + em.code.len + rodataBytes.len
+  let ehdr = buildElf64Header(62, 0x400078)
+  let phdr = buildElf64ProgramHeader(7, totalFileSize)
+
+  mut finalBytes: [int] = []
+  finalBytes = appendBytes(finalBytes, ehdr)
+  finalBytes = appendBytes(finalBytes, phdr)
+  finalBytes = appendBytes(finalBytes, em.code)
+  if rodataBytes.len > 0:
+    finalBytes = appendBytes(finalBytes, rodataBytes)
+
+  ret bytesFromArray(finalBytes)

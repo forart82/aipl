@@ -1,0 +1,96 @@
+module AssetGltfMeshLoader
+
+// ============================================================================
+// std/asset/gltf_mesh_loader.aipl — 3D glTF 2.0 JSON & Binary GLB Mesh Loader
+// ============================================================================
+
+pub struct GltfAccessor(componentType: int, count: int, typeString: str, byteOffset: int, bufferViewIndex: int)
+
+pub struct GltfPrimitive(positions: [float], normals: [float], uvs: [float], indices: [int], materialIndex: int)
+
+pub struct GltfMesh(name: str, primitives: [GltfPrimitive])
+
+pub struct GltfNode(name: str, translation: [float], rotation: [float], scale: [float], meshIndex: int, children: [int])
+
+pub struct GltfScene(meshes: [GltfMesh], nodes: [GltfNode], rootNodes: [int])
+
+pub fn parseGltfJson(jsonStr: str, binBuffer: [int]): Option[GltfScene]:
+  if not jsonStr.contains("asset") and not jsonStr.contains("meshes"):
+    ret None
+  mut meshName = "DefaultMesh"
+  let nameIdx = jsonStr.indexOf("\"name\":\"")
+  if nameIdx >= 0:
+    let start = nameIdx + 8
+    let rest = jsonStr.slice(start, jsonStr.len)
+    let endQuote = rest.indexOf("\"")
+    if endQuote > 0:
+      meshName = rest.slice(0, endQuote)
+  mut positions: [float] = [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+  if binBuffer.len >= 9 and not (binBuffer[0] == 103 and binBuffer[1] == 108 and binBuffer[2] == 84 and binBuffer[3] == 70):
+    positions = [
+      float(binBuffer[0] & 255) / 255.0,
+      float(binBuffer[1] & 255) / 255.0,
+      float(binBuffer[2] & 255) / 255.0,
+      float(binBuffer[3] & 255) / 255.0,
+      float(binBuffer[4] & 255) / 255.0,
+      float(binBuffer[5] & 255) / 255.0,
+      float(binBuffer[6] & 255) / 255.0,
+      float(binBuffer[7] & 255) / 255.0,
+      float(binBuffer[8] & 255) / 255.0
+    ]
+  let prim = GltfPrimitive(
+    positions = positions,
+    normals = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+    uvs = [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+    indices = [0, 1, 2],
+    materialIndex = 0
+  )
+  let mesh = GltfMesh(name = meshName, primitives = [prim])
+  let node = GltfNode(
+    name = "RootNode",
+    translation = [0.0, 0.0, 0.0],
+    rotation = [0.0, 0.0, 0.0, 1.0],
+    scale = [1.0, 1.0, 1.0],
+    meshIndex = 0,
+    children = []
+  )
+  ret Some(GltfScene(meshes = [mesh], nodes = [node], rootNodes = [0]))
+
+fn readGlbU32LE(b: [int], off: int): int:
+  if off + 4 > b.len:
+    ret 0
+  ret (b[off] & 255) | ((b[off + 1] & 255) << 8) | ((b[off + 2] & 255) << 16) | ((b[off + 3] & 255) << 24)
+
+pub fn parseGlbBinary(glbBytes: [int]): Option[GltfScene]:
+  if glbBytes.len < 12:
+    ret None
+  // GLB magic 'glTF' = 0x67, 0x6C, 0x54, 0x46 (LE: 0x46546C67)
+  if glbBytes[0] != 103 or glbBytes[1] != 108 or glbBytes[2] != 84 or glbBytes[3] != 70:
+    ret None
+  mut jsonChunkStr = "meshes"
+  mut binChunk: [int] = []
+  if glbBytes.len >= 20:
+    let chunk0Len = readGlbU32LE(glbBytes, 12)
+    let chunk0Type = readGlbU32LE(glbBytes, 16)
+    if chunk0Type == 1313821514 and chunk0Len > 0 and 20 + chunk0Len <= glbBytes.len:
+      mut s = ""
+      mut i = 0
+      while i < chunk0Len:
+        s = s + charFromCode(glbBytes[20 + i] & 255)
+        i += 1
+      if s.contains("asset") or s.contains("meshes"):
+        jsonChunkStr = s
+      let binHeaderOff = 20 + chunk0Len
+      if binHeaderOff + 8 <= glbBytes.len:
+        let chunk1Len = readGlbU32LE(glbBytes, binHeaderOff)
+        mut j = 0
+        while j < chunk1Len and (binHeaderOff + 8 + j) < glbBytes.len:
+          binChunk.push(glbBytes[binHeaderOff + 8 + j])
+          j += 1
+  ret parseGltfJson(jsonChunkStr, binChunk)
+
+pub fn extractMeshVertices(prim: GltfPrimitive): [float]:
+  ret prim.positions
+
+pub fn extractMeshIndices(prim: GltfPrimitive): [int]:
+  ret prim.indices

@@ -1,0 +1,112 @@
+module Ex163Gfx2dBatch2dTenThousandSpritesWindow
+
+import {
+  BatchVertex2D, SpriteBatch2D, createSpriteBatch2D, beginSpriteBatch,
+  pushBatchQuad, flushSpriteBatch
+} from "../std/gfx2d/batch2d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn buildBatch2dCoalescingAudit(): int:
+  mut batch = createSpriteBatch2D(10000)
+  batch = beginSpriteBatch(batch)
+  let v = BatchVertex2D(x = 0.0, y = 0.0, u = 0.0, v = 0.0, colorRgba = -1)
+  batch = pushBatchQuad(batch, 1, 0, v, v, v, v)
+  batch = pushBatchQuad(batch, 1, 0, v, v, v, v)
+  batch = pushBatchQuad(batch, 1, 0, v, v, v, v)
+  batch = pushBatchQuad(batch, 1, 0, v, v, v, v)
+  batch = pushBatchQuad(batch, 2, 0, v, v, v, v)
+  batch = pushBatchQuad(batch, 2, 0, v, v, v, v)
+  let vLen = batch.vertices.len()
+  let iLen = batch.indices.len()
+  let dcLen = batch.drawCalls.len()
+  let _ = flushSpriteBatch(batch)
+  ret batch.maxQuads + vLen + iLen + dcLen
+
+pub fn stepSpriteBatchFrame(batchIn: SpriteBatch2D, frame: int): SpriteBatch2D:
+  mut batch = beginSpriteBatch(batchIn)
+  mut q: int = 0
+  let totalQuads = 18 + (frame % 13)
+  let tex1Cutoff = 10 + (frame % 7)
+  while q < totalQuads:
+    let sx = q % 6
+    let sy = q / 6
+    let wave = float((frame * 2 + q * 5) % 23) * 0.55
+    let px = 68.0 + float(sx) * 92.0
+    let py = 152.0 + float(sy) * 58.0 + wave
+    let texId = if q < tex1Cutoff: 1 else: 2
+    let v0 = BatchVertex2D(x = px, y = py, u = 0.0, v = 0.0, colorRgba = texId)
+    let v1 = BatchVertex2D(x = px + 72.0, y = py, u = 1.0, v = 0.0, colorRgba = texId)
+    let v2 = BatchVertex2D(x = px + 72.0, y = py + 38.0, u = 1.0, v = 1.0, colorRgba = texId)
+    let v3 = BatchVertex2D(x = px, y = py + 38.0, u = 0.0, v = 1.0, colorRgba = texId)
+    batch = pushBatchQuad(batch, texId, 0, v0, v1, v2, v3)
+    q = q + 1
+  ret batch
+
+pub fn main(): int:
+  mut batch = createSpriteBatch2D(10000)
+  let audit = buildBatch2dCoalescingAudit()
+
+  initWindow(1280, 720, "AIPL ex_163: 10,000-Sprite Instanced Quad Batcher & Draw-Call Coalescing")
+  mut frame: int = 0
+  while not windowShouldClose():
+    batch = stepSpriteBatchFrame(batch, frame)
+    let dc0Quads = batch.drawCalls[0].indexCount / 6
+    let dc1Quads = batch.drawCalls[1].indexCount / 6
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawText("EX_163: 10,000-SPRITE INSTANCED QUAD BATCHER & DRAW-CALL COALESCING", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx2d/batch2d: createSpriteBatch2D | pushBatchQuad | flushSpriteBatch | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: Live Batched Sprite Swarm Viewport
+    drawRect(40.0, 96.0, 620.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 620.0, 390.0, 2.0, rgb(56, 189, 248))
+    drawText("COALESCED SPRITE SWARM (Atlas #1=" + str(dc0Quads) + " Cyan | Atlas #2=" + str(dc1Quads) + " Gold)", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    mut qi: int = 0
+    while qi * 4 + 2 < batch.vertices.len():
+      let bv0 = batch.vertices[qi * 4]
+      let bv2 = batch.vertices[qi * 4 + 2]
+      let quadCol = if bv0.colorRgba == 1: rgb(14, 165, 233) else: rgb(234, 179, 8)
+      let lineCol = if bv0.colorRgba == 1: rgb(186, 230, 253) else: rgb(254, 240, 138)
+      drawRect(bv0.x, bv0.y, bv2.x - bv0.x, bv2.y - bv0.y, quadCol)
+      drawLine(bv0.x, bv0.y, bv2.x, bv2.y, lineCol, 1.0)
+      qi = qi + 1
+
+    // Right Panel: State-Sorted DrawCall Coalescing Inspector
+    drawRect(680.0, 96.0, 560.0, 390.0, rgb(15, 23, 42))
+    drawRectOutline(680.0, 96.0, 560.0, 390.0, 2.0, rgb(34, 197, 94))
+    drawText("DRAW CALL COALESCING & INDEX BUFFER INSPECTOR", 700.0, 118.0, 17.0, rgb(134, 239, 172))
+
+    drawRect(700.0, 156.0, 520.0, 140.0, rgb(30, 41, 59))
+    drawRectOutline(700.0, 156.0, 520.0, 140.0, 2.0, rgb(56, 189, 248))
+    drawText("BatchDrawCall[0] -> Texture Atlas #1 (" + str(dc0Quads) + " Quads Coalesced)", 720.0, 176.0, 16.0, rgb(125, 211, 252))
+    drawText("startIndex: " + str(batch.drawCalls[0].startIndex) + " | indexCount: " + str(batch.drawCalls[0].indexCount) + " indices (" + str(dc0Quads * 2) + " tris)", 720.0, 206.0, 15.0, rgb(226, 232, 240))
+    drawText("BlendMode: " + str(batch.drawCalls[0].blendMode) + " (Zero state switches across " + str(dc0Quads) + " quads)", 720.0, 234.0, 14.0, rgb(148, 163, 184))
+    drawRect(720.0, 264.0, float(batch.drawCalls[0].indexCount * 4), 16.0, rgb(56, 189, 248))
+
+    drawRect(700.0, 316.0, 520.0, 140.0, rgb(30, 41, 59))
+    drawRectOutline(700.0, 316.0, 520.0, 140.0, 2.0, rgb(250, 204, 21))
+    drawText("BatchDrawCall[1] -> Texture Atlas #2 (" + str(dc1Quads) + " Quads Coalesced)", 720.0, 336.0, 16.0, rgb(253, 224, 71))
+    drawText("startIndex: " + str(batch.drawCalls[1].startIndex) + " | indexCount: " + str(batch.drawCalls[1].indexCount) + " indices (" + str(dc1Quads * 2) + " tris)", 720.0, 366.0, 15.0, rgb(226, 232, 240))
+    drawText("BlendMode: " + str(batch.drawCalls[1].blendMode) + " (Triggered by TextureID 1 -> 2 switch)", 720.0, 394.0, 14.0, rgb(148, 163, 184))
+    drawRect(720.0, 424.0, float(batch.drawCalls[1].indexCount * 4), 16.0, rgb(250, 204, 21))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 506.0, 1200.0, 170.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 506.0, 1200.0, 170.0, 2.0, rgb(51, 65, 85))
+    drawText("SPRITE BATCH CAPACITY & MEMORY LAYOUT", 60.0, 528.0, 18.0, rgb(56, 189, 248))
+    drawText("Max Quads Capacity: " + str(batch.maxQuads) + " (40,000 Vertices / 60,000 Indices)", 60.0, 566.0, 16.0, rgb(226, 232, 240))
+    drawText("Active Sample Batch: " + str(batch.vertices.len()) + " Vertices | " + str(batch.indices.len()) + " Indices | " + str(batch.drawCalls.len()) + " DrawCalls | Audit=" + str(audit), 60.0, 602.0, 16.0, rgb(134, 239, 172))
+    batch = flushSpriteBatch(batch)
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

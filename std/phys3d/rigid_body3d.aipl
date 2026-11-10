@@ -1,0 +1,138 @@
+/// # Module: `std/phys3d/rigid_body3d` (`RigidBody3DMod`)
+///
+/// ## Purpose & Domain Scope
+/// 6-DOF dynamic/kinematic/static 3D rigid bodies with 3x3 inertia tensors,
+/// quaternion orientation integration, and linear/angular impulse solvers.
+module RigidBody3DMod
+
+import { maxFloat } from "std/math/consts"
+import { Vec3 } from "std/math/vec_math"
+import { Quat } from "std/math/quat"
+import { Mat3 } from "std/math/mat"
+
+pub enum BodyType3D:
+  Static
+  Kinematic
+  Dynamic
+
+pub struct InertiaTensor3x3(ixx: float, iyy: float, izz: float, ixy: float, ixz: float, iyz: float)
+
+pub struct RigidBody3D(id: int, bodyType: BodyType3D, position: Vec3, rotation: Quat, linearVelocity: Vec3, angularVelocity: Vec3, linearDamping: float, angularDamping: float, mass: float, invMass: float, localInertia: InertiaTensor3x3, invInertiaWorld: Mat3, isAwake: bool, isBulletCCD: bool)
+
+pub fn rigidBody3dNew(id: int, bodyType: BodyType3D, pos: Vec3, rot: Quat): RigidBody3D:
+  let isDyn = bodyType == BodyType3D.Dynamic
+  let m = if isDyn: 1.0 else: 0.0
+  let invM = if isDyn: 1.0 else: 0.0
+  ret RigidBody3D(
+    id = id,
+    bodyType = bodyType,
+    position = pos,
+    rotation = rot,
+    linearVelocity = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    angularVelocity = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    linearDamping = 0.0,
+    angularDamping = 0.0,
+    mass = m,
+    invMass = invM,
+    localInertia = InertiaTensor3x3(ixx = m, iyy = m, izz = m, ixy = 0.0, ixz = 0.0, iyz = 0.0),
+    invInertiaWorld = Mat3.identity(),
+    isAwake = true,
+    isBulletCCD = false
+  )
+
+pub fn rigidBody3dSetBoxInertia(mut body: RigidBody3D, mass: float, extents: Vec3): void:
+  let isDyn = body.bodyType == BodyType3D.Dynamic and mass > 0.0
+  body.mass = if isDyn: mass else: 0.0
+  body.invMass = if isDyn: 1.0 / mass else: 0.0
+  let k = mass / 12.0
+  let ixx = k * (extents.y * extents.y + extents.z * extents.z)
+  let iyy = k * (extents.x * extents.x + extents.z * extents.z)
+  let izz = k * (extents.x * extents.x + extents.y * extents.y)
+  body.localInertia = InertiaTensor3x3(ixx = ixx, iyy = iyy, izz = izz, ixy = 0.0, ixz = 0.0, iyz = 0.0)
+  body.invInertiaWorld = Mat3(
+    m00 = if isDyn and ixx > 0.0: 1.0 / ixx else: 0.0, m01 = 0.0, m02 = 0.0,
+    m10 = 0.0, m11 = if isDyn and iyy > 0.0: 1.0 / iyy else: 0.0, m12 = 0.0,
+    m20 = 0.0, m21 = 0.0, m22 = if isDyn and izz > 0.0: 1.0 / izz else: 0.0
+  )
+
+pub fn rigidBody3dSetSphereInertia(mut body: RigidBody3D, mass: float, radius: float): void:
+  let isDyn = body.bodyType == BodyType3D.Dynamic and mass > 0.0
+  body.mass = if isDyn: mass else: 0.0
+  body.invMass = if isDyn: 1.0 / mass else: 0.0
+  let inertiaVal = 0.4 * mass * radius * radius
+  let invI = if isDyn and inertiaVal > 0.0: 1.0 / inertiaVal else: 0.0
+  body.localInertia = InertiaTensor3x3(
+    ixx = inertiaVal,
+    iyy = inertiaVal,
+    izz = inertiaVal,
+    ixy = 0.0,
+    ixz = 0.0,
+    iyz = 0.0
+  )
+  body.invInertiaWorld = Mat3(
+    m00 = invI, m01 = 0.0, m02 = 0.0,
+    m10 = 0.0, m11 = invI, m12 = 0.0,
+    m20 = 0.0, m21 = 0.0, m22 = invI
+  )
+
+pub fn rigidBody3dApplyForceAtPoint(mut body: RigidBody3D, force: Vec3, worldPoint: Vec3): void:
+  if body.bodyType != BodyType3D.Dynamic:
+    ret
+  let lv: Vec3 = body.linearVelocity
+  body.linearVelocity = lv.add(force.scale(body.invMass))
+  let r: Vec3 = worldPoint.sub(body.position)
+  let torque: Vec3 = r.cross(force)
+  let invW: Mat3 = body.invInertiaWorld
+  let angDelta = Vec3(
+    x = invW.m00 * torque.x + invW.m01 * torque.y + invW.m02 * torque.z,
+    y = invW.m10 * torque.x + invW.m11 * torque.y + invW.m12 * torque.z,
+    z = invW.m20 * torque.x + invW.m21 * torque.y + invW.m22 * torque.z
+  )
+  let av: Vec3 = body.angularVelocity
+  body.angularVelocity = av.add(angDelta)
+
+pub fn rigidBody3dApplyLinearImpulse(mut body: RigidBody3D, impulse: Vec3): void:
+  if body.bodyType != BodyType3D.Dynamic:
+    ret
+  let lv: Vec3 = body.linearVelocity
+  body.linearVelocity = lv.add(impulse.scale(body.invMass))
+
+pub fn rigidBody3dApplyAngularImpulse(mut body: RigidBody3D, impulse: Vec3): void:
+  if body.bodyType != BodyType3D.Dynamic:
+    ret
+  let invW: Mat3 = body.invInertiaWorld
+  let angDelta = Vec3(
+    x = invW.m00 * impulse.x + invW.m01 * impulse.y + invW.m02 * impulse.z,
+    y = invW.m10 * impulse.x + invW.m11 * impulse.y + invW.m12 * impulse.z,
+    z = invW.m20 * impulse.x + invW.m21 * impulse.y + invW.m22 * impulse.z
+  )
+  let av: Vec3 = body.angularVelocity
+  body.angularVelocity = av.add(angDelta)
+
+pub fn rigidBody3dIntegrate(mut body: RigidBody3D, gravity: Vec3, dt: float): void:
+  if body.bodyType != BodyType3D.Dynamic or (not body.isAwake):
+    ret
+  let lv: Vec3 = body.linearVelocity
+  let av: Vec3 = body.angularVelocity
+  let linDamp = 1.0 / (1.0 + maxFloat(0.0, body.linearDamping * dt))
+  let angDamp = 1.0 / (1.0 + maxFloat(0.0, body.angularDamping * dt))
+
+  let nextLv: Vec3 = lv.add(gravity.scale(dt)).scale(linDamp)
+  let nextAv: Vec3 = av.scale(angDamp)
+  body.linearVelocity = nextLv
+  body.angularVelocity = nextAv
+
+  let pos: Vec3 = body.position
+  body.position = pos.add(nextLv.scale(dt))
+
+  let q: Quat = body.rotation
+  let wq = Quat(x = nextAv.x, y = nextAv.y, z = nextAv.z, w = 0.0)
+  let dq: Quat = wq.mul(q)
+  let halfDt = 0.5 * dt
+  let nextQ = Quat(
+    x = q.x + dq.x * halfDt,
+    y = q.y + dq.y * halfDt,
+    z = q.z + dq.z * halfDt,
+    w = q.w + dq.w * halfDt
+  )
+  body.rotation = nextQ.norm()

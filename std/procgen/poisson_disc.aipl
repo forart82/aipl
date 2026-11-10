@@ -1,0 +1,134 @@
+/// # Module: `std/procgen/poisson_disc` (`PoissonDiscMod`)
+///
+/// ## Purpose & Domain Scope
+/// Bridson's fast Poisson Disk blue-noise distribution sampling in 2D and 3D
+/// enforcing minimum pairwise distance invariants.
+module PoissonDiscMod
+
+import { TAU } from "std/math/consts"
+import { sin, cos } from "std/math/trig"
+import { Vec2, Vec3 } from "std/math/vec_math"
+import { Rect2D } from "std/math/geom2d"
+import { AABB3D } from "std/math/geom3d"
+
+pub struct PoissonDiscConfig2D(bounds: Rect2D, minDistance: float, maxCandidates: int, seed: int)
+
+pub fn poissonDiscSample2D(config: PoissonDiscConfig2D): [Vec2]:
+  mut samples: [Vec2] = []
+  mut active: [Vec2] = []
+
+  let b: Rect2D = config.bounds
+  let bw = if b.w > 0.0: b.w else: b.width
+  let bh = if b.h > 0.0: b.h else: b.height
+  let minD = config.minDistance
+  let minDSq = minD * minD
+  let kMax = if config.maxCandidates > 0: config.maxCandidates else: 30
+
+  let p0 = Vec2(x = b.x + bw * 0.5, y = b.y + bh * 0.5)
+  samples.push(p0)
+  active.push(p0)
+
+  mut s = if config.seed != 0: config.seed else: 12345
+  while active.len > 0 and samples.len < 256:
+    let aIdx = active.len - 1
+    let basePt: Vec2 = active[aIdx]
+    mut found = false
+    mut k = 0
+    while k < kMax and (not found):
+      s = (s * 1103515245 + 12345) & 2147483647
+      let u1 = float(s % 100000) / 100000.0
+      s = (s * 1103515245 + 12345) & 2147483647
+      let u2 = float(s % 100000) / 100000.0
+
+      let rad = minD * (1.0 + u1)
+      let ang = TAU * u2
+      let cx = basePt.x + rad * cos(ang)
+      let cy = basePt.y + rad * sin(ang)
+
+      if cx >= b.x and cx <= b.x + bw and cy >= b.y and cy <= b.y + bh:
+        mut valid = true
+        mut j = 0
+        while j < samples.len and valid:
+          let sp: Vec2 = samples[j]
+          let dx = cx - sp.x
+          let dy = cy - sp.y
+          if dx * dx + dy * dy < minDSq:
+            valid = false
+          j = j + 1
+        if valid:
+          let cand = Vec2(x = cx, y = cy)
+          samples.push(cand)
+          active.push(cand)
+          found = true
+      k = k + 1
+
+    if not found:
+      mut nextActive: [Vec2] = []
+      mut m = 0
+      while m < aIdx:
+        nextActive.push(active[m])
+        m = m + 1
+      active = nextActive
+
+  ret samples
+
+pub fn poissonDiscSample3D(bounds: AABB3D, minDistance: float, k: int, seed: int): [Vec3]:
+  mut samples: [Vec3] = []
+  mut active: [Vec3] = []
+  let minDSq = minDistance * minDistance
+  let kMax = if k > 0: k else: 20
+
+  let center = Vec3(
+    x = (bounds.min.x + bounds.max.x) * 0.5,
+    y = (bounds.min.y + bounds.max.y) * 0.5,
+    z = (bounds.min.z + bounds.max.z) * 0.5
+  )
+  samples.push(center)
+  active.push(center)
+
+  mut s = if seed != 0: seed else: 67890
+  while active.len > 0 and samples.len < 128:
+    let aIdx = active.len - 1
+    let basePt: Vec3 = active[aIdx]
+    mut found = false
+    mut c = 0
+    while c < kMax and (not found):
+      s = (s * 1103515245 + 12345) & 2147483647
+      let u1 = float(s % 100000) / 100000.0
+      s = (s * 1103515245 + 12345) & 2147483647
+      let u2 = float(s % 100000) / 100000.0
+      s = (s * 1103515245 + 12345) & 2147483647
+      let u3 = float(s % 100000) / 100000.0
+
+      let rad = minDistance * (1.0 + u1)
+      let theta = TAU * u2
+      let phi = (u3 - 0.5) * 3.14159265
+      let cx = basePt.x + rad * cos(phi) * cos(theta)
+      let cy = basePt.y + rad * sin(phi)
+      let cz = basePt.z + rad * cos(phi) * sin(theta)
+
+      let inBounds = cx >= bounds.min.x and cx <= bounds.max.x and cy >= bounds.min.y and cy <= bounds.max.y and cz >= bounds.min.z and cz <= bounds.max.z
+      if inBounds:
+        let cand = Vec3(x = cx, y = cy, z = cz)
+        mut valid = true
+        mut j = 0
+        while j < samples.len and valid:
+          let sp: Vec3 = samples[j]
+          if cand.sub(sp).lenSq() < minDSq:
+            valid = false
+          j = j + 1
+        if valid:
+          samples.push(cand)
+          active.push(cand)
+          found = true
+      c = c + 1
+
+    if not found:
+      mut nextActive: [Vec3] = []
+      mut m = 0
+      while m < aIdx:
+        nextActive.push(active[m])
+        m = m + 1
+      active = nextActive
+
+  ret samples

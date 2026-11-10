@@ -1,0 +1,72 @@
+// ============================================================================
+// Example 012: Virtual Memory Pages, Raw Pointers & IEEE-754 Bitcast CLI
+// Demonstrates: MemoryRegion, sysPtrAlloc/sysPtrFree, sysPtrWriteI64/ReadI64,
+//               sysPageAlloc/sysPageProtect/sysPageFree, IEEE-754 bitcasting,
+//               and sysSizeofType from std/sys/sys_mem.
+// ============================================================================
+module Ex012SysMemPageInspectorCli
+
+import {
+  MemoryRegion,
+  sysPtrAlloc,
+  sysPtrFree,
+  sysPtrReadI64,
+  sysPtrWriteI64,
+  sysPageAlloc,
+  sysPageProtect,
+  sysPageFree,
+  sysBitcastF64ToI64,
+  sysBitcastI64ToF64,
+  sysSizeofType
+} from "../std/sys/sys_mem"
+
+pub struct PageInspectorReport:
+  pageSize: int
+  regionByte0: int
+  intTypeBytes: int
+  protectStatus: int
+
+pub fn roundtripPointerI64(val: int): int:
+  let ptr = sysPtrAlloc(16)
+  sysPtrWriteI64(ptr, val)
+  let out = sysPtrReadI64(ptr)
+  sysPtrFree(ptr)
+  ret out
+
+pub fn verifyFloat64BitcastRoundtrip(sample: float): bool:
+  let bits = sysBitcastF64ToI64(sample)
+  let restored = sysBitcastI64ToF64(bits)
+  ret restored == sample
+
+pub fn classifyPageProtection(protFlags: int): str:
+  if protFlags == 1:
+    ret "PAGE:PROT_READ"
+  elif protFlags == 3:
+    ret "PAGE:PROT_READ_WRITE"
+  elif protFlags == 5:
+    ret "PAGE:PROT_READ_EXEC"
+  else:
+    ret "PAGE:PROT_NONE"
+
+pub fn buildPageInspectorReport(pageBytes: int, markerByte: int): PageInspectorReport:
+  let pg = sysPageAlloc(pageBytes)
+  let protRes = sysPageProtect(pg, pageBytes, 3)
+  let _ = sysPageFree(pg, pageBytes)
+  let reg = MemoryRegion.new(16)
+  reg.writeU8(0, markerByte)
+  let readVal = reg.readU8(0)
+  reg.free()
+  ret PageInspectorReport(
+    pageSize = pageBytes,
+    regionByte0 = readVal,
+    intTypeBytes = sysSizeofType("int"),
+    protectStatus = protRes
+  )
+
+pub fn main(): int:
+  let rep = buildPageInspectorReport(4096, 77)
+  let i64Val = roundtripPointerI64(987654321)
+  let bitcastOk = verifyFloat64BitcastRoundtrip(3.14159265)
+  println("[ex_012_sys_mem_page_inspector_cli] PageInspectorReport(pageSize=" + str(rep.pageSize) + ", byte0=" + str(rep.regionByte0) + ", sizeofInt=" + str(rep.intTypeBytes) + ", protStatus=" + str(rep.protectStatus) + ")")
+  println("[ex_012_sys_mem_page_inspector_cli] i64Roundtrip=" + str(i64Val) + " | bitcastOk=" + str(bitcastOk) + " | " + classifyPageProtection(3))
+  ret 0

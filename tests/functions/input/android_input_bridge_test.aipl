@@ -1,0 +1,147 @@
+// ============================================================================
+// Step 21.3: Exhaustive Per-Function Unit Tests for android_input_bridge
+// Target: tests/functions/input/android_input_bridge_test.aipl
+// ============================================================================
+module tests.functions.input.android_input_bridge_test
+
+import * from "std/input/touch"
+import * from "std/input/gesture"
+import {
+  assert,
+  assertEqInt,
+  assertApproxEq
+} from "std/prelude"
+
+pub struct DecodedAndroidMotionAction(actionMasked: int, pointerIndex: int, isValidAction: bool)
+
+pub fn decodeAndroidMotionEventAction(actionWithIndex: int, pointerCount: int): DecodedAndroidMotionAction requires pointerCount >= 0 ensures result.actionMasked >= 0 and result.actionMasked <= 255:
+  if actionWithIndex < 0 or pointerCount <= 0:
+    ret DecodedAndroidMotionAction(actionMasked = 0, pointerIndex = 0, isValidAction = false)
+  let masked = actionWithIndex & 255
+  let ptrIdx = (actionWithIndex >> 8) & 255
+  let knownAction = masked == 0 or masked == 1 or masked == 2 or masked == 3 or masked == 5 or masked == 6
+  let valid = knownAction and ptrIdx >= 0 and ptrIdx < pointerCount
+  ret DecodedAndroidMotionAction(actionMasked = masked, pointerIndex = ptrIdx, isValidAction = valid)
+
+pub fn routeAndroidMotionToTouchTracker(tracker: TouchTracker, actionMasked: int, pointerId: int, x: float, y: float, pressure: float, eventTimeMs: int): TouchTracker requires eventTimeMs >= 0 ensures getActivePointerCount(result) >= 0 and getActivePointerCount(result) <= result.maxActivePointers:
+  if pointerId < 0:
+    ret tracker
+  if actionMasked == 0 or actionMasked == 5:
+    ret handleTouchDown(tracker, pointerId, x, y, pressure, eventTimeMs)
+  if actionMasked == 2:
+    ret handleTouchMove(tracker, pointerId, x, y, pressure, eventTimeMs)
+  if actionMasked == 1 or actionMasked == 6:
+    ret handleTouchUp(tracker, pointerId, x, y, eventTimeMs)
+  if actionMasked == 3:
+    ret handleTouchCancel(tracker, pointerId)
+  ret tracker
+
+pub fn routeAndroidMotionToVirtualJoystick(joystick: VirtualJoystick, actionMasked: int, pointerId: int, touchX: float, touchY: float): VirtualJoystick requires pointerId >= -1 ensures not result.isActive or result.boundPointerId >= 0:
+  if pointerId < 0:
+    ret joystick
+  if actionMasked == 0 or actionMasked == 5:
+    ret touchDownVirtualJoystick(joystick, pointerId, touchX, touchY)
+  if actionMasked == 2:
+    ret touchMoveVirtualJoystick(joystick, pointerId, touchX, touchY)
+  if actionMasked == 1 or actionMasked == 6 or actionMasked == 3:
+    ret touchUpVirtualJoystick(joystick, pointerId)
+  ret joystick
+
+pub fn computeAndroidDualTouchPinch(tracker: TouchTracker, pointerIdA: int, pointerIdB: int): PinchGesture requires pointerIdA >= -1 ensures result.scale > 0.0:
+  if pointerIdA < 0 or pointerIdB < 0 or pointerIdA == pointerIdB:
+    ret PinchGesture(scale = 1.0, deltaScale = 0.0, centerPointX = 0.0, centerPointY = 0.0)
+  let optA = getActivePointer(tracker, pointerIdA)
+  let optB = getActivePointer(tracker, pointerIdB)
+  if optA.isNone() or optB.isNone():
+    ret PinchGesture(scale = 1.0, deltaScale = 0.0, centerPointX = 0.0, centerPointY = 0.0)
+  let pA = optA.unwrap()
+  let pB = optB.unwrap()
+  let sdx = pB.startX - pA.startX
+  let sdy = pB.startY - pA.startY
+  let startDist = sqrt(sdx * sdx + sdy * sdy)
+  let (_, scale) = computePinchDelta(pA.currentX, pA.currentY, pB.currentX, pB.currentY, startDist)
+  let cx = (pA.currentX + pB.currentX) * 0.5
+  let cy = (pA.currentY + pB.currentY) * 0.5
+  ret PinchGesture(scale = scale, deltaScale = scale - 1.0, centerPointX = cx, centerPointY = cy)
+
+pub fn test_android_input_bridge_decodeAndroidMotionEventAction(): int:
+  let d0 = decodeAndroidMotionEventAction(0, 1)
+  assert(d0.isValidAction == true, "ACTION_DOWN valid")
+  assertEqInt(d0.actionMasked, 0, "ACTION_DOWN == 0")
+  assertEqInt(d0.pointerIndex, 0, "pointerIndex == 0")
+  let pDown1 = decodeAndroidMotionEventAction((1 << 8) | 5, 2)
+  assert(pDown1.isValidAction == true, "ACTION_POINTER_DOWN idx 1 valid")
+  assertEqInt(pDown1.actionMasked, 5, "ACTION_POINTER_DOWN == 5")
+  assertEqInt(pDown1.pointerIndex, 1, "pointerIndex == 1")
+  let badIdx = decodeAndroidMotionEventAction((3 << 8) | 5, 2)
+  assert(badIdx.isValidAction == false, "pointerIndex 3 >= pointerCount 2 rejected")
+  let neg = decodeAndroidMotionEventAction(-1, 2)
+  assert(neg.isValidAction == false, "negative action rejected")
+  let unk = decodeAndroidMotionEventAction(4, 2)
+  assert(unk.isValidAction == false, "unrecognized action code 4 rejected")
+  ret 0
+
+pub fn test_android_input_bridge_routeAndroidMotionToTouchTracker(): int:
+  mut tr = createTouchTracker()
+  tr = routeAndroidMotionToTouchTracker(tr, 0, 0, 120.0, 500.0, 0.8, 10)
+  tr = routeAndroidMotionToTouchTracker(tr, 5, 1, 800.0, 600.0, 0.9, 12)
+  assertEqInt(getActivePointerCount(tr), 2, "2 concurrent pointers active")
+  tr = routeAndroidMotionToTouchTracker(tr, 2, 1, 825.0, 610.0, 0.9, 20)
+  let p1 = getActivePointer(tr, 1).unwrap()
+  assertApproxEq(p1.deltaX, 25.0, 0.001, "pointer 1 deltaX == 25.0")
+  tr = routeAndroidMotionToTouchTracker(tr, -1, 0, 0.0, 0.0, 0.0, 22)
+  assertEqInt(getActivePointerCount(tr), 2, "negative action ignored")
+  tr = routeAndroidMotionToTouchTracker(tr, 0, -5, 0.0, 0.0, 0.0, 22)
+  assertEqInt(getActivePointerCount(tr), 2, "negative pointerId -5 ignored")
+  tr = routeAndroidMotionToTouchTracker(tr, 6, 0, 120.0, 500.0, 0.0, 30)
+  assertEqInt(getActivePointerCount(tr), 1, "POINTER_UP removes pointer 0 only")
+  tr = routeAndroidMotionToTouchTracker(tr, 1, 1, 825.0, 610.0, 0.0, 32)
+  assertEqInt(getActivePointerCount(tr), 0, "ACTION_UP removes remaining pointer 1")
+  tr = routeAndroidMotionToTouchTracker(tr, 0, 2, 50.0, 50.0, 1.0, 34)
+  assertEqInt(getActivePointerCount(tr), 1, "new pointer 2 added")
+  tr = routeAndroidMotionToTouchTracker(tr, 3, 2, 50.0, 50.0, 0.0, 35)
+  assertEqInt(getActivePointerCount(tr), 0, "ACTION_CANCEL clears pointer 2")
+  ret 0
+
+pub fn test_android_input_bridge_routeAndroidMotionToVirtualJoystick(): int:
+  mut joy = createVirtualJoystick(150.0, 200.0, 80.0, 0.15)
+  joy = routeAndroidMotionToVirtualJoystick(joy, 0, 0, 150.0, 200.0)
+  assert(joy.isActive == true, "joystick activated by pointerId 0")
+  assertEqInt(joy.boundPointerId, 0, "boundPointerId == 0")
+  joy = routeAndroidMotionToVirtualJoystick(joy, 2, 0, 230.0, 200.0)
+  assertApproxEq(joy.outputVectorX, 1.0, 0.001, "full right deflection outputVectorX == 1.0")
+  joy = routeAndroidMotionToVirtualJoystick(joy, 2, 1, 50.0, 50.0)
+  assertApproxEq(joy.outputVectorX, 1.0, 0.001, "pointerId 1 move ignored by pointerId 0 stick")
+  joy = routeAndroidMotionToVirtualJoystick(joy, 6, 1, 50.0, 50.0)
+  assert(joy.isActive == true, "pointerId 1 release does not release pointerId 0 stick")
+  joy = routeAndroidMotionToVirtualJoystick(joy, 3, 0, 230.0, 200.0)
+  assert(joy.isActive == false, "ACTION_CANCEL on bound pointerId 0 releases stick")
+  assertApproxEq(joy.outputVectorX, 0.0, 0.001, "outputVectorX reset to 0.0 on cancel")
+  ret 0
+
+pub fn test_android_input_bridge_computeAndroidDualTouchPinch(): int:
+  mut tr = createTouchTracker()
+  tr = handleTouchDown(tr, 0, 100.0, 200.0, 1.0, 10)
+  tr = handleTouchDown(tr, 1, 200.0, 200.0, 1.0, 10)
+  tr = handleTouchMove(tr, 0, 50.0, 200.0, 1.0, 20)
+  tr = handleTouchMove(tr, 1, 250.0, 200.0, 1.0, 20)
+  let pinch = computeAndroidDualTouchPinch(tr, 0, 1)
+  assertApproxEq(pinch.scale, 2.0, 0.001, "span 100 -> 200 gives 2.0x pinch scale")
+  assertApproxEq(pinch.deltaScale, 1.0, 0.001, "deltaScale == 1.0")
+  assertApproxEq(pinch.centerPointX, 150.0, 0.001, "centerPointX == 150.0")
+  assertApproxEq(pinch.centerPointY, 200.0, 0.001, "centerPointY == 200.0")
+  let fallback = computeAndroidDualTouchPinch(tr, -1, 1)
+  assertApproxEq(fallback.scale, 1.0, 0.001, "invalid pointerId returns neutral scale 1.0")
+  let samePtr = computeAndroidDualTouchPinch(tr, 0, 0)
+  assertApproxEq(samePtr.scale, 1.0, 0.001, "identical pointerIds return neutral scale 1.0")
+  let missingPtr = computeAndroidDualTouchPinch(tr, 0, 99)
+  assertApproxEq(missingPtr.scale, 1.0, 0.001, "missing pointerId returns neutral scale 1.0")
+  ret 0
+
+pub fn main(): int:
+  test_android_input_bridge_decodeAndroidMotionEventAction()
+  test_android_input_bridge_routeAndroidMotionToTouchTracker()
+  test_android_input_bridge_routeAndroidMotionToVirtualJoystick()
+  test_android_input_bridge_computeAndroidDualTouchPinch()
+  println("PASS: tests/functions/input/android_input_bridge_test.aipl")
+  ret 0

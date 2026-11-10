@@ -1,0 +1,51 @@
+/// # Module: `std/ui/ui_watcher_hud` (`UiWatcherHud`)
+///
+/// ## Purpose & Domain Scope
+/// Minimalist On-Screen Mobile Watcher Overlay HUD (`WatcherHudState`, Pill, Toast & Drawer)
+/// with 48dp Fitts's Law touch target enforcement.
+module UiWatcherHud
+
+pub struct WatcherHudState(fps: int, reloadCount: int, drawerOpen: bool, hasError: bool, errorCode: str, errorLine: int, errorMessage: str, pillHitboxDp: int)
+
+pub fn createWatcherHudState(initialFps: int, pillHitboxDp: int = 48): WatcherHudState requires initialFps >= 0 ensures result.pillHitboxDp >= 48:
+  let safeDp = if pillHitboxDp >= 48: pillHitboxDp else: 48
+  ret WatcherHudState(
+    fps = initialFps,
+    reloadCount = 0,
+    drawerOpen = false,
+    hasError = false,
+    errorCode = "",
+    errorLine = 0,
+    errorMessage = "",
+    pillHitboxDp = safeDp
+  )
+
+pub fn renderWatcherOverlayPill(fps: int, reloadCount: int, hasError: bool, errorCode: str, errorLine: int): str requires fps >= 0 and reloadCount >= 0 ensures result.startsWith("LIVE ") or result.startsWith("ERR "):
+  if hasError:
+    let code = if errorCode.len() > 0: errorCode else: "E1001"
+    ret "ERR " + code + " L" + str(errorLine) + " | #" + str(reloadCount)
+  ret "LIVE " + str(fps) + " FPS | #" + str(reloadCount)
+
+pub fn renderWatcherDiagnosticToast(errorCode: str, line: int, col: int, message: str): str requires line >= 0 and col >= 0 ensures result == "" or (result.startsWith("[") and result.contains(" - ")):
+  let code = errorCode.trim()
+  if code.len() == 0:
+    ret ""
+  mut cat = "DIAG"
+  if code.startsWith("E1"):
+    cat = "SYNTAX"
+  elif code.startsWith("E2"):
+    cat = "TYPE"
+  elif code.startsWith("E3"):
+    cat = "CONTRACT"
+  ret "[" + cat + ":" + code + "] L" + str(line) + ":C" + str(col) + " - " + message
+
+pub fn toggleWatcherFileDrawer(drawerOpen: bool, selectedIdx: int, fileCount: int): (bool, int) requires fileCount >= 0 ensures result[0] == (not drawerOpen) and result[1] >= -1:
+  let nextOpen = not drawerOpen
+  if fileCount <= 0:
+    ret (nextOpen, -1)
+  mut clamped = selectedIdx
+  if clamped < 0:
+    clamped = 0
+  if clamped >= fileCount:
+    clamped = fileCount - 1
+  ret (nextOpen, clamped)

@@ -1,0 +1,48 @@
+module Ex191UiStyleDarkLightThemeStudioWindowTest
+
+import {
+  buildUiStyleThemeStudioAudit, stepAccentHueDeg, stepActiveSwatchIndex
+} from "../../examples/ex_191_ui_style_dark_light_theme_studio_window"
+import {
+  createDarkTheme, createLightTheme, getDefaultDesignTokens,
+  RgbColor, HslColor, hslToRgb, contrastRatio, meetsWcagAA, meetsWcagAAA,
+  paletteShades, defaultDarkPalette, defaultLightPalette
+} from "../../std/ui/ui_style"
+
+pub fn test_ui_style_dark_light_theme_studio(): void:
+  let dark = createDarkTheme()
+  let light = createLightTheme()
+  let tokens = getDefaultDesignTokens()
+  assert(dark.isDark and not light.isDark, "Dark and Light themes toggle isDark")
+  assert(tokens.spacingMd == 16.0, "Default spacingMd == 16.0")
+
+  let white = RgbColor(r = 255, g = 255, b = 255, a = 255)
+  let black = RgbColor(r = 0, g = 0, b = 0, a = 255)
+  assert(contrastRatio(white, black) == 21.0, "White on black contrast ratio == 21.0")
+  assert(meetsWcagAA(white, black) and meetsWcagAAA(white, black), "Meets WCAG AA and AAA")
+
+  let shades = paletteShades(RgbColor(r = 56, g = 189, b = 248, a = 255), 5)
+  assert(shades.len() == 5, "paletteShades generates 5 tonal swatches")
+
+  let dPal = defaultDarkPalette()
+  let lPal = defaultLightPalette()
+  assert(dPal.bgPrimary != lPal.bgPrimary, "Semantic dark and light palettes have distinct bgPrimary")
+  assert(buildUiStyleThemeStudioAudit() == 44, "buildUiStyleThemeStudioAudit returns 16 + 21 + 5 + 2 == 44")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let h0 = stepAccentHueDeg(0)
+  let h1 = stepAccentHueDeg(1)
+  let h20 = stepAccentHueDeg(20)
+  let h100 = stepAccentHueDeg(100)
+  assert(h0 != h1 and h1 != h20 and h20 != h100, "Accent hue progresses across t=0, 1, 20, 100")
+  let c0 = hslToRgb(HslColor(h = h0, s = 0.85, l = 0.58, a = 1.0))
+  let c20 = hslToRgb(HslColor(h = h20, s = 0.85, l = 0.58, a = 1.0))
+  let c100 = hslToRgb(HslColor(h = h100, s = 0.85, l = 0.58, a = 1.0))
+  assert(c0.r != c20.r or c0.g != c20.g or c0.b != c20.b, "Dynamic accent RGB changes between t=0 and t=20")
+  assert(c20.r != c100.r or c20.g != c100.g or c20.b != c100.b, "Dynamic accent RGB changes between t=20 and t=100")
+  assert(stepActiveSwatchIndex(0, 6) != stepActiveSwatchIndex(20, 6), "Active swatch index advances by t=20")
+
+pub fn main(): int:
+  test_ui_style_dark_light_theme_studio()
+  println("PASS: ex_191_ui_style_dark_light_theme_studio_window_test")
+  ret 0

@@ -1,0 +1,155 @@
+// ============================================================================
+// Module: std/collections/bitset (BitSet)
+// Layer 1 (Core Primitives & Math) — DynamicBitSet & Probabilistic BloomFilter
+// ============================================================================
+module BitsetMod
+
+import { popcount64 } from "std/math/consts"
+
+pub struct DynamicBitSet:
+  words: [int]
+  bitCount: int
+
+pub struct BloomFilter:
+  bits: DynamicBitSet
+  numHashes: int
+
+pub fn bitsetNew(size: int): DynamicBitSet:
+  mut sz = size
+  if sz < 0:
+    sz = 0
+  let numWords = (sz + 63) / 64
+  mut w: [int] = []
+  for i in 0..numWords:
+    w.push(0)
+  ret DynamicBitSet(words = w, bitCount = sz)
+
+pub fn (mut self: DynamicBitSet) set(index: int): void:
+  if index < 0 or index >= self.bitCount:
+    ret
+  let wordIdx = index / 64
+  let bitIdx = index % 64
+  self.words[wordIdx] = self.words[wordIdx] | (1 << bitIdx)
+
+pub fn (mut self: DynamicBitSet) clear(index: int): void:
+  if index < 0 or index >= self.bitCount:
+    ret
+  let wordIdx = index / 64
+  let bitIdx = index % 64
+  self.words[wordIdx] = self.words[wordIdx] & (~(1 << bitIdx))
+
+pub fn (mut self: DynamicBitSet) toggle(index: int): void:
+  if index < 0 or index >= self.bitCount:
+    ret
+  let wordIdx = index / 64
+  let bitIdx = index % 64
+  self.words[wordIdx] = self.words[wordIdx] ^ (1 << bitIdx)
+
+pub fn (self: DynamicBitSet) test(index: int): bool:
+  if index < 0 or index >= self.bitCount:
+    ret false
+  let wordIdx = index / 64
+  let bitIdx = index % 64
+  ret ((self.words[wordIdx] >> bitIdx) & 1) != 0
+
+pub fn (self: DynamicBitSet) countOnes(): int:
+  mut total = 0
+  for i in 0..self.words.len:
+    total = total + popcount64(self.words[i])
+  ret total
+
+pub fn (self: DynamicBitSet) countZeros(): int:
+  ret self.bitCount - self.countOnes()
+
+pub fn (mut self: DynamicBitSet) clearAll(): void:
+  for i in 0..self.words.len:
+    self.words[i] = 0
+
+pub fn (mut self: DynamicBitSet) bitwiseAnd(other: DynamicBitSet): void:
+  mut minLen = self.words.len
+  if other.words.len < minLen:
+    minLen = other.words.len
+  for i in 0..minLen:
+    self.words[i] = self.words[i] & other.words[i]
+  for j in minLen..self.words.len:
+    self.words[j] = 0
+
+pub fn (mut self: DynamicBitSet) bitwiseOr(other: DynamicBitSet): void:
+  mut minLen = self.words.len
+  if other.words.len < minLen:
+    minLen = other.words.len
+  for i in 0..minLen:
+    self.words[i] = self.words[i] | other.words[i]
+
+pub fn (mut self: DynamicBitSet) bitwiseXor(other: DynamicBitSet): void:
+  mut minLen = self.words.len
+  if other.words.len < minLen:
+    minLen = other.words.len
+  for i in 0..minLen:
+    self.words[i] = self.words[i] ^ other.words[i]
+
+// BloomFilter
+pub fn bloomHashStr(strKey: str, seed: int): int:
+  mut h = 2166136261 ^ seed
+  let n = strKey.len
+  for i in 0..n:
+    let b = strKey.charCodeAt(i)
+    h = (h ^ b) * 16777619
+  if h < 0:
+    h = -h
+  ret h
+
+pub fn bloomFilterNew(capacity: int, fpp: float): BloomFilter:
+  mut cap = capacity
+  if cap < 16:
+    cap = 16
+  mut p = fpp
+  if p <= 0.000001:
+    p = 0.000001
+  if p >= 0.5:
+    p = 0.5
+  mut negLnP = 0.0
+  while p < 0.5:
+    p = p * 2.0
+    negLnP = negLnP + 0.69314718056
+  let oneMinusP = 1.0 - p
+  negLnP = negLnP + oneMinusP + 0.5 * oneMinusP * oneMinusP
+  mut bitsPerItem = int(negLnP * 2.08136898 + 0.999999)
+  if bitsPerItem < 4:
+    bitsPerItem = 4
+  let bitSize = cap * bitsPerItem
+  mut kHashes = int(float(bitsPerItem) * 0.69314718056 + 0.5)
+  if kHashes < 1:
+    kHashes = 1
+  if kHashes > 16:
+    kHashes = 16
+  let bs = bitsetNew(bitSize)
+  ret BloomFilter(bits = bs, numHashes = kHashes)
+
+pub fn (mut self: BloomFilter) add(strKey: str): void:
+  let m = self.bits.bitCount
+  if m <= 0:
+    ret
+  let h1 = bloomHashStr(strKey, 101)
+  let h2 = bloomHashStr(strKey, 997)
+  for k in 0..self.numHashes:
+    let combined = (h1 + k * h2) % m
+    mut idx = combined
+    if idx < 0:
+      idx = -idx
+    self.bits.set(idx % m)
+
+pub fn (self: BloomFilter) contains(strKey: str): bool:
+  let m = self.bits.bitCount
+  if m <= 0:
+    ret false
+  let h1 = bloomHashStr(strKey, 101)
+  let h2 = bloomHashStr(strKey, 997)
+  for k in 0..self.numHashes:
+    let combined = (h1 + k * h2) % m
+    mut idx = combined
+    if idx < 0:
+      idx = -idx
+    if not self.bits.test(idx % m):
+      ret false
+  ret true

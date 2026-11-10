@@ -1,0 +1,232 @@
+module tests.functions.fmt.num_parse_test
+
+import * from "std/fmt/num_parse"
+import * from "std/prelude"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+
+pub fn test_num_parse_isSpaceChar_1(): int:
+  let arg_ch = "test"
+  let edge_ch = "a"
+  let resNom = isSpaceChar(arg_ch)
+  let resEdge = isSpaceChar(edge_ch)
+  assert(resNom == false, "isSpaceChar nominal resNom == false")
+  assert(resEdge == false, "isSpaceChar boundary resEdge == false")
+  ret 0
+
+pub fn test_num_parse_trimNumeric_2(): int:
+  let arg_s = "test"
+  let edge_s = "a"
+  let resNom = trimNumeric(arg_s)
+  let resEdge = trimNumeric(edge_s)
+  assertEqStr(resNom, "test", "trimNumeric nominal string matches")
+  assertEqStr(resEdge, "a", "trimNumeric boundary string matches")
+  ret 0
+
+pub fn test_num_parse_charToDigit_3(): int:
+  let arg_ch = "test"
+  let edge_ch = "a"
+  let resNom = charToDigit(arg_ch)
+  let resEdge = charToDigit(edge_ch)
+  assertEqInt(resNom, 29, "charToDigit nominal resNom == 29")
+  assertEqInt(resEdge, 10, "charToDigit boundary resEdge == 10")
+  ret 0
+
+pub fn test_num_parse_parseIntEx_4(): int:
+  let opts = ParseIntOptions(radix = 10, strict = true, allowLeadingSign = true, allowUnderscores = true)
+  let resNom = parseIntEx("42", opts)
+  assert(resNom.isOk() == true, "parseIntEx dec isOk")
+  assertEqInt(resNom.unwrap(), 42, "parseIntEx dec == 42")
+  let resBad = parseIntEx("invalid", opts)
+  assert(resBad.isOk() == false, "parseIntEx invalid is Err")
+  ret 0
+
+pub fn test_num_parse_parseInt_5(): int:
+  let resDec = parseInt("42", 10)
+  let resHex = parseInt("2A", 16)
+  assert(resDec.isOk() == true, "parseInt dec isOk")
+  assertEqInt(resDec.unwrap(), 42, "parseInt dec == 42")
+  assert(resHex.isOk() == true, "parseInt hex isOk")
+  assertEqInt(resHex.unwrap(), 42, "parseInt hex == 42")
+  let resBad = parseInt("xyz", 10)
+  assert(resBad.isOk() == false, "parseInt bad is Err")
+  ret 0
+
+pub fn test_num_parse_parseIntRadix_6(): int:
+  let resDec = parseIntRadix("42", 10)
+  let resBin = parseIntRadix("1010", 2)
+  assert(resDec.isOk() == true, "parseIntRadix dec isOk")
+  assertEqInt(resDec.unwrap(), 42, "parseIntRadix dec == 42")
+  assert(resBin.isOk() == true, "parseIntRadix bin isOk")
+  assertEqInt(resBin.unwrap(), 10, "parseIntRadix bin == 10")
+  let resBad = parseIntRadix("42", 4)
+  assert(resBad.isOk() == false, "parseIntRadix '42' in base 4 is Err")
+  ret 0
+
+pub fn test_num_parse_parseHexByte_7(): int:
+  let arg_s = "4142"
+  let edge_s = "00"
+  let arg_offset = 1
+  let edge_offset = 0
+  let resNom = parseHexByte(arg_s, arg_offset)
+  let resEdge = parseHexByte(edge_s, edge_offset)
+  assert(resNom.isOk() == true, "parseHexByte nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseHexByte boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_num_parse_parseFloatEx_8(): int:
+  let arg_s = "42"
+  let edge_s = "0"
+  let arg_opts = ParseFloatOptions(allowNan = true, allowInf = true, allowHexFloat = true)
+  let edge_opts = ParseFloatOptions(allowNan = false, allowInf = false, allowHexFloat = false)
+  let resNom = parseFloatEx(arg_s, arg_opts)
+  let resEdge = parseFloatEx(edge_s, edge_opts)
+  assert(resNom.isOk() == true, "parseFloatEx nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseFloatEx boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_num_parse_parseFloat_9(): int:
+  let arg_s = "42"
+  let edge_s = "0"
+  let resNom = parseFloat(arg_s)
+  let resEdge = parseFloat(edge_s)
+  assert(resNom.isOk() == true, "parseFloat nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "parseFloat boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_num_parse_parseFloatPrefix_10(): int:
+  let arg_s = "42"
+  let edge_s = "0"
+  let resNom = parseFloatPrefix(arg_s)
+  let resEdge = parseFloatPrefix(edge_s)
+  assert(resNom.isSome() == true, "parseFloatPrefix nominal resNom.isSome() == true")
+  assert(resEdge.isSome() == true, "parseFloatPrefix boundary resEdge.isSome() == true")
+  ret 0
+
+pub fn test_num_parse_formatInt_11(): int:
+  let arg_val = 2
+  let edge_val = 0
+  let arg_radix = 4
+  let edge_radix = 1
+  let resNom = formatInt(arg_val, arg_radix)
+  let resEdge = formatInt(edge_val, edge_radix)
+  assertEqStr(resNom, "2", "formatInt nominal string matches")
+  assertEqStr(resEdge, "0", "formatInt boundary string matches")
+  ret 0
+
+pub fn test_num_parse_formatIntPadded_12(): int:
+  let arg_val = 2
+  let edge_val = 0
+  let arg_width = 4
+  let edge_width = 1
+  let arg_padChar = "42"
+  let edge_padChar = "0"
+  let arg_radix = 4
+  let edge_radix = 1
+  let resNom = formatIntPadded(arg_val, arg_width, arg_padChar, arg_radix)
+  let resEdge = formatIntPadded(edge_val, edge_width, edge_padChar, edge_radix)
+  assertEqStr(resNom, "4442", "formatIntPadded nominal string matches")
+  assertEqStr(resEdge, "0", "formatIntPadded boundary string matches")
+  ret 0
+
+pub fn test_num_parse_formatHex_13(): int:
+  let arg_val = 2
+  let edge_val = 0
+  let arg_uppercase = true
+  let edge_uppercase = false
+  let arg_prefix = true
+  let edge_prefix = false
+  let resNom = formatHex(arg_val, arg_uppercase, arg_prefix)
+  let resEdge = formatHex(edge_val, edge_uppercase, edge_prefix)
+  assertEqStr(resNom, "0X2", "formatHex nominal string matches")
+  assertEqStr(resEdge, "0", "formatHex boundary string matches")
+  ret 0
+
+pub fn test_num_parse_formatBinary_14(): int:
+  let arg_val = 2
+  let edge_val = 0
+  let arg_prefix = true
+  let edge_prefix = false
+  let arg_minDigits = 4
+  let edge_minDigits = 1
+  let resNom = formatBinary(arg_val, arg_prefix, arg_minDigits)
+  let resEdge = formatBinary(edge_val, edge_prefix, edge_minDigits)
+  assertEqStr(resNom, "0b0010", "formatBinary nominal string matches")
+  assertEqStr(resEdge, "0", "formatBinary boundary string matches")
+  ret 0
+
+pub fn test_num_parse_formatOctal_15(): int:
+  let arg_val = 2
+  let edge_val = 0
+  let arg_prefix = true
+  let edge_prefix = false
+  let resNom = formatOctal(arg_val, arg_prefix)
+  let resEdge = formatOctal(edge_val, edge_prefix)
+  assertEqStr(resNom, "0o2", "formatOctal nominal string matches")
+  assertEqStr(resEdge, "0", "formatOctal boundary string matches")
+  ret 0
+
+pub fn test_num_parse_intToHex_16(): int:
+  let arg_n = 4
+  let edge_n = 1
+  let arg_minWidth = 4
+  let edge_minWidth = 1
+  let resNom = intToHex(arg_n, arg_minWidth)
+  let resEdge = intToHex(edge_n, edge_minWidth)
+  assertEqStr(resNom, "0004", "intToHex nominal string matches")
+  assertEqStr(resEdge, "1", "intToHex boundary string matches")
+  ret 0
+
+pub fn test_num_parse_intToOctal_17(): int:
+  let arg_n = 4
+  let edge_n = 1
+  let arg_minWidth = 4
+  let edge_minWidth = 1
+  let resNom = intToOctal(arg_n, arg_minWidth)
+  let resEdge = intToOctal(edge_n, edge_minWidth)
+  assertEqStr(resNom, "0004", "intToOctal nominal string matches")
+  assertEqStr(resEdge, "1", "intToOctal boundary string matches")
+  ret 0
+
+pub fn test_num_parse_formatFloatFixed_18(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_decimals = 4
+  let edge_decimals = 1
+  let resNom = formatFloatFixed(arg_val, arg_decimals)
+  let resEdge = formatFloatFixed(edge_val, edge_decimals)
+  assertEqStr(resNom, "1.0000", "formatFloatFixed nominal string matches")
+  assertEqStr(resEdge, "0.5", "formatFloatFixed boundary string matches")
+  ret 0
+
+pub fn test_num_parse_formatFloat_19(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_decimals = 4
+  let edge_decimals = 1
+  let resNom = formatFloat(arg_val, arg_decimals)
+  let resEdge = formatFloat(edge_val, edge_decimals)
+  assertEqStr(resNom, "1.0000", "formatFloat nominal string matches")
+  assertEqStr(resEdge, "0.5", "formatFloat boundary string matches")
+  ret 0
+
+pub fn test_num_parse_formatFloatDragonbox_20(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_precision = 4
+  let edge_precision = 1
+  let resNom = formatFloatDragonbox(arg_val, arg_precision)
+  let resEdge = formatFloatDragonbox(edge_val, edge_precision)
+  assertEqStr(resNom, "1.0000", "formatFloatDragonbox nominal string matches")
+  assertEqStr(resEdge, "0.5", "formatFloatDragonbox boundary string matches")
+  ret 0
+
+pub fn test_num_parse_formatFloatScientific_21(): int:
+  let arg_val = 1.0
+  let edge_val = 0.5
+  let arg_precision = 4
+  let edge_precision = 1
+  let resNom = formatFloatScientific(arg_val, arg_precision)
+  let resEdge = formatFloatScientific(edge_val, edge_precision)
+  assertEqStr(resNom, "1.0000e+00", "formatFloatScientific nominal string matches")
+  assertEqStr(resEdge, "5.0e-01", "formatFloatScientific boundary string matches")
+  ret 0

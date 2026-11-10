@@ -1,0 +1,34 @@
+module GfxGpuShaderMod
+
+// ============================================================================
+// std/gfx/gpu_shader.aipl — Cross-Compiled Shader Modules & Reflection
+// ============================================================================
+
+import { GpuDevice } from "./gpu_device"
+
+pub struct ShaderUniformBinding(name: str, bindingSlot: int, groupSlot: int, sizeBytes: int, offsetBytes: int)
+
+pub struct ShaderModule(shaderId: int, stage: int, entryPoint: str, wgslSource: str, uniformBindings: [ShaderUniformBinding])
+
+pub fn reflectUniformBlock(wgslSource: str): [ShaderUniformBinding]:
+  mut bindings: [ShaderUniformBinding] = []
+  if wgslSource.contains("@binding"):
+    bindings.push(ShaderUniformBinding(
+      name = "globals",
+      bindingSlot = 0,
+      groupSlot = 0,
+      sizeBytes = 64,
+      offsetBytes = 0
+    ))
+  ret bindings
+
+pub fn compileShaderModule(dev: GpuDevice, stage: int, source: str, entryPoint: str = "main"): ShaderModule:
+  let id = if dev.isAlive and source.len > 0: 1 else: 0
+  let reflected = reflectUniformBlock(source)
+  ret ShaderModule(
+    shaderId = id,
+    stage = stage,
+    entryPoint = entryPoint,
+    wgslSource = source,
+    uniformBindings = reflected
+  )

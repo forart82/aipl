@@ -1,0 +1,1515 @@
+module CompilerResolve
+
+import { AstArena } from "./ast.aipl"
+import { tokenizeAipl } from "./lexer.aipl"
+import { parseModule } from "./parser.aipl"
+
+// ============================================================================
+// Step 15.2: Self-Hosted Multi-File Module Graph Resolver & Bundler
+// ============================================================================
+
+pub struct ModuleNode:
+  path: str
+  moduleName: str
+  imports: [str]
+  aliases: [str]
+  exportedDecls: [str]
+  source: str
+
+pub struct ModuleGraph:
+  rootPath: str
+  modules: [ModuleNode]
+  topoOrder: [str]
+  bundledSource: str
+  errors: [str]
+  moduleChunks: [str] = []
+  chunkLineOffsets: [int] = []
+
+pub fn joinPath(a: str, b: str): str:
+  ret pathJoin(a, b)
+
+pub fn env(key: str): str:
+  let v = getEnv(key)
+  if v.isSome():
+    ret v.unwrap()
+  ret ""
+
+pub fn resolveStdlibRoot(): str:
+  // 1. $AIPL_STD_DIR if explicitly set
+  let envStd = env("AIPL_STD_DIR")
+  if envStd.len > 0:
+    let norm = pathNormalize(envStd)
+    if fileExists(norm):
+      ret norm
+
+  // 2. $AIPL_HOME
+  let aiplHome = env("AIPL_HOME")
+  if aiplHome.len > 0:
+    let homeStd = pathJoin(aiplHome, "std")
+    if fileExists(homeStd) or fileExists(pathJoin(homeStd, "io/fs.aipl")) or fileExists(pathJoin(homeStd, "fs.aipl")) or isDir(pathJoin(homeStd, "core")):
+      ret pathNormalize(aiplHome)
+    if fileExists(pathJoin(aiplHome, "io/fs.aipl")) or fileExists(pathJoin(aiplHome, "fs.aipl")):
+      ret pathNormalize(pathDirname(aiplHome))
+    if fileExists(aiplHome):
+      ret pathNormalize(aiplHome)
+
+  // 3. Workspace-relative candidates
+  if fileExists("std/io/fs.aipl") or fileExists("std/fs.aipl") or isDir("std/core") or fileExists("std"):
+    ret pathNormalize(".")
+  if fileExists("./std/io/fs.aipl") or fileExists("./std/fs.aipl") or isDir("./std/core") or fileExists("./std"):
+    ret pathNormalize(".")
+  if fileExists("../std/io/fs.aipl") or fileExists("../std/fs.aipl") or isDir("../std/core") or fileExists("../std"):
+    ret pathNormalize("..")
+  if fileExists("../../std/io/fs.aipl") or fileExists("../../std/fs.aipl") or isDir("../../std/core") or fileExists("../../std"):
+    ret pathNormalize("../..")
+
+  // 4. User local installation candidate (~/.local/share/aipl or ~/dev/aipl)
+  let userHome = env("HOME")
+  if userHome.len > 0:
+    let userAipl = pathJoin(userHome, ".local/share/aipl")
+    if fileExists(pathJoin(userAipl, "std/io/fs.aipl")) or fileExists(pathJoin(userAipl, "std/fs.aipl")) or isDir(pathJoin(userAipl, "std/core")) or fileExists(pathJoin(userAipl, "std")):
+      ret pathNormalize(userAipl)
+    let devAipl = pathJoin(userHome, "dev/aipl")
+    if fileExists(pathJoin(devAipl, "std/fs/fs_mod.aipl")) or fileExists(pathJoin(devAipl, "std")):
+      ret pathNormalize(devAipl)
+
+  // 5. Executable-relative discovery via realpath("/proc/self/exe")
+  let exePath = realpath("/proc/self/exe")
+  if exePath.len > 0:
+    let exeDir = pathDirname(exePath)
+    let exeParent = pathDirname(exeDir)
+    if fileExists(pathJoin(exeParent, "std/io/fs.aipl")) or fileExists(pathJoin(exeParent, "std/fs.aipl")) or isDir(pathJoin(exeParent, "std/core")) or fileExists(pathJoin(exeParent, "std")):
+      ret pathNormalize(exeParent)
+    if fileExists(pathJoin(exeDir, "std/io/fs.aipl")) or fileExists(pathJoin(exeDir, "std/fs.aipl")) or isDir(pathJoin(exeDir, "std/core")) or fileExists(pathJoin(exeDir, "std")):
+      ret pathNormalize(exeDir)
+
+  ret "."
+
+pub fn stripQuotes(s: str): str:
+  mut t = s.trim()
+  while (t.startsWith("\"") and t.endsWith("\"") and t.len >= 2) or (t.startsWith("'") and t.endsWith("'") and t.len >= 2):
+    t = t.slice(1, t.len - 1).trim()
+  ret t
+
+pub fn isStdImportPath(rawPath: str): bool:
+  let clean = stripQuotes(rawPath)
+  ret clean.startsWith("std/") or clean.startsWith("std.")
+
+pub fn isBuiltinStdNamespace(rawPath: str): bool:
+  let clean = stripQuotes(rawPath)
+  mut modName = clean
+  if modName.startsWith("std/"):
+    modName = modName.slice(4, modName.len)
+  elif modName.startsWith("std."):
+    modName = modName.slice(4, modName.len)
+  if modName.endsWith(".aipl"):
+    modName = modName.slice(0, modName.len - 5)
+  ret modName == "gui" or modName == "app"
+
+pub fn canonicalModuleKey(p: str): str:
+  mut norm = pathNormalize(p)
+  if norm.contains("std/"):
+    let sIdx = norm.indexOf("std/")
+    norm = norm.slice(sIdx, norm.len)
+  ret norm
+
+pub fn resolveLegacyStdAlias(modName: str): str:
+  if modName == "arena" or modName == "core/arena":
+    ret "alloc/arena"
+  if modName == "pool" or modName == "core/pool":
+    ret "alloc/pool_alloc"
+  if modName == "geom2d" or modName == "gfx2d/geom2d":
+    ret "math/geom2d"
+  if modName == "geom3d" or modName == "gfx3d/geom3d":
+    ret "math/geom3d"
+  if modName == "random" or modName == "core/random":
+    ret "math/prng"
+  if modName == "core/math" or modName == "math/mod":
+    ret "math/math_mod"
+  if modName == "collections/mod" or modName == "core/collections":
+    ret "collections/collections_mod"
+  if modName == "string" or modName == "string/mod" or modName == "core/string":
+    ret "fmt/str_builder"
+  if modName == "text" or modName == "text/mod":
+    ret "fmt/fmt_mod"
+  if modName == "serde" or modName == "serde/mod" or modName == "data":
+    ret "encoding/encoding_mod"
+  if modName == "grid" or modName == "grid/mod" or modName == "sim/grid":
+    ret "spatial/ortho_tile_world2d"
+  if modName == "array" or modName == "core/array":
+    ret "collections/dyn_vec"
+  if modName == "heap" or modName == "core/heap":
+    ret "collections/priority_queue"
+  if modName == "analytics" or modName == "core/analytics":
+    ret "math/prob_stats"
+  if modName == "date" or modName == "core/date":
+    ret "time/datetime"
+  if modName == "datetime" or modName == "core/datetime":
+    ret "time/datetime"
+  if modName == "core/time" or modName == "time/mod":
+    ret "time/time_mod"
+  if modName == "cron" or modName == "net/cron":
+    ret "time/cron_schedule"
+  if modName == "log" or modName == "io/log":
+    ret "io/stdio"
+  if modName == "buffer" or modName == "io/buffer":
+    ret "io/byte_cursor"
+  if modName == "async" or modName == "core/async":
+    ret "thread/fiber"
+  if modName == "doc" or modName == "net/doc":
+    ret "test/test_mod"
+  if modName == "easing" or modName == "gfx2d/easing":
+    ret "math/ease"
+  if modName == "spline" or modName == "gfx2d/spline":
+    ret "math/curve"
+  if modName == "fx" or modName == "gfx2d/fx":
+    ret "gfx2d/filter2d"
+  if modName == "particles" or modName == "particles2d" or modName == "gfx2d/particles" or modName == "gfx2d/particles2d" or modName == "gfx/particles":
+    ret "particle/particle_mod"
+  if modName == "gpu" or modName == "gfx3d/gpu":
+    ret "gfx/gfx_mod"
+  if modName == "lighting" or modName == "gfx3d/lighting" or modName == "gfx/lighting":
+    ret "gfx3d/light3d"
+  if modName == "mesh" or modName == "mesh3d" or modName == "gfx3d/mesh3d" or modName == "gfx/mesh":
+    ret "gfx3d/mesh3d"
+  if modName == "material3d" or modName == "gfx3d/material3d":
+    ret "gfx3d/material3d"
+  if modName == "camera" or modName == "camera3d" or modName == "gfx3d/camera3d" or modName == "gfx/camera":
+    ret "gfx3d/camera3d"
+  if modName == "skeletal" or modName == "gfx3d/skeletal":
+    ret "gfx3d/rigging3d"
+  if modName == "transform" or modName == "gfx3d/transform":
+    ret "gfx3d/gfx3d_mod"
+  if modName == "aura" or modName == "ui/aura":
+    ret "ui/ui_mod"
+  if modName == "color" or modName == "ui/color":
+    ret "gfx/color"
+  if modName == "lut" or modName == "ui/lut":
+    ret "gfx/color"
+  if modName == "cellular" or modName == "sim/cellular":
+    ret "procgen/cellular_automata"
+  if modName == "worldgen" or modName == "sim/worldgen":
+    ret "procgen/noise_field"
+  if modName == "weather" or modName == "sim/weather":
+    ret "procgen/procgen_mod"
+  if modName == "charbody" or modName == "sim/charbody":
+    ret "phys2d/rigid_body2d"
+  if modName == "gravity" or modName == "sim/gravity":
+    ret "phys2d/phys_world2d"
+  if modName == "spring" or modName == "sim/spring":
+    ret "phys2d/joint2d"
+  if modName == "physics" or modName == "physics2d3d" or modName == "sim/physics" or modName == "sim/physics2d3d":
+    ret "phys2d/phys2d_mod"
+  if modName == "nav" or modName == "navgrid" or modName == "pathfinding" or modName == "sim/nav" or modName == "sim/navgrid" or modName == "sim/pathfinding":
+    ret "ai/ai_mod"
+  if modName == "hebar" or modName == "sim/hebar":
+    ret "ai/hebar_referee"
+  if modName == "inventory" or modName == "game" or modName == "sim/inventory" or modName == "sim/game" or modName == "sim":
+    ret "mechanics/mechanics_mod"
+  if modName == "env" or modName == "core/env":
+    ret "os/env"
+  if modName == "process" or modName == "core/process":
+    ret "os/process"
+  if modName == "cli" or modName == "net/cli":
+    ret "os/cli_args"
+  if modName == "term" or modName == "net/term":
+    ret "os/ansi_term"
+  if modName == "path" or modName == "io/path":
+    ret "fs/path"
+  if modName == "io/fs":
+    ret "fs/fs_mod"
+  if modName == "io/io":
+    ret "io/io_mod"
+  if modName == "io/compress":
+    ret "compress/compress_mod"
+  if modName == "tar" or modName == "io/tar":
+    ret "compress/tar_archive"
+  if modName == "io/asset":
+    ret "asset/asset_mod"
+  if modName == "data/crypto":
+    ret "crypto/crypto_mod"
+  if modName == "data/encoding":
+    ret "encoding/encoding_mod"
+  if modName == "csv" or modName == "data/csv":
+    ret "encoding/csv"
+  if modName == "dotenv" or modName == "data/dotenv":
+    ret "encoding/ini_dotenv"
+  if modName == "ini" or modName == "data/ini":
+    ret "encoding/ini_dotenv"
+  if modName == "html" or modName == "data/html":
+    ret "encoding/html_dom"
+  if modName == "xml" or modName == "data/xml":
+    ret "encoding/xml"
+  if modName == "json" or modName == "data/json" or modName == "json/json":
+    ret "encoding/json"
+  if modName == "markdown" or modName == "data/markdown":
+    ret "encoding/markdown"
+  if modName == "qrcode" or modName == "data/qrcode":
+    ret "encoding/qrcode_semver"
+  if modName == "semver" or modName == "data/semver":
+    ret "encoding/qrcode_semver"
+  if modName == "uuid" or modName == "data/uuid":
+    ret "encoding/qrcode_semver"
+  if modName == "toml" or modName == "data/toml":
+    ret "encoding/toml"
+  if modName == "yaml" or modName == "data/yaml":
+    ret "encoding/yaml"
+  if modName == "data/db":
+    ret "db/db_mod"
+  if modName == "sqlite" or modName == "data/sqlite":
+    ret "db/sqlite"
+  if modName == "sort" or modName == "core/sort":
+    ret "collections/dyn_vec"
+  if modName == "bits" or modName == "core/bits":
+    ret "collections/bitset"
+  if modName == "ffi" or modName == "core/ffi":
+    ret "sys/sys_ffi"
+  if modName == "syscall" or modName == "core/syscall":
+    ret "sys/sys_syscall"
+  if modName == "core/test":
+    ret "test/test_mod"
+  if modName == "core/thread":
+    ret "thread/thread_mod"
+  if modName == "diff" or modName == "data/diff":
+    ret "regex/text_diff"
+  if modName == "data/regex":
+    ret "regex/regex_mod"
+  if modName == "net/net":
+    ret "net/net_mod"
+  if modName == "dns" or modName == "net/dns":
+    ret "net/dns"
+  if modName == "url" or modName == "net/url":
+    ret "net/http_client"
+  if modName == "http" or modName == "net/http":
+    ret "net/http_client"
+  if modName == "websocket" or modName == "net/websocket":
+    ret "net/ws"
+  if modName == "rpc" or modName == "net/rpc":
+    ret "net/rpc"
+  if modName == "net/ai":
+    ret "ai/ai_mod"
+  if modName == "audio/audio":
+    ret "audio/audio_mod"
+  if modName == "spatial_audio" or modName == "audio/spatial_audio":
+    ret "audio/audio_spatial"
+  if modName == "synth" or modName == "audio/synth":
+    ret "audio/audio_synth"
+  if modName == "image" or modName == "gfx2d/image" or modName == "gfx/image":
+    ret "asset/image_decoder"
+  if modName == "canvas" or modName == "gfx2d/canvas" or modName == "gfx/canvas":
+    ret "gfx2d/shape2d"
+  if modName == "sprite" or modName == "gfx2d/sprite":
+    ret "gfx2d/batch2d"
+  if modName == "anim" or modName == "gfx2d/anim" or modName == "gfx/anim":
+    ret "gfx2d/sprite_anim2d"
+  if modName == "tilemap" or modName == "gfx2d/tilemap":
+    ret "gfx2d/tilemap_renderer2d"
+  if modName == "filter2d" or modName == "gfx2d/filter2d":
+    ret "gfx2d/filter2d"
+  if modName == "tween" or modName == "gfx2d/tween":
+    ret "gfx2d/gfx2d_mod"
+  if modName == "ui/ui" or modName == "ui/core":
+    ret "ui/ui_mod"
+  if modName == "theme" or modName == "ui/theme":
+    ret "ui/ui_style"
+  if modName == "layout" or modName == "ui/layout":
+    ret "ui/ui_layout"
+  if modName == "widgets" or modName == "ui/widgets":
+    ret "ui/ui_widget"
+  if modName == "datagrid" or modName == "ui/datagrid":
+    ret "ui/ui_datagrid"
+  if modName == "charts" or modName == "ui/charts":
+    ret "ui/ui_charts"
+  if modName == "nodegraph" or modName == "ui/nodegraph":
+    ret "ui/ui_nodegraph"
+  if modName == "richtext" or modName == "ui/richtext":
+    ret "ui/ui_text"
+  if modName == "viewport" or modName == "ui/viewport":
+    ret "ui/ui_layout"
+  if modName == "accessibility" or modName == "ui/accessibility":
+    ret "ui/ui_a11y"
+  if modName == "sim/ecs":
+    ret "ecs/ecs_mod"
+  if modName == "sim/procgen":
+    ret "procgen/procgen_mod"
+  ret ""
+
+pub fn resolveImportPath(baseDir: str, rawPath: str): str:
+  let rawClean = stripQuotes(rawPath)
+  if rawClean.len == 0:
+    ret ""
+  if isStdImportPath(rawClean):
+    mut modName = rawClean
+    if modName.startsWith("std/"):
+      modName = modName.slice(4, modName.len)
+    elif modName.startsWith("std."):
+      modName = modName.slice(4, modName.len)
+    if modName.endsWith(".aipl"):
+      modName = modName.slice(0, modName.len - 5)
+    modName = modName.replace(".", "/")
+    let aliasTarget = resolveLegacyStdAlias(modName)
+    if aliasTarget.len > 0:
+      let aliasCand = "std/" + aliasTarget + ".aipl"
+      if fileExists(aliasCand):
+        ret pathNormalize(aliasCand)
+      if baseDir.len > 0 and baseDir != ".":
+        let baseAliasCand = pathJoin(baseDir, aliasCand)
+        if fileExists(baseAliasCand):
+          ret pathNormalize(baseAliasCand)
+      if fileExists("../" + aliasCand):
+        ret pathNormalize("../" + aliasCand)
+      if fileExists("../../" + aliasCand):
+        ret pathNormalize("../../" + aliasCand)
+      let stdRootAlias = resolveStdlibRoot()
+      if stdRootAlias.len > 0 and stdRootAlias != ".":
+        let rootAliasCand = pathJoin(stdRootAlias, aliasCand)
+        if fileExists(rootAliasCand):
+          ret pathNormalize(rootAliasCand)
+    let clean = "std/" + modName
+    let barrelSub = clean + "/" + modName + "_mod.aipl"
+    if not modName.contains("/"):
+      if fileExists(barrelSub):
+        ret pathNormalize(barrelSub)
+      if baseDir.len > 0 and baseDir != ".":
+        let baseBarrel = pathJoin(baseDir, barrelSub)
+        if fileExists(baseBarrel):
+          ret pathNormalize(baseBarrel)
+      if fileExists("../" + barrelSub):
+        ret pathNormalize("../" + barrelSub)
+      if fileExists("../../" + barrelSub):
+        ret pathNormalize("../../" + barrelSub)
+      let stdRootBarrel = resolveStdlibRoot()
+      if stdRootBarrel.len > 0 and stdRootBarrel != ".":
+        let rootBarrelCand = pathJoin(stdRootBarrel, barrelSub)
+        if fileExists(rootBarrelCand):
+          ret pathNormalize(rootBarrelCand)
+
+    // 1. Relative to baseDir: joinPath(baseDir, cleanPath + ".aipl")
+    if baseDir.len > 0 and baseDir != ".":
+      let cBaseCleanAipl = pathJoin(baseDir, clean + ".aipl")
+      let normBaseCleanAipl = pathNormalize(cBaseCleanAipl)
+      if fileExists(normBaseCleanAipl):
+        ret normBaseCleanAipl
+      if fileExists(cBaseCleanAipl):
+        ret cBaseCleanAipl
+      let cBaseCleanMod = pathJoin(baseDir, clean + "/mod.aipl")
+      let normBaseCleanMod = pathNormalize(cBaseCleanMod)
+      if fileExists(normBaseCleanMod):
+        ret normBaseCleanMod
+      if fileExists(cBaseCleanMod):
+        ret cBaseCleanMod
+
+      let cBaseStd = pathJoin(baseDir, "std/" + modName + ".aipl")
+      let normBaseStd = pathNormalize(cBaseStd)
+      if fileExists(normBaseStd):
+        ret normBaseStd
+      if fileExists(cBaseStd):
+        ret cBaseStd
+      let cBaseStdMod = pathJoin(baseDir, "std/" + modName + "/mod.aipl")
+      let normBaseStdMod = pathNormalize(cBaseStdMod)
+      if fileExists(normBaseStdMod):
+        ret normBaseStdMod
+      if fileExists(cBaseStdMod):
+        ret cBaseStdMod
+
+      let cBaseParentStd = pathJoin(baseDir, "../std/" + modName + ".aipl")
+      let normBaseParentStd = pathNormalize(cBaseParentStd)
+      if fileExists(normBaseParentStd):
+        ret normBaseParentStd
+      if fileExists(cBaseParentStd):
+        ret cBaseParentStd
+
+    // Check $AIPL_STD_DIR environment variable
+    let envStd = env("AIPL_STD_DIR")
+    if envStd.len > 0:
+      let cEnvSub = pathJoin(envStd, modName + ".aipl")
+      let normEnvSub = pathNormalize(cEnvSub)
+      if fileExists(normEnvSub):
+        ret normEnvSub
+      if fileExists(cEnvSub):
+        ret cEnvSub
+      let cEnvClean = pathJoin(envStd, clean + ".aipl")
+      let normEnvClean = pathNormalize(cEnvClean)
+      if fileExists(normEnvClean):
+        ret normEnvClean
+      if fileExists(cEnvClean):
+        ret cEnvClean
+
+    // 2. $AIPL_HOME: check joinPath(aiplHome, cleanPath + ".aipl"),
+    // and joinPath(joinPath(aiplHome, "std"), subPath)
+    let aiplHome = env("AIPL_HOME")
+    if aiplHome.len > 0:
+      let cH2 = pathJoin(aiplHome, clean + ".aipl")
+      let normH2 = pathNormalize(cH2)
+      if fileExists(normH2):
+        ret normH2
+      if fileExists(cH2):
+        ret cH2
+
+      let cH3 = pathJoin(pathJoin(aiplHome, "std"), modName + ".aipl")
+      let normH3 = pathNormalize(cH3)
+      if fileExists(normH3):
+        ret normH3
+      if fileExists(cH3):
+        ret cH3
+
+      let cH4 = pathJoin(aiplHome, modName + ".aipl")
+      let normH4 = pathNormalize(cH4)
+      if fileExists(normH4):
+        ret normH4
+      if fileExists(cH4):
+        ret cH4
+
+    // 3. Workspace-relative candidates:
+    // cleanPath + ".aipl", "std/" + subPath + ".aipl",
+    // "./std/" + subPath + ".aipl", "../std/" + subPath + ".aipl", "../../std/" + subPath + ".aipl"
+    let cW2 = clean + ".aipl"
+    let normW2 = pathNormalize(cW2)
+    if fileExists(normW2):
+      ret normW2
+    if fileExists(cW2):
+      ret cW2
+    let cW2Mod = clean + "/mod.aipl"
+    let normW2Mod = pathNormalize(cW2Mod)
+    if fileExists(normW2Mod):
+      ret normW2Mod
+    if fileExists(cW2Mod):
+      ret cW2Mod
+
+    let cW3 = "std/" + modName + ".aipl"
+    let normW3 = pathNormalize(cW3)
+    if fileExists(normW3):
+      ret normW3
+    if fileExists(cW3):
+      ret cW3
+    let cW3Mod = "std/" + modName + "/mod.aipl"
+    let normW3Mod = pathNormalize(cW3Mod)
+    if fileExists(normW3Mod):
+      ret normW3Mod
+    if fileExists(cW3Mod):
+      ret cW3Mod
+
+    let cW4 = "./std/" + modName + ".aipl"
+    let normW4 = pathNormalize(cW4)
+    if fileExists(normW4):
+      ret normW4
+    if fileExists(cW4):
+      ret cW4
+    let cW4Mod = "./std/" + modName + "/mod.aipl"
+    let normW4Mod = pathNormalize(cW4Mod)
+    if fileExists(normW4Mod):
+      ret normW4Mod
+    if fileExists(cW4Mod):
+      ret cW4Mod
+
+    let cW5 = "../std/" + modName + ".aipl"
+    let normW5 = pathNormalize(cW5)
+    if fileExists(normW5):
+      ret normW5
+    if fileExists(cW5):
+      ret cW5
+    let cW5Mod = "../std/" + modName + "/mod.aipl"
+    let normW5Mod = pathNormalize(cW5Mod)
+    if fileExists(normW5Mod):
+      ret normW5Mod
+    if fileExists(cW5Mod):
+      ret cW5Mod
+
+    let cW6 = "../../std/" + modName + ".aipl"
+    let normW6 = pathNormalize(cW6)
+    if fileExists(normW6):
+      ret normW6
+    if fileExists(cW6):
+      ret cW6
+    let cW6Mod = "../../std/" + modName + "/mod.aipl"
+    let normW6Mod = pathNormalize(cW6Mod)
+    if fileExists(normW6Mod):
+      ret normW6Mod
+    if fileExists(cW6Mod):
+      ret cW6Mod
+
+    // 4. Executable-relative / installation candidates:
+    // check env("HOME") + "/.local/share/aipl/" + cleanPath + ".aipl"
+    let userHome = env("HOME")
+    if userHome.len > 0:
+      let cU1 = pathJoin(userHome, ".local/share/aipl/" + clean + ".aipl")
+      let normU1 = pathNormalize(cU1)
+      if fileExists(normU1):
+        ret normU1
+      if fileExists(cU1):
+        ret cU1
+
+      let cU2 = pathJoin(userHome, ".local/share/aipl/std/" + modName + ".aipl")
+      let normU2 = pathNormalize(cU2)
+      if fileExists(normU2):
+        ret normU2
+      if fileExists(cU2):
+        ret cU2
+
+    let stdRoot = resolveStdlibRoot()
+    if stdRoot.len > 0 and stdRoot != ".":
+      let cR1 = pathJoin(stdRoot, clean + ".aipl")
+      let normR1 = pathNormalize(cR1)
+      if fileExists(normR1):
+        ret normR1
+      let cR1Barrel = pathJoin(stdRoot, clean + "/" + modName + "_mod.aipl")
+      let normR1Barrel = pathNormalize(cR1Barrel)
+      if fileExists(normR1Barrel):
+        ret normR1Barrel
+      let cR1Mod = pathJoin(stdRoot, clean + "/mod.aipl")
+      let normR1Mod = pathNormalize(cR1Mod)
+      if fileExists(normR1Mod):
+        ret normR1Mod
+      let cR2 = pathJoin(pathJoin(stdRoot, "std"), modName + ".aipl")
+      let normR2 = pathNormalize(cR2)
+      if fileExists(normR2):
+        ret normR2
+      let cR2Mod = pathJoin(pathJoin(stdRoot, "std"), modName + "/mod.aipl")
+      let normR2Mod = pathNormalize(cR2Mod)
+      if fileExists(normR2Mod):
+        ret normR2Mod
+
+    mut leafName = modName
+    if modName.contains("/"):
+      let parts = modName.split("/")
+      if parts.len > 0:
+        leafName = parts[parts.len - 1]
+    if leafName.len > 0:
+      let flatCand = "std/" + leafName + ".aipl"
+      if fileExists(flatCand):
+        ret flatCand
+      let flatBarrel = "std/" + leafName + "/" + leafName + "_mod.aipl"
+      if fileExists(flatBarrel):
+        ret flatBarrel
+      let flatMod = "std/" + leafName + "/mod.aipl"
+      if fileExists(flatMod):
+        ret flatMod
+      if stdRoot.len > 0 and stdRoot != ".":
+        let rootFlatCand = pathJoin(stdRoot, flatCand)
+        if fileExists(rootFlatCand):
+          ret rootFlatCand
+        let rootFlatBarrel = pathJoin(stdRoot, flatBarrel)
+        if fileExists(rootFlatBarrel):
+          ret rootFlatBarrel
+        let rootFlatMod = pathJoin(stdRoot, flatMod)
+        if fileExists(rootFlatMod):
+          ret rootFlatMod
+      let domains = [
+        "sys", "rt", "alloc",
+        "math", "collections", "fmt", "regex", "time",
+        "encoding", "compress", "crypto", "db",
+        "io", "fs", "os", "sync", "thread", "net", "test",
+        "window", "input", "asset", "audio", "gfx", "gfx2d", "gfx3d", "particle", "ui",
+        "ecs", "spatial", "phys2d", "phys3d", "procgen", "ai", "mechanics",
+        "core", "data", "sim", "text", "serde"
+      ]
+      mut di = 0
+      while di < domains.len:
+        let dom = domains[di]
+        let domCand = "std/" + dom + "/" + leafName + ".aipl"
+        if fileExists(domCand):
+          ret domCand
+        let domBarrel = "std/" + dom + "/" + leafName + "_mod.aipl"
+        if fileExists(domBarrel):
+          ret domBarrel
+        let domMod = "std/" + dom + "/" + leafName + "/mod.aipl"
+        if fileExists(domMod):
+          ret domMod
+        let wCand1 = "./std/" + dom + "/" + leafName + ".aipl"
+        if fileExists(wCand1):
+          ret pathNormalize(wCand1)
+        let wCand2 = "../std/" + dom + "/" + leafName + ".aipl"
+        if fileExists(wCand2):
+          ret pathNormalize(wCand2)
+        let wCand3 = "../../std/" + dom + "/" + leafName + ".aipl"
+        if fileExists(wCand3):
+          ret pathNormalize(wCand3)
+
+        if baseDir.len > 0 and baseDir != ".":
+          let bCand1 = pathJoin(baseDir, "std/" + dom + "/" + leafName + ".aipl")
+          if fileExists(bCand1):
+            ret pathNormalize(bCand1)
+          let bCand2 = pathJoin(baseDir, "../std/" + dom + "/" + leafName + ".aipl")
+          if fileExists(bCand2):
+            ret pathNormalize(bCand2)
+          let bCand3 = pathJoin(baseDir, "../../std/" + dom + "/" + leafName + ".aipl")
+          if fileExists(bCand3):
+            ret pathNormalize(bCand3)
+
+        if envStd.len > 0:
+          let eCand1 = pathJoin(envStd, dom + "/" + leafName + ".aipl")
+          if fileExists(eCand1):
+            ret pathNormalize(eCand1)
+          let eCand2 = pathJoin(envStd, "std/" + dom + "/" + leafName + ".aipl")
+          if fileExists(eCand2):
+            ret pathNormalize(eCand2)
+
+        if aiplHome.len > 0:
+          let hCand = pathJoin(aiplHome, "std/" + dom + "/" + leafName + ".aipl")
+          if fileExists(hCand):
+            ret pathNormalize(hCand)
+
+        if userHome.len > 0:
+          let uCand = pathJoin(userHome, ".local/share/aipl/std/" + dom + "/" + leafName + ".aipl")
+          if fileExists(uCand):
+            ret pathNormalize(uCand)
+
+        if stdRoot.len > 0 and stdRoot != ".":
+          let rootDomCand = pathJoin(stdRoot, domCand)
+          if fileExists(rootDomCand):
+            ret rootDomCand
+          let rDomCand2 = pathJoin(stdRoot, dom + "/" + leafName + ".aipl")
+          if fileExists(rDomCand2):
+            ret pathNormalize(rDomCand2)
+        di += 1
+
+    ret ""
+
+  mut rel = rawClean
+  if not rel.endsWith(".aipl"):
+    rel = rel + ".aipl"
+  if rel.contains("std/"):
+    let sIdx = rel.indexOf("std/")
+    let stdPortion = rel.slice(sIdx, rel.len)
+    let resolvedStd = resolveImportPath(baseDir, stdPortion)
+    if resolvedStd.len > 0:
+      ret resolvedStd
+  if baseDir.len > 0 and baseDir != ".":
+    let joined = pathJoin(baseDir, rel)
+    let normJoined = pathNormalize(joined)
+    if fileExists(normJoined):
+      ret normJoined
+    if fileExists(joined):
+      ret joined
+    mut curDir = baseDir
+    mut upStep = 0
+    while upStep < 5:
+      let parentDir = pathDirname(curDir)
+      if parentDir.len == 0 or parentDir == curDir or parentDir == "." or parentDir == "/":
+        break
+      let parentJoined = pathJoin(parentDir, rel)
+      let normParentJoined = pathNormalize(parentJoined)
+      if fileExists(normParentJoined):
+        ret normParentJoined
+      if fileExists(parentJoined):
+        ret parentJoined
+      curDir = parentDir
+      upStep += 1
+  let normRel = pathNormalize(rel)
+  if fileExists(normRel):
+    ret normRel
+  if fileExists(rel):
+    ret rel
+  ret ""
+
+pub fn resolveLocalImportPath(baseDir: str, rawPath: str): str:
+  ret resolveImportPath(baseDir, rawPath)
+
+pub fn arrayContainsStr(items: [str], needle: str): bool:
+  mut i = 0
+  while i < items.len:
+    if items[i] == needle:
+      ret true
+    i += 1
+  ret false
+
+pub fn extractImportTargetAndAlias(stmt: str, mut imports: [str], mut aliases: [str]): int:
+  let aName0 = extractAliasFromImportLine(stmt)
+  if aName0.len > 0 and not arrayContainsStr(aliases, aName0):
+    aliases.push(aName0)
+  mut q1 = stmt.indexOf("\"")
+  mut quoteCh = "\""
+  if q1 < 0:
+    q1 = stmt.indexOf("'")
+    quoteCh = "'"
+  if q1 >= 0:
+    let q2 = stmt.indexOf(quoteCh, q1 + 1)
+    if q2 > q1:
+      let rawLex = stmt.slice(q1 + 1, q2)
+      if rawLex.len > 0 and not arrayContainsStr(imports, rawLex):
+        imports.push(rawLex)
+      let rest = stmt.slice(q2 + 1, stmt.len).trim()
+      if rest.startsWith("as "):
+        let aName = extractIdentAt(rest, 3)
+        if aName.len > 0 and not arrayContainsStr(aliases, aName):
+          aliases.push(aName)
+      ret 1
+  mut stdIdx = stmt.indexOf("std.")
+  mut sepCh = "."
+  if stdIdx < 0:
+    stdIdx = stmt.indexOf("std/")
+    sepCh = "/"
+  if stdIdx >= 0:
+    let sub = extractIdentAt(stmt, stdIdx + 4)
+    if sub.len > 0:
+      mut rawLex = "std" + sepCh + sub
+      mut afterPos = stdIdx + 4 + sub.len
+      while afterPos < stmt.len and (stmt.slice(afterPos, afterPos + 1) == "." or stmt.slice(afterPos, afterPos + 1) == "/"):
+        let curSep = stmt.slice(afterPos, afterPos + 1)
+        let subNext = extractIdentAt(stmt, afterPos + 1)
+        if subNext.len > 0:
+          rawLex = rawLex + curSep + subNext
+          afterPos = afterPos + 1 + subNext.len
+        else:
+          break
+      if not arrayContainsStr(imports, rawLex):
+        imports.push(rawLex)
+      let rest = stmt.slice(afterPos, stmt.len).trim()
+      if rest.startsWith("as "):
+        let aName = extractIdentAt(rest, 3)
+        if aName.len > 0 and not arrayContainsStr(aliases, aName):
+          aliases.push(aName)
+      ret 1
+  ret 0
+
+pub fn extractModuleSummary(filePath: str, source: str, fileId: int): ModuleNode:
+  mut modName = "Main"
+  mut imports: [str] = []
+  mut aliases: [str] = []
+  let exports = extractModulePublicSymbols(source)
+  let n = source.len
+  mut pos = 0
+  mut inImport = false
+  while pos < n:
+    let nl = source.indexOf("\n", pos)
+    let lineEnd = if nl >= 0: nl else: n
+    let nextPos = if nl >= 0: nl + 1 else: n
+    let t = source.slice(pos, lineEnd).trim()
+    pos = nextPos
+    if t.len == 0 or t.startsWith("//"):
+      continue
+    if inImport:
+      if extractImportTargetAndAlias(t, imports, aliases) == 1:
+        inImport = false
+      continue
+    if t.startsWith("module "):
+      let mName = extractIdentAt(t, 7)
+      if mName.len > 0:
+        modName = mName
+      continue
+    if t.startsWith("import ") or t.startsWith("pub import "):
+      if extractImportTargetAndAlias(t, imports, aliases) == 0:
+        inImport = true
+      continue
+    if t.startsWith("pub fn ") or t.startsWith("fn ") or t.startsWith("pub struct ") or t.startsWith("struct ") or t.startsWith("pub enum ") or t.startsWith("enum ") or t.startsWith("pub const ") or t.startsWith("const ") or t.startsWith("pub type ") or t.startsWith("type ") or t.startsWith("let ") or t.startsWith("mut "):
+      let nextImp1 = source.indexOf("\nimport ", pos - 1)
+      let nextImp2 = source.indexOf("\npub import ", pos - 1)
+      if nextImp1 < 0 and nextImp2 < 0:
+        break
+      if nextImp1 >= 0 and (nextImp2 < 0 or nextImp1 <= nextImp2):
+        pos = nextImp1 + 1
+      else:
+        pos = nextImp2 + 1
+  if fileId == 0 and not filePath.endsWith("prelude.aipl") and not arrayContainsStr(imports, "std/prelude") and not arrayContainsStr(imports, "std.prelude"):
+    if source.contains("todo(") or source.contains("unreachable(") or source.contains("assertEqInt(") or source.contains("assertEqStr(") or source.contains("assertApproxEq("):
+      imports.push("std/prelude")
+  if fileId == 0 and imports.len == 0 and not filePath.contains("/std/") and not filePath.startsWith("std/"):
+    if source.contains("parseCliArgs") or source.contains("cliGetOption"):
+      imports.push("std.cli")
+    if source.contains("grid2dNew") or source.contains("gridNew") or source.contains("gridSet") or source.contains("Grid2D"):
+      imports.push("std.grid")
+    if source.contains("gridAStar"):
+      imports.push("std.pathfinding")
+  ret ModuleNode(
+    path = filePath,
+    moduleName = modName,
+    imports = imports,
+    aliases = aliases,
+    exportedDecls = exports,
+    source = source
+  )
+
+pub fn collectStdImportLines(source: str): [str]:
+  let lines = source.lines()
+  mut stdLines: [str] = []
+  mut i = 0
+  while i < lines.len:
+    let trimmed = lines[i].trim()
+    if trimmed.startsWith("import ") or trimmed.startsWith("pub import "):
+      if trimmed.contains("{") and not trimmed.contains("}"):
+        mut blockLines: [str] = [trimmed]
+        mut j = i + 1
+        mut closing = ""
+        while j < lines.len:
+          let sub = lines[j].trim()
+          blockLines.push(sub)
+          if sub.contains("}"):
+            closing = sub
+            break
+          j += 1
+        if closing.contains("\"std/") or closing.contains("'std/") or closing.contains("\"std.") or closing.contains("'std."):
+          stdLines.push(blockLines.join(" "))
+        i = j + 1
+        continue
+      elif trimmed.contains("\"std/") or trimmed.contains("'std/") or trimmed.contains("\"std.") or trimmed.contains("'std.") or trimmed.startsWith("import std.") or trimmed.startsWith("pub import std."):
+        stdLines.push(trimmed)
+    i += 1
+  ret stdLines
+
+pub fn extractAliasFromImportLine(trimmed: str): str:
+  if not trimmed.startsWith("import ") and not trimmed.startsWith("pub import "):
+    ret ""
+  if trimmed.contains("{"):
+    ret ""
+  let asIdx = trimmed.indexOf(" as ")
+  if asIdx < 0:
+    ret ""
+  mut rest = trimmed.slice(asIdx + 4, trimmed.len).trim()
+  if rest.indexOf(" from ") >= 0:
+    rest = rest.slice(0, rest.indexOf(" from ")).trim()
+  if rest.contains("//"):
+    rest = rest.slice(0, rest.indexOf("//")).trim()
+  if rest.contains("#"):
+    rest = rest.slice(0, rest.indexOf("#")).trim()
+  if rest.endsWith(";"):
+    rest = rest.slice(0, rest.len - 1).trim()
+  mut ci = 0
+  while ci < rest.len:
+    let ch = rest.slice(ci, ci + 1)
+    if (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9") or ch == "_":
+      ci += 1
+    else:
+      break
+  ret rest.slice(0, ci)
+
+pub fn isAliasPrefixChar(ch: str): bool:
+  ret ch == " " or ch == "\t" or ch == "(" or ch == "[" or ch == "{" or ch == "," or ch == "=" or ch == ":" or ch == ";" or ch == "+" or ch == "-" or ch == "*" or ch == "/" or ch == "!"
+
+pub fn desugarAliasInLine(line: str, alias: str): str:
+  let needle = alias + "."
+  let nLen = needle.len
+  if not line.contains(needle):
+    ret line
+  mut chunks: [str] = []
+  mut chunkStart = 0
+  mut i = 0
+  let n = line.len
+  mut inStr = false
+  // `{...}` segments inside string literals are interpolated code: `"{time.nowMs()}"`
+  mut interpDepth = 0
+  while i < n:
+    let ch = line.slice(i, i + 1)
+    let inCode = not inStr or interpDepth > 0
+    if inCode and not inStr and ch == "/" and i + 1 < n and line.slice(i + 1, i + 2) == "/":
+      break
+    if inStr and ch == "\\" and i + 1 < n:
+      i += 2
+      continue
+    if ch == "\"" and interpDepth == 0:
+      inStr = not inStr
+      i += 1
+      continue
+    if inStr and ch == "{":
+      interpDepth += 1
+      i += 1
+      continue
+    if inStr and ch == "}" and interpDepth > 0:
+      interpDepth -= 1
+      i += 1
+      continue
+    if inCode and i + nLen <= n and line.slice(i, i + nLen) == needle:
+      let isPreceded = i == 0 or isAliasPrefixChar(line.slice(i - 1, i))
+      if isPreceded:
+        if i > chunkStart:
+          chunks.push(line.slice(chunkStart, i))
+        i += nLen
+        chunkStart = i
+        continue
+    i += 1
+  if chunkStart < n:
+    chunks.push(line.slice(chunkStart, n))
+  if chunks.len == 0:
+    ret line
+  ret chunks.join("")
+
+pub fn stripModuleAliasQualifiers(source: str, aliases: [str]): str:
+  if aliases.len == 0:
+    ret source
+  let lines = source.lines()
+  mut outLines: [str] = []
+  mut di = 0
+  while di < lines.len:
+    mut dLine = lines[di]
+    mut ai = 0
+    while ai < aliases.len:
+      dLine = desugarAliasInLine(dLine, aliases[ai])
+      ai += 1
+    outLines.push(dLine)
+    di += 1
+  ret outLines.join("\n")
+
+pub fn isIdentChar(ch: str): bool:
+  ret (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9") or ch == "_"
+
+// Collects `orig as alias` pairs from a (possibly partial) `import { ... }` line segment.
+pub fn collectNamedImportRenames(segment: str, mut origs: [str], mut aliases: [str]):
+  mut body = segment
+  if body.contains("{"):
+    body = body.slice(body.indexOf("{") + 1, body.len)
+  if body.contains("}"):
+    body = body.slice(0, body.indexOf("}"))
+  let items = body.split(",")
+  mut ii = 0
+  while ii < items.len:
+    let item = items[ii].trim()
+    let asIdx = item.indexOf(" as ")
+    if asIdx > 0:
+      let orig = item.slice(0, asIdx).trim()
+      let alias = item.slice(asIdx + 4, item.len).trim()
+      if orig.len > 0 and alias.len > 0 and orig != alias and not arrayContainsStr(aliases, alias):
+        origs.push(orig)
+        aliases.push(alias)
+    ii += 1
+
+// Rewrites whole-word identifier `alias` -> `orig` in code regions (including `{...}` string
+// interpolation segments), leaving plain string text and `//` comments untouched.
+pub fn renameIdentInLine(line: str, alias: str, orig: str): str:
+  if not line.contains(alias):
+    ret line
+  mut out: [str] = []
+  mut chunkStart = 0
+  mut i = 0
+  let n = line.len
+  let aLen = alias.len
+  mut inStr = false
+  mut inSingleStr = false
+  mut interpDepth = 0
+  while i < n:
+    let ch = line.slice(i, i + 1)
+    let inCode = (not inStr or interpDepth > 0) and not inSingleStr
+    if inCode and not inStr and ch == "/" and i + 1 < n and line.slice(i + 1, i + 2) == "/":
+      break
+    if (inStr or inSingleStr) and ch == "\\" and i + 1 < n:
+      i += 2
+      continue
+    if not inStr and ch == "'":
+      inSingleStr = not inSingleStr
+      i += 1
+      continue
+    if not inSingleStr and ch == "\"" and interpDepth == 0:
+      inStr = not inStr
+      i += 1
+      continue
+    if inStr and ch == "{":
+      interpDepth += 1
+      i += 1
+      continue
+    if inStr and ch == "}" and interpDepth > 0:
+      interpDepth -= 1
+      i += 1
+      continue
+    if inCode and i + aLen <= n and line.slice(i, i + aLen) == alias:
+      let before = if i > 0: line.slice(i - 1, i) else: " "
+      let after = if i + aLen < n: line.slice(i + aLen, i + aLen + 1) else: " "
+      if not isIdentChar(before) and before != "." and not isIdentChar(after):
+        out.push(line.slice(chunkStart, i))
+        out.push(orig)
+        i += aLen
+        chunkStart = i
+        continue
+    i += 1
+  if chunkStart == 0:
+    ret line
+  out.push(line.slice(chunkStart, n))
+  ret out.join("")
+
+pub fn applyNamedImportRenames(source: str, origs: [str], aliases: [str]): str:
+  if aliases.len == 0:
+    ret source
+  let lines = source.lines()
+  mut outLines: [str] = []
+  mut li = 0
+  while li < lines.len:
+    mut l = lines[li]
+    mut ai = 0
+    while ai < aliases.len:
+      l = renameIdentInLine(l, aliases[ai], origs[ai])
+      ai += 1
+    outLines.push(l)
+    li += 1
+  ret outLines.join("\n")
+
+pub fn stripDirectives(source: str): str:
+  ret stripImportsAndModuleHeader(source)
+
+pub fn stripImportsAndModuleHeader(source: str): str:
+  let lines = source.lines()
+  mut outLines: [str] = []
+  mut aliases: [str] = []
+  mut renameOrigs: [str] = []
+  mut renameAliases: [str] = []
+  mut i = 0
+  mut inImportBrace = false
+
+  while i < lines.len:
+    let line = lines[i]
+    let trimmed = line.trim()
+
+    if inImportBrace:
+      collectNamedImportRenames(trimmed, renameOrigs, renameAliases)
+      if trimmed.contains("}"):
+        inImportBrace = false
+      i += 1
+      continue
+
+    if trimmed.startsWith("module "):
+      i += 1
+      continue
+
+    if trimmed.startsWith("import ") or trimmed.startsWith("pub import "):
+      let foundAlias = extractAliasFromImportLine(trimmed)
+      if foundAlias.len > 0 and not arrayContainsStr(aliases, foundAlias):
+        aliases.push(foundAlias)
+      if trimmed.contains("{"):
+        collectNamedImportRenames(trimmed, renameOrigs, renameAliases)
+      if trimmed.contains("{") and not trimmed.contains("}"):
+        inImportBrace = true
+      i += 1
+      continue
+
+    outLines.push(line)
+    i += 1
+
+  mut stripped = outLines.join("\n")
+  if aliases.len > 0:
+    stripped = stripModuleAliasQualifiers(stripped, aliases)
+  if renameAliases.len > 0:
+    stripped = applyNamedImportRenames(stripped, renameOrigs, renameAliases)
+  ret stripped
+
+pub fn sanitizeModuleId(modPath: str): str:
+  mut p = stripQuotes(modPath).trim()
+  if p.endsWith(".aipl"):
+    p = p.slice(0, p.len - 5)
+  while p.startsWith("./"):
+    p = p.slice(2, p.len)
+  while p.startsWith("../"):
+    p = p.slice(3, p.len)
+  while p.startsWith("/"):
+    p = p.slice(1, p.len)
+
+  mut parts: [str] = []
+  mut chunkStart = 0
+  mut i = 0
+  let n = p.len
+  while i < n:
+    let ch = p.slice(i, i + 1)
+    let isAlphaNum = (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9") or ch == "_"
+    if not isAlphaNum:
+      if i > chunkStart:
+        parts.push(p.slice(chunkStart, i))
+      parts.push("_")
+      chunkStart = i + 1
+    i += 1
+  if chunkStart < n:
+    parts.push(p.slice(chunkStart, n))
+
+  mut raw = parts.join("")
+  while raw.startsWith("_") and raw.len > 1:
+    raw = raw.slice(1, raw.len)
+  while raw.endsWith("_") and raw.len > 1:
+    raw = raw.slice(0, raw.len - 1)
+
+  if raw.len == 0 or raw == "_":
+    ret "mod"
+  let firstCh = raw.slice(0, 1)
+  if firstCh >= "0" and firstCh <= "9":
+    ret "m_" + raw
+  ret raw
+
+pub fn mangleModuleSymbol(modPath: str, symName: str): str:
+  ret "aipl_mod_" + sanitizeModuleId(modPath) + "__" + symName
+
+pub fn extractModulePublicSymbols(src: str): [str]:
+  let lines = src.lines()
+  mut symbols: [str] = []
+  mut i = 0
+  while i < lines.len:
+    let line = lines[i].trim()
+    if line.startsWith("pub "):
+      mut sym = ""
+      if line.startsWith("pub fn "):
+        sym = extractIdentAt(line, 7)
+      elif line.startsWith("pub struct "):
+        sym = extractIdentAt(line, 11)
+      elif line.startsWith("pub enum "):
+        sym = extractIdentAt(line, 9)
+      elif line.startsWith("pub const "):
+        sym = extractIdentAt(line, 10)
+      elif line.startsWith("pub let "):
+        sym = extractIdentAt(line, 8)
+      elif line.startsWith("pub mut "):
+        sym = extractIdentAt(line, 8)
+      elif line.startsWith("pub type "):
+        sym = extractIdentAt(line, 9)
+      if sym.len > 0 and not arrayContainsStr(symbols, sym):
+        symbols.push(sym)
+    i += 1
+  ret symbols
+
+pub fn extractIdentAt(line: str, startPos: int): str:
+  mut idx = startPos
+  let n = line.len
+  while idx < n:
+    let ch = line.slice(idx, idx + 1)
+    if ch == " " or ch == "\t":
+      idx += 1
+    else:
+      break
+  mut endIdx = idx
+  while endIdx < n:
+    let ch = line.slice(endIdx, endIdx + 1)
+    if (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z") or (ch >= "0" and ch <= "9") or ch == "_":
+      endIdx += 1
+    else:
+      break
+  if endIdx > idx:
+    ret line.slice(idx, endIdx)
+  ret ""
+
+pub fn extractModulePrivateSymbols(src: str): [str]:
+  let lines = src.lines()
+  mut symbols: [str] = []
+  mut i = 0
+  while i < lines.len:
+    let line = lines[i]
+    if line.startsWith("fn "):
+      let name = extractIdentAt(line, 3)
+      if name.len > 0 and name != "main" and not name.startsWith("test_"):
+        if not arrayContainsStr(symbols, name):
+          symbols.push(name)
+    elif line.startsWith("struct "):
+      let name = extractIdentAt(line, 7)
+      if name.len > 0 and name != "main" and not name.startsWith("test_"):
+        if not arrayContainsStr(symbols, name):
+          symbols.push(name)
+    elif line.startsWith("let "):
+      let name = extractIdentAt(line, 4)
+      if name.len > 0 and not arrayContainsStr(symbols, name):
+        symbols.push(name)
+    elif line.startsWith("const "):
+      let name = extractIdentAt(line, 6)
+      if name.len > 0 and not arrayContainsStr(symbols, name):
+        symbols.push(name)
+    elif line.startsWith("mut "):
+      let name = extractIdentAt(line, 4)
+      if name.len > 0 and not arrayContainsStr(symbols, name):
+        symbols.push(name)
+    i += 1
+  ret symbols
+
+pub fn renameMainInDependency(body: str, ti: int): str:
+  let lines = body.lines()
+  mut out: [str] = []
+  mut i = 0
+  let replacementName = "__dep_mod_main_" + str(ti)
+  while i < lines.len:
+    let line = lines[i]
+    let trimmed = line.trim()
+    if trimmed.startsWith("pub fn main(") or trimmed.startsWith("pub fn main ("):
+      let parenIdx = line.indexOf("(")
+      let indentIdx = line.indexOf("pub fn main")
+      let prefix = line.slice(0, indentIdx)
+      out.push(prefix + "pub fn " + replacementName + line.slice(parenIdx, line.len))
+    elif trimmed.startsWith("fn main(") or trimmed.startsWith("fn main ("):
+      let parenIdx = line.indexOf("(")
+      let indentIdx = line.indexOf("fn main")
+      let prefix = line.slice(0, indentIdx)
+      out.push(prefix + "fn " + replacementName + line.slice(parenIdx, line.len))
+    else:
+      out.push(line)
+    i += 1
+  ret out.join("\n")
+
+pub fn renameImportedMainCallsInRoot(body: str, depMainName: str): str:
+  if depMainName.len == 0 or not body.contains("main("):
+    ret body
+  let lines = body.lines()
+  mut out: [str] = []
+  mut i = 0
+  while i < lines.len:
+    let line = lines[i]
+    let trimmed = line.trim()
+    if trimmed.startsWith("pub fn main(") or trimmed.startsWith("pub fn main (") or trimmed.startsWith("fn main(") or trimmed.startsWith("fn main ("):
+      out.push(line)
+    else:
+      out.push(renameIdentInLine(line, "main", depMainName))
+    i += 1
+  ret out.join("\n")
+
+pub fn topoVisit(targetPath: str, modules: [ModuleNode], mut state: [int], mut stack: [str], mut topoOrder: [str], mut errors: [str]): [str]:
+  let normTarget = pathNormalize(targetPath)
+  let canonTarget = canonicalModuleKey(normTarget)
+  mut mIdx = -1
+  mut i = 0
+  while i < modules.len:
+    if pathNormalize(modules[i].path) == normTarget or modules[i].path == targetPath or canonicalModuleKey(modules[i].path) == canonTarget:
+      mIdx = i
+      break
+    i += 1
+
+  if mIdx < 0:
+    ret topoOrder
+
+  if state[mIdx] == 2:
+    ret topoOrder
+  if state[mIdx] == 1:
+    ret topoOrder
+
+  state[mIdx] = 1
+  stack.push(modules[mIdx].path)
+
+  let node = modules[mIdx]
+  let baseDir = pathDirname(node.path)
+  mut j = 0
+  while j < node.imports.len:
+    let rawImp = node.imports[j]
+    let resolved = resolveImportPath(baseDir, rawImp)
+    if resolved.len > 0:
+      let normRes = pathNormalize(resolved)
+      let canonRes = canonicalModuleKey(normRes)
+      mut depIdx = -1
+      mut k = 0
+      while k < modules.len:
+        if pathNormalize(modules[k].path) == normRes or modules[k].path == resolved or canonicalModuleKey(modules[k].path) == canonRes:
+          depIdx = k
+          break
+        k += 1
+
+      if depIdx >= 0:
+        if state[depIdx] == 1:
+          let cycleMsg = "Circular dependency detected: " + stack.join(" -> ") + " -> " + modules[depIdx].path
+          if not arrayContainsStr(errors, cycleMsg):
+            errors.push(cycleMsg)
+        elif state[depIdx] == 0:
+          topoOrder = topoVisit(modules[depIdx].path, modules, state, stack, topoOrder, errors)
+    j += 1
+
+  state[mIdx] = 2
+  if stack.len > 0:
+    let _ = stack.pop()
+
+  if not arrayContainsStr(topoOrder, normTarget) and not arrayContainsStr(topoOrder, targetPath):
+    topoOrder.push(normTarget)
+  ret topoOrder
+
+pub struct ResolveCaches:
+  fileRawCache: Map[str, str] = Map.new()
+  fileStrippedCache: Map[str, str] = Map.new()
+  fileImportsCache: Map[str, [str]] = Map.new()
+
+pub fn resolveCachesNew(): ResolveCaches:
+  ret ResolveCaches(
+    fileRawCache = Map.new(),
+    fileStrippedCache = Map.new(),
+    fileImportsCache = Map.new()
+  )
+
+pub fn resolveImportsRec(currPath: str, mut visited: [str], mut modules: [ModuleNode], mut errors: [str], mut caches: ResolveCaches): void:
+  let normCurr = pathNormalize(currPath)
+  let canonCurr = canonicalModuleKey(normCurr)
+  if arrayContainsStr(visited, normCurr) or arrayContainsStr(visited, currPath) or arrayContainsStr(visited, canonCurr):
+    ret
+  visited.push(normCurr)
+  if canonCurr != normCurr and not arrayContainsStr(visited, canonCurr):
+    visited.push(canonCurr)
+  if currPath != normCurr and not arrayContainsStr(visited, currPath):
+    visited.push(currPath)
+
+  if not fileExists(normCurr) and not fileExists(currPath):
+    errors.push("Module file not found: " + currPath)
+    ret
+
+  let readTarget = if fileExists(normCurr): normCurr else: currPath
+  mut src = ""
+  if caches.fileRawCache.containsKey(readTarget):
+    src = caches.fileRawCache.get(readTarget).unwrap()
+  elif caches.fileRawCache.containsKey(normCurr):
+    src = caches.fileRawCache.get(normCurr).unwrap()
+  else:
+    src = readFile(readTarget)
+    caches.fileRawCache.set(readTarget, src)
+    caches.fileRawCache.set(normCurr, src)
+
+  mut nodeImports: [str] = []
+  mut hasCachedImports = false
+  if caches.fileImportsCache.containsKey(readTarget):
+    nodeImports = caches.fileImportsCache.get(readTarget).unwrap()
+    hasCachedImports = true
+  elif caches.fileImportsCache.containsKey(normCurr):
+    nodeImports = caches.fileImportsCache.get(normCurr).unwrap()
+    hasCachedImports = true
+
+  let node = extractModuleSummary(readTarget, src, modules.len)
+  if not hasCachedImports:
+    nodeImports = node.imports
+    caches.fileImportsCache.set(readTarget, nodeImports)
+    caches.fileImportsCache.set(normCurr, nodeImports)
+
+  modules.push(node)
+  let baseDir = pathDirname(readTarget)
+
+  mut ii = 0
+  while ii < node.imports.len:
+    let rawImp = node.imports[ii]
+    let resolvedDep = resolveImportPath(baseDir, rawImp)
+    if resolvedDep.len > 0:
+      let normDep = pathNormalize(resolvedDep)
+      let canonDep = canonicalModuleKey(normDep)
+      if not arrayContainsStr(visited, normDep) and not arrayContainsStr(visited, resolvedDep) and not arrayContainsStr(visited, canonDep):
+        resolveImportsRec(normDep, visited, modules, errors, caches)
+    elif isStdImportPath(rawImp):
+      if not isBuiltinStdNamespace(rawImp):
+        errors.push("AIPL_E_STD_MODULE_NOT_FOUND: Standard library module '" + rawImp + "' not found in " + readTarget)
+    else:
+      errors.push("Unresolved import '" + rawImp + "' in " + readTarget)
+    ii += 1
+
+pub fn resolveImports(rootPath: str, arena: AstArena): ModuleGraph:
+  let normRoot = pathNormalize(rootPath)
+  mut effectiveRoot = normRoot
+  if not fileExists(effectiveRoot) and fileExists(rootPath):
+    effectiveRoot = rootPath
+
+  mut caches = resolveCachesNew()
+  mut visited: [str] = []
+  mut modules: [ModuleNode] = []
+  mut errors: [str] = []
+
+  resolveImportsRec(effectiveRoot, visited, modules, errors, caches)
+
+  // Build topological ordering with 3-color DFS cycle detection (0=WHITE, 1=GRAY, 2=BLACK)
+  mut state: [int] = []
+  mut mi = 0
+  while mi < modules.len:
+    state.push(0)
+    mi += 1
+
+  mut stack: [str] = []
+  mut topoOrder: [str] = []
+  topoOrder = topoVisit(effectiveRoot, modules, state, stack, topoOrder, errors)
+
+  mut mj = 0
+  while mj < modules.len:
+    let mPath = modules[mj].path
+    let normM = pathNormalize(mPath)
+    if state[mj] == 0:
+      topoOrder = topoVisit(normM, modules, state, stack, topoOrder, errors)
+    mj += 1
+
+  // Assemble deterministic single-unit bundled source
+  mut bundledParts: [str] = []
+  mut rootHeader = "module " + arena.moduleName
+  bundledParts.push(rootHeader)
+
+  mut uniqueStdImports: [str] = []
+  mut si = 0
+  while si < topoOrder.len:
+    let tPath = topoOrder[si]
+    mut mj = 0
+    while mj < modules.len:
+      if pathNormalize(modules[mj].path) == pathNormalize(tPath):
+        let impLines = collectStdImportLines(modules[mj].source)
+        mut k = 0
+        while k < impLines.len:
+          if not arrayContainsStr(uniqueStdImports, impLines[k]):
+            uniqueStdImports.push(impLines[k])
+          k += 1
+        break
+      mj += 1
+    si += 1
+
+  mut headerPrefix = rootHeader
+  if uniqueStdImports.len > 0:
+    let stdJoined = uniqueStdImports.join("\n")
+    bundledParts.push(stdJoined)
+    headerPrefix = rootHeader + "\n\n" + stdJoined
+
+  mut moduleChunks: [str] = []
+  mut chunkLineOffsets: [int] = []
+  mut curLineOffset = 0
+
+  mut modPrivSyms: [[str]] = []
+  mut mpi = 0
+  while mpi < modules.len:
+    modPrivSyms.push(extractModulePrivateSymbols(modules[mpi].source))
+    mpi += 1
+
+  mut lastDepMainName = ""
+  mut ti = 0
+  while ti < topoOrder.len:
+    let targetPath = topoOrder[ti]
+    let normTarget = pathNormalize(targetPath)
+    mut mj = 0
+    while mj < modules.len:
+      if pathNormalize(modules[mj].path) == normTarget or modules[mj].path == targetPath:
+        mut body = ""
+        if caches.fileStrippedCache.containsKey(normTarget):
+          body = caches.fileStrippedCache.get(normTarget).unwrap()
+        elif caches.fileStrippedCache.containsKey(modules[mj].path):
+          body = caches.fileStrippedCache.get(modules[mj].path).unwrap()
+        else:
+          body = stripImportsAndModuleHeader(modules[mj].source)
+          caches.fileStrippedCache.set(normTarget, body)
+          caches.fileStrippedCache.set(modules[mj].path, body)
+        if modules.len > 1:
+          let privs = modPrivSyms[mj]
+          mut mangleOrigs: [str] = []
+          mut mangleTargets: [str] = []
+          mut psi = 0
+          while psi < privs.len:
+            let ps = privs[psi]
+            let firstCh = if ps.len > 0: ps.slice(0, 1) else: ""
+            let isStructType = firstCh >= "A" and firstCh <= "Z"
+            mut collides = false
+            if not isStructType:
+              mut mk = 0
+              while mk < modules.len:
+                if mk != mj:
+                  if arrayContainsStr(modPrivSyms[mk], ps) or arrayContainsStr(modules[mk].exportedDecls, ps):
+                    collides = true
+                    break
+                mk += 1
+            if collides:
+              mangleOrigs.push(ps)
+              mangleTargets.push(mangleModuleSymbol(modules[mj].path, ps))
+            psi += 1
+          if mangleOrigs.len > 0:
+            body = applyNamedImportRenames(body, mangleTargets, mangleOrigs)
+        if normTarget != pathNormalize(effectiveRoot) and targetPath != effectiveRoot:
+          let prevBody = body
+          body = renameMainInDependency(body, ti)
+          if body != prevBody:
+            lastDepMainName = "__dep_mod_main_" + str(ti)
+        elif lastDepMainName.len > 0:
+          body = renameImportedMainCallsInRoot(body, lastDepMainName)
+        bundledParts.push(body)
+        let chunk = if moduleChunks.len == 0: headerPrefix + "\n\n" + body else: body
+        moduleChunks.push(chunk)
+        chunkLineOffsets.push(curLineOffset)
+        curLineOffset += countNewlinesFast(chunk) + 2
+        break
+      mj += 1
+    ti += 1
+
+  ret ModuleGraph(
+    rootPath = effectiveRoot,
+    modules = modules,
+    topoOrder = topoOrder,
+    bundledSource = bundledParts.join("\n\n"),
+    errors = errors,
+    moduleChunks = moduleChunks,
+    chunkLineOffsets = chunkLineOffsets
+  )
+
+pub fn countNewlinesFast(s: str): int:
+  mut cnt = 0
+  mut pos = 0
+  let n = s.len
+  while pos < n:
+    let nl = s.indexOf("\n", pos)
+    if nl < 0:
+      break
+    cnt += 1
+    pos = nl + 1
+  ret cnt

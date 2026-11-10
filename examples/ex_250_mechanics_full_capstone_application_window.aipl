@@ -1,0 +1,245 @@
+module Ex250MechanicsFullCapstoneApplicationWindow
+
+import { ModifierStage, StatModifier, SpatialMatrixContainer2D, ResourceLedger, ObjectiveDependencyDAG, evalStatModifierStack, stepStatModifierDurations, InventoryItem, spatialMatrixNew, spatialMatrixCanFit, spatialMatrixInsert, spatialMatrixOccupiedCells, resourceLedgerNew, ledgerDeposit, ledgerWithdraw, ledgerGetBalance, objectiveDagNew, objectiveAddPrerequisite, objectiveComplete, objectiveIsCompleted, objectiveIsUnlocked } from "../std/mechanics/mechanics_mod"
+import { initWindow, windowShouldClose, beginDrawing, endDrawing, closeWindow, clearScreen, drawRect, drawRectOutline, drawCircle, drawLine, drawText, rgb } from "../std/gfx2d/shape2d"
+
+pub struct CapstoneScene(mods: [StatModifier], totalPower: float, matrix: SpatialMatrixContainer2D, occupiedCount: int, ledger: ResourceLedger, guildGold: int, dag: ObjectiveDependencyDAG, ascendUnlocked: bool, pityPermille: int, schemaVersion: int, stepCount: int)
+
+pub fn computeSoftPityDropRatePermille(basePermille: int, pullsOverThreshold: int): int:
+  ret basePermille + pullsOverThreshold * 60
+
+pub fn migrateSaveSchemaVersion(loadedVersion: int, targetVersion: int): int:
+  if loadedVersion < targetVersion:
+    ret targetVersion
+  ret loadedVersion
+
+pub fn initScene(): CapstoneScene:
+  mut mods: [StatModifier] = []
+  mods.push(StatModifier(id = 1, statTag = "power", stage = ModifierStage.FlatAdd, value = 20.0, durationRemaining = 10.0, isPermanent = true))
+  mods.push(StatModifier(id = 2, statTag = "power", stage = ModifierStage.PercentAdd, value = 0.50, durationRemaining = 10.0, isPermanent = true))
+  mods.push(StatModifier(id = 3, statTag = "power", stage = ModifierStage.FinalMultiply, value = 1.20, durationRemaining = 10.0, isPermanent = true))
+  let totalPower = evalStatModifierStack(100.0, mods)
+
+  mut matrix = spatialMatrixNew(4, 4)
+  let relic2x2 = InventoryItem(id = 1, itemTag = "AegisRelic", quantity = 1, maxStack = 1, gridWidth = 2, gridHeight = 2, unitWeight = 4.0)
+  spatialMatrixInsert(matrix, relic2x2, 0, 0, false)
+  let occ = spatialMatrixOccupiedCells(matrix)
+
+  mut ledger = resourceLedgerNew()
+  ledgerDeposit(ledger, "guild_bank", 500)
+  let gold = ledgerGetBalance(ledger, "guild_bank")
+
+  mut dag = objectiveDagNew()
+  objectiveAddPrerequisite(dag, "ascend_citadel", "slay_warden")
+  objectiveComplete(dag, "slay_warden")
+  let unlocked = objectiveIsUnlocked(dag, "ascend_citadel")
+
+  let pity = computeSoftPityDropRatePermille(10, 10)
+  let ver = migrateSaveSchemaVersion(1, 3)
+
+  ret CapstoneScene(
+    mods = mods,
+    totalPower = totalPower,
+    matrix = matrix,
+    occupiedCount = occ,
+    ledger = ledger,
+    guildGold = gold,
+    dag = dag,
+    ascendUnlocked = unlocked,
+    pityPermille = pity,
+    schemaVersion = ver,
+    stepCount = 0
+  )
+
+pub fn stepScene(mut scene: CapstoneScene, frame: int, dt: float): CapstoneScene:
+  scene.mods = stepStatModifierDurations(scene.mods, dt)
+  scene.totalPower = evalStatModifierStack(100.0 + float(frame % 250) * 2.0, scene.mods)
+
+  let shard = InventoryItem(id = 10 + frame, itemTag = "Shard", quantity = 1, maxStack = 5, gridWidth = 1, gridHeight = 1, unitWeight = 1.0)
+  mut placed = false
+  mut r = 0
+  while r < scene.matrix.rows and (not placed):
+    mut c = 0
+    while c < scene.matrix.cols and (not placed):
+      if spatialMatrixCanFit(scene.matrix, shard, c, r, false):
+        spatialMatrixInsert(scene.matrix, shard, c, r, false)
+        placed = true
+      c = c + 1
+    r = r + 1
+
+  // When the 4x4 spatial matrix fills up, consume/craft the oldest 7 Shards so new placements continue forever
+  if not placed:
+    mut nextMatrix = spatialMatrixNew(4, 4)
+    let relic2x2 = InventoryItem(id = 1, itemTag = "AegisRelic", quantity = 1, maxStack = 1, gridWidth = 2, gridHeight = 2, unitWeight = 4.0)
+    spatialMatrixInsert(nextMatrix, relic2x2, 0, 0, false)
+    mut keepIdx = 8
+    while keepIdx < scene.matrix.items.len:
+      let keptItem: InventoryItem = scene.matrix.items[keepIdx]
+      mut kp = false
+      mut kr = 0
+      while kr < nextMatrix.rows and (not kp):
+        mut kc = 0
+        while kc < nextMatrix.cols and (not kp):
+          if spatialMatrixCanFit(nextMatrix, keptItem, kc, kr, false):
+            spatialMatrixInsert(nextMatrix, keptItem, kc, kr, false)
+            kp = true
+          kc = kc + 1
+        kr = kr + 1
+      keepIdx = keepIdx + 1
+
+    mut nr = 0
+    while nr < nextMatrix.rows and (not placed):
+      mut nc = 0
+      while nc < nextMatrix.cols and (not placed):
+        if spatialMatrixCanFit(nextMatrix, shard, nc, nr, false):
+          spatialMatrixInsert(nextMatrix, shard, nc, nr, false)
+          placed = true
+        nc = nc + 1
+      nr = nr + 1
+    scene.matrix = nextMatrix
+    ledgerDeposit(scene.ledger, "guild_bank", 40)
+
+  scene.occupiedCount = spatialMatrixOccupiedCells(scene.matrix)
+
+  ledgerDeposit(scene.ledger, "guild_bank", 25)
+  if ledgerGetBalance(scene.ledger, "guild_bank") > 4500:
+    ledgerWithdraw(scene.ledger, "guild_bank", 3500)
+  scene.guildGold = ledgerGetBalance(scene.ledger, "guild_bank")
+
+  mut nextDag = objectiveDagNew()
+  objectiveAddPrerequisite(nextDag, "ascend_citadel", "slay_warden")
+  let dagTick = frame % 23
+  if frame <= 25 or dagTick >= 7:
+    objectiveComplete(nextDag, "slay_warden")
+  if frame > 25 and dagTick >= 15:
+    objectiveComplete(nextDag, "ascend_citadel")
+  scene.dag = nextDag
+  scene.ascendUnlocked = objectiveIsUnlocked(scene.dag, "ascend_citadel")
+  scene.pityPermille = computeSoftPityDropRatePermille(10, 10 + (frame % 7))
+  scene.stepCount = scene.stepCount + 1
+  ret scene
+
+pub fn auditMechanicsFullCapstoneApplication(): int:
+  let scene = initScene()
+  let unlocked = if scene.ascendUnlocked: 1 else: 0
+  ret int(scene.totalPower) + scene.pityPermille + scene.occupiedCount + scene.schemaVersion + unlocked - 1
+
+pub fn main(): int:
+  let audit = auditMechanicsFullCapstoneApplication()
+  mut scene = initScene()
+  println("EX_250_CAPSTONE_AUDIT=" + str(audit) + " | PITY=" + str(scene.pityPermille) + " | SCHEMA_V=" + str(scene.schemaVersion))
+
+  mut frame = 0
+
+  initWindow(1280, 720, "AIPL ex_250: Full Mechanics Capstone Application Dashboard")
+  while not windowShouldClose():
+    scene = stepScene(scene, frame, 0.1)
+    let basePwr = 100 + (frame % 250) * 2
+    let effPwr = int(scene.totalPower + 0.5)
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+    drawText("EX_250: FULL AIPL MECHANICS CAPSTONE APPLICATION (STATS + INVENTORY + LEDGER + DAG)", 36.0, 22.0, 20.0, rgb(241, 245, 249))
+    drawText("Audit=" + str(audit) + " | EffectivePower=" + str(effPwr) + " | Occupied=" + str(scene.occupiedCount) + "/16 | GuildGold=" + str(scene.guildGold) + " | SoftPity=" + str(scene.pityPermille) + "/1000", 36.0, 52.0, 16.0, rgb(148, 163, 184))
+
+    // Quadrant 1 (Top-Left): Staged Attribute Pipeline & Soft-Pity Escalator
+    drawRect(40.0, 88.0, 584.0, 286.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 88.0, 584.0, 286.0, 2.0, rgb(56, 189, 248))
+    drawText("1. STAGED ATTRIBUTE PIPELINE & SOFT-PITY ESCALATOR", 62.0, 106.0, 15.0, rgb(125, 211, 252))
+
+    drawRect(62.0, 138.0, 540.0, 104.0, rgb(22, 30, 46))
+    drawRectOutline(62.0, 138.0, 540.0, 104.0, 1.0, rgb(71, 85, 105))
+    drawText("Base Stat: " + str(basePwr) + " -> +20 Flat -> +50% Add -> x1.20 Mult = " + str(effPwr) + " Power", 78.0, 152.0, 14.0, rgb(255, 255, 255))
+    drawText("Active Permanent Modifiers: " + str(scene.mods.len) + " (FlatAdd, PercentAdd, FinalMultiply)", 78.0, 178.0, 12.0, rgb(148, 163, 184))
+    let pwrBarW = float(200 + (effPwr % 300))
+    drawRect(78.0, 206.0, 504.0, 18.0, rgb(30, 41, 59))
+    drawRect(78.0, 206.0, pwrBarW, 18.0, rgb(56, 189, 248))
+
+    drawRect(62.0, 256.0, 540.0, 98.0, rgb(22, 30, 46))
+    drawRectOutline(62.0, 256.0, 540.0, 98.0, 1.0, rgb(71, 85, 105))
+    drawText("Soft-Pity Drop Escalator: " + str(scene.pityPermille) + " / 1000 permille (+60 per pull over threshold)", 78.0, 272.0, 13.0, rgb(167, 243, 208))
+    let pityBarW = float(scene.pityPermille) * 504.0 / 1000.0
+    drawRect(78.0, 302.0, 504.0, 18.0, rgb(30, 41, 59))
+    drawRect(78.0, 302.0, pityBarW, 18.0, rgb(16, 185, 129))
+    drawText("Pulls Over Threshold: " + str(10 + (frame % 7)) + " pulls", 78.0, 328.0, 12.0, rgb(148, 163, 184))
+
+    // Quadrant 2 (Top-Right): 4x4 Spatial Relic Matrix & Auto-Synthesizer
+    drawRect(656.0, 88.0, 584.0, 286.0, rgb(15, 23, 42))
+    drawRectOutline(656.0, 88.0, 584.0, 286.0, 2.0, rgb(16, 185, 129))
+    drawText("2. SPATIAL RELIC MATRIX (4x4) & SHARD AUTO-SYNTHESIZER", 678.0, 106.0, 15.0, rgb(110, 231, 183))
+
+    mut gy = 0
+    while gy < scene.matrix.rows:
+      mut gx = 0
+      while gx < scene.matrix.cols:
+        let cx = 680.0 + float(gx * 56)
+        let cy = 140.0 + float(gy * 54)
+        let occIdx = scene.matrix.occupiedGrid[gy * scene.matrix.cols + gx]
+        let cellCol = if occIdx == 0: rgb(120, 53, 15) elif occIdx > 0: rgb(6, 95, 70) else: rgb(24, 33, 50)
+        let outCol = if occIdx == 0: rgb(250, 204, 21) elif occIdx > 0: rgb(52, 211, 153) else: rgb(71, 85, 105)
+        drawRect(cx, cy, 50.0, 48.0, cellCol)
+        drawRectOutline(cx, cy, 50.0, 48.0, 1.0, outCol)
+        let cellTag = if occIdx == 0: "Relic" elif occIdx > 0: "Shard" else: "."
+        drawText(cellTag, cx + 6.0, cy + 18.0, 11.0, rgb(241, 245, 249))
+        gx = gx + 1
+      gy = gy + 1
+
+    drawRect(920.0, 140.0, 296.0, 210.0, rgb(22, 30, 46))
+    drawRectOutline(920.0, 140.0, 296.0, 210.0, 1.0, rgb(71, 85, 105))
+    drawText("Matrix Occupancy: " + str(scene.occupiedCount) + " / 16 cells", 938.0, 160.0, 14.0, rgb(255, 255, 255))
+    drawText("Anchor [0,0..1,1]: AegisRelic (2x2)", 938.0, 190.0, 12.0, rgb(250, 204, 21))
+    drawText("Active Shards: " + str(scene.occupiedCount - 4) + " / 12 slots", 938.0, 216.0, 12.0, rgb(52, 211, 153))
+    let matBarW = float(scene.occupiedCount) * 260.0 / 16.0
+    drawRect(938.0, 248.0, 260.0, 16.0, rgb(30, 41, 59))
+    drawRect(938.0, 248.0, matBarW, 16.0, rgb(52, 211, 153))
+    drawText("Auto-crafts 7 Shards -> +40g", 938.0, 282.0, 12.0, rgb(148, 163, 184))
+    drawText("when 4x4 matrix reaches 16/16", 938.0, 304.0, 12.0, rgb(148, 163, 184))
+
+    // Quadrant 3 (Bottom-Left): Double-Entry Guild Ledger & Save Schema Migration
+    drawRect(40.0, 398.0, 584.0, 286.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 398.0, 584.0, 286.0, 2.0, rgb(245, 158, 11))
+    drawText("3. DOUBLE-ENTRY GUILD LEDGER & SAVE SCHEMA MIGRATION", 62.0, 416.0, 15.0, rgb(253, 224, 71))
+
+    drawRect(62.0, 448.0, 540.0, 96.0, rgb(30, 58, 138))
+    drawRectOutline(62.0, 448.0, 540.0, 96.0, 2.0, rgb(96, 165, 250))
+    drawText("Account [guild_bank] Reserve: " + str(scene.guildGold) + " Gold", 80.0, 468.0, 15.0, rgb(255, 255, 255))
+    drawText("Tick Inflow: +25g Tithe  |  Shard Synthesis Bonus: +40g per batch", 80.0, 496.0, 12.0, rgb(191, 219, 254))
+    let gBarW = float(120 + (scene.guildGold % 380))
+    drawRect(80.0, 518.0, gBarW, 14.0, rgb(250, 204, 21))
+
+    drawRect(62.0, 560.0, 540.0, 102.0, rgb(22, 30, 46))
+    drawRectOutline(62.0, 560.0, 540.0, 102.0, 1.0, rgb(71, 85, 105))
+    drawText("Deterministic Save Schema Evolution: v1 -> v2 -> v" + str(scene.schemaVersion) + " [ACTIVE]", 80.0, 578.0, 13.0, rgb(253, 224, 71))
+    drawRect(80.0, 606.0, 148.0, 38.0, rgb(30, 41, 59))
+    drawText("v1: Legacy Raw", 94.0, 620.0, 12.0, rgb(148, 163, 184))
+    drawLine(228.0, 625.0, 258.0, 625.0, rgb(250, 204, 21), 3.0)
+    drawRect(258.0, 606.0, 148.0, 38.0, rgb(30, 41, 59))
+    drawText("v2: Checksummed", 268.0, 620.0, 12.0, rgb(148, 163, 184))
+    drawLine(406.0, 625.0, 436.0, 625.0, rgb(52, 211, 153), 3.0)
+    drawRect(436.0, 606.0, 148.0, 38.0, rgb(6, 78, 59))
+    drawRectOutline(436.0, 606.0, 148.0, 38.0, 2.0, rgb(52, 211, 153))
+    drawText("v3: Canonical", 452.0, 620.0, 12.0, rgb(255, 255, 255))
+
+    // Quadrant 4 (Bottom-Right): Objective Prerequisite DAG
+    let wardenDone = objectiveIsCompleted(scene.dag, "slay_warden")
+    let citadelDone = objectiveIsCompleted(scene.dag, "ascend_citadel")
+    drawRect(656.0, 398.0, 584.0, 286.0, rgb(15, 23, 42))
+    drawRectOutline(656.0, 398.0, 584.0, 286.0, 2.0, rgb(168, 85, 247))
+    drawText("4. OBJECTIVE PREREQUISITE DAG (ascend_citadel=" + str(scene.ascendUnlocked) + ")", 678.0, 416.0, 15.0, rgb(216, 180, 254))
+
+    drawLine(830.0, 520.0, 1050.0, 520.0, if wardenDone: rgb(52, 211, 153) else: rgb(71, 85, 105), 4.0)
+    drawCircle(790.0, 520.0, 40.0, if wardenDone: rgb(6, 95, 70) else: rgb(30, 41, 59))
+    drawRect(690.0, 574.0, 200.0, 74.0, rgb(22, 30, 46))
+    drawRectOutline(690.0, 574.0, 200.0, 74.0, 1.0, if wardenDone: rgb(52, 211, 153) else: rgb(100, 116, 139))
+    drawText("PREREQ: slay_warden", 706.0, 592.0, 13.0, rgb(255, 255, 255))
+    drawText("State: " + (if wardenDone: "COMPLETED" else: "IN PROGRESS"), 706.0, 618.0, 12.0, if wardenDone: rgb(167, 243, 208) else: rgb(250, 204, 21))
+
+    drawCircle(1090.0, 520.0, 44.0, if citadelDone: rgb(6, 95, 70) elif scene.ascendUnlocked: rgb(88, 28, 135) else: rgb(45, 24, 36))
+    drawRect(980.0, 574.0, 224.0, 74.0, rgb(22, 30, 46))
+    drawRectOutline(980.0, 574.0, 224.0, 74.0, 2.0, if citadelDone: rgb(52, 211, 153) elif scene.ascendUnlocked: rgb(192, 132, 252) else: rgb(244, 63, 94))
+    drawText("GOAL: ascend_citadel", 996.0, 592.0, 13.0, rgb(255, 255, 255))
+    drawText("State: " + (if citadelDone: "ASCENDED!" elif scene.ascendUnlocked: "UNLOCKED & ACTIVE" else: "LOCKED"), 996.0, 618.0, 12.0, if citadelDone: rgb(167, 243, 208) elif scene.ascendUnlocked: rgb(216, 180, 254) else: rgb(244, 63, 94))
+
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

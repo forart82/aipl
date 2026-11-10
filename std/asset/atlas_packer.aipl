@@ -1,0 +1,229 @@
+module AssetAtlasPacker
+
+// ============================================================================
+// std/asset/atlas_packer.aipl — MaxRects BSSF 2D Bin Packing with Bleed Gutters
+// ============================================================================
+
+pub struct PackRect(id: int, width: int, height: int, x: int, y: int, isRotated: bool, isPacked: bool)
+
+pub struct AtlasBin(width: int, height: int, paddingGutter: int, freeRects: [PackRect], packedRects: [PackRect], occupancyRatio: float)
+
+pub fn createAtlasBin(width: int, height: int, gutterPx: int = 2): AtlasBin:
+  let safeW = if width > 0: width else: 256
+  let safeH = if height > 0: height else: 256
+  let safeG = if gutterPx >= 0: gutterPx else: 2
+  mut free: [PackRect] = [
+    PackRect(id = 0, width = safeW, height = safeH, x = 0, y = 0, isRotated = false, isPacked = false)
+  ]
+  mut packed: [PackRect] = []
+  ret AtlasBin(
+    width = safeW,
+    height = safeH,
+    paddingGutter = safeG,
+    freeRects = free,
+    packedRects = packed,
+    occupancyRatio = 0.0
+  )
+
+fn minIntPack(a: int, b: int): int:
+  if a < b:
+    ret a
+  ret b
+
+fn maxIntPack(a: int, b: int): int:
+  if a > b:
+    ret a
+  ret b
+
+fn rectsIntersect(a: PackRect, b: PackRect): bool:
+  if a.x >= b.x + b.width or a.x + a.width <= b.x:
+    ret false
+  if a.y >= b.y + b.height or a.y + a.height <= b.y:
+    ret false
+  ret true
+
+fn isContainedIn(a: PackRect, b: PackRect): bool:
+  ret a.x >= b.x and a.y >= b.y and (a.x + a.width <= b.x + b.width) and (a.y + a.height <= b.y + b.height)
+
+pub fn calculateAtlasOccupancy(bin: AtlasBin): float:
+  let totalArea = bin.width * bin.height
+  if totalArea <= 0:
+    ret 0.0
+  mut usedArea = 0
+  mut i = 0
+  while i < bin.packedRects.len:
+    let r = bin.packedRects[i]
+    usedArea = usedArea + (r.width * r.height)
+    i += 1
+  ret float(usedArea) / float(totalArea)
+
+pub fn packRectMaxRects(bin: AtlasBin, rect: PackRect, allowRotation: bool = false): (AtlasBin, Option[PackRect]):
+  let g = bin.paddingGutter
+  let reqW = rect.width + g
+  let reqH = rect.height + g
+
+  mut bestShortSide = 2147483647
+  mut bestLongSide = 2147483647
+  mut bestIdx = -1
+  mut bestRot = false
+  mut bestX = 0
+  mut bestY = 0
+
+  mut i = 0
+  while i < bin.freeRects.len:
+    let fr = bin.freeRects[i]
+    if fr.width >= reqW and fr.height >= reqH:
+      let leftoverH = fr.width - reqW
+      let leftoverV = fr.height - reqH
+      let shortSide = minIntPack(leftoverH, leftoverV)
+      let longSide = maxIntPack(leftoverH, leftoverV)
+      if shortSide < bestShortSide or (shortSide == bestShortSide and longSide < bestLongSide):
+        bestShortSide = shortSide
+        bestLongSide = longSide
+        bestIdx = i
+        bestRot = false
+        bestX = fr.x
+        bestY = fr.y
+    if allowRotation and fr.width >= reqH and fr.height >= reqW:
+      let leftoverH = fr.width - reqH
+      let leftoverV = fr.height - reqW
+      let shortSide = minIntPack(leftoverH, leftoverV)
+      let longSide = maxIntPack(leftoverH, leftoverV)
+      if shortSide < bestShortSide or (shortSide == bestShortSide and longSide < bestLongSide):
+        bestShortSide = shortSide
+        bestLongSide = longSide
+        bestIdx = i
+        bestRot = true
+        bestX = fr.x
+        bestY = fr.y
+    i += 1
+
+  if bestIdx < 0:
+    ret (bin, None)
+
+  let placedW = if bestRot: rect.height else: rect.width
+  let placedH = if bestRot: rect.width else: rect.height
+  let placed = PackRect(
+    id = rect.id,
+    width = placedW,
+    height = placedH,
+    x = bestX,
+    y = bestY,
+    isRotated = bestRot,
+    isPacked = true
+  )
+  let usedBox = PackRect(
+    id = rect.id,
+    width = placedW + g,
+    height = placedH + g,
+    x = bestX,
+    y = bestY,
+    isRotated = bestRot,
+    isPacked = true
+  )
+
+  // Split intersecting free rectangles (MaxRects subdivision)
+  mut nextFree: [PackRect] = []
+  mut fi = 0
+  while fi < bin.freeRects.len:
+    let fr = bin.freeRects[fi]
+    if not rectsIntersect(fr, usedBox):
+      nextFree.push(fr)
+    else:
+      if usedBox.x > fr.x and usedBox.x < fr.x + fr.width:
+        nextFree.push(PackRect(id = 0, width = usedBox.x - fr.x, height = fr.height, x = fr.x, y = fr.y, isRotated = false, isPacked = false))
+      if usedBox.x + usedBox.width < fr.x + fr.width:
+        nextFree.push(PackRect(id = 0, width = (fr.x + fr.width) - (usedBox.x + usedBox.width), height = fr.height, x = usedBox.x + usedBox.width, y = fr.y, isRotated = false, isPacked = false))
+      if usedBox.y > fr.y and usedBox.y < fr.y + fr.height:
+        nextFree.push(PackRect(id = 0, width = fr.width, height = usedBox.y - fr.y, x = fr.x, y = fr.y, isRotated = false, isPacked = false))
+      if usedBox.y + usedBox.height < fr.y + fr.height:
+        nextFree.push(PackRect(id = 0, width = fr.width, height = (fr.y + fr.height) - (usedBox.y + usedBox.height), x = fr.x, y = usedBox.y + usedBox.height, isRotated = false, isPacked = false))
+    fi += 1
+
+  // Prune redundant contained free rectangles
+  mut prunedFree: [PackRect] = []
+  mut aIdx = 0
+  while aIdx < nextFree.len:
+    mut contained = false
+    mut bIdx = 0
+    while bIdx < nextFree.len:
+      if aIdx != bIdx and isContainedIn(nextFree[aIdx], nextFree[bIdx]):
+        contained = true
+      bIdx += 1
+    if not contained:
+      prunedFree.push(nextFree[aIdx])
+    aIdx += 1
+
+  mut nextPacked: [PackRect] = []
+  mut pi = 0
+  while pi < bin.packedRects.len:
+    nextPacked.push(bin.packedRects[pi])
+    pi += 1
+  nextPacked.push(placed)
+
+  let tempBin = AtlasBin(
+    width = bin.width,
+    height = bin.height,
+    paddingGutter = bin.paddingGutter,
+    freeRects = prunedFree,
+    packedRects = nextPacked,
+    occupancyRatio = 0.0
+  )
+  let occ = calculateAtlasOccupancy(tempBin)
+  let finalBin = AtlasBin(
+    width = tempBin.width,
+    height = tempBin.height,
+    paddingGutter = tempBin.paddingGutter,
+    freeRects = tempBin.freeRects,
+    packedRects = tempBin.packedRects,
+    occupancyRatio = occ
+  )
+  ret (finalBin, Some(placed))
+
+pub fn packRectangles(bin: AtlasBin, rects: [PackRect], allowRotation: bool = false): (AtlasBin, [PackRect]):
+  // Sort by area descending
+  mut sorted: [PackRect] = []
+  mut i = 0
+  while i < rects.len:
+    sorted.push(rects[i])
+    i += 1
+  mut a = 0
+  while a < sorted.len:
+    mut b = a + 1
+    while b < sorted.len:
+      let areaA = sorted[a].width * sorted[a].height
+      let areaB = sorted[b].width * sorted[b].height
+      if areaB > areaA:
+        let tmp = sorted[a]
+        sorted[a] = sorted[b]
+        sorted[b] = tmp
+      b += 1
+    a += 1
+
+  mut curBin = bin
+  mut outList: [PackRect] = []
+  mut k = 0
+  while k < sorted.len:
+    let (nextBin, resOpt) = packRectMaxRects(curBin, sorted[k], allowRotation)
+    curBin = nextBin
+    if resOpt.isSome():
+      outList.push(resOpt.unwrap())
+    else:
+      outList.push(sorted[k])
+    k += 1
+  ret (curBin, outList)
+
+pub fn checkBleedGutters(bin: AtlasBin, minGutterPx: int): bool:
+  mut i = 0
+  while i < bin.packedRects.len:
+    let a = bin.packedRects[i]
+    mut j = i + 1
+    while j < bin.packedRects.len:
+      let b = bin.packedRects[j]
+      let sepX = (a.x + a.width + minGutterPx <= b.x) or (b.x + b.width + minGutterPx <= a.x)
+      let sepY = (a.y + a.height + minGutterPx <= b.y) or (b.y + b.height + minGutterPx <= a.y)
+      if not sepX and not sepY:
+        ret false
+      j += 1
+    i += 1
+  ret true

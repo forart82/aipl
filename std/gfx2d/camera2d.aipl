@@ -1,0 +1,714 @@
+module Gfx2dCameraMod
+
+// ============================================================================
+// std/gfx2d/camera2d.aipl — 2D Orthographic Camera, Screen Shake & Game Loop
+// ============================================================================
+
+import { Vec2 } from "../math/vec_math"
+import { Color, rgba, drawRect, drawRectOutline, drawText, drawTextCentered, pushTransform, popTransform, setTargetFps, getFrameTime } from "./shape2d"
+
+pub struct Camera2D(center: Vec2 = Vec2(x = 0.0, y = 0.0), zoom: float = 1.0, rotationRad: float = 0.0, viewportWidth: float = 800.0, viewportHeight: float = 600.0, trauma: float = 0.0, x: float = 0.0, y: float = 0.0, targetX: float = 0.0, targetY: float = 0.0, rotation: float = 0.0, shakeOffsetX: float = 0.0, shakeOffsetY: float = 0.0, viewportW: float = 800.0, viewportH: float = 600.0)
+
+pub struct ViewportBounds2D(minX: float, minY: float, maxX: float, maxY: float)
+
+pub fn createCamera2D(viewportW: float = 800.0, viewportH: float = 600.0, zoom: float = 1.0): Camera2D:
+  let vw = if viewportW > 0.0: viewportW else: 800.0
+  let vh = if viewportH > 0.0: viewportH else: 600.0
+  let z = if zoom > 0.01: zoom else: 1.0
+  ret Camera2D(
+    center = Vec2(x = 0.0, y = 0.0),
+    zoom = z,
+    rotationRad = 0.0,
+    viewportWidth = vw,
+    viewportHeight = vh,
+    trauma = 0.0,
+    x = viewportW,
+    y = viewportH,
+    targetX = viewportW,
+    targetY = viewportH,
+    rotation = 0.0,
+    shakeOffsetX = 0.0,
+    shakeOffsetY = 0.0,
+    viewportW = vw,
+    viewportH = vh
+  )
+
+pub fn camera2DNew(a: float = 800.0, b: float = 600.0, zoom: float = 1.0, viewportW: float = -1.0, viewportH: float = -1.0): Camera2D:
+  if viewportW >= 0.0:
+    let z = maxFloat(0.05, zoom)
+    ret Camera2D(
+      center = Vec2(x = a, y = b),
+      zoom = z,
+      rotationRad = 0.0,
+      viewportWidth = viewportW,
+      viewportHeight = viewportH,
+      trauma = 0.0,
+      x = a,
+      y = b,
+      targetX = a,
+      targetY = b,
+      rotation = 0.0,
+      shakeOffsetX = 0.0,
+      shakeOffsetY = 0.0,
+      viewportW = viewportW,
+      viewportH = viewportH
+    )
+  ret Camera2D(
+    center = Vec2(x = 0.0, y = 0.0),
+    zoom = 1.0,
+    rotationRad = 0.0,
+    viewportWidth = a,
+    viewportHeight = b,
+    trauma = 0.0,
+    x = 0.0,
+    y = 0.0,
+    targetX = 0.0,
+    targetY = 0.0,
+    rotation = 0.0,
+    shakeOffsetX = 0.0,
+    shakeOffsetY = 0.0,
+    viewportW = a,
+    viewportH = b
+  )
+
+pub fn setCameraCenter(cam: Camera2D, center: Vec2): Camera2D:
+  ret Camera2D(
+    center = center,
+    zoom = cam.zoom,
+    rotationRad = cam.rotationRad,
+    viewportWidth = cam.viewportWidth,
+    viewportHeight = cam.viewportHeight,
+    trauma = cam.trauma,
+    x = center.x,
+    y = center.y,
+    targetX = center.x,
+    targetY = center.y,
+    rotation = cam.rotation,
+    shakeOffsetX = cam.shakeOffsetX,
+    shakeOffsetY = cam.shakeOffsetY,
+    viewportW = cam.viewportW,
+    viewportH = cam.viewportH
+  )
+
+pub fn setCameraZoom(cam: Camera2D, zoom: float): Camera2D:
+  let safeZoom = if zoom > 0.01: zoom else: 0.01
+  ret Camera2D(
+    center = cam.center,
+    zoom = safeZoom,
+    rotationRad = cam.rotationRad,
+    viewportWidth = cam.viewportWidth,
+    viewportHeight = cam.viewportHeight,
+    trauma = cam.trauma,
+    x = cam.x,
+    y = cam.y,
+    targetX = cam.targetX,
+    targetY = cam.targetY,
+    rotation = cam.rotation,
+    shakeOffsetX = cam.shakeOffsetX,
+    shakeOffsetY = cam.shakeOffsetY,
+    viewportW = cam.viewportW,
+    viewportH = cam.viewportH
+  )
+
+pub fn addCameraTrauma(cam: Camera2D, amount: float): Camera2D:
+  mut nextT = cam.trauma + amount
+  if nextT < 0.0:
+    nextT = 0.0
+  if nextT > 1.0:
+    nextT = 1.0
+  ret Camera2D(
+    center = cam.center,
+    zoom = cam.zoom,
+    rotationRad = cam.rotationRad,
+    viewportWidth = cam.viewportWidth,
+    viewportHeight = cam.viewportHeight,
+    trauma = nextT,
+    x = cam.x,
+    y = cam.y,
+    targetX = cam.targetX,
+    targetY = cam.targetY,
+    rotation = cam.rotation,
+    shakeOffsetX = cam.shakeOffsetX,
+    shakeOffsetY = cam.shakeOffsetY,
+    viewportW = cam.viewportW,
+    viewportH = cam.viewportH
+  )
+
+pub fn camera2DAddTrauma(cam: Camera2D, amount: float): Camera2D:
+  ret addCameraTrauma(cam, amount)
+
+pub fn updateCameraShake(cam: Camera2D, dt: float, decayRate: float = 1.0): Camera2D:
+  mut nextT = cam.trauma - decayRate * dt
+  if nextT < 0.0:
+    nextT = 0.0
+  let shake = nextT * nextT
+  let maxOff = if decayRate > 2.0: decayRate else: 16.0
+  let ox = (randomFloat() * 2.0 - 1.0) * maxOff * shake
+  let oy = (randomFloat() * 2.0 - 1.0) * maxOff * shake
+  ret Camera2D(
+    center = cam.center,
+    zoom = cam.zoom,
+    rotationRad = cam.rotationRad,
+    viewportWidth = cam.viewportWidth,
+    viewportHeight = cam.viewportHeight,
+    trauma = nextT,
+    x = cam.x,
+    y = cam.y,
+    targetX = cam.targetX,
+    targetY = cam.targetY,
+    rotation = cam.rotation,
+    shakeOffsetX = ox,
+    shakeOffsetY = oy,
+    viewportW = cam.viewportW,
+    viewportH = cam.viewportH
+  )
+
+pub fn computeCameraShakeOffset(cam: Camera2D, seedTime: float, maxAngleRad: float = 0.1, maxOffsetPx: float = 16.0): Vec2:
+  let shake = cam.trauma * cam.trauma
+  let rotSwirl = maxAngleRad * shake * sin(seedTime * 29.13)
+  let nx = sin(seedTime * 43.17 + rotSwirl) * cos(seedTime * 19.31)
+  let ny = cos(seedTime * 37.73 + rotSwirl) * sin(seedTime * 23.11)
+  ret Vec2(
+    x = maxOffsetPx * shake * nx,
+    y = maxOffsetPx * shake * ny
+  )
+
+pub fn worldToScreen2D(cam: Camera2D, worldPt: Vec2): Vec2:
+  let dx = worldPt.x - cam.center.x
+  let dy = worldPt.y - cam.center.y
+  let c = cos(cam.rotationRad)
+  let s = sin(cam.rotationRad)
+  let rx = (dx * c - dy * s) * cam.zoom
+  let ry = (dx * s + dy * c) * cam.zoom
+  ret Vec2(
+    x = rx + cam.viewportWidth * 0.5,
+    y = ry + cam.viewportHeight * 0.5
+  )
+
+pub fn screenToWorld2D(cam: Camera2D, screenPt: Vec2): Vec2:
+  let safeZoom = if cam.zoom > 0.0001: cam.zoom else: 1.0
+  let sx = (screenPt.x - cam.viewportWidth * 0.5) / safeZoom
+  let sy = (screenPt.y - cam.viewportHeight * 0.5) / safeZoom
+  let c = cos(-cam.rotationRad)
+  let s = sin(-cam.rotationRad)
+  let wx = sx * c - sy * s + cam.center.x
+  let wy = sx * s + sy * c + cam.center.y
+  ret Vec2(x = wx, y = wy)
+
+pub fn getCameraVisibleBounds(cam: Camera2D): ViewportBounds2D:
+  let safeZoom = if cam.zoom > 0.0001: cam.zoom else: 1.0
+  let halfW = (cam.viewportWidth * 0.5) / safeZoom
+  let halfH = (cam.viewportHeight * 0.5) / safeZoom
+  ret ViewportBounds2D(
+    minX = cam.center.x - halfW,
+    minY = cam.center.y - halfH,
+    maxX = cam.center.x + halfW,
+    maxY = cam.center.y + halfH
+  )
+
+pub fn camera2DSmoothFollow(cam: Camera2D, targetX: float, targetY: float, stiffness: float, dt: float): Camera2D:
+  let alpha = clampFloat(stiffness * maxFloat(0.0, dt), 0.0, 1.0)
+  let nx = cam.x + (targetX - cam.x) * alpha
+  let ny = cam.y + (targetY - cam.y) * alpha
+  ret Camera2D(
+    center = Vec2(x = nx, y = ny),
+    zoom = cam.zoom,
+    rotationRad = cam.rotationRad,
+    viewportWidth = cam.viewportWidth,
+    viewportHeight = cam.viewportHeight,
+    trauma = cam.trauma,
+    x = nx,
+    y = ny,
+    targetX = targetX,
+    targetY = targetY,
+    rotation = cam.rotation,
+    shakeOffsetX = cam.shakeOffsetX,
+    shakeOffsetY = cam.shakeOffsetY,
+    viewportW = cam.viewportW,
+    viewportH = cam.viewportH
+  )
+
+pub fn camera2DFollow(cam: Camera2D, targetX: float, targetY: float, smoothSpeed: float, dt: float, frameSeed: int): Camera2D:
+  let alpha = if smoothSpeed <= 0.0: 1.0 else: clampFloat(1.0 - exp(-smoothSpeed * maxFloat(0.0, dt)), 0.0, 1.0)
+  let nx = cam.x + (targetX - cam.x) * alpha
+  let ny = cam.y + (targetY - cam.y) * alpha
+  let newTrauma = maxFloat(0.0, cam.trauma - 0.85 * dt)
+  let shakeMag = newTrauma * newTrauma * 14.0
+  let angle = float(frameSeed) * 1.61803398875
+  let ox = cos(angle) * shakeMag
+  let oy = sin(angle * 1.37) * shakeMag
+  ret Camera2D(
+    center = Vec2(x = nx, y = ny),
+    zoom = cam.zoom,
+    rotationRad = cam.rotationRad,
+    viewportWidth = cam.viewportWidth,
+    viewportHeight = cam.viewportHeight,
+    trauma = newTrauma,
+    x = nx,
+    y = ny,
+    targetX = targetX,
+    targetY = targetY,
+    rotation = cam.rotation,
+    shakeOffsetX = ox,
+    shakeOffsetY = oy,
+    viewportW = cam.viewportW,
+    viewportH = cam.viewportH
+  )
+
+pub fn camera2DFollowExact(cam: Camera2D, targetX: float, targetY: float, smoothSpeed: float, dt: float, frameSeed: int): Camera2D:
+  ret camera2DFollow(cam, targetX, targetY, smoothSpeed, dt, frameSeed)
+
+pub fn camera2DWorldToScreenX(cam: Camera2D, wx: float): float:
+  let centerX = cam.viewportW * 0.5
+  ret (wx - (cam.x + cam.shakeOffsetX)) * cam.zoom + centerX
+
+pub fn camera2DWorldToScreenY(cam: Camera2D, wy: float): float:
+  let centerY = cam.viewportH * 0.5
+  ret (wy - (cam.y + cam.shakeOffsetY)) * cam.zoom + centerY
+
+pub fn beginCamera2D(cam: Camera2D):
+  pushMatrix()
+  translate2D(-cam.x + cam.shakeOffsetX, -cam.y + cam.shakeOffsetY)
+  if cam.zoom != 1.0 and cam.zoom > 0.001:
+    scale2D(cam.zoom, cam.zoom)
+  ret
+
+pub fn endCamera2D():
+  popMatrix()
+  ret
+
+fn camEnvStr(key: str, fallback: str): str:
+  let v = getEnv(key)
+  if v.isSome():
+    ret v.unwrap()
+  ret fallback
+
+pub fn beginMode2D(cam: Camera2D): void:
+  let z = maxFloat(0.05, cam.zoom)
+  setEnv("__AIPL_MODE2D_ACTIVE", "1")
+  setEnv("__AIPL_CAM2D_X", str(cam.x))
+  setEnv("__AIPL_CAM2D_Y", str(cam.y))
+  setEnv("__AIPL_CAM2D_ZOOM", str(z))
+  setEnv("__AIPL_CAM2D_ROT", str(cam.rotation))
+  setEnv("__AIPL_CAM2D_VW", str(cam.viewportW))
+  setEnv("__AIPL_CAM2D_VH", str(cam.viewportH))
+  let _t = pushTransform(-cam.x * z + cam.viewportW * 0.5, -cam.y * z + cam.viewportH * 0.5, cam.rotation, z, z)
+  ret
+
+pub fn endMode2D(): void:
+  if camEnvStr("__AIPL_MODE2D_ACTIVE", "0") == "1":
+    popTransform()
+  setEnv("__AIPL_MODE2D_ACTIVE", "0")
+  ret
+
+pub fn isMode2DActive(): bool:
+  ret camEnvStr("__AIPL_MODE2D_ACTIVE", "0") == "1"
+
+pub fn activeCamera2D(): Camera2D:
+  let cx = float(camEnvStr("__AIPL_CAM2D_X", "0.0"))
+  let cy = float(camEnvStr("__AIPL_CAM2D_Y", "0.0"))
+  let cz = float(camEnvStr("__AIPL_CAM2D_ZOOM", "1.0"))
+  let crot = float(camEnvStr("__AIPL_CAM2D_ROT", "0.0"))
+  let cvw = float(camEnvStr("__AIPL_CAM2D_VW", "800.0"))
+  let cvh = float(camEnvStr("__AIPL_CAM2D_VH", "600.0"))
+  ret Camera2D(
+    center = Vec2(x = cx, y = cy),
+    zoom = cz,
+    rotationRad = crot,
+    viewportWidth = cvw,
+    viewportHeight = cvh,
+    trauma = 0.0,
+    x = cx,
+    y = cy,
+    targetX = cx,
+    targetY = cy,
+    rotation = crot,
+    shakeOffsetX = 0.0,
+    shakeOffsetY = 0.0,
+    viewportW = cvw,
+    viewportH = cvh
+  )
+
+// 2D Collision Detection Primitives
+
+pub fn aabbOverlap(x1: float, y1: float, w1: float, h1: float, x2: float, y2: float, w2: float, h2: float): bool:
+  ret x1 < x2 + w2 and x1 + w1 > x2 and y1 < y2 + h2 and y1 + h1 > y2
+
+pub fn circleOverlap(x1: float, y1: float, r1: float, x2: float, y2: float, r2: float): bool:
+  let dx = x2 - x1
+  let dy = y2 - y1
+  let rSum = r1 + r2
+  ret (dx * dx + dy * dy) <= (rSum * rSum)
+
+pub fn circleRectOverlap(cx: float, cy: float, r: float, rx: float, ry: float, rw: float, rh: float): bool:
+  let closestX = clampFloat(cx, rx, rx + rw)
+  let closestY = clampFloat(cy, ry, ry + rh)
+  let dx = cx - closestX
+  let dy = cy - closestY
+  ret (dx * dx + dy * dy) <= (r * r)
+
+pub fn lineCircleOverlap(x1: float, y1: float, x2: float, y2: float, cx: float, cy: float, r: float): bool:
+  let vx = x2 - x1
+  let vy = y2 - y1
+  let wx = cx - x1
+  let wy = cy - y1
+  let lenSq = vx * vx + vy * vy
+  mut t = 0.0
+  if lenSq > 0.000001:
+    t = clampFloat((wx * vx + wy * vy) / lenSq, 0.0, 1.0)
+  let closestX = x1 + t * vx
+  let closestY = y1 + t * vy
+  let dx = cx - closestX
+  let dy = cy - closestY
+  ret (dx * dx + dy * dy) <= (r * r)
+
+// Projectile Aiming & Cooldown / Blink Timers
+
+pub fn aimDirectionX(fromX: float, fromY: float, toX: float, toY: float): float:
+  let dx = toX - fromX
+  let dy = toY - fromY
+  let d = hypot(dx, dy)
+  if d <= 0.0001:
+    ret 1.0
+  ret dx / d
+
+pub fn aimDirectionY(fromX: float, fromY: float, toX: float, toY: float): float:
+  let dx = toX - fromX
+  let dy = toY - fromY
+  let d = hypot(dx, dy)
+  if d <= 0.0001:
+    ret 0.0
+  ret dy / d
+
+pub fn stepTimer(timer: float, dt: float): float:
+  if timer <= dt:
+    ret 0.0
+  ret timer - dt
+
+pub fn isBlinkVisible(timer: float, frequency: float): bool:
+  if timer <= 0.0:
+    ret true
+  let cycle = int(timer * frequency * 2.0)
+  ret (cycle % 2) == 0
+
+// Game HUD & Arcade Visual Widgets
+
+pub fn drawHealthBar(x: float, y: float, w: float, h: float, currentHp: float, maxHp: float, fillColor: Color, bgColor: Color):
+  drawRect(x, y, w, h, bgColor)
+  mut ratio = 0.0
+  if maxHp > 0.0:
+    ratio = clampFloat(currentHp / maxHp, 0.0, 1.0)
+  if ratio > 0.0:
+    drawRect(x + 1.0, y + 1.0, (w - 2.0) * ratio, maxFloat(1.0, h - 2.0), fillColor)
+  drawRectOutline(x, y, w, h, 1.0, rgba(148, 163, 184, 0.6))
+  ret
+
+pub fn drawShieldBar(x: float, y: float, w: float, h: float, currentShield: float, maxShield: float, fillColor: Color, bgColor: Color):
+  drawHealthBar(x, y, w, h, currentShield, maxShield, fillColor, bgColor)
+  ret
+
+pub fn drawBossHealthBar(title: str, x: float, y: float, w: float, h: float, currentHp: float, maxHp: float, fillColor: Color):
+  drawTextCentered(title, x + w * 0.5, y - 16.0, 1.0, rgba(248, 250, 252, 0.95))
+  drawHealthBar(x, y, w, h, currentHp, maxHp, fillColor, rgba(15, 23, 42, 0.92))
+  ret
+
+pub fn drawScoreCounter(label: str, score: int, digits: int, x: float, y: float, size: float, color: Color):
+  let padded = padLeft(str(score), digits, "0")
+  if label.len > 0:
+    drawText("{label} {padded}", x, y, size, color)
+  else:
+    drawText(padded, x, y, size, color)
+  ret
+
+pub fn drawStarfield(time: float, width: float, height: float, count: int, speed: float):
+  mut i = 0
+  while i < count:
+    let fi = float(i)
+    let layer = (i % 3) + 1
+    let fl = float(layer)
+    let baseX = modFloat(fi * 173.37 + fl * 91.1, width)
+    let sy = modFloat(fi * 97.53 + time * speed * fl * 0.45, height)
+    let sx = modFloat(baseX - time * speed * fl * 0.15, width)
+    let sz = float(layer)
+    let alpha = 0.25 + float(layer) * 0.22
+    drawRect(sx, sy, sz, sz, rgba(203, 213, 225, alpha))
+    i += 1
+  ret
+
+// ============================================================================
+// Sprite Sheet & Animation State Machine
+// ============================================================================
+
+pub struct SpriteClip(name: str, startFrame: int, frameCount: int, fps: float, looping: bool)
+
+pub struct SpriteAnimator(currentClip: str, frameIndex: int, timer: float, playing: bool, flipX: bool)
+
+pub fn spriteAnimatorNew(initialClip: str): SpriteAnimator:
+  ret SpriteAnimator(
+    currentClip = initialClip,
+    frameIndex = 0,
+    timer = 0.0,
+    playing = true,
+    flipX = false
+  )
+
+pub fn spriteAnimatorUpdate(anim: SpriteAnimator, clip: SpriteClip, dt: float): SpriteAnimator:
+  mut curClip = anim.currentClip
+  mut curFrame = anim.frameIndex
+  mut curTimer = anim.timer
+  mut isPlaying = anim.playing
+  mut flipX = anim.flipX
+
+  if curClip != clip.name:
+    curClip = clip.name
+    curFrame = 0
+    curTimer = 0.0
+    isPlaying = true
+
+  if not isPlaying or clip.frameCount <= 0 or clip.fps <= 0.0:
+    ret SpriteAnimator(
+      currentClip = curClip,
+      frameIndex = curFrame,
+      timer = curTimer,
+      playing = isPlaying,
+      flipX = flipX
+    )
+
+  let frameDuration = 1.0 / clip.fps
+  curTimer += dt
+  while curTimer >= frameDuration and isPlaying:
+    curTimer -= frameDuration
+    curFrame += 1
+    if curFrame >= clip.frameCount:
+      if clip.looping:
+        curFrame = 0
+      else:
+        curFrame = clip.frameCount - 1
+        isPlaying = false
+        curTimer = 0.0
+
+  ret SpriteAnimator(
+    currentClip = curClip,
+    frameIndex = curFrame,
+    timer = curTimer,
+    playing = isPlaying,
+    flipX = flipX
+  )
+
+// ============================================================================
+// Hit-Stop (Freeze-Frame) & Game Feel Timers (PlatformerFeel)
+// ============================================================================
+
+pub struct PlatformerFeel(coyoteTimer: float, jumpBufferTimer: float, hitStopTimer: float, timeScale: float)
+
+pub fn platformerFeelNew(): PlatformerFeel:
+  ret PlatformerFeel(
+    coyoteTimer = 0.0,
+    jumpBufferTimer = 0.0,
+    hitStopTimer = 0.0,
+    timeScale = 1.0
+  )
+
+pub fn triggerHitStop(feel: PlatformerFeel, durationSec: float): PlatformerFeel:
+  ret PlatformerFeel(
+    coyoteTimer = feel.coyoteTimer,
+    jumpBufferTimer = feel.jumpBufferTimer,
+    hitStopTimer = durationSec,
+    timeScale = 0.0
+  )
+
+pub fn canExecuteJump(feel: PlatformerFeel): bool:
+  ret feel.coyoteTimer > 0.0 and feel.jumpBufferTimer > 0.0
+
+pub fn platformerFeelStep(feel: PlatformerFeel, dt: float, isGrounded: bool, jumpPressed: bool, coyoteDuration: float = 0.15, bufferDuration: float = 0.15): PlatformerFeel:
+  mut hs = feel.hitStopTimer
+  mut ts = feel.timeScale
+  if hs > 0.0:
+    hs = maxFloat(0.0, hs - dt)
+    if hs <= 0.0:
+      ts = 1.0
+    else:
+      ts = 0.0
+
+  mut ct = feel.coyoteTimer
+  if isGrounded:
+    ct = coyoteDuration
+  else:
+    ct = maxFloat(0.0, ct - dt)
+
+  mut jb = feel.jumpBufferTimer
+  if jumpPressed:
+    jb = bufferDuration
+  else:
+    jb = maxFloat(0.0, jb - dt)
+
+  ret PlatformerFeel(
+    coyoteTimer = ct,
+    jumpBufferTimer = jb,
+    hitStopTimer = hs,
+    timeScale = ts
+  )
+
+pub fn platformerFeelConsumeJump(feel: PlatformerFeel): PlatformerFeel:
+  ret PlatformerFeel(
+    coyoteTimer = 0.0,
+    jumpBufferTimer = 0.0,
+    hitStopTimer = feel.hitStopTimer,
+    timeScale = feel.timeScale
+  )
+
+// ============================================================================
+// Wave 10: Configurable Max FPS & Live Frame-Time Telemetry + Genre Math
+// ============================================================================
+
+pub struct FpsTelemetry(maxFps: int, currentFps: int, frameTimeMs: float)
+
+pub fn configureGameMaxFps(maxFps: int): int:
+  let safeMax = if maxFps <= 0: 0 elif maxFps < 15: 15 elif maxFps > 360: 360 else: maxFps
+  setTargetFps(safeMax)
+  ret safeMax
+
+pub fn setGameMaxFps(maxFps: int):
+  let _cap = configureGameMaxFps(maxFps)
+  ret
+
+pub fn getGameFrameTimeMs(): float:
+  let dt = getFrameTime()
+  if dt <= 0.0001:
+    ret 8.333
+  ret dt * 1000.0
+
+pub fn getGameCurrentFps(): int:
+  let dt = getFrameTime()
+  if dt <= 0.0001:
+    ret 120
+  ret int((1.0 / dt) + 0.5)
+
+pub fn sampleFpsTelemetry(maxFps: int): FpsTelemetry:
+  let cur = getGameCurrentFps()
+  let cap = if maxFps > 0: maxFps else: cur
+  ret FpsTelemetry(
+    maxFps = cap,
+    currentFps = cur,
+    frameTimeMs = getGameFrameTimeMs()
+  )
+
+pub fn evaluateEcgWaveform(bpm: float, phaseSec: float, conditionTier: int): float:
+  let safeBpm = clampFloat(bpm, 40.0, 220.0)
+  let period = 60.0 / safeBpm
+  let t = modFloat(maxFloat(0.0, phaseSec), period) / period
+  let ampScale = if conditionTier == 0: 1.0 elif conditionTier == 1: 1.08 elif conditionTier == 2: 1.15 else: 0.90
+  if t >= 0.10 and t < 0.16:
+    ret 0.15 * ampScale
+  if t >= 0.20 and t < 0.24:
+    ret -0.18 * ampScale
+  if t >= 0.24 and t < 0.29:
+    ret 1.00 * ampScale
+  if t >= 0.29 and t < 0.34:
+    ret -0.32 * ampScale
+  if t >= 0.42 and t < 0.50:
+    ret (if conditionTier == 2: -0.20 else: 0.28) * ampScale
+  ret 0.0
+
+/// Computes ballistic vertical projectile height at time `t`.
+pub fn parabolicProjectilePosY(startY: float, vy0: float, gravity: float, t: float): float:
+  ret startY + vy0 * t + 0.5 * gravity * t * t
+
+pub struct FixedStepAccumulator(fixedDt: float, maxFrameDt: float, accumulator: float, stepsToRun: int, alpha: float, totalTicks: int)
+
+pub fn fixedAccumulatorNew(fixedDt: float, maxFrameDt: float): FixedStepAccumulator:
+  let fdt = if fixedDt > 0.0001: fixedDt else: 0.01666667
+  let mdt = if maxFrameDt >= fdt: maxFrameDt else: 0.25
+  ret FixedStepAccumulator(
+    fixedDt = fdt,
+    maxFrameDt = mdt,
+    accumulator = 0.0,
+    stepsToRun = 0,
+    alpha = 0.0,
+    totalTicks = 0
+  )
+
+/// Advances the fixed-timestep accumulator by `rawDeltaSec` (clamped to `maxFrameDt` to prevent
+/// spiral of death) and computes `stepsToRun` and render interpolation `alpha` in `[0.0, 1.0)`.
+pub fn fixedAccumulatorAdvance(acc: FixedStepAccumulator, rawDeltaSec: float): FixedStepAccumulator:
+  let clampedDt = clampFloat(rawDeltaSec, 0.0, acc.maxFrameDt)
+  mut rem = acc.accumulator + clampedDt
+  mut steps = 0
+  while rem >= acc.fixedDt and steps < 32:
+    rem = rem - acc.fixedDt
+    steps = steps + 1
+  let interp = clampFloat(rem / acc.fixedDt, 0.0, 1.0)
+  ret FixedStepAccumulator(
+    fixedDt = acc.fixedDt,
+    maxFrameDt = acc.maxFrameDt,
+    accumulator = rem,
+    stepsToRun = steps,
+    alpha = interp,
+    totalTicks = acc.totalTicks + steps
+  )
+
+pub struct SimClock(tick: int, fixedDt: float, simTimeSec: float, wallTimeSec: float, timeScale: float, paused: bool)
+
+pub fn simClockNew(fixedDt: float): SimClock:
+  let fdt = if fixedDt > 0.0001: fixedDt else: 0.01666667
+  ret SimClock(
+    tick = 0,
+    fixedDt = fdt,
+    simTimeSec = 0.0,
+    wallTimeSec = 0.0,
+    timeScale = 1.0,
+    paused = false
+  )
+
+pub fn simClockBeginFrame(clock: SimClock, rawDeltaSec: float, stepsExecuted: int): SimClock:
+  let dt = if rawDeltaSec > 0.0: rawDeltaSec else: 0.0
+  let s = if clock.paused or stepsExecuted <= 0: 0 else: stepsExecuted
+  ret SimClock(
+    tick = clock.tick + s,
+    fixedDt = clock.fixedDt,
+    simTimeSec = clock.simTimeSec + float(s) * clock.fixedDt * clock.timeScale,
+    wallTimeSec = clock.wallTimeSec + dt,
+    timeScale = clock.timeScale,
+    paused = clock.paused
+  )
+
+pub struct SceneStack(scenes: [str])
+
+pub fn sceneStackNew(initialScene: str = "boot"): SceneStack:
+  mut s: [str] = []
+  if initialScene != "":
+    s.push(initialScene)
+  ret SceneStack(scenes = s)
+
+pub fn sceneStackPush(mut stack: SceneStack, sceneName: str): SceneStack:
+  stack.scenes.push(sceneName)
+  ret stack
+
+pub fn sceneStackPop(mut stack: SceneStack): SceneStack:
+  if stack.scenes.len() > 0:
+    let _popped = stack.scenes.pop()
+  ret stack
+
+pub fn sceneStackTop(stack: SceneStack): str:
+  if stack.scenes.len() == 0:
+    ret ""
+  ret stack.scenes[stack.scenes.len() - 1]
+
+pub struct ReplayBuffer(ticks: [int], inputs: [int], stateHashes: [int])
+
+pub fn replayBufferNew(): ReplayBuffer:
+  let t: [int] = []
+  let inp: [int] = []
+  let h: [int] = []
+  ret ReplayBuffer(ticks = t, inputs = inp, stateHashes = h)
+
+pub fn replayBufferRecord(mut buf: ReplayBuffer, tick: int, inputMask: int, stateHash: int): ReplayBuffer:
+  buf.ticks.push(tick)
+  buf.inputs.push(inputMask)
+  buf.stateHashes.push(stateHash)
+  ret buf
+
+pub fn replayBufferSampleInput(buf: ReplayBuffer, index: int): int:
+  if index < 0 or index >= buf.inputs.len():
+    ret 0
+  ret buf.inputs[index]

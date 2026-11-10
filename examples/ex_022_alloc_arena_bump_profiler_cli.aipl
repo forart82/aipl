@@ -1,0 +1,76 @@
+// ============================================================================
+// Example 022: Arena Bump Allocator & Scoped Checkpoint Profiler (CLI)
+// Demonstrates: arenaScopeBegin, arenaScopeEnd, arenaAlloc, arenaAllocatedBytes,
+//               arenaActiveDepth, arenaAllocStrIn, arenaMark, arenaPopEvacuate,
+//               arenaReset, and arenaStatsStruct from std/alloc/arena.
+// ============================================================================
+module Ex022AllocArenaBumpProfilerCli
+
+import { maxInt } from "../std/prelude"
+import {
+  arenaMark,
+  arenaReset,
+  arenaAlloc,
+  arenaAllocatedBytes,
+  arenaActiveDepth,
+  arenaPopEvacuate,
+  arenaStatsStruct,
+  arenaScopeBegin,
+  arenaScopeEnd,
+  arenaAllocStrIn
+} from "../std/alloc/arena"
+
+pub fn computeArenaBumpOffset(currentOffset: int, allocBytes: int): int:
+  let alignedBytes = ((allocBytes + 7) / 8) * 8
+  ret currentOffset + alignedBytes
+
+pub fn computeArenaRemainingBytes(capacityBytes: int, usedBytes: int): int:
+  ret maxInt(capacityBytes - usedBytes, 0)
+
+pub fn classifyArenaPressure(usedPct: int): str:
+  if usedPct >= 95:
+    ret "ARENA:CRITICAL_SPILL"
+  if usedPct >= 75:
+    ret "ARENA:HIGH_WATER_WARNING"
+  ret "ARENA:NOMINAL"
+
+pub fn profileNestedArenaScopes(outerBytes: int, innerBytes: int): int:
+  let baseBytes = arenaAllocatedBytes()
+  let outerScope = arenaScopeBegin()
+  let _ = arenaAlloc(outerBytes)
+
+  let innerScope = arenaScopeBegin()
+  let _ = arenaAlloc(innerBytes)
+  let peakDelta = arenaAllocatedBytes() - baseBytes
+  let tag = arenaAllocStrIn(innerScope, "frame_scratch")
+  let depthAtPeak = arenaActiveDepth()
+
+  let _ = arenaScopeEnd(innerScope)
+  let _ = arenaScopeEnd(outerScope)
+  let afterBytes = arenaAllocatedBytes()
+
+  if tag == "frame_scratch" and depthAtPeak >= 0 and afterBytes == baseBytes:
+    ret peakDelta
+  ret -1
+
+pub fn profileArenaMarkEvacuation(tempBytes: int, resultValue: int): int:
+  let mark = arenaMark()
+  let _ = arenaAlloc(tempBytes)
+  let st = arenaStatsStruct()
+  let evacuated = arenaPopEvacuate(mark, resultValue)
+  let _ = arenaReset(mark)
+  if st.allocatedBytes >= 0:
+    ret evacuated
+  ret -1
+
+pub fn main(): int:
+  let bump = computeArenaBumpOffset(128, 20)
+  let rem = computeArenaRemainingBytes(4096, 1024)
+  let status = classifyArenaPressure(25)
+  let peak = profileNestedArenaScopes(512, 1024)
+  let evac = profileArenaMarkEvacuation(256, 4242)
+  println("Arena Bump Offset (128 + 20 aligned): " + str(bump))
+  println("Arena Remaining (4096 - 1024): " + str(rem))
+  println("Nested Scope Peak Delta: " + str(peak) + " bytes | Evacuated: " + str(evac))
+  println("Pressure Status: " + status)
+  ret 0

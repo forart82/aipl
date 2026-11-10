@@ -1,0 +1,115 @@
+// ============================================================================
+// Step 21.1: Exhaustive Per-Function Unit Tests for std/sys/sys_android.aipl
+// Target: tests/functions/sys/sys_android_test.aipl
+// ============================================================================
+module tests.functions.sys.sys_android_test
+
+import {
+  assert,
+  assertEqInt,
+  assertEqStr
+} from "std/prelude"
+
+import {
+  APP_CMD_INIT_WINDOW,
+  APP_CMD_TERM_WINDOW,
+  APP_CMD_GAINED_FOCUS,
+  APP_CMD_LOST_FOCUS,
+  APP_CMD_CONFIG_CHANGED,
+  WINDOW_FORMAT_RGBA_8888,
+  JNI_VERSION_1_6,
+  MIN_ANDROID_NDK_API,
+  AndroidLifecycleState,
+  AndroidSurfaceDesc,
+  AndroidSafeAreaInsets,
+  AndroidJniBridgeDesc,
+  createAndroidLifecycleState,
+  stepAndroidLifecycleCmd,
+  createAndroidSurfaceDesc,
+  computeAndroidSafeAreaInsets,
+  createAndroidJniBridgeDesc
+} from "std/sys/sys_android"
+
+pub fn test_sys_android_stepAndroidLifecycleCmd(): int:
+  let s0 = createAndroidLifecycleState()
+  assert(s0.isAnimating == false, "initial state not animating")
+  let s_unready = stepAndroidLifecycleCmd(s0, APP_CMD_GAINED_FOCUS)
+  assert(s_unready.hasFocus == true, "hasFocus true after GAINED_FOCUS")
+  assert(s_unready.isAnimating == false, "isAnimating false if windowReady is false")
+  let s1 = stepAndroidLifecycleCmd(s0, APP_CMD_INIT_WINDOW)
+  assert(s1.windowReady == true, "windowReady after INIT_WINDOW")
+  assert(s1.isAnimating == false, "not animating before GAINED_FOCUS")
+  let s2 = stepAndroidLifecycleCmd(s1, APP_CMD_GAINED_FOCUS)
+  assert(s2.hasFocus == true, "hasFocus after GAINED_FOCUS")
+  assert(s2.isAnimating == true, "isAnimating when windowReady and hasFocus")
+  let s3 = stepAndroidLifecycleCmd(s2, APP_CMD_CONFIG_CHANGED)
+  assertEqInt(s3.configGeneration, 1, "configGeneration incremented to 1")
+  assertEqInt(s3.lastCmd, 8, "lastCmd == 8")
+  let s4 = stepAndroidLifecycleCmd(s3, APP_CMD_LOST_FOCUS)
+  assert(s4.isAnimating == false, "isAnimating paused on LOST_FOCUS")
+  let s5 = stepAndroidLifecycleCmd(s4, APP_CMD_TERM_WINDOW)
+  assert(s5.windowReady == false, "windowReady cleared on TERM_WINDOW")
+  let sEdge = stepAndroidLifecycleCmd(s5, 0)
+  assertEqInt(sEdge.lastCmd, 0, "boundary no-op cmd 0 recorded")
+  ret 0
+
+pub fn test_sys_android_createAndroidSurfaceDesc(): int:
+  let surf = createAndroidSurfaceDesc(1001, 1080, 2400, 0, 420, 120)
+  assert(surf.isValid == true, "valid ANativeWindow surface")
+  assertEqInt(surf.widthPx, 1080, "widthPx == 1080")
+  assertEqInt(surf.heightPx, 2400, "heightPx == 2400")
+  assertEqInt(surf.stridePixels, 1088, "1080 aligned to 16-pixel stride 1088")
+  assertEqInt(surf.formatRgba8888, 1, "WINDOW_FORMAT_RGBA_8888 == 1")
+  assertEqInt(surf.refreshRateHz, 120, "120Hz display refresh")
+  let bad = createAndroidSurfaceDesc(0, 1080, 2400, 1080, 420, 60)
+  assert(bad.isValid == false, "null windowHandle rejected")
+  assertEqInt(bad.stridePixels, 0, "invalid surface stride == 0")
+  let badH = createAndroidSurfaceDesc(1001, 1080, 0, 1080, 420, 60)
+  assert(badH.isValid == false, "zero height rejected")
+  let badDpi = createAndroidSurfaceDesc(1001, 1080, 2400, 1080, 0, 60)
+  assertEqInt(badDpi.densityDpi, 420, "low dpi clamped to default 420")
+  let lowHz = createAndroidSurfaceDesc(1001, 1080, 2400, 1080, 420, 15)
+  assertEqInt(lowHz.refreshRateHz, 60, "low refresh rate clamped to default 60Hz")
+  ret 0
+
+pub fn test_sys_android_computeAndroidSafeAreaInsets(): int:
+  let ins = computeAndroidSafeAreaInsets(1080, 2400, 88, 64, 0, 0)
+  assertEqInt(ins.topPx, 88, "punch-hole camera top inset == 88")
+  assertEqInt(ins.bottomPx, 64, "gesture pill bottom inset == 64")
+  assertEqInt(ins.usableWidthPx, 1080, "usableWidthPx == 1080")
+  assertEqInt(ins.usableHeightPx, 2248, "2400 - 88 - 64 == 2248")
+  let neg = computeAndroidSafeAreaInsets(1080, 2400, -12, -5, -8, -4)
+  assertEqInt(neg.topPx, 0, "negative top inset clamped to 0")
+  assertEqInt(neg.usableHeightPx, 2400, "full height when insets clamped to 0")
+  let zeroSurf = computeAndroidSafeAreaInsets(0, 0, 50, 50, 10, 10)
+  assertEqInt(zeroSurf.usableWidthPx, 0, "zero surface width clamped to 0")
+  assertEqInt(zeroSurf.usableHeightPx, 0, "zero surface height clamped to 0")
+  let excess = computeAndroidSafeAreaInsets(100, 100, 80, 80, 60, 60)
+  assertEqInt(excess.usableWidthPx, 0, "excess horizontal insets clamped to 0")
+  assertEqInt(excess.usableHeightPx, 0, "excess vertical insets clamped to 0")
+  ret 0
+
+pub fn test_sys_android_createAndroidJniBridgeDesc(): int:
+  let okDesc = createAndroidJniBridgeDesc(65542, 34, "com.aipl.runtime", "/data/user/0/com.aipl.runtime/files", true)
+  assert(okDesc.bridgeValid == true, "API 34 JNI 1.6 bridge valid")
+  assertEqInt(okDesc.jniVersion, 65542, "JNI_VERSION_1_6 == 65542")
+  assertEqStr(okDesc.packageName, "com.aipl.runtime", "packageName preserved")
+  let oldApi = createAndroidJniBridgeDesc(65542, 24, "com.aipl.runtime", "/data/user/0/com.aipl.runtime/files", true)
+  assert(oldApi.bridgeValid == false, "API 24 < 29 rejected")
+  let emptyPkg = createAndroidJniBridgeDesc(65542, 34, "", "/data/user/0/files", true)
+  assert(emptyPkg.bridgeValid == false, "empty packageName rejected")
+  let relPath = createAndroidJniBridgeDesc(65542, 34, "com.aipl.runtime", "files", true)
+  assert(relPath.bridgeValid == false, "relative internalDataPath rejected")
+  let noAsset = createAndroidJniBridgeDesc(65542, 34, "com.aipl.runtime", "/data/files", false)
+  assert(noAsset.bridgeValid == false, "missing asset manager rejected")
+  let badJni = createAndroidJniBridgeDesc(65540, 34, "com.aipl.runtime", "/data/files", true)
+  assert(badJni.bridgeValid == false, "non-1.6 JNI version rejected")
+  ret 0
+
+pub fn main(): int:
+  test_sys_android_stepAndroidLifecycleCmd()
+  test_sys_android_createAndroidSurfaceDesc()
+  test_sys_android_computeAndroidSafeAreaInsets()
+  test_sys_android_createAndroidJniBridgeDesc()
+  println("PASS: tests/functions/sys/sys_android_test.aipl")
+  ret 0

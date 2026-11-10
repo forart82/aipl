@@ -1,0 +1,62 @@
+module Ex193UiWidgetRetainedFormsAndTabsWindowTest
+
+import {
+  buildUiWidgetFormsAudit, stepSliderMouseSimX, stepTextInputCycle
+} from "../../examples/ex_193_ui_widget_retained_forms_and_tabs_window"
+import { Vec2 } from "../../std/math/vec_math"
+import { Rect } from "../../std/math/geom2d"
+import {
+  ButtonWidget, SliderWidget, TextInputWidget,
+  updateButton, updateSlider, handleTextInputKey
+} from "../../std/ui/ui_widget"
+
+pub fn test_ui_widget_retained_forms_and_tabs(): void:
+  let btn = ButtonWidget(
+    label = "Submit",
+    bounds = Rect(x = 10.0, y = 10.0, w = 80.0, h = 30.0),
+    isHovered = false,
+    isPressed = false,
+    isFocused = false,
+    isEnabled = true
+  )
+  let btnPressed = updateButton(btn, Vec2(x = 20.0, y = 20.0), true)
+  assert(btnPressed.isHovered and btnPressed.isPressed and btnPressed.isFocused, "updateButton detects hover and press")
+
+  let slider = SliderWidget(
+    value = 0.0,
+    minValue = 0.0,
+    maxValue = 100.0,
+    step = 10.0,
+    bounds = Rect(x = 0.0, y = 0.0, w = 200.0, h = 20.0)
+  )
+  let sliderUpdated = updateSlider(slider, Vec2(x = 100.0, y = 10.0), true)
+  assert(sliderUpdated.value == 50.0, "updateSlider snaps to midpoint 50.0")
+
+  let inp = TextInputWidget(
+    content = "ai",
+    cursorIndex = 2,
+    selectionStart = 2,
+    selectionEnd = 2,
+    placeholder = "Type...",
+    isFocused = true
+  )
+  let inp2 = handleTextInputKey(inp, 112, false, false)
+  let inp3 = handleTextInputKey(inp2, 108, false, false)
+  assert(inp3.content == "aipl" and inp3.cursorIndex == 4, "handleTextInputKey inserts 'p' and 'l'")
+  assert(buildUiWidgetFormsAudit() == 56, "buildUiWidgetFormsAudit returns 50 + 4 + 2 == 56")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let mx0 = stepSliderMouseSimX(0)
+  let mx1 = stepSliderMouseSimX(1)
+  let mx20 = stepSliderMouseSimX(20)
+  let mx100 = stepSliderMouseSimX(100)
+  assert(mx0 != mx1 and mx1 != mx20 and mx20 != mx100, "Simulated slider mouse X progresses across t=0, 1, 20, 100")
+  let t0 = stepTextInputCycle(inp, 0)
+  let t20 = stepTextInputCycle(t0, 20)
+  let t100 = stepTextInputCycle(t20, 100)
+  assert(t20.content.len() != t0.content.len() or t100.content.len() != t20.content.len(), "Text input cycle edits content across frames")
+
+pub fn main(): int:
+  test_ui_widget_retained_forms_and_tabs()
+  println("PASS: ex_193_ui_widget_retained_forms_and_tabs_window_test")
+  ret 0

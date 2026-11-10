@@ -1,0 +1,134 @@
+// ============================================================================
+// Canonical Example 251: Desktop System Monitor Dashboard (WINDOW - X11 MIT-SHM)
+// Target Profile: WINDOW (Normal Desktop App) | Mode: setWindowMode("x11")
+// ============================================================================
+module Ex251DesktopSystemMonitorDashboardWindow
+
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  setWindowMode,
+  getWindowMode,
+  drawRect,
+  drawRectOutline,
+  drawRoundedRect,
+  drawCircle,
+  drawEllipse,
+  drawLine,
+  drawText,
+  pushScissor,
+  popScissor,
+  getPixel,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn computeCpuLoadPermille(coreIdx: int, frameIndex: int): int:
+  let base = 240 + ((coreIdx * 137 + frameIndex * 19) % 620)
+  ret clampInt(base, 50, 980)
+
+pub fn computeMemoryUsedMb(totalMb: int, frameIndex: int): int:
+  let safeTotal = maxInt(1024, totalMb)
+  let wave = ((frameIndex * 23) % 1800) - 900
+  ret clampInt((safeTotal * 58) / 100 + wave, 512, safeTotal - 256)
+
+pub fn describeDesktopWindowBackend(): str:
+  setWindowMode("x11")
+  ret "DESKTOP_UI:" + getWindowMode() + ":MIT_SHM_SOFTWARE"
+
+pub fn renderSystemMonitorDashboardScene(frameIndex: int): int:
+  clearScreen(rgb(12, 16, 26))
+  drawRect(24.0, 18.0, 1232.0, 52.0, rgb(20, 29, 48))
+  drawRectOutline(24.0, 18.0, 1232.0, 52.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_251 // DESKTOP SYSTEM TELEMETRY & LOG INSPECTOR (X11 MIT-SHM MODE)", 44.0, 36.0, 19.0, rgb(240, 249, 255))
+
+  // Left Panel: 8-Core CPU Load Bars & Sparkline History
+  let lx = 24.0
+  let ly = 86.0
+  let lw = 596.0
+  let lh = 340.0
+  drawRoundedRect(lx, ly, lw, lh, 8.0, rgb(16, 23, 38))
+  drawRectOutline(lx, ly, lw, lh, 1.5, rgb(51, 65, 85))
+  drawText("CPU CORE UTILIZATION & REAL-TIME SPARKLINE", lx + 20.0, ly + 18.0, 15.0, rgb(56, 189, 248))
+
+  mut sumLoad = 0
+  mut c = 0
+  while c < 8:
+    let loadPm = computeCpuLoadPermille(c, frameIndex)
+    sumLoad = sumLoad + loadPm
+    let cy = ly + 52.0 + float(c * 32)
+    drawText("Core #" + str(c), lx + 20.0, cy + 4.0, 13.0, rgb(203, 213, 225))
+    drawRect(lx + 100.0, cy, 380.0, 18.0, rgb(30, 41, 59))
+    let barW = (380.0 * float(loadPm)) / 1000.0
+    let col = if loadPm > 800: rgb(244, 63, 94) else: (if loadPm > 550: rgb(250, 204, 21) else: rgb(34, 197, 94))
+    drawRect(lx + 100.0, cy, barW, 18.0, col)
+    drawText(str(loadPm / 10) + "%", lx + 494.0, cy + 3.0, 13.0, rgb(240, 249, 255))
+    c = c + 1
+
+  // Right Panel: Memory & Network Sparkline Graph
+  let rx = 640.0
+  let ry = 86.0
+  let rw = 616.0
+  let rh = 340.0
+  drawRoundedRect(rx, ry, rw, rh, 8.0, rgb(16, 23, 38))
+  drawRectOutline(rx, ry, rw, rh, 1.5, rgb(51, 65, 85))
+  let usedMb = computeMemoryUsedMb(32768, frameIndex)
+  drawText("MEMORY ALLOCATION & NETWORK THROUGHPUT (" + str(usedMb) + " / 32768 MB)", rx + 20.0, ry + 18.0, 15.0, rgb(168, 85, 247))
+
+  mut s = 0
+  while s < 24:
+    let p1 = computeCpuLoadPermille(s % 8, frameIndex + s)
+    let p2 = computeCpuLoadPermille((s + 1) % 8, frameIndex + s + 1)
+    let x1 = rx + 28.0 + float(s * 24)
+    let y1 = ry + 290.0 - (float(p1) * 0.22)
+    let x2 = rx + 28.0 + float((s + 1) * 24)
+    let y2 = ry + 290.0 - (float(p2) * 0.22)
+    drawLine(x1, y1, x2, y2, rgb(56, 189, 248), 2.5)
+    drawEllipse(x1, y1, 4.0, 4.0, rgb(125, 211, 252))
+    s = s + 1
+
+  // Bottom Panel: Scissor-Clipped Process & Kernel Log Table
+  let bx = 24.0
+  let by = 444.0
+  let bw = 1232.0
+  let bh = 250.0
+  drawRect(bx, by, bw, bh, rgb(15, 21, 35))
+  drawRectOutline(bx, by, bw, bh, 1.5, rgb(56, 189, 248))
+  drawText("SCISSOR-CLIPPED LIVE KERNEL & SERVICE TELEMETRY STREAM", bx + 20.0, by + 16.0, 15.0, rgb(74, 222, 128))
+
+  pushScissor(bx + 12.0, by + 44.0, bw - 24.0, bh - 56.0)
+  mut row = 0
+  while row < 6:
+    let ryRow = by + 50.0 + float(row * 30)
+    let rowBg = if row % 2 == 0: rgb(20, 29, 48) else: rgb(16, 23, 38)
+    drawRect(bx + 16.0, ryRow, bw - 32.0, 26.0, rowBg)
+    drawCircle(bx + 32.0, ryRow + 13.0, 5.0, rgb(34, 197, 94))
+    let seq = frameIndex * 6 + row + 1000
+    drawText("[SEQ #" + str(seq) + "] systemd-journald: XShmPutImage zero-copy desktop frame committed", bx + 48.0, ryRow + 6.0, 13.0, rgb(226, 232, 240))
+    row = row + 1
+  popScissor()
+
+  ret sumLoad + usedMb
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  setWindowMode("x11")
+  let metric = renderSystemMonitorDashboardScene(frameIndex)
+  let px = getPixel(40, 30)
+  ret metric + (if px != 0: 1 else: 0) + int(dt * 0.0)
+
+pub fn main(): int:
+  setWindowMode("x11")
+  assert(getWindowMode() == "x11", "Desktop monitor uses x11 window mode")
+  initWindow(1280, 720, "AIPL ex_251 - Desktop System Monitor Dashboard (X11 MIT-SHM)")
+  mut frame: int = 0
+  while not windowShouldClose():
+    beginDrawing()
+    let _ = renderSystemMonitorDashboardScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

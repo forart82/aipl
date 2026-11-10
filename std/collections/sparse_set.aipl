@@ -1,0 +1,96 @@
+// ============================================================================
+// Module: std/collections/sparse_set (SparseSet)
+// Layer 1 (Core Primitives & Math) — O(1) Packed Dense-Sparse Index Container
+// ============================================================================
+module SparseSetMod
+
+pub struct SparseSet[T]:
+  dense: [int]
+  sparse: [int]
+  values: [T]
+  count: int
+
+pub fn sparseSetNew[T](maxIndex: int): SparseSet[T]:
+  mut cap = maxIndex
+  if cap < 16:
+    cap = 16
+  let d: [int] = []
+  mut s: [int] = []
+  for i in 0..(cap + 1):
+    s.push(-1)
+  let v: [T] = []
+  ret SparseSet(dense = d, sparse = s, values = v, count = 0)
+
+pub fn (self: SparseSet[T]) contains(id: int): bool:
+  if id < 0 or id >= self.sparse.len:
+    ret false
+  let denseIdx = self.sparse[id]
+  if denseIdx < 0 or denseIdx >= self.count:
+    ret false
+  ret self.dense[denseIdx] == id
+
+pub fn (mut self: SparseSet[T]) insert(id: int, val: T): bool:
+  if id < 0:
+    ret false
+  while id >= self.sparse.len:
+    self.sparse.push(-1)
+  if self.contains(id):
+    let existingDense = self.sparse[id]
+    self.values[existingDense] = val
+    ret false
+  let denseIdx = self.count
+  if denseIdx < self.dense.len:
+    self.dense[denseIdx] = id
+    self.values[denseIdx] = val
+  else:
+    self.dense.push(id)
+    self.values.push(val)
+  self.sparse[id] = denseIdx
+  self.count = self.count + 1
+  ret true
+
+pub fn (mut self: SparseSet[T]) remove(id: int): bool:
+  if not self.contains(id):
+    ret false
+  let denseIdx = self.sparse[id]
+  let lastDenseIdx = self.count - 1
+  if denseIdx != lastDenseIdx:
+    let lastId = self.dense[lastDenseIdx]
+    let lastVal = self.values[lastDenseIdx]
+    self.dense[denseIdx] = lastId
+    self.values[denseIdx] = lastVal
+    self.sparse[lastId] = denseIdx
+  self.sparse[id] = -1
+  self.count = self.count - 1
+  ret true
+
+pub fn (self: SparseSet[T]) get(id: int): Option[T]:
+  if not self.contains(id):
+    ret None
+  let denseIdx = self.sparse[id]
+  ret Some(self.values[denseIdx])
+
+pub fn (self: SparseSet[T]) len(): int:
+  ret self.count
+
+pub fn (self: SparseSet[T]) isEmpty(): bool:
+  ret self.count == 0
+
+pub fn (mut self: SparseSet[T]) clear(): void:
+  for i in 0..self.count:
+    let id = self.dense[i]
+    if id >= 0 and id < self.sparse.len:
+      self.sparse[id] = -1
+  self.count = 0
+
+pub fn (self: SparseSet[T]) ids(): [int]:
+  mut out: [int] = []
+  for i in 0..self.count:
+    out.push(self.dense[i])
+  ret out
+
+pub fn (self: SparseSet[T]) denseValues(): [T]:
+  mut out: [T] = []
+  for i in 0..self.count:
+    out.push(self.values[i])
+  ret out

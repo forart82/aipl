@@ -1,0 +1,66 @@
+// ============================================================================
+// Example 079: Bincode Binary Wire Packet & BitStream Serializer (CLI)
+// Demonstrates: bincodeWriterNew, bincodeReaderNew, bitStreamNew,
+//               bitStreamWriteBits, bitStreamBitCount, bitStreamToBytes,
+//               bincodePackIntArray, and bincodeUnpackIntArray from std/encoding.
+// ============================================================================
+module Ex079EncodingBincodeWirePacketCli
+
+import {
+  bincodeWriterNew,
+  bincodeReaderNew,
+  bitStreamNew,
+  bitStreamWriteBits,
+  bitStreamBitCount,
+  bitStreamToBytes,
+  bincodePackIntArray,
+  bincodeUnpackIntArray
+} from "../std/encoding"
+
+// Serializes and deserializes a binary wire packet containing u8, i32, i64, f64, varInt, and string fields.
+pub fn roundTripBincodeWirePacketSum(): int:
+  mut w = bincodeWriterNew(64, true)
+  w.writeU8(250)
+  w.writeI32(-123456)
+  w.writeI64(9876543210)
+  w.writeF64(3.25)
+  w.writeVarInt(300)
+  w.writeString("wire-test")
+  let wireBuf = w.toBytes()
+
+  mut r = bincodeReaderNew(wireBuf, true)
+  let u8Val = r.readU8().unwrap()
+  let i32Val = r.readI32().unwrap()
+  let i64Val = r.readI64().unwrap()
+  let f64Val = r.readF64().unwrap()
+  let varVal = r.readVarInt().unwrap()
+  let strVal = r.readString().unwrap()
+  assert(i32Val == -123456 and i64Val == 9876543210 and f64Val == 3.25 and strVal == "wire-test", "wire fields exact")
+  ret u8Val + varVal
+
+// Exercises nibble packing via BitStream and integer array packing via bincodePackIntArray.
+pub fn verifyBitStreamAndIntArrayPack(): int:
+  mut bs = bitStreamNew()
+  bs = bitStreamWriteBits(bs, 5, 4)
+  bs = bitStreamWriteBits(bs, 10, 4)
+  let countBits = bitStreamBitCount(bs)
+  let rawBytes = bitStreamToBytes(bs)
+
+  let packed = bincodePackIntArray([11, 22, 33])
+  let unpacked = bincodeUnpackIntArray(packed).unwrap()
+  if countBits == 8 and rawBytes.len() == 1 and rawBytes[0] == 90 and unpacked.len == 3 and unpacked[1] == 22:
+    ret 1
+  ret 0
+
+// Returns a canonical label for the active Bincode byte-order and varint encoding.
+pub fn describeBincodeEndianMode(littleEndian: bool): str:
+  if littleEndian:
+    ret "BINCODE:LITTLE_ENDIAN_LEB128"
+  ret "BINCODE:BIG_ENDIAN_NETWORK"
+
+pub fn main(): int:
+  let pktSum = roundTripBincodeWirePacketSum()
+  let packOk = verifyBitStreamAndIntArrayPack()
+  let mode = describeBincodeEndianMode(true)
+  println("ex_079_encoding_bincode_wire_packet_cli: pktSum=" + str(pktSum) + " packOk=" + str(packOk) + " mode=" + mode)
+  ret 0

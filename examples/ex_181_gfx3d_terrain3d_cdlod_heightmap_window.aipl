@@ -1,0 +1,167 @@
+module Ex181Gfx3dTerrain3dCdlodHeightmapWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import {
+  TerrainHeightfield, sampleHeightAt,
+  computeTerrainNormal, computeTriplanarWeights
+} from "../std/gfx3d/terrain3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn stepTerrainZSlice(frame: int): float:
+  ret 2.0 + sin(float(frame) * 0.053) * 1.45
+
+pub fn buildTerrain3dCdlodAudit(): int:
+  let hf = TerrainHeightfield(
+    width = 3,
+    depth = 3,
+    heightValues = [
+      0.0, 1.0, 2.0,
+      0.0, 1.0, 2.0,
+      0.0, 1.0, 2.0
+    ],
+    heightScale = 10.0,
+    horizontalScale = 1.0
+  )
+  let hMid = sampleHeightAt(hf, 0.5, 1.0)
+  let wFlat = computeTriplanarWeights(Vec3(x = 0.0, y = 1.0, z = 0.0), 4.0)
+  let wSlope = computeTriplanarWeights(Vec3(x = 0.7071, y = 0.7071, z = 0.0), 4.0)
+  ret int(hMid * 10.0 + 0.5) + int(wFlat.y * 100.0 + 0.5) + int(wSlope.x * 100.0 + 0.5)
+
+pub fn main(): int:
+  let hf = TerrainHeightfield(
+    width = 5,
+    depth = 5,
+    heightValues = [
+      0.1, 0.3, 0.7, 0.9, 0.4,
+      0.2, 0.5, 1.0, 1.2, 0.6,
+      0.3, 0.8, 1.6, 1.4, 0.7,
+      0.2, 0.6, 1.1, 0.9, 0.5,
+      0.1, 0.3, 0.5, 0.4, 0.2
+    ],
+    heightScale = 2.5,
+    horizontalScale = 1.0
+  )
+  let peakNorm = computeTerrainNormal(hf, 2, 2)
+  let audit = buildTerrain3dCdlodAudit()
+
+  initWindow(1280, 720, "AIPL ex_181: 3D CDLOD Terrain Heightfield & Triplanar Splatting")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let zSlice = stepTerrainZSlice(frame)
+    let probeX = 1 + (frame / 11) % 3
+    let probeZ = 1 + (frame / 17) % 3
+    let slopeNorm = computeTerrainNormal(hf, probeX, probeZ)
+    let sharpness = 3.2 + cos(float(frame) * 0.041) * 1.4
+    let wSlope = computeTriplanarWeights(slopeNorm, sharpness)
+
+    beginDrawing()
+    clearScreen(rgb(11, 15, 25))
+
+    drawText("EX_181: 3D CDLOD TERRAIN HEIGHTFIELD & TRIPLANAR TEXTURE SPLATTING", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/terrain3d: sampleHeightAt | computeTerrainNormal | computeTriplanarWeights | Audit=" + str(audit), 40.0, 58.0, 15.0, rgb(148, 163, 184))
+
+    // Left Panel: Bilinearly Sampled Ridge Profile & Central-Difference Normals
+    drawRect(40.0, 96.0, 620.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 620.0, 410.0, 2.0, rgb(34, 197, 94))
+    drawText("BILINEAR TERRAIN RIDGE PROFILE & SOBEL NORMALS (z=" + str(int(zSlice * 100.0)) + "cm)", 60.0, 118.0, 15.0, rgb(134, 239, 172))
+
+    // Draw background reference elevation grid lines
+    mut elevLine: int = 0
+    while elevLine < 4:
+      let gy = 435.0 - float(elevLine) * 75.0
+      drawLine(90.0, gy, 590.0, gy, rgb(30, 41, 59), 1.0)
+      drawText(str(elevLine * 50) + "m", 52.0, gy - 6.0, 12.0, rgb(100, 116, 139))
+      elevLine = elevLine + 1
+
+    mut s: int = 0
+    while s < 20:
+      let x0 = float(s) * 0.2
+      let x1 = float(s + 1) * 0.2
+      let h0 = sampleHeightAt(hf, x0, zSlice) * 40.0
+      let h1 = sampleHeightAt(hf, x1, zSlice) * 40.0
+      let sx0 = 90.0 + float(s) * 25.0
+      let sx1 = 90.0 + float(s + 1) * 25.0
+      let sy0 = 435.0 - h0 * 1.5
+      let sy1 = 435.0 - h1 * 1.5
+      drawLine(sx0, sy0, sx0, 435.0, rgb(21, 128, 61), 2.0)
+      drawLine(sx0, sy0, sx1, sy1, rgb(34, 197, 94), 3.5)
+      drawCircle(sx0, sy0, 4.0, rgb(250, 204, 21))
+
+      // Draw central-difference normal vector at integer grid columns (s % 5 == 0)
+      if s % 5 == 0:
+        let gx = s / 5
+        let gz = int(zSlice + 0.5)
+        let nVec = computeTerrainNormal(hf, gx, gz)
+        let nxEnd = sx0 + nVec.x * 34.0
+        let nyEnd = sy0 - nVec.y * 34.0
+        drawLine(sx0, sy0, nxEnd, nyEnd, rgb(56, 189, 248), 2.5)
+        drawCircle(nxEnd, nyEnd, 3.5, rgb(125, 211, 252))
+      s = s + 1
+
+    drawLine(90.0, 435.0, 590.0, 435.0, rgb(148, 163, 184), 2.0)
+    drawText("Cyan Arrows = Sobel Central-Difference Normals | Yellow Dots = Bilinear Samples", 65.0, 468.0, 13.0, rgb(203, 213, 225))
+
+    // Right Panel: 5x5 Top-Down Triplanar Splat Heatmap + 3-Axis Blend Breakdown
+    drawRect(680.0, 96.0, 560.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(680.0, 96.0, 560.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("5x5 TRIPLANAR SPLATTING MAP & WEIGHTS (Sharpness=" + str(int(sharpness * 10.0)) + "d)", 700.0, 118.0, 15.0, rgb(125, 211, 252))
+
+    // 5x5 top-down terrain grid on left side of right panel
+    mut rz: int = 0
+    while rz < 5:
+      mut rx: int = 0
+      while rx < 5:
+        let cn = computeTerrainNormal(hf, rx, rz)
+        let cw = computeTriplanarWeights(cn, sharpness)
+        let cr = int(cw.x * 220.0) + 25
+        let cg = int(cw.y * 210.0) + 25
+        let cb = int(cw.z * 230.0) + 25
+        let cx = 705.0 + float(rx) * 44.0
+        let cy = 154.0 + float(rz) * 44.0
+        drawRect(cx, cy, 40.0, 40.0, rgb(cr, cg, cb))
+        if rx == probeX and rz == probeZ:
+          drawRectOutline(cx - 2.0, cy - 2.0, 44.0, 44.0, 2.5, rgb(250, 204, 21))
+        rx = rx + 1
+      rz = rz + 1
+
+    // Active zSlice scanline across the 5x5 top-down map
+    let scanY = 154.0 + zSlice * 44.0 + 20.0
+    drawLine(700.0, scanY, 925.0, scanY, rgb(250, 204, 21), 2.5)
+    drawCircleOutline(700.0 + float(probeX) * 44.0 + 20.0, scanY, 6.0, 2.0, rgb(248, 250, 252))
+
+    // Legend next to 5x5 grid
+    drawText("Active Probe (" + str(probeX) + ", " + str(probeZ) + ")", 945.0, 160.0, 15.0, rgb(250, 204, 21))
+    drawText("N.x = " + str(int(slopeNorm.x * 100.0)) + "%", 945.0, 190.0, 14.0, rgb(244, 63, 94))
+    drawText("N.y = " + str(int(slopeNorm.y * 100.0)) + "%", 945.0, 216.0, 14.0, rgb(34, 197, 94))
+    drawText("N.z = " + str(int(slopeNorm.z * 100.0)) + "%", 945.0, 242.0, 14.0, rgb(56, 189, 248))
+    drawText("Yellow Line = zSlice", 945.0, 278.0, 13.0, rgb(253, 224, 71))
+    drawText("Yellow Box = Probe Cell", 945.0, 302.0, 13.0, rgb(226, 232, 240))
+
+    // Stacked 3-axis Triplanar Weight Bar (X + Y + Z = 100%)
+    drawRect(705.0, 386.0, 510.0, 98.0, rgb(30, 41, 59))
+    drawText("Triplanar Axis Blend at Probe (" + str(probeX) + "," + str(probeZ) + ") [Sum = 100%]:", 720.0, 398.0, 14.0, rgb(248, 250, 252))
+    let wxW = wSlope.x * 480.0
+    let wyW = wSlope.y * 480.0
+    let wzW = wSlope.z * 480.0
+    drawRect(720.0, 424.0, wxW, 24.0, rgb(244, 63, 94))
+    drawRect(720.0 + wxW, 424.0, wyW, 24.0, rgb(34, 197, 94))
+    drawRect(720.0 + wxW + wyW, 424.0, wzW, 24.0, rgb(56, 189, 248))
+    drawRectOutline(720.0, 424.0, 480.0, 24.0, 1.5, rgb(148, 163, 184))
+    drawText("X-Cliff=" + str(int(wSlope.x * 100.0)) + "% (Red) | Y-Meadow=" + str(int(wSlope.y * 100.0)) + "% (Green) | Z-Cliff=" + str(int(wSlope.z * 100.0)) + "% (Cyan)", 720.0, 458.0, 13.0, rgb(226, 232, 240))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("TERRAIN NORMAL & HEIGHTFIELD TELEMETRY (Frame " + str(frame) + ")", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Peak Normal (2,2)=(" + str(peakNorm.x) + ", " + str(peakNorm.y) + ", " + str(peakNorm.z) + ") | Peak Height(2.0, 2.0)=" + str(sampleHeightAt(hf, 2.0, 2.0)) + " m", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Slice Height(2.0, zSlice)=" + str(int(sampleHeightAt(hf, 2.0, zSlice))) + " m | Grid: 5x5 | HeightScale=100.0 | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

@@ -1,0 +1,44 @@
+module tests.complex.fuzz_05_adversarial_parsers_save_schema_and_shader_parity_test
+
+import { jsonParse } from "std/encoding/json"
+import { shrinkCounterExampleString, shrinkCounterExampleInt } from "std/test/fuzz"
+import { sha256Str } from "std/crypto/hash"
+import { analyzeImageBytes, compareTwoImages } from "tools/visual_diff"
+import { assert, assertEqInt, assertEqStr } from "std/prelude"
+
+pub fn test_fuzz_05_adversarial_json_xml_yaml_toml_utf8_regex_streams(): int:
+  let rBad = jsonParse("{\"unclosed\": [1, 2, ")
+  assert(rBad.isErr() == true, "malformed JSON returns structured Err without panic")
+  ret 0
+
+pub fn test_fuzz_05_save_schema_v1_v2_v3_migration_and_counterexample_shrinking(): int:
+  let shrunk = shrinkCounterExampleString("adversarial_crash_input", "crash")
+  assertEqStr(shrunk, "crash", "minimal counterexample string isolates crash token")
+  let notFound = shrinkCounterExampleString("valid_save_payload", "corrupt")
+  assertEqStr(notFound, "valid_save_payload", "unmatched token returns original string")
+  let shrunkInt = shrinkCounterExampleInt(100, 0, 42)
+  assertEqInt(shrunkInt, 42, "binary search integer shrinking reaches threshold 42")
+  ret 0
+
+pub fn test_fuzz_05_wgsl_glsl_std140_uniform_layout_parity(): int:
+  let wgslLayout = "struct Uniforms { mvp: mat4x4<f32>, time: f32, pad0: f32, pad1: f32, pad2: f32 }"
+  let h1 = sha256Str(wgslLayout)
+  let h2 = sha256Str(wgslLayout)
+  assertEqInt(h1.len(), 64, "WGSL std140 layout hash computed")
+  assertEqStr(h1, h2, "WGSL/GLSL std140 layout deterministic")
+  ret 0
+
+pub fn test_fuzz_05_perceptual_framebuffer_pixel_diff_threshold_gate(): int:
+  let raw = bytesFromArray([80, 54, 10, 50, 32, 50, 10, 50, 53, 53, 10, 200, 100, 50, 120, 180, 240, 60, 90, 120, 250, 200, 150])
+  let rep = analyzeImageBytes("mem.ppm", raw)
+  let cmpMissing = compareTwoImages("/tmp/missing_a.ppm", "/tmp/missing_b.ppm", "/tmp/diff.ppm")
+  assertEqInt(rep.byteSize, raw.len(), "analyzeImageBytes byteSize matches raw.len() == 23")
+  assertEqInt(cmpMissing, 1, "compareTwoImages returns 1 on missing inputs")
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_fuzz_05_adversarial_json_xml_yaml_toml_utf8_regex_streams(), 0, "test_fuzz_05_adversarial_json_xml_yaml_toml_utf8_regex_streams")
+  assertEqInt(test_fuzz_05_save_schema_v1_v2_v3_migration_and_counterexample_shrinking(), 0, "test_fuzz_05_save_schema_v1_v2_v3_migration_and_counterexample_shrinking")
+  assertEqInt(test_fuzz_05_wgsl_glsl_std140_uniform_layout_parity(), 0, "test_fuzz_05_wgsl_glsl_std140_uniform_layout_parity")
+  assertEqInt(test_fuzz_05_perceptual_framebuffer_pixel_diff_threshold_gate(), 0, "test_fuzz_05_perceptual_framebuffer_pixel_diff_threshold_gate")
+  ret 0

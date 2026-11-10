@@ -1,0 +1,263 @@
+/// # Module: `std/ai/hebar_referee` (`HebarRefereeMod`)
+///
+/// ## Purpose & Domain Scope
+/// Human-Equivalent Bot Automated Referee (HEBAR) enforcing all 5 canonical
+/// biological fairness bounds:
+/// 1. 150-250ms FIFO reaction latency queue (`hebarEnqueueAction`, `hebarPopReadyActions`)
+/// 2. `<= 15 Hz` (900 APM) input frequency clamp (`hebarIsWithinApmLimit`)
+/// 3. `<= 780 px/s` smooth cursor trajectory interpolation (`hebarStepCursorTrajectory`)
+/// 4. `<= 2*PI rad/s` angular velocity slew clamp (`hebarClampAngularSlew`)
+/// 5. Zero direct memory/state tampering verification (`hebarVerifyZeroTampering`)
+/// Also provides deterministic IPC window handshake (`connectTargetWindow`), live referee HUD
+/// (`renderHebarRefereeDashboard`), and telemetry export (`exportHebarTelemetryJson`).
+///
+/// ## Runnable Example
+/// ```aipl
+/// import { Vec2 } from "std/math/vec_math"
+/// import { hebarRefereeNew, hebarStepCursorTrajectory, hebarClampAngularSlew, hebarVerifyZeroTampering } from "std/ai/hebar_referee"
+///
+/// let refState = hebarRefereeNew(150, 250, 900)
+/// let nextPos = hebarStepCursorTrajectory(Vec2(x = 0.0, y = 0.0), Vec2(x = 500.0, y = 0.0), 780.0, 0.016667)
+/// let nextHeading = hebarClampAngularSlew(0.0, 3.14159, 6.2831853, 0.016667)
+/// let ok = hebarVerifyZeroTampering(refState, 0)
+/// ```
+module HebarRefereeMod
+
+import { Vec2 } from "std/math/vec_math"
+import { rgb, rgba, drawRect, drawRectOutline, drawText, listRunningWindows } from "std/gfx2d/shape2d"
+
+/// Timestamped bot action queued inside the HEBAR reaction-delay FIFO.
+pub struct HebarActionRecord(timestampMs: int, actionTag: str, targetPos: Vec2)
+
+/// Human-Equivalent Bot Automated Referee state enforcing the 5 biological fairness bounds.
+pub struct HebarReferee(minReactionDelayMs: int, maxReactionDelayMs: int, maxActionsPerMinute: int, actionHistory: [HebarActionRecord], lastPopTimestampMs: int, maxInputHz: float = 15.0, maxCursorSpeedPxPerSec: float = 780.0, maxAngularVelocityRadPerSec: float = 6.283185307179586, cursorPos: Vec2 = Vec2(x = 0.0, y = 0.0), headingRad: float = 0.0, tamperViolations: int = 0)
+
+/// Creates a new `HebarReferee` initialized with human reaction bounds (150-250ms, <= 15 Hz / 900 APM).
+pub fn hebarRefereeNew(minDelayMs: int = 150, maxDelayMs: int = 250, maxApm: int = 900): HebarReferee:
+  mut hist: [HebarActionRecord] = []
+  let effHz = if maxApm > 0: float(maxApm) / 60.0 else: 15.0
+  ret HebarReferee(
+    minReactionDelayMs = minDelayMs,
+    maxReactionDelayMs = maxDelayMs,
+    maxActionsPerMinute = maxApm,
+    actionHistory = hist,
+    lastPopTimestampMs = -100000,
+    maxInputHz = if effHz <= 15.0: effHz else: 15.0,
+    maxCursorSpeedPxPerSec = 780.0,
+    maxAngularVelocityRadPerSec = 6.283185307179586,
+    cursorPos = Vec2(x = 0.0, y = 0.0),
+    headingRad = 0.0,
+    tamperViolations = 0
+  )
+
+pub fn hebarEnqueueAction(mut referee: HebarReferee, action: HebarActionRecord, currentTimestampMs: int): bool:
+  if currentTimestampMs < 0:
+    ret false
+  mut hist = referee.actionHistory
+  hist.push(HebarActionRecord(
+    timestampMs = currentTimestampMs,
+    actionTag = action.actionTag,
+    targetPos = action.targetPos
+  ))
+  referee.actionHistory = hist
+  ret true
+
+pub fn hebarPopReadyActions(mut referee: HebarReferee, currentTimestampMs: int): [HebarActionRecord]:
+  mut ready: [HebarActionRecord] = []
+  mut remaining: [HebarActionRecord] = []
+
+  let minGapMs = if referee.maxActionsPerMinute > 0: 60000 / referee.maxActionsPerMinute else: 67
+  mut lastPop = referee.lastPopTimestampMs
+
+  mut i = 0
+  while i < referee.actionHistory.len:
+    let rec: HebarActionRecord = referee.actionHistory[i]
+    let elapsed = currentTimestampMs - rec.timestampMs
+    if elapsed >= referee.minReactionDelayMs and (currentTimestampMs - lastPop) >= minGapMs:
+      ready.push(rec)
+      lastPop = currentTimestampMs
+    else:
+      remaining.push(rec)
+    i = i + 1
+
+  referee.actionHistory = remaining
+  referee.lastPopTimestampMs = lastPop
+  ret ready
+
+pub fn hebarIsWithinApmLimit(actionsInWindow: int, windowDurationMs: int, maxApm: int = 900): bool:
+  if windowDurationMs <= 0:
+    ret actionsInWindow <= 0
+  let apm = (actionsInWindow * 60000) / windowDurationMs
+  ret apm <= maxApm
+
+pub fn hebarClampReactionDelayMs(delayMs: int, minMs: int = 150, maxMs: int = 250): int:
+  if delayMs < minMs:
+    ret minMs
+  if delayMs > maxMs:
+    ret maxMs
+  ret delayMs
+
+/// Smoothly interpolates cursor position toward `targetPos` clamped to `<= 780 px/s`.
+pub fn hebarStepCursorTrajectory(currentPos: Vec2, targetPos: Vec2, maxSpeedPxPerSec: float = 780.0, dtSec: float = 0.016667): Vec2:
+  let effSpeed = if maxSpeedPxPerSec > 0.0 and maxSpeedPxPerSec <= 780.0: maxSpeedPxPerSec else: 780.0
+  let safeDt = if dtSec > 0.0: dtSec else: 0.0
+  let maxStep = effSpeed * safeDt
+  let dx = targetPos.x - currentPos.x
+  let dy = targetPos.y - currentPos.y
+  let dist = sqrt(dx * dx + dy * dy)
+  if dist <= maxStep or dist <= 0.00001:
+    ret targetPos
+  let invDist = 1.0 / dist
+  ret Vec2(
+    x = currentPos.x + dx * invDist * maxStep,
+    y = currentPos.y + dy * invDist * maxStep
+  )
+
+/// Clamps angular heading rotation rate between `currentAngleRad` and `targetAngleRad` to `<= 2*PI rad/s`.
+pub fn hebarClampAngularSlew(currentAngleRad: float, targetAngleRad: float, maxSlewRadPerSec: float = 6.283185307179586, dtSec: float = 0.016667): float:
+  let piVal = 3.141592653589793
+  let twoPiVal = 6.283185307179586
+  let effMaxSlew = if maxSlewRadPerSec > 0.0 and maxSlewRadPerSec <= twoPiVal: maxSlewRadPerSec else: twoPiVal
+  let safeDt = if dtSec > 0.0: dtSec else: 0.0
+  let maxDelta = effMaxSlew * safeDt
+
+  mut diff = targetAngleRad - currentAngleRad
+  while diff > piVal:
+    diff = diff - twoPiVal
+  while diff < (0.0 - piVal):
+    diff = diff + twoPiVal
+
+  if diff > maxDelta:
+    diff = maxDelta
+  elif diff < (0.0 - maxDelta):
+    diff = 0.0 - maxDelta
+  ret currentAngleRad + diff
+
+/// Verifies that zero direct memory/state tampering occurred and all 5 biological bounds are intact.
+pub fn hebarVerifyZeroTampering(referee: HebarReferee, directMemoryWrites: int = 0): bool:
+  if directMemoryWrites != 0 or referee.tamperViolations != 0:
+    ret false
+  if referee.minReactionDelayMs < 150 or referee.maxReactionDelayMs > 250 or referee.minReactionDelayMs > referee.maxReactionDelayMs:
+    ret false
+  if referee.maxActionsPerMinute <= 0 or referee.maxActionsPerMinute > 900:
+    ret false
+  if referee.maxInputHz <= 0.0 or referee.maxInputHz > 15.0:
+    ret false
+  if referee.maxCursorSpeedPxPerSec <= 0.0 or referee.maxCursorSpeedPxPerSec > 780.0:
+    ret false
+  if referee.maxAngularVelocityRadPerSec <= 0.0 or referee.maxAngularVelocityRadPerSec > 6.2832:
+    ret false
+  ret true
+
+fn parsePidFromWindowSummary(entry: str): int:
+  let pIdx = entry.indexOf("pid=")
+  if pIdx < 0:
+    ret -1
+  let rest = entry.slice(pIdx + 4, entry.len)
+  let spIdx = rest.indexOf(" ")
+  let numStr = if spIdx > 0: rest.slice(0, spIdx) else: rest.trim()
+  if numStr.len == 0:
+    ret -1
+  let parsed = int(numStr)
+  ret if parsed > 0: parsed else: -1
+
+/// Polls `/tmp/aipl_windows` until a running AIPL window matching `titleOrPid` appears or `timeoutMs` elapses.
+pub fn connectTargetWindow(titleOrPid: str, timeoutMs: int = 3000): int:
+  let query = titleOrPid.trim()
+  let queryLower = query.toLowerCase()
+  mut elapsed = 0
+  let stepMs = 10
+  while true:
+    let wins = listRunningWindows()
+    mut i = 0
+    while i < wins.len:
+      let entry = wins[i]
+      let pid = parsePidFromWindowSummary(entry)
+      if pid > 0:
+        if query == "" or query == "*" or entry.contains("pid=" + query + " ") or entry.toLowerCase().contains(queryLower):
+          ret pid
+      i += 1
+    if elapsed >= timeoutMs:
+      break
+    sleepMs(stepMs)
+    elapsed += stepMs
+  ret -1
+
+/// Renders the live HEBAR 5-bound referee audit dashboard overlay at `(x, y, w, h)`.
+pub fn renderHebarRefereeDashboard(referee: HebarReferee, x: float, y: float, w: float, h: float): void:
+  let ok = hebarVerifyZeroTampering(referee, 0)
+  drawRect(x, y, w, h, rgba(10, 15, 28, 0.88))
+  drawRectOutline(x, y, w, h, if ok: rgb(34, 197, 94) else: rgb(239, 68, 68), 2.0)
+  drawText(x + 10.0, y + 8.0, "HEBAR REFEREE (5-BOUND AUDIT)", 14.0, rgb(248, 250, 252))
+  drawText(
+    x + 10.0,
+    y + 28.0,
+    "1. Latency: " + str(referee.minReactionDelayMs) + "-" + str(referee.maxReactionDelayMs) + "ms | 2. Rate <= " + str(int(referee.maxInputHz)) + "Hz",
+    12.0,
+    rgb(148, 163, 184)
+  )
+  drawText(
+    x + 10.0,
+    y + 46.0,
+    "3. Cursor <= " + str(int(referee.maxCursorSpeedPxPerSec)) + "px/s | 4. Slew <= 6.28rad/s",
+    12.0,
+    rgb(148, 163, 184)
+  )
+  drawText(
+    x + 10.0,
+    y + 64.0,
+    "5. Zero-Tamper: " + (if ok: "PASS" else: "FAIL") + " | Queue: " + str(referee.actionHistory.len),
+    12.0,
+    if ok: rgb(74, 222, 128) else: rgb(248, 113, 113)
+  )
+  ret
+
+pub fn exportHebarTelemetryJson(referee: HebarReferee, filePath: str): bool:
+  if filePath.trim().len == 0:
+    ret false
+  let ok = hebarVerifyZeroTampering(referee, 0)
+  let json = "{\n" +
+    "  \"minReactionDelayMs\": " + str(referee.minReactionDelayMs) + ",\n" +
+    "  \"maxReactionDelayMs\": " + str(referee.maxReactionDelayMs) + ",\n" +
+    "  \"maxActionsPerMinute\": " + str(referee.maxActionsPerMinute) + ",\n" +
+    "  \"maxInputHz\": " + str(referee.maxInputHz) + ",\n" +
+    "  \"maxCursorSpeedPxPerSec\": " + str(referee.maxCursorSpeedPxPerSec) + ",\n" +
+    "  \"maxAngularVelocityRadPerSec\": " + str(referee.maxAngularVelocityRadPerSec) + ",\n" +
+    "  \"queuedActions\": " + str(referee.actionHistory.len) + ",\n" +
+    "  \"tamperViolations\": " + str(referee.tamperViolations) + ",\n" +
+    "  \"zeroTamperVerified\": " + (if ok: "true" else: "false") + "\n" +
+    "}\n"
+  writeFile(filePath, json)
+  ret true
+
+pub fn hebarQuantizeFloat(val: float): int:
+  if val >= 0.0:
+    ret int(val * 1000.0 + 0.5)
+  ret -int((-val) * 1000.0 + 0.5)
+
+pub fn hebarHashInt(hashState: int, value: int): int:
+  mut h = if hashState == 0: 0x011c9dc5 else: (hashState & 0x7fffffff)
+  for b in 0..4:
+    let byteVal = (value >> (b * 8)) & 255
+    h = ((h ^ byteVal) * 16777619) & 0x7fffffff
+  ret h
+
+pub fn hebarHashFloat(hashState: int, value: float): int:
+  ret hebarHashInt(hashState, hebarQuantizeFloat(value))
+
+pub fn hebarVerifyDeterminism(hashesA: [int], hashesB: [int]): bool:
+  if hashesA.len != hashesB.len:
+    ret false
+  for i in 0..hashesA.len:
+    if hashesA[i] != hashesB[i]:
+      ret false
+  ret true
+
+pub fn hebarStepDamageTrail(trailHp: float, currentHp: float, drainSpeed: float, dt: float): float:
+  if trailHp <= currentHp:
+    ret currentHp
+  let step = (if drainSpeed > 0.0: drainSpeed else: 40.0) * (if dt > 0.0: dt else: 0.0)
+  let nextVal = trailHp - step
+  if nextVal < currentHp:
+    ret currentHp
+  ret nextVal

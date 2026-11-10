@@ -1,0 +1,52 @@
+module std.asset.apk_container_format
+
+import { crc32 } from "std/crypto/hash"
+import { Result, Ok, Err } from "std/prelude"
+
+pub const BOOT_LOCKED_SINGLE_APP: int = 1
+
+pub struct AiplApkPayloadHeader(magic: str, formatVersion: int, bootMode: int, codeByteLen: int, assetCount: int, payloadCrc32: int, magicValid: int)
+
+pub fn createAiplApkPayloadHeader(codePayload: str, assetCount: int): AiplApkPayloadHeader requires assetCount >= 0 ensures result.magic == "AIPLAPK1" and result.bootMode == 1:
+  let n = codePayload.len()
+  if n == 0:
+    ret AiplApkPayloadHeader(magic = "AIPLAPK1", formatVersion = 1, bootMode = BOOT_LOCKED_SINGLE_APP, codeByteLen = 0, assetCount = 0, payloadCrc32 = 0, magicValid = 0)
+  let c = crc32(codePayload.toBytes())
+  ret AiplApkPayloadHeader(
+    magic = "AIPLAPK1",
+    formatVersion = 1,
+    bootMode = BOOT_LOCKED_SINGLE_APP,
+    codeByteLen = n,
+    assetCount = assetCount,
+    payloadCrc32 = c,
+    magicValid = 1
+  )
+
+pub fn serializeAiplApkPayload(codePayload: str, assetCount: int): str requires assetCount >= 0 ensures result == "" or result.startsWith("AIPLAPK1|"):
+  if codePayload.len() == 0:
+    ret ""
+  let c = crc32(codePayload.toBytes())
+  ret "AIPLAPK1|1|1|" + str(codePayload.len()) + "|" + str(assetCount) + "|" + str(c) + "|" + codePayload
+
+pub fn parseAndVerifyAiplApkPayload(rawImage: str): Result[str, str] requires rawImage.len() >= 0 ensures rawImage.startsWith("AIPLAPK1|") or result.isErr():
+  let parts = rawImage.split("|")
+  if parts.len() < 7 or parts[0] != "AIPLAPK1":
+    ret Err("E_BAD_APK_MAGIC")
+  if int(parts[2]) != 1:
+    ret Err("E_NOT_LOCKED_SINGLE_APP")
+  let expectedLen = int(parts[3])
+  let expectedCrc = int(parts[5])
+  let body = if parts.len() == 7: parts[6] else: parts.slice(6, parts.len).join("|")
+  if body.len() != expectedLen:
+    ret Err("E_LEN_MISMATCH")
+  if crc32(body.toBytes()) != expectedCrc:
+    ret Err("E_CRC_MISMATCH")
+  ret Ok(body)
+
+pub fn appendApkEmbeddedAssetEntry(mut assetTable: Map[str, int], relPath: str, content: str): (Map[str, int], int) requires relPath.len() >= 0 and content.len() >= 0 ensures result[1] >= 0:
+  let clean = relPath.trim()
+  if clean.len() == 0 or clean.contains(".."):
+    ret (assetTable, 0)
+  let c = crc32(content.toBytes())
+  assetTable.set(clean, c)
+  ret (assetTable, c)

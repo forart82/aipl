@@ -1,0 +1,51 @@
+module Ex210SpatialHexTileWorld2dWindowTest
+
+import {
+  buildSpatialHexTileAudit, stepOuterRingTargetIdx, stepHexPulseT
+} from "../../examples/ex_210_spatial_hex_tile_world2d_window"
+import { Vec2 } from "../../std/math/vec_math"
+import {
+  HexOrientation, HexCubeCoord, HexAxialCoord,
+  hexCubeNew, hexAxialToCube, hexCubeToAxial, hexDistance,
+  hexRing, hexSpiral, hexToPixel, hexPixelToAxial, hexLine
+} from "../../std/spatial/hex_tile_world2d"
+
+pub fn test_spatial_hex_tile_world2d(): void:
+  let cubeA = hexCubeNew(1, -3, 2)
+  let axialA: HexAxialCoord = hexCubeToAxial(cubeA)
+  assert(axialA.q == 1 and axialA.r == 2, "hexCubeToAxial maps (1,-3,2) to (1,2)")
+
+  let backCube: HexCubeCoord = hexAxialToCube(axialA)
+  assert(backCube.x == 1 and backCube.y == -3 and backCube.z == 2, "hexAxialToCube roundtrip")
+
+  let cubeB = hexCubeNew(4, -4, 0)
+  assert(hexDistance(cubeA, cubeB) == 3, "hexDistance between cubeA and cubeB is 3")
+
+  let ring = hexRing(hexCubeNew(0, 0, 0), 2)
+  let spiral = hexSpiral(hexCubeNew(0, 0, 0), 2)
+  assert(ring.len() == 12 and spiral.len() == 19, "Radius-2 hexRing has 12 cells and hexSpiral has 19 cells")
+
+  let px: Vec2 = hexToPixel(axialA, HexOrientation.PointyTop, 20.0)
+  let unproj: HexAxialCoord = hexPixelToAxial(px, HexOrientation.PointyTop, 20.0)
+  assert(unproj.q == axialA.q and unproj.r == axialA.r, "hexToPixel/hexPixelToAxial roundtrip")
+
+  let line = hexLine(cubeA, cubeB)
+  assert(line.len() == 4, "hexLine has distance + 1 = 4 steps")
+  assert(buildSpatialHexTileAudit() == 38, "buildSpatialHexTileAudit returns 3 + 12 + 19 + 4 == 38")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let p0 = stepHexPulseT(0)
+  let p1 = stepHexPulseT(1)
+  let p20 = stepHexPulseT(20)
+  let p100 = stepHexPulseT(100)
+  assert(p0 != p1 and p1 != p20 and p20 != p100, "hex path pulse advances across t=0,1,20,100")
+
+  let idx0 = stepOuterRingTargetIdx(0, 18)
+  let idx20 = stepOuterRingTargetIdx(20, 18)
+  let idx100 = stepOuterRingTargetIdx(100, 18)
+  assert(idx0 != idx20 and idx20 != idx100, "outer ring target index cycles across frames 0, 20, and 100")
+
+pub fn main(): int:
+  test_spatial_hex_tile_world2d()
+  println("PASS: ex_210_spatial_hex_tile_world2d_window_test")
+  ret 0

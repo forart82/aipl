@@ -1,0 +1,46 @@
+// ============================================================================
+// Step 3.4: Exhaustive Per-Function Unit Tests for std/sys/sys_gpu.aipl (6)
+// Target: tests/functions/sys/sys_gpu_test.aipl
+// ============================================================================
+module SysGpuTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  SysGpuContextHandle,
+  sysGpuInitContext,
+  sysGpuDestroyContext,
+  sysGpuCreateBuffer,
+  sysGpuUploadBuffer,
+  sysGpuDestroyBuffer,
+  sysGpuSwapBuffers
+} from "../../../std/sys/sys_gpu.aipl"
+
+pub fn test_sys_gpu_context_and_buffers(): int:
+  let ctx = sysGpuInitContext(0, 1)
+  assert(ctx > 0, "init context returns valid handle")
+  assertEqInt(sysGpuInitContext(-1, 1), -1, "invalid windowHandle rejected")
+  assertEqInt(sysGpuInitContext(0, -1), -1, "invalid backendType rejected")
+
+  let buf = sysGpuCreateBuffer(ctx, 4096, 1)
+  assert(buf > 0, "create buffer returns handle > 0")
+  assertEqInt(sysGpuCreateBuffer(-1, 4096, 1), -1, "invalid context rejected")
+  assertEqInt(sysGpuCreateBuffer(ctx, 0, 1), -1, "invalid size rejected")
+
+  let uploaded = sysGpuUploadBuffer(ctx, buf, 0, 1000, 256)
+  assertEqInt(uploaded, 256, "uploaded 256 bytes")
+  assertEqInt(sysGpuUploadBuffer(ctx, buf, -1, 1000, 256), -1, "negative offset rejected")
+  assertEqInt(sysGpuUploadBuffer(ctx, buf, 0, 0, 256), -1, "null dataPtr rejected")
+
+  sysGpuSwapBuffers(ctx)
+  sysGpuDestroyBuffer(ctx, buf)
+  sysGpuDestroyContext(ctx)
+  ret 0
+
+pub fn main(): int:
+  test_sys_gpu_context_and_buffers()
+  println("PASS: sys_gpu_test")
+  ret 0

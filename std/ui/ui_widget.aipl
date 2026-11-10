@@ -1,0 +1,363 @@
+/// # Module: `std/ui/ui_widget` (`UiWidgetMod`)
+///
+/// ## Purpose & Domain Scope
+/// Standard interactive GUI widgets: Button, Slider, TextInput, Dropdown, and ScrollView.
+module UiWidgetMod
+
+import { EPSILON, clampInt, clampFloat } from "std/math/consts"
+import { round } from "std/math/trig"
+import { SemanticPalette, defaultDarkPalette, auraApplyStateLayer } from "./ui_style"
+import { Color, rgba, rgb, colorHex, drawRect, drawRectOutline, drawRoundedRect, drawRoundedRectOutline, drawCircle, drawLine, drawText, drawTextBox, drawTextCentered, measureTextWidthPx, measureTextHeight, truncateText, isMouseInRect, isRectClicked } from "../gfx2d/shape2d"
+import { Vec2 } from "std/math/vec_math"
+import { Rect } from "std/math/geom2d"
+
+pub struct ButtonWidget(label: str, bounds: Rect, isHovered: bool, isPressed: bool, isFocused: bool, isEnabled: bool)
+
+pub struct SliderWidget(value: float, minValue: float, maxValue: float, step: float, bounds: Rect)
+
+pub struct TextInputWidget(content: str, cursorIndex: int, selectionStart: int, selectionEnd: int, placeholder: str, isFocused: bool)
+
+pub struct DropdownWidget(options: [str], selectedIndex: int, isOpen: bool, bounds: Rect)
+
+pub struct ScrollViewWidget(contentSize: Vec2, scrollOffset: Vec2, viewportBounds: Rect)
+
+fn isPointInRect(pt: Vec2, r: Rect): bool:
+  ret pt.x >= r.x and pt.x <= (r.x + r.w) and pt.y >= r.y and pt.y <= (r.y + r.h)
+
+pub fn updateButton(btn: ButtonWidget, mousePos: Vec2, isMouseDown: bool): ButtonWidget:
+  if not btn.isEnabled:
+    ret ButtonWidget(
+      label = btn.label,
+      bounds = btn.bounds,
+      isHovered = false,
+      isPressed = false,
+      isFocused = btn.isFocused,
+      isEnabled = false
+    )
+  let hov = isPointInRect(mousePos, btn.bounds)
+  let pressed = hov and isMouseDown
+  ret ButtonWidget(
+    label = btn.label,
+    bounds = btn.bounds,
+    isHovered = hov,
+    isPressed = pressed,
+    isFocused = if pressed: true else: btn.isFocused,
+    isEnabled = true
+  )
+
+pub fn updateSlider(slider: SliderWidget, mousePos: Vec2, isMouseDown: bool): SliderWidget:
+  if not isMouseDown or not isPointInRect(mousePos, slider.bounds) or slider.bounds.w <= EPSILON:
+    ret slider
+  let t = clampFloat((mousePos.x - slider.bounds.x) / slider.bounds.w, 0.0, 1.0)
+  mut rawVal = slider.minValue + (slider.maxValue - slider.minValue) * t
+  if slider.step > EPSILON:
+    let steps = round((rawVal - slider.minValue) / slider.step)
+    rawVal = slider.minValue + steps * slider.step
+  let clamped = clampFloat(rawVal, slider.minValue, slider.maxValue)
+  ret SliderWidget(
+    value = clamped,
+    minValue = slider.minValue,
+    maxValue = slider.maxValue,
+    step = slider.step,
+    bounds = slider.bounds
+  )
+
+pub fn handleTextInputKey(input: TextInputWidget, charCode: int, isBackspace: bool, isDelete: bool): TextInputWidget:
+  if not input.isFocused:
+    ret input
+  let len = input.content.len
+  let cur = clampInt(input.cursorIndex, 0, len)
+  if isBackspace:
+    if cur > 0:
+      let nextStr = input.content.slice(0, cur - 1) + input.content.slice(cur, len)
+      ret TextInputWidget(
+        content = nextStr,
+        cursorIndex = cur - 1,
+        selectionStart = cur - 1,
+        selectionEnd = cur - 1,
+        placeholder = input.placeholder,
+        isFocused = true
+      )
+    ret input
+  if isDelete:
+    if cur < len:
+      let nextStr = input.content.slice(0, cur) + input.content.slice(cur + 1, len)
+      ret TextInputWidget(
+        content = nextStr,
+        cursorIndex = cur,
+        selectionStart = cur,
+        selectionEnd = cur,
+        placeholder = input.placeholder,
+        isFocused = true
+      )
+    ret input
+  if charCode >= 32 and charCode <= 126:
+    let ch = chr(charCode)
+    let nextStr = input.content.slice(0, cur) + ch + input.content.slice(cur, len)
+    ret TextInputWidget(
+      content = nextStr,
+      cursorIndex = cur + 1,
+      selectionStart = cur + 1,
+      selectionEnd = cur + 1,
+      placeholder = input.placeholder,
+      isFocused = true
+    )
+  ret input
+
+pub fn drawPanel(x: float, y: float, w: float, h: float, bgColor: Color, borderColor: Color, borderThickness: float):
+  drawRect(x, y, w, h, bgColor)
+  if borderThickness > 0.0:
+    drawRect(x, y, w, borderThickness, borderColor)
+    drawRect(x, y + h - borderThickness, w, borderThickness, borderColor)
+    drawRect(x, y, borderThickness, h, borderColor)
+    drawRect(x + w - borderThickness, y, borderThickness, h, borderColor)
+  ret
+
+pub fn drawPanelThemed(x: float, y: float, w: float, h: float, pal: SemanticPalette, borderThickness: float = 1.0):
+  drawPanel(x, y, w, h, colorHex(pal.bgSurface), colorHex(pal.surfaceContainerHigh), borderThickness)
+  ret
+
+pub fn drawCard(x: float, y: float, w: float, h: float, title: str, value: str, subtitle: str, bgColor: Color, accentColor: Color):
+  let pal = defaultDarkPalette()
+  drawRect(x, y, w, h, bgColor)
+  drawRect(x, y, w, 4.0, accentColor)
+  let innerW = w - 24.0
+  drawTextBox(title, x + 12.0, y + 12.0, innerW, 0.9, colorHex(pal.fgMuted))
+  drawTextBox(value, x + 12.0, y + 32.0, innerW, 1.35, accentColor)
+  if subtitle.len > 0 and h >= 72.0:
+    drawTextBox(subtitle, x + 12.0, y + h - 20.0, innerW, 0.85, colorHex(pal.fgMuted))
+  ret
+
+pub fn drawBadge(text: str, x: float, y: float, bgColor: Color, textColor: Color): float:
+  let tw = measureTextWidthPx(text, 0.85)
+  let th = measureTextHeight(text, 0.85)
+  mut bw = tw + 16.0
+  if bw < 40.0:
+    bw = 40.0
+  let bh = 22.0
+  drawRect(x, y, bw, bh, bgColor)
+  drawText(text, x + (bw - tw) * 0.5, y + (bh - th) * 0.5, 0.85, textColor)
+  ret bw
+
+pub fn drawButtonUI(label: str, x: float, y: float, w: float, h: float, bgColor: Color, textColor: Color): bool:
+  let hovered = isMouseInRect(x, y, w, h)
+  let clicked = isRectClicked(x, y, w, h)
+  drawRect(x, y, w, h, bgColor)
+  if hovered:
+    drawRect(x, y, w, 2.0, textColor)
+  let fitted = truncateText(label, w - 12.0, 0.95)
+  let tw = measureTextWidthPx(fitted, 0.95)
+  let th = measureTextHeight(fitted, 0.95)
+  drawText(fitted, x + (w - tw) * 0.5, y + (h - th) * 0.5, 0.95, textColor)
+  ret clicked
+
+pub fn drawButtonThemed(label: str, x: float, y: float, w: float, h: float, pal: SemanticPalette): bool:
+  let hovered = isMouseInRect(x, y, w, h)
+  let bgHex = if hovered: auraApplyStateLayer(pal.surfaceContainer, pal.accent, 0.08) else: pal.surfaceContainer
+  ret drawButtonUI(label, x, y, w, h, colorHex(bgHex), colorHex(pal.fgPrimary))
+
+pub fn drawTabs(labels: [str], activeIdx: int, x: float, y: float, tabW: float, tabH: float, activeColor: Color, inactiveColor: Color): int:
+  let pal = defaultDarkPalette()
+  mut selected = activeIdx
+  mut i = 0
+  while i < labels.len:
+    let tx = x + float(i) * (tabW + 8.0)
+    if isRectClicked(tx, y, tabW, tabH):
+      selected = i
+    mut bg = inactiveColor
+    if i == selected:
+      bg = activeColor
+    drawRect(tx, y, tabW, tabH, bg)
+    if i == selected:
+      drawRect(tx, y + tabH - 3.0, tabW, 3.0, colorHex(pal.focusRing))
+    let fitted = truncateText(labels[i], tabW - 12.0, 14.0)
+    let tw = measureTextWidthPx(fitted, 14.0)
+    let th = measureTextHeight(fitted, 14.0)
+    drawText(fitted, tx + (tabW - tw) * 0.5, y + (tabH - th) * 0.5 + 2.0, 0.95, colorHex(pal.fgPrimary))
+    i = i + 1
+  ret selected
+
+pub fn drawRoundRect(x: float, y: float, w: float, h: float, radius: float, color: Color):
+  drawRoundedRect(x, y, w, h, radius, color)
+  ret
+
+pub fn drawProgressBarUI(x: float, y: float, w: float, h: float, ratio: float, fillCol: Color, bgCol: Color, borderCol: Color):
+  let r = if ratio < 0.0: 0.0 else: (if ratio > 1.0: 1.0 else: ratio)
+  drawRoundedRect(x, y, w, h, 4.0, bgCol)
+  if r > 0.0:
+    drawRoundedRect(x, y, w * r, h, 4.0, fillCol)
+  drawRoundedRectOutline(x, y, w, h, 4.0, 1.0, borderCol)
+  ret
+
+pub fn drawKeycapBadge(keyLabel: str, x: float, y: float, bgCol: Color, textCol: Color): float:
+  let tw = measureTextWidthPx(keyLabel, 13.0)
+  let kw = if tw + 16.0 < 28.0: 28.0 else: tw + 16.0
+  drawRoundedRect(x, y, kw, 22.0, 4.0, bgCol)
+  drawRoundedRectOutline(x, y, kw, 22.0, 4.0, 1.0, textCol)
+  drawText(keyLabel, x + 8.0, y + 5.0, 0.78, textCol)
+  ret kw
+
+pub fn drawSplitHeaderBar(x: float, y: float, w: float, h: float, leftTitle: str, rightTitle: str, bgCol: Color, borderCol: Color, textCol: Color):
+  let halfW = w * 0.5
+  drawRect(x, y, w, h, bgCol)
+  drawLine(x, y + h - 1.0, x + w, y + h - 1.0, borderCol, 1.0)
+  drawLine(x + halfW, y, x + halfW, y + h, borderCol, 1.0)
+  drawText(truncateText(leftTitle, halfW - 16.0, 0.78), x + 8.0, y + 4.0, 0.78, textCol)
+  drawText(truncateText(rightTitle, halfW - 16.0, 0.78), x + halfW + 8.0, y + 4.0, 0.78, textCol)
+  ret
+
+pub fn drawBreadcrumbTrailBar(x: float, y: float, w: float, h: float, crumbs: [str], bgCol: Color, accentCol: Color, textCol: Color):
+  drawRect(x, y, w, h, bgCol)
+  mut cx = x + 8.0
+  mut i = 0
+  while i < crumbs.len:
+    let seg = crumbs[i]
+    let col = if i == crumbs.len - 1: accentCol else: textCol
+    drawText(seg, cx, y + 4.0, 0.75, col)
+    cx = cx + measureTextWidthPx(seg, 0.75) + 6.0
+    if i + 1 < crumbs.len and cx < x + w - 16.0:
+      drawText(">", cx, y + 4.0, 0.72, rgb(100, 116, 139))
+      cx = cx + 12.0
+    i = i + 1
+  ret
+
+pub fn drawWaterfallStepBar(x: float, yTop: float, w: float, h: float, label: str, deltaText: str, barCol: Color, connectorXNext: float, connectorY: float, connectorCol: Color):
+  let safeH = if h < 3.0: 3.0 else: h
+  drawRoundedRect(x, yTop, w, safeH, 3.0, barCol)
+  drawTextCentered(deltaText, x + w * 0.5, yTop - 13.0, 0.68, barCol)
+  drawTextCentered(label, x + w * 0.5, yTop + safeH + 4.0, 0.68, rgb(203, 213, 225))
+  if connectorXNext > x + w:
+    drawLine(x + w, connectorY, connectorXNext, connectorY, connectorCol, 1.0)
+  ret
+
+pub fn drawMetricPill(x: float, y: float, label: str, valueText: str, bgCol: Color, accentCol: Color, textCol: Color): float:
+  let lw = measureTextWidthPx(label, 0.72)
+  let vw = measureTextWidthPx(valueText, 0.78)
+  let totalW = lw + vw + 22.0
+  drawRoundedRect(x, y, totalW, 20.0, 4.0, bgCol)
+  drawRoundedRectOutline(x, y, totalW, 20.0, 4.0, 1.0, accentCol)
+  drawText(label, x + 6.0, y + 4.0, 0.72, textCol)
+  drawText(valueText, x + lw + 12.0, y + 3.5, 0.78, accentCol)
+  ret totalW
+
+/// Wave 11 (`v0.4.0`): Renders a Monte Carlo P10–P50–P90 confidence interval fan band with median trendline
+/// and upper/lower quantile boundary lines inside `(x, y, w, h)`.
+pub fn drawMonteCarloFanBand(x: float, y: float, w: float, h: float, p10Val: float, p50Val: float, p90Val: float, maxScaleVal: float, bandCol: Color, medianCol: Color):
+  let safeMax = if maxScaleVal > 0.001: maxScaleVal else: 100.0
+  let r10 = if p10Val / safeMax < 0.0: 0.0 elif p10Val / safeMax > 1.0: 1.0 else: p10Val / safeMax
+  let r50 = if p50Val / safeMax < 0.0: 0.0 elif p50Val / safeMax > 1.0: 1.0 else: p50Val / safeMax
+  let r90 = if p90Val / safeMax < 0.0: 0.0 elif p90Val / safeMax > 1.0: 1.0 else: p90Val / safeMax
+  let y90 = y + h * (1.0 - r90)
+  let y50 = y + h * (1.0 - r50)
+  let y10 = y + h * (1.0 - r10)
+  let bandH = if (y10 - y90) > 2.0: (y10 - y90) else: 2.0
+  drawRoundedRect(x, y90, w, bandH, 3.0, bandCol)
+  drawLine(x, y90, x + w, y90, medianCol, 1.0)
+  drawLine(x, y10, x + w, y10, medianCol, 1.0)
+  drawLine(x, y50, x + w, y50, medianCol, 2.2)
+  drawCircle(x + w - 4.0, y50, 3.0, medianCol)
+  ret
+
+/// Wave 11 (`v0.4.0`): Renders a compact IDE / GDB / DAP live debugger watch expression pill (`exprName = exprVal : typeTag`).
+pub fn drawDebuggerWatchPill(x: float, y: float, exprName: str, exprVal: str, typeTag: str, bgCol: Color, nameCol: Color, valCol: Color): float:
+  let nw = measureTextWidthPx(exprName, 0.72)
+  let vw = measureTextWidthPx(exprVal, 0.75)
+  let tw = measureTextWidthPx(typeTag, 0.68)
+  let pillW = nw + vw + tw + 34.0
+  drawRoundedRect(x, y, pillW, 20.0, 4.0, bgCol)
+  drawRoundedRectOutline(x, y, pillW, 20.0, 4.0, 1.0, valCol)
+  drawText(exprName + " =", x + 6.0, y + 4.0, 0.72, nameCol)
+  drawText(exprVal, x + nw + 20.0, y + 3.8, 0.75, valCol)
+  drawText(":" + typeTag, x + nw + vw + 26.0, y + 4.5, 0.68, rgb(148, 163, 184))
+  ret pillW
+
+/// Wave 12 (`v0.4.0`): Renders a single network `net_graph 3` packet telemetry column
+/// (crimson spike on dropped packet `isLost`, amber choke cap + emerald latency column otherwise).
+pub fn drawNetGraphPacketBar(x: float, yBottom: float, barW: float, maxH: float, pingMs: int, chokePct: int, isLost: bool):
+  let safeW = if barW < 1.5: 1.5 else: barW
+  let safeMaxH = if maxH < 8.0: 8.0 else: maxH
+  if isLost:
+    drawRect(x, yBottom - safeMaxH, safeW, safeMaxH, rgb(239, 68, 68))
+    ret
+  let clampedPing = if pingMs < 4: 4 elif pingMs > 200: 200 else: pingMs
+  let pingRatio = float(clampedPing) / 200.0
+  let pingH = safeMaxH * pingRatio
+  let pingCol = if clampedPing > 100: rgb(245, 158, 11) else: rgb(34, 197, 94)
+  drawRect(x, yBottom - pingH, safeW, pingH, pingCol)
+  if chokePct > 0:
+    let clampedChoke = if chokePct > 100: 100 else: chokePct
+    let chokeH = (safeMaxH * 0.35) * (float(clampedChoke) / 100.0)
+    drawRect(x, yBottom - pingH - chokeH, safeW, chokeH, rgb(250, 204, 21))
+  ret
+
+/// Wave 12 (`v0.4.0`): Renders a 4-segment stacked Spaced Repetition (`SM-2`) mastery distribution bar
+/// (`Easy` emerald, `Good` sky, `Hard` amber, `Again` crimson).
+pub fn drawSm2FlashcardMasteryBar(x: float, y: float, w: float, h: float, easyCount: int, goodCount: int, hardCount: int, againCount: int):
+  let e = if easyCount < 0: 0 else: easyCount
+  let g = if goodCount < 0: 0 else: goodCount
+  let hd = if hardCount < 0: 0 else: hardCount
+  let ag = if againCount < 0: 0 else: againCount
+  let total = e + g + hd + ag
+  drawRoundedRect(x, y, w, h, 3.0, rgb(15, 23, 42))
+  if total <= 0:
+    drawRoundedRectOutline(x, y, w, h, 3.0, 1.0, rgb(51, 65, 85))
+    ret
+  let wEasy = w * (float(e) / float(total))
+  let wGood = w * (float(g) / float(total))
+  let wHard = w * (float(hd) / float(total))
+  let wAgain = w - (wEasy + wGood + wHard)
+  mut curX = x
+  if wEasy > 0.5:
+    drawRect(curX, y, wEasy, h, rgb(34, 197, 94))
+    curX = curX + wEasy
+  if wGood > 0.5:
+    drawRect(curX, y, wGood, h, rgb(56, 189, 248))
+    curX = curX + wGood
+  if wHard > 0.5:
+    drawRect(curX, y, wHard, h, rgb(245, 158, 11))
+    curX = curX + wHard
+  if wAgain > 0.5:
+    drawRect(curX, y, wAgain, h, rgb(239, 68, 68))
+  drawRoundedRectOutline(x, y, w, h, 3.0, 1.0, rgb(71, 85, 105))
+  ret
+
+/// Wave 13 (`v0.4.0`): Computes smooth radial-falloff Liquify push warp displacement `[dxOut, dyOut]`
+/// for pixel `(px, py)` around brush center `(brushX, brushY)` within `radiusPx` at `strengthPct` (`0..100`).
+pub fn uiComputeLiquifyPushOffset(px: float, py: float, brushX: float, brushY: float, radiusPx: float, deltaX: float, deltaY: float, strengthPct: float): [float]:
+  let rad = maxFloat(1.0, radiusPx)
+  let dx = px - brushX
+  let dy = py - brushY
+  let dist = sqrt(dx * dx + dy * dy)
+  if dist >= rad:
+    ret [0.0, 0.0]
+  let norm = 1.0 - (dist / rad)
+  let falloff = norm * norm * (clampFloat(strengthPct, 0.0, 100.0) / 100.0)
+  ret [deltaX * falloff, deltaY * falloff]
+
+/// Wave 14 (`v0.4.0`): Evaluates a clamped `[0..255]` RGB Channel Mixer matrix row
+/// `(r * rGainPct + g * gGainPct + b * bGainPct) / 100 + constantOffset` for digital painting & color grading.
+pub fn uiComputeChannelMixerChannel(r: int, g: int, b: int, rGainPct: int, gGainPct: int, bGainPct: int, constantOffset: int): int:
+  let raw = (r * rGainPct + g * gGainPct + b * bGainPct) / 100 + constantOffset
+  if raw < 0:
+    ret 0
+  if raw > 255:
+    ret 255
+  ret raw
+
+/// Wave 15 (`v0.4.0`): Computes linear falloff alpha (`[0..255]`) for animation onion-skinning
+/// ghost frames at temporal distance `frameDist` within `maxGhostFrames`.
+pub fn uiComputeOnionSkinGhostAlpha(frameDist: int, maxGhostFrames: int, baseAlpha: int): int:
+  let dist = if frameDist < 0: -frameDist else: frameDist
+  let maxF = if maxGhostFrames < 1: 1 else: maxGhostFrames
+  if dist >= maxF:
+    ret 0
+  let bAlpha = if baseAlpha < 0: 0 else: (if baseAlpha > 255: 255 else: baseAlpha)
+  if dist <= 0:
+    ret bAlpha
+  let rem = maxF - dist
+  let alpha = int((float(bAlpha * rem) / float(maxF)) + 0.5)
+  if alpha < 0:
+    ret 0
+  if alpha > 255:
+    ret 255
+  ret alpha

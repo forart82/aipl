@@ -1,0 +1,105 @@
+// ============================================================================
+// AIPL Universal HEBAR Deterministic Replay Recorder (`aipl_hebar_bot/core/replay_recorder.aipl`)
+// ============================================================================
+// Records and replays frame-exact multi-seat bot sessions (.hebar_replay) with
+// deterministic PRNG seeds and state-hash checkpoints across all 4 targets.
+// ============================================================================
+
+module ReplayRecorder
+
+import {
+  fileExists,
+  readFile,
+  writeFile
+} from "std/fs"
+
+import {
+  parseInt
+} from "std/string"
+
+pub struct ReplayEventEntry:
+  frame: int
+  seatId: int
+  script: str
+  stateHash: str
+
+pub struct ReplaySessionLog:
+  seed: int
+  targetApp: str
+  targetType: str
+  totalFrames: int
+  events: [ReplayEventEntry]
+
+pub fn initReplaySession(seed: int, targetApp: str, targetType: str): ReplaySessionLog:
+  mut evs: [ReplayEventEntry] = []
+  ret ReplaySessionLog(
+    seed = seed,
+    targetApp = targetApp,
+    targetType = targetType,
+    totalFrames = 0,
+    events = evs
+  )
+
+pub fn appendReplayEvent(log: ReplaySessionLog, frame: int, seatId: int, script: str, stateHash: str): ReplaySessionLog:
+  mut nextEvs: [ReplayEventEntry] = []
+  mut i = 0
+  while i < log.events.len:
+    nextEvs.push(log.events[i])
+    i += 1
+  nextEvs.push(ReplayEventEntry(
+    frame = frame,
+    seatId = seatId,
+    script = script,
+    stateHash = stateHash
+  ))
+  mut out = log
+  out.events = nextEvs
+  if frame > out.totalFrames:
+    out.totalFrames = frame
+  ret out
+
+pub fn saveReplayFile(log: ReplaySessionLog, outPath: str): bool:
+  mut lines: [str] = []
+  lines.push("# AIPL Universal HEBAR Deterministic Replay Log v1.0")
+  lines.push("seed=" + str(log.seed))
+  lines.push("targetApp=" + log.targetApp)
+  lines.push("targetType=" + log.targetType)
+  lines.push("totalFrames=" + str(log.totalFrames))
+  lines.push("eventsCount=" + str(log.events.len))
+  mut i = 0
+  while i < log.events.len:
+    let ev = log.events[i]
+    lines.push(str(ev.frame) + "|" + str(ev.seatId) + "|" + ev.stateHash + "|" + ev.script)
+    i += 1
+  let _ = writeFile(outPath, lines.join("\n") + "\n")
+  ret true
+
+pub fn loadReplayFile(path: str): ReplaySessionLog:
+  mut log = initReplaySession(42, "unknown", "native")
+  if not fileExists(path):
+    ret log
+  let raw = readFile(path)
+  let lines = raw.lines()
+  mut i = 0
+  while i < lines.len:
+    let ln = lines[i].trim()
+    if ln.startsWith("seed="):
+      log.seed = parseInt(ln.slice(5, ln.len))
+    elif ln.startsWith("targetApp="):
+      log.targetApp = ln.slice(10, ln.len)
+    elif ln.startsWith("targetType="):
+      log.targetType = ln.slice(11, ln.len)
+    elif ln.startsWith("totalFrames="):
+      log.totalFrames = parseInt(ln.slice(12, ln.len))
+    elif ln.contains("|") and not ln.startsWith("#"):
+      let parts = ln.split("|")
+      if parts.len >= 4:
+        log = appendReplayEvent(
+          log,
+          parseInt(parts[0]),
+          parseInt(parts[1]),
+          parts[3],
+          parts[2]
+        )
+    i += 1
+  ret log

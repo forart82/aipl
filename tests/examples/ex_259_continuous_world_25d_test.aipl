@@ -1,0 +1,46 @@
+// ============================================================================
+// Twin Test Suite 259: Continuous 2.5D/3D World Engine
+// Verifies examples/ex_259_continuous_world_25d.aipl
+// ============================================================================
+module Ex259ContinuousWorld25dTest
+
+import {
+  World25DState,
+  createWorld25DState,
+  stepWorld25DState,
+  renderWorld25DScene,
+  renderFrameStep
+} from "../../examples/ex_259_continuous_world_25d.aipl"
+import { initCanvas, getPixel, getWindowMode } from "../../std/gfx2d/shape2d.aipl"
+import { assert, assertEqInt } from "../../std/prelude.aipl"
+
+pub fn test_continuous_world_25d_example(): int:
+  initCanvas(640, 360)
+  mut st: World25DState = createWorld25DState(640.0, 360.0)
+  assertEqInt(st.riverNodes.len, 5, "initial river has 5 spline nodes")
+
+  st = stepWorld25DState(st, 0.05)
+  assertEqInt(st.tick, 1, "stepWorld25DState advances tick")
+
+  let primCount = renderWorld25DScene(st)
+  // 144 terrain quads + 16 river quads + 5 tower + 5 bridge + 10 pineA + 10 pineB + 1 hero = 191
+  assertEqInt(primCount, 191, "renderWorld25DScene renders 191 depth-tested 2.5D primitives")
+
+  let f0 = renderFrameStep(0, 0.016)
+  let f1 = renderFrameStep(1, 0.016)
+  assert(getWindowMode() == "glx", "window mode is glx")
+  assertEqInt(f0, 191, "frame 0 primitive count")
+  assertEqInt(f1, 191, "frame 1 primitive count")
+
+  // Sample center viewport pixel to confirm non-black terrain/river rendering
+  let centerPx = getPixel(320, 180)
+  let r = (centerPx >> 24) & 255
+  let g = (centerPx >> 16) & 255
+  let b = (centerPx >> 8) & 255
+  assert((r + g + b) > 60, "center viewport pixel is non-black after 2.5D continuous world pass")
+  ret 0
+
+pub fn main(): int:
+  assertEqInt(test_continuous_world_25d_example(), 0, "test_continuous_world_25d_example")
+  println("PASS: ex_259_continuous_world_25d_test")
+  ret 0

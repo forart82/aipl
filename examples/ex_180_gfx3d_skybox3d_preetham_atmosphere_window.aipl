@@ -1,0 +1,143 @@
+module Ex180Gfx3dSkybox3dPreethamAtmosphereWindow
+
+import { Vec3 } from "../std/math/vec_math"
+import {
+  AtmosphereSettings, computeAtmosphericScattering, sampleEquirectangularUv
+} from "../std/gfx3d/skybox3d"
+import {
+  initWindow, windowShouldClose, beginDrawing, endDrawing,
+  closeWindow, clearScreen, drawRect, drawRectOutline,
+  drawCircle, drawCircleOutline, drawLine, drawText, rgb
+} from "../std/gfx2d/shape2d"
+
+pub fn buildSkybox3dAtmosphereAudit(): int:
+  let atmo = AtmosphereSettings(
+    sunDirection = Vec3(x = 0.0, y = 1.0, z = 0.0),
+    rayleighCoeff = Vec3(x = 0.058, y = 0.135, z = 0.331),
+    mieCoeff = 0.02,
+    sunIntensity = 20.0
+  )
+  let skyCol = computeAtmosphericScattering(Vec3(x = 0.0, y = 0.8, z = 0.6), atmo)
+  let eqUv = sampleEquirectangularUv(Vec3(x = 1.0, y = 0.0, z = 0.0))
+  ret int(skyCol.z * 100.0) + int(eqUv.y * 100.0)
+
+pub fn stepSunDirection(frame: int): Vec3:
+  let az = float(frame) * 0.043
+  let elev = 0.48 + sin(float(frame) * 0.053) * 0.36
+  ret Vec3(x = cos(az) * 0.65, y = elev, z = 0.55 + sin(az) * 0.35)
+
+pub fn main(): int:
+  let eqHorizon = sampleEquirectangularUv(Vec3(x = 1.0, y = 0.0, z = 0.0))
+  let eqZenith = sampleEquirectangularUv(Vec3(x = 0.0, y = 1.0, z = 0.0))
+  let audit = buildSkybox3dAtmosphereAudit()
+
+  initWindow(1280, 720, "AIPL ex_180: 3D Preetham Rayleigh/Mie Atmosphere & Equirectangular Skybox")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let sunDir = stepSunDirection(frame)
+    let atmo = AtmosphereSettings(
+      sunDirection = sunDir,
+      rayleighCoeff = Vec3(x = 0.058, y = 0.135, z = 0.331),
+      mieCoeff = 0.025,
+      sunIntensity = 22.0
+    )
+    let sunUv = sampleEquirectangularUv(atmo.sunDirection)
+    let zenithSc = computeAtmosphericScattering(Vec3(x = 0.0, y = 0.95, z = 0.31), atmo)
+    let horizonSc = computeAtmosphericScattering(Vec3(x = sunDir.x, y = 0.08, z = sunDir.z), atmo)
+
+    beginDrawing()
+    clearScreen(rgb(10, 14, 24))
+
+    drawText("EX_180: 3D RAYLEIGH / MIE ATMOSPHERIC SCATTERING & EQUIRECTANGULAR SKYBOX", 40.0, 28.0, 21.0, rgb(248, 250, 252))
+    drawText("std/gfx3d/skybox3d: computeAtmosphericScattering | sampleEquirectangularUv | Audit=" + str(audit), 40.0, 58.0, 16.0, rgb(148, 163, 184))
+
+    // Left Panel: Live Rayleigh/Mie Sky Dome Horizon-to-Zenith Gradient Bands
+    drawRect(40.0, 96.0, 600.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 96.0, 600.0, 410.0, 2.0, rgb(56, 189, 248))
+    drawText("RAYLEIGH + HENYEY-GREENSTEIN MIE SKY DOME BANDS", 60.0, 118.0, 16.0, rgb(125, 211, 252))
+
+    mut band: int = 0
+    while band < 13:
+      let elevY = 1.0 - float(band) * 0.072
+      let sc = computeAtmosphericScattering(Vec3(x = sunDir.x * 0.5, y = elevY, z = 0.75), atmo)
+      let r8 = if int(sc.x * 95.0) + 22 > 255: 255 else: int(sc.x * 95.0) + 22
+      let g8 = if int(sc.y * 95.0) + 42 > 255: 255 else: int(sc.y * 95.0) + 42
+      let b8 = if int(sc.z * 95.0) + 82 > 255: 255 else: int(sc.z * 95.0) + 82
+      drawRect(60.0, 152.0 + float(band) * 23.0, 560.0, 23.0, rgb(r8, g8, b8))
+      band = band + 1
+
+    // Ground horizon silhouette strip
+    drawRect(60.0, 451.0, 560.0, 25.0, rgb(15, 23, 36))
+    drawLine(60.0, 451.0, 620.0, 451.0, rgb(56, 189, 248), 1.5)
+
+    // Solar disc & Mie aureole ring positioned by 3D sun azimuth & elevation
+    let sunDomeX = 340.0 + sunDir.x * 165.0
+    let sunDomeY = 440.0 - sunDir.y * 265.0
+    drawCircleOutline(sunDomeX, sunDomeY, 54.0, 1.5, rgb(251, 146, 60))
+    drawCircleOutline(sunDomeX, sunDomeY, 38.0, 2.5, rgb(250, 204, 21))
+    drawCircle(sunDomeX, sunDomeY, 22.0, rgb(255, 244, 190))
+    drawText("Zenith (y=1.0)", 70.0, 158.0, 13.0, rgb(226, 232, 240))
+    drawText("Horizon Ground Plane (y=0.0)", 70.0, 456.0, 13.0, rgb(148, 163, 184))
+
+    // Right Panel: Spherical Lat-Long Equirectangular Panorama UV Grid
+    drawRect(660.0, 96.0, 580.0, 410.0, rgb(15, 23, 42))
+    drawRectOutline(660.0, 96.0, 580.0, 410.0, 2.0, rgb(250, 204, 21))
+    drawText("2:1 SPHERICAL EQUIRECTANGULAR PANORAMA UV PROJECTION", 680.0, 118.0, 16.0, rgb(253, 224, 71))
+
+    drawRect(690.0, 165.0, 520.0, 260.0, rgb(20, 29, 47))
+    mut gy: int = 0
+    while gy < 4:
+      mut gx: int = 0
+      while gx < 8:
+        let cellU = (float(gx) + 0.5) / 8.0
+        let cellV = 1.0 - (float(gy) + 0.5) / 4.0
+        let cellElev = (cellV - 0.5) * 2.0
+        let cellAz = (cellU - 0.5) * 6.28318
+        let cellSc = computeAtmosphericScattering(Vec3(x = cos(cellAz), y = if cellElev > 0.05: cellElev else: 0.05, z = sin(cellAz)), atmo)
+        let cr = if cellElev < 0.0: 22 else: (if int(cellSc.x * 75.0) + 20 > 220: 220 else: int(cellSc.x * 75.0) + 20)
+        let cg = if cellElev < 0.0: 30 else: (if int(cellSc.y * 75.0) + 35 > 230: 230 else: int(cellSc.y * 75.0) + 35)
+        let cb = if cellElev < 0.0: 46 else: (if int(cellSc.z * 75.0) + 65 > 245: 245 else: int(cellSc.z * 75.0) + 65)
+        drawRect(690.0 + float(gx) * 65.0, 165.0 + float(gy) * 65.0, 64.0, 64.0, rgb(cr, cg, cb))
+        gx = gx + 1
+      gy = gy + 1
+
+    drawRectOutline(690.0, 165.0, 520.0, 260.0, 2.0, rgb(56, 189, 248))
+
+    mut lon: int = 1
+    while lon < 8:
+      let lx = 690.0 + float(lon) * 65.0
+      drawLine(lx, 165.0, lx, 425.0, rgb(71, 85, 105), 1.0)
+      lon = lon + 1
+
+    mut lat: int = 1
+    while lat < 4:
+      let ly = 165.0 + float(lat) * 65.0
+      drawLine(690.0, ly, 1210.0, ly, rgb(71, 85, 105), 1.0)
+      lat = lat + 1
+
+    // Horizon equator line (v = 0.5)
+    drawLine(690.0, 295.0, 1210.0, 295.0, rgb(250, 204, 21), 2.5)
+
+    // Live Sun Equirectangular UV Coordinate Marker (u in [0..1], v in [0..1])
+    let uvPx = 690.0 + sunUv.x * 520.0
+    let uvPy = 425.0 - sunUv.y * 260.0
+    drawLine(uvPx, 165.0, uvPx, 425.0, rgb(253, 224, 71), 1.0)
+    drawLine(690.0, uvPy, 1210.0, uvPy, rgb(253, 224, 71), 1.0)
+    drawCircle(uvPx, uvPy, 9.0, rgb(255, 244, 190))
+    drawCircleOutline(uvPx, uvPy, 14.0, 2.0, rgb(251, 146, 60))
+
+    drawText("Zenith v=1.0 | Horizon Equator v=" + str(eqHorizon.y) + " | Nadir v=0.0", 690.0, 442.0, 14.0, rgb(226, 232, 240))
+    drawText("Live Sun UV: u=" + str(int(sunUv.x * 1000.0)) + "m  v=" + str(int(sunUv.y * 1000.0)) + "m", 690.0, 468.0, 14.0, rgb(253, 224, 71))
+
+    // Bottom Telemetry Strip
+    drawRect(40.0, 526.0, 1200.0, 150.0, rgb(15, 23, 42))
+    drawRectOutline(40.0, 526.0, 1200.0, 150.0, 2.0, rgb(51, 65, 85))
+    drawText("ATMOSPHERIC SCATTERING COEFFICIENTS & TELEMETRY (Frame " + str(frame) + ")", 60.0, 548.0, 18.0, rgb(56, 189, 248))
+    drawText("Rayleigh Beta=(0.058, 0.135, 0.331) | Mie Beta=" + str(atmo.mieCoeff) + " | Sun Elev y=" + str(int(sunDir.y * 100.0)) + "%", 60.0, 584.0, 16.0, rgb(226, 232, 240))
+    drawText("Zenith Blue=" + str(int(zenithSc.z * 100.0)) + " | Horizon Mie Glow=" + str(int(horizonSc.x * 100.0)) + " |ZenithUV.v=" + str(eqZenith.y) + " | Audit=" + str(audit), 60.0, 618.0, 16.0, rgb(134, 239, 172))
+
+    endDrawing()
+    frame = frame + 1
+
+  closeWindow()
+  ret 0

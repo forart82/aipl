@@ -1,0 +1,327 @@
+/// # Module: `std/ai/steering` (`SteeringMod`)
+///
+/// ## Purpose & Domain Scope
+/// Craig Reynolds steering behaviors (Seek, Flee, Arrive), Boids flocking
+/// (Separation, Alignment, Cohesion), and radial formation positioning.
+module SteeringMod
+
+import { TAU } from "../math/consts"
+import { sin, cos, sqrt, hypot } from "../math/trig"
+import { Vec2 } from "../math/vec_math"
+
+pub struct SteeringOutput2D(linear: Vec2, angular: float)
+
+pub struct BoidSettings2D(separationDistance: float, alignmentDistance: float, cohesionDistance: float, weightSeparation: float, weightAlignment: float, weightCohesion: float, maxSpeed: float, maxForce: float)
+
+pub struct Agent2D(x: float, y: float, vx: float, vy: float, maxSpeed: float, maxForce: float)
+
+pub struct ContextMap8(interest: [float], danger: [float])
+
+fn clampVec2Mag(v: Vec2, maxLen: float): Vec2:
+  let l = v.len()
+  if l > maxLen and l > 0.000001:
+    ret v.scale(maxLen / l)
+  ret v
+
+pub fn steerSeek2D(pos: Vec2, currentVel: Vec2, target: Vec2, maxSpeed: float, maxForce: float): SteeringOutput2D:
+  let desired: Vec2 = target.sub(pos).norm().scale(maxSpeed)
+  let steer: Vec2 = clampVec2Mag(desired.sub(currentVel), maxForce)
+  ret SteeringOutput2D(linear = steer, angular = 0.0)
+
+pub fn steerFlee2D(pos: Vec2, currentVel: Vec2, threat: Vec2, maxSpeed: float, maxForce: float): SteeringOutput2D:
+  let desired: Vec2 = pos.sub(threat).norm().scale(maxSpeed)
+  let steer: Vec2 = clampVec2Mag(desired.sub(currentVel), maxForce)
+  ret SteeringOutput2D(linear = steer, angular = 0.0)
+
+pub fn steerArrive2D(pos: Vec2, currentVel: Vec2, target: Vec2, slowingRadius: float, maxSpeed: float, maxForce: float): SteeringOutput2D:
+  let toTarget: Vec2 = target.sub(pos)
+  let dist = toTarget.len()
+  if dist < 0.0001:
+    ret SteeringOutput2D(linear = Vec2(x = 0.0, y = 0.0), angular = 0.0)
+  let targetSpeed = if dist > slowingRadius or slowingRadius <= 0.0: maxSpeed else: maxSpeed * (dist / slowingRadius)
+  let desired: Vec2 = toTarget.scale(targetSpeed / dist)
+  let steer: Vec2 = clampVec2Mag(desired.sub(currentVel), maxForce)
+  ret SteeringOutput2D(linear = steer, angular = 0.0)
+
+pub fn steerBoidsFlocking2D(agentIdx: int, positions: [Vec2], velocities: [Vec2], settings: BoidSettings2D): SteeringOutput2D:
+  let myPos: Vec2 = positions[agentIdx]
+  let myVel: Vec2 = velocities[agentIdx]
+
+  mut sep = Vec2(x = 0.0, y = 0.0)
+  mut align = Vec2(x = 0.0, y = 0.0)
+  mut coh = Vec2(x = 0.0, y = 0.0)
+  mut sepCount = 0
+  mut alignCount = 0
+  mut cohCount = 0
+
+  mut i = 0
+  while i < positions.len:
+    if i != agentIdx:
+      let otherPos: Vec2 = positions[i]
+      let otherVel: Vec2 = velocities[i]
+      let diff: Vec2 = myPos.sub(otherPos)
+      let d = diff.len()
+      if d > 0.0001 and d < settings.separationDistance:
+        sep = sep.add(diff.scale(1.0 / (d * d)))
+        sepCount = sepCount + 1
+      if d < settings.alignmentDistance:
+        align = align.add(otherVel)
+        alignCount = alignCount + 1
+      if d < settings.cohesionDistance:
+        coh = coh.add(otherPos)
+        cohCount = cohCount + 1
+    i = i + 1
+
+  mut totalForce = Vec2(x = 0.0, y = 0.0)
+  if sepCount > 0:
+    let sepSteer: Vec2 = sep.norm().scale(settings.maxSpeed).sub(myVel)
+    totalForce = totalForce.add(clampVec2Mag(sepSteer, settings.maxForce).scale(settings.weightSeparation))
+  if alignCount > 0:
+    let alignSteer: Vec2 = align.scale(1.0 / float(alignCount)).norm().scale(settings.maxSpeed).sub(myVel)
+    totalForce = totalForce.add(clampVec2Mag(alignSteer, settings.maxForce).scale(settings.weightAlignment))
+  if cohCount > 0:
+    let centerMass: Vec2 = coh.scale(1.0 / float(cohCount))
+    let cohSteer = steerSeek2D(myPos, myVel, centerMass, settings.maxSpeed, settings.maxForce)
+    totalForce = totalForce.add(cohSteer.linear.scale(settings.weightCohesion))
+
+  ret SteeringOutput2D(linear = clampVec2Mag(totalForce, settings.maxForce), angular = 0.0)
+
+pub fn computeRadialFormationSlot2D(center: Vec2, radius: float, slotIndex: int, totalSlots: int): Vec2:
+  let n = if totalSlots > 0: totalSlots else: 1
+  let angle = (float(slotIndex) / float(n)) * TAU
+  ret Vec2(
+    x = center.x + cos(angle) * radius,
+    y = center.y + sin(angle) * radius
+  )
+
+pub fn agent2DNew(x: float, y: float, maxSpeed: float = 200.0, maxForce: float = 400.0): Agent2D:
+  ret Agent2D(
+    x = x,
+    y = y,
+    vx = 0.0,
+    vy = 0.0,
+    maxSpeed = maxSpeed,
+    maxForce = maxForce
+  )
+
+pub fn steerSeek(aOrX: any, targetXOrY: float, targetYOrTx: float, ty: float = 0.0, maxSpeed: float = -1.0): [float]:
+  if maxSpeed >= 0.0:
+    let x = float(aOrX)
+    let y = targetXOrY
+    let tx = targetYOrTx
+    let dx = tx - x
+    let dy = ty - y
+    let dist = hypot(dx, dy)
+    if dist <= 0.000001:
+      ret [0.0, 0.0]
+    ret [(dx / dist) * maxSpeed, (dy / dist) * maxSpeed]
+  let a: Agent2D = aOrX
+  let targetX = targetXOrY
+  let targetY = targetYOrTx
+  let dx = targetX - a.x
+  let dy = targetY - a.y
+  let d = hypot(dx, dy)
+  if d <= 0.000001:
+    ret [0.0, 0.0]
+  let desiredVx = (dx / d) * a.maxSpeed
+  let desiredVy = (dy / d) * a.maxSpeed
+  let steerX = desiredVx - a.vx
+  let steerY = desiredVy - a.vy
+  let steerMag = hypot(steerX, steerY)
+  if steerMag > a.maxForce and steerMag > 0.000001:
+    ret [(steerX / steerMag) * a.maxForce, (steerY / steerMag) * a.maxForce]
+  ret [steerX, steerY]
+
+pub fn steerFlee(aOrX: any, threatXOrY: float, threatYOrTx: float, ty: float = 0.0, maxSpeed: float = -1.0): [float]:
+  if maxSpeed >= 0.0:
+    let x = float(aOrX)
+    let y = threatXOrY
+    let tx = threatYOrTx
+    let dx = x - tx
+    let dy = y - ty
+    let dist = hypot(dx, dy)
+    if dist <= 0.000001:
+      ret [0.0, 0.0]
+    ret [(dx / dist) * maxSpeed, (dy / dist) * maxSpeed]
+  let a: Agent2D = aOrX
+  let threatX = threatXOrY
+  let threatY = threatYOrTx
+  let dx = a.x - threatX
+  let dy = a.y - threatY
+  let d = hypot(dx, dy)
+  if d <= 0.000001:
+    ret [0.0, 0.0]
+  let desiredVx = (dx / d) * a.maxSpeed
+  let desiredVy = (dy / d) * a.maxSpeed
+  let steerX = desiredVx - a.vx
+  let steerY = desiredVy - a.vy
+  let steerMag = hypot(steerX, steerY)
+  if steerMag > a.maxForce and steerMag > 0.000001:
+    ret [(steerX / steerMag) * a.maxForce, (steerY / steerMag) * a.maxForce]
+  ret [steerX, steerY]
+
+pub fn steerArrive(aOrX: any, targetXOrY: float, targetYOrTx: float, slowRadiusOrTy: float, maxSpeed: float = -1.0, slowRadius6: float = -1.0): [float]:
+  if maxSpeed >= 0.0:
+    let x = float(aOrX)
+    let y = targetXOrY
+    let tx = targetYOrTx
+    let ty = slowRadiusOrTy
+    let slowRad = slowRadius6
+    let dx = tx - x
+    let dy = ty - y
+    let dist = hypot(dx, dy)
+    if dist <= 0.000001:
+      ret [0.0, 0.0]
+    mut speed = maxSpeed
+    if slowRad > 0.0001 and dist < slowRad:
+      speed = maxSpeed * (dist / slowRad)
+    ret [(dx / dist) * speed, (dy / dist) * speed]
+  let a: Agent2D = aOrX
+  let targetX = targetXOrY
+  let targetY = targetYOrTx
+  let slowRadius = slowRadiusOrTy
+  let dx = targetX - a.x
+  let dy = targetY - a.y
+  let d = hypot(dx, dy)
+  if d <= 0.000001:
+    let steerX = -a.vx
+    let steerY = -a.vy
+    let steerMag = hypot(steerX, steerY)
+    if steerMag > a.maxForce and steerMag > 0.000001:
+      ret [(steerX / steerMag) * a.maxForce, (steerY / steerMag) * a.maxForce]
+    ret [steerX, steerY]
+  mut speed = a.maxSpeed
+  if slowRadius > 0.000001 and d < slowRadius:
+    speed = a.maxSpeed * (d / slowRadius)
+  let desiredVx = (dx / d) * speed
+  let desiredVy = (dy / d) * speed
+  let steerX = desiredVx - a.vx
+  let steerY = desiredVy - a.vy
+  let steerMag = hypot(steerX, steerY)
+  if steerMag > a.maxForce and steerMag > 0.000001:
+    ret [(steerX / steerMag) * a.maxForce, (steerY / steerMag) * a.maxForce]
+  ret [steerX, steerY]
+
+pub fn steerPursue(a: Agent2D, targetX: float, targetY: float, targetVx: float, targetVy: float, lookahead: float): [float]:
+  let predX = targetX + targetVx * lookahead
+  let predY = targetY + targetVy * lookahead
+  ret steerSeek(a, predX, predY)
+
+pub fn agentStep(a: Agent2D, fx: float, fy: float, dt: float): Agent2D:
+  let nvx = a.vx + fx * dt
+  let nvy = a.vy + fy * dt
+  let speed = hypot(nvx, nvy)
+  mut finalVx = nvx
+  mut finalVy = nvy
+  if speed > a.maxSpeed and speed > 0.000001:
+    finalVx = (nvx / speed) * a.maxSpeed
+    finalVy = (nvy / speed) * a.maxSpeed
+  let nx = a.x + finalVx * dt
+  let ny = a.y + finalVy * dt
+  ret Agent2D(
+    x = nx,
+    y = ny,
+    vx = finalVx,
+    vy = finalVy,
+    maxSpeed = a.maxSpeed,
+    maxForce = a.maxForce
+  )
+
+pub fn navContextMapNew(): ContextMap8:
+  ret ContextMap8(
+    interest = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    danger = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  )
+
+fn contextBinDirX(bin: int): float:
+  if bin == 0: ret 1.0
+  if bin == 1: ret 0.70710678
+  if bin == 2: ret 0.0
+  if bin == 3: ret -0.70710678
+  if bin == 4: ret -1.0
+  if bin == 5: ret -0.70710678
+  if bin == 6: ret 0.0
+  ret 0.70710678
+
+fn contextBinDirY(bin: int): float:
+  if bin == 0: ret 0.0
+  if bin == 1: ret 0.70710678
+  if bin == 2: ret 1.0
+  if bin == 3: ret 0.70710678
+  if bin == 4: ret 0.0
+  if bin == 5: ret -0.70710678
+  if bin == 6: ret -1.0
+  ret -0.70710678
+
+pub fn navContextInjectInterest(mut cmap: ContextMap8, dirX: float, dirY: float, weight: float): ContextMap8:
+  let len = sqrt(dirX * dirX + dirY * dirY)
+  if len <= 0.0001 or weight <= 0.0:
+    ret cmap
+  let nx = dirX / len
+  let ny = dirY / len
+  mut newInterest = cmap.interest
+  for b in 0..8:
+    let dot = nx * contextBinDirX(b) + ny * contextBinDirY(b)
+    if dot > 0.0:
+      let val = dot * weight
+      if val > newInterest[b]:
+        newInterest[b] = val
+  ret ContextMap8(interest = newInterest, danger = cmap.danger)
+
+pub fn navContextInjectDanger(mut cmap: ContextMap8, dirX: float, dirY: float, weight: float): ContextMap8:
+  let len = sqrt(dirX * dirX + dirY * dirY)
+  if len <= 0.0001 or weight <= 0.0:
+    ret cmap
+  let nx = dirX / len
+  let ny = dirY / len
+  mut newDanger = cmap.danger
+  for b in 0..8:
+    let dot = nx * contextBinDirX(b) + ny * contextBinDirY(b)
+    if dot > 0.0:
+      let val = dot * weight
+      if val > newDanger[b]:
+        newDanger[b] = val
+  ret ContextMap8(interest = cmap.interest, danger = newDanger)
+
+pub fn navContextResolveDirection(cmap: ContextMap8, dangerThreshold: float): [float]:
+  mut bestBin = -1
+  mut bestScore = 0.0
+  for b in 0..8:
+    if cmap.danger[b] <= dangerThreshold:
+      let score = cmap.interest[b] * (1.0 - cmap.danger[b])
+      if score > bestScore:
+        bestScore = score
+        bestBin = b
+  if bestBin < 0:
+    mut minDanger = 999999.0
+    for b in 0..8:
+      if cmap.danger[b] < minDanger:
+        minDanger = cmap.danger[b]
+        bestBin = b
+  if bestBin < 0:
+    ret [0.0, 0.0]
+  ret [contextBinDirX(bestBin), contextBinDirY(bestBin)]
+
+pub fn navSolveOrcaVelocity2D(ax: float, ay: float, avx: float, avy: float, prefVx: float, prefVy: float, bx: float, by: float, bvx: float, bvy: float, combinedRadius: float, tau: float): [float]:
+  let relX = bx - ax
+  let relY = by - ay
+  let distSq = relX * relX + relY * relY
+  let dist = sqrt(distSq)
+  let safeTau = if tau > 0.05: tau else: 0.5
+  let minSep = combinedRadius
+  if dist <= 0.0001:
+    ret [-prefVx, -prefVy]
+  let nx = relX / dist
+  let ny = relY / dist
+  let curRelVx = avx - bvx
+  let curRelVy = avy - bvy
+  let prefRelVx = prefVx - bvx
+  let prefRelVy = prefVy - bvy
+  let closingSpeed = (prefRelVx * 0.5 + curRelVx * 0.5) * nx + (prefRelVy * 0.5 + curRelVy * 0.5) * ny
+  let maxSafeApproach = (dist - minSep) / safeTau
+  if closingSpeed <= maxSafeApproach:
+    ret [prefVx, prefVy]
+  let excess = (closingSpeed - maxSafeApproach) * 0.55
+  let newVx = prefVx - nx * excess
+  let newVy = prefVy - ny * excess
+  ret [newVx, newVy]

@@ -1,0 +1,64 @@
+// ============================================================================
+// Example 005: Structs, Receiver Methods & Immutable Value Updates CLI
+// Demonstrates: Struct declarations, receiver methods (pub fn (self: T) ...),
+//               immutable copy-on-update patterns, and Vec2 from
+//               std/math/vec_math.
+// ============================================================================
+module Ex005StructsMethodsAndImmutabilityCli
+
+import { clampInt } from "../std/prelude"
+import { absInt, roundFloat } from "../std/math/consts"
+import { Vec2 } from "../std/math/vec_math"
+
+pub struct TransformRecord:
+  posX: int
+  posY: int
+  scalePct: int
+
+pub fn (self: TransformRecord) manhattanDist(): int:
+  ret absInt(self.posX) + absInt(self.posY)
+
+pub fn (self: TransformRecord) originDistanceInt(): int:
+  let v = Vec2(x = float(self.posX), y = float(self.posY))
+  ret roundFloat(v.len())
+
+pub fn buildTransformRecord(x: int, y: int, scalePct: int): TransformRecord:
+  ret TransformRecord(
+    posX = x,
+    posY = y,
+    scalePct = clampInt(scalePct, 10, 1000)
+  )
+
+pub fn translateTransform(base: TransformRecord, dx: int, dy: int): TransformRecord:
+  let p0 = Vec2(x = float(base.posX), y = float(base.posY))
+  let delta = Vec2(x = float(dx), y = float(dy))
+  let p1 = p0.add(delta)
+  ret TransformRecord(
+    posX = roundFloat(p1.x),
+    posY = roundFloat(p1.y),
+    scalePct = base.scalePct
+  )
+
+pub fn scaleTransformUniform(base: TransformRecord, newScalePct: int): TransformRecord:
+  ret TransformRecord(
+    posX = base.posX,
+    posY = base.posY,
+    scalePct = clampInt(newScalePct, 10, 1000)
+  )
+
+pub fn describeTransformScale(rec: TransformRecord): str:
+  if rec.scalePct == 100:
+    ret "STRUCT:UNIT_SCALE"
+  elif rec.scalePct > 100:
+    ret "STRUCT:MAGNIFIED"
+  else:
+    ret "STRUCT:REDUCED"
+
+pub fn main(): int:
+  let base = buildTransformRecord(3, 4, 100)
+  let moved = translateTransform(base, 5, 8)
+  let scaled = scaleTransformUniform(moved, 200)
+  println("[ex_005_structs_methods_and_immutability_cli] base=(" + str(base.posX) + "," + str(base.posY) + ") dist=" + str(base.originDistanceInt()))
+  println("[ex_005_structs_methods_and_immutability_cli] moved=(" + str(moved.posX) + "," + str(moved.posY) + ") manhattan=" + str(moved.manhattanDist()))
+  println("[ex_005_structs_methods_and_immutability_cli] scaled=" + str(scaled.scalePct) + "% | " + describeTransformScale(scaled))
+  ret 0

@@ -1,0 +1,122 @@
+/// # Module: `std/procgen/cellular_automata` (`CellularAutomataMod`)
+///
+/// ## Purpose & Domain Scope
+/// Cave/island cellular automata, Conway's Game of Life (B3/S23),
+/// and Gray-Scott reaction-diffusion PDE simulation.
+module CellularAutomataMod
+
+import { clampFloat } from "std/math/consts"
+
+pub struct CaRuleSet(surviveMask: int, birthMask: int, numStates: int)
+
+pub struct GrayScottConfig(feedRate: float, killRate: float, diffusionU: float, diffusionV: float)
+
+pub struct CellularGrid2D(width: int, height: int, cells: [int])
+
+pub struct ScalarField2D(width: int, height: int, values: [float])
+
+fn lcgRandFloat(state: int): (int, float):
+  let nextS = (state * 1103515245 + 12345) & 2147483647
+  ret (nextS, float(nextS % 100000) / 100000.0)
+
+pub fn caveAutomataInit(width: int, height: int, fillProb: float, seed: int): CellularGrid2D:
+  mut cells: [int] = []
+  mut s = if seed != 0: seed else: 1
+  let total = width * height
+  mut i = 0
+  while i < total:
+    let (nextS, rf) = lcgRandFloat(s)
+    s = nextS
+    let v = if rf < fillProb: 1 else: 0
+    cells.push(v)
+    i = i + 1
+  ret CellularGrid2D(width = width, height = height, cells = cells)
+
+fn countMooreNeighbors(grid: CellularGrid2D, cx: int, cy: int, outOfBoundsSolid: bool): int:
+  mut count = 0
+  mut dy = -1
+  while dy <= 1:
+    mut dx = -1
+    while dx <= 1:
+      if not (dx == 0 and dy == 0):
+        let nx = cx + dx
+        let ny = cy + dy
+        if nx < 0 or nx >= grid.width or ny < 0 or ny >= grid.height:
+          if outOfBoundsSolid:
+            count = count + 1
+        else:
+          if grid.cells[ny * grid.width + nx] != 0:
+            count = count + 1
+      dx = dx + 1
+    dy = dy + 1
+  ret count
+
+pub fn caveAutomataStep(grid: CellularGrid2D, birthLimit: int, deathLimit: int): CellularGrid2D:
+  mut nextCells: [int] = []
+  mut y = 0
+  while y < grid.height:
+    mut x = 0
+    while x < grid.width:
+      let nbs = countMooreNeighbors(grid, x, y, true)
+      let cur = grid.cells[y * grid.width + x]
+      mut nextVal = 0
+      if cur != 0:
+        nextVal = if nbs >= deathLimit: 1 else: 0
+      else:
+        nextVal = if nbs > birthLimit: 1 else: 0
+      nextCells.push(nextVal)
+      x = x + 1
+    y = y + 1
+  ret CellularGrid2D(width = grid.width, height = grid.height, cells = nextCells)
+
+pub fn conwayStep2D(grid: CellularGrid2D): CellularGrid2D:
+  mut nextCells: [int] = []
+  mut y = 0
+  while y < grid.height:
+    mut x = 0
+    while x < grid.width:
+      let nbs = countMooreNeighbors(grid, x, y, false)
+      let cur = grid.cells[y * grid.width + x]
+      mut nextVal = 0
+      if cur != 0:
+        nextVal = if nbs == 2 or nbs == 3: 1 else: 0
+      else:
+        nextVal = if nbs == 3: 1 else: 0
+      nextCells.push(nextVal)
+      x = x + 1
+    y = y + 1
+  ret CellularGrid2D(width = grid.width, height = grid.height, cells = nextCells)
+
+pub fn grayScottStep2D(mut gridU: ScalarField2D, mut gridV: ScalarField2D, config: GrayScottConfig, dt: float): void:
+  let w = gridU.width
+  let h = gridU.height
+  mut nextU: [float] = []
+  mut nextV: [float] = []
+
+  mut y = 0
+  while y < h:
+    mut x = 0
+    while x < w:
+      let idx = y * w + x
+      let u = gridU.values[idx]
+      let v = gridV.values[idx]
+
+      let xm = (x - 1 + w) % w
+      let xp = (x + 1) % w
+      let ym = (y - 1 + h) % h
+      let yp = (y + 1) % h
+
+      let lapU = gridU.values[y * w + xm] + gridU.values[y * w + xp] + gridU.values[ym * w + x] + gridU.values[yp * w + x] - 4.0 * u
+      let lapV = gridV.values[y * w + xm] + gridV.values[y * w + xp] + gridV.values[ym * w + x] + gridV.values[yp * w + x] - 4.0 * v
+
+      let uvv = u * v * v
+      let du = config.diffusionU * lapU - uvv + config.feedRate * (1.0 - u)
+      let dv = config.diffusionV * lapV + uvv - (config.feedRate + config.killRate) * v
+
+      nextU.push(clampFloat(u + du * dt, 0.0, 1.0))
+      nextV.push(clampFloat(v + dv * dt, 0.0, 1.0))
+      x = x + 1
+    y = y + 1
+
+  gridU.values = nextU
+  gridV.values = nextV

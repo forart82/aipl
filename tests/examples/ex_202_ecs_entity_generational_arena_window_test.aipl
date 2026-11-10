@@ -1,0 +1,47 @@
+module Ex202EcsEntityGenerationalArenaWindowTest
+
+import {
+  packEntityHandleLowCode, verifyEntityGenerationMatch,
+  buildEcsEntityArenaAudit, stepArenaInspectionCursor
+} from "../../examples/ex_202_ecs_entity_generational_arena_window"
+import {
+  EntityId, createEntityPool, allocateEntity,
+  recycleEntity, isEntityAlive, packEntityU64, unpackEntityU64
+} from "../../std/ecs/entity"
+
+pub fn test_ecs_entity_generational_arena(): void:
+  assert(packEntityHandleLowCode(42, 3) == 3042, "packEntityHandleLowCode encodes generation * 1000 + slotIndex")
+  assert(verifyEntityGenerationMatch(5, 5) == 1, "verifyEntityGenerationMatch returns 1 when generations match")
+
+  mut pool = createEntityPool()
+  let (p1, e0) = allocateEntity(pool)
+  pool = p1
+  let (p2, e1) = allocateEntity(pool)
+  pool = p2
+  assert(isEntityAlive(pool, e0) and isEntityAlive(pool, e1), "Both allocated entities are alive")
+
+  let packed = packEntityU64(e1)
+  let unpacked: EntityId = unpackEntityU64(packed)
+  assert(unpacked.index == e1.index and unpacked.generation == e1.generation, "packEntityU64/unpackEntityU64 roundtrip")
+
+  pool = recycleEntity(pool, e0)
+  assert(not isEntityAlive(pool, e0), "Recycled entity e0 is no longer alive")
+
+  let (p3, e0Reused) = allocateEntity(pool)
+  pool = p3
+  let reused: EntityId = e0Reused
+  assert(reused.index == 0 and reused.generation == 2, "Reused slot 0 increments generation to 2")
+  assert(not isEntityAlive(pool, e0) and isEntityAlive(pool, reused), "Stale handle rejected while new handle is alive")
+  assert(buildEcsEntityArenaAudit() == 3046, "buildEcsEntityArenaAudit returns 3042 + 1 + 2 + 1 == 3046")
+
+  // Multi-frame progression across t=0, t=1, t=20, t=100
+  let c0 = stepArenaInspectionCursor(0)
+  let c1 = stepArenaInspectionCursor(1)
+  let c20 = stepArenaInspectionCursor(20)
+  let c100 = stepArenaInspectionCursor(100)
+  assert(c0 != c1 and c1 != c20 and c20 != c100, "arena inspection cursor advances across t=0,1,20,100")
+
+pub fn main(): int:
+  test_ecs_entity_generational_arena()
+  println("PASS: ex_202_ecs_entity_generational_arena_window_test")
+  ret 0

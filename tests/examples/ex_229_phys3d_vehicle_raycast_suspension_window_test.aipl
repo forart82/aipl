@@ -1,0 +1,82 @@
+module Ex229Phys3dVehicleRaycastSuspensionWindowTest
+
+import {
+  RaycastWheel3D, RaycastVehicle3D, raycastVehicleNew,
+  vehicleAddWheel, vehicleStepSimulation
+} from "../../std/phys3d/vehicle3d"
+import { physWorld3dNew, physWorld3dAddBody } from "../../std/phys3d/phys_world3d"
+import { BodyType3D, RigidBody3D, rigidBody3dNew, rigidBody3dSetSphereInertia } from "../../std/phys3d/rigid_body3d"
+import { Vec3 } from "../../std/math/vec_math"
+import { Quat } from "../../std/math/quat"
+import {
+  VehicleScene, createVehicleScene, stepScene, auditPhys3dVehicleSuspension
+} from "../../examples/ex_229_phys3d_vehicle_raycast_suspension_window"
+
+pub fn test_phys3d_vehicle_raycast_suspension(): void:
+  let idRot = Quat(x = 0.0, y = 0.0, z = 0.0, w = 1.0)
+  mut world = physWorld3dNew(Vec3(x = 0.0, y = -9.81, z = 0.0))
+  mut body = rigidBody3dNew(0, BodyType3D.Dynamic, Vec3(x = 0.0, y = 1.0, z = 0.0), idRot)
+  rigidBody3dSetSphereInertia(body, 10.0, 1.0)
+  let bId = physWorld3dAddBody(world, body)
+
+  mut veh = raycastVehicleNew(bId)
+  let wheel = RaycastWheel3D(
+    connectionPoint = Vec3(x = 0.0, y = -0.2, z = 0.0),
+    direction = Vec3(x = 0.0, y = -1.0, z = 0.0),
+    axle = Vec3(x = 1.0, y = 0.0, z = 0.0),
+    suspensionRestLength = 0.6,
+    currentSuspensionLength = 0.6,
+    springStiffness = 50.0,
+    dampingCompression = 4.0,
+    dampingRelaxation = 4.0,
+    wheelRadius = 0.4,
+    steeringAngle = 0.0,
+    driveTorque = 20.0,
+    brakeTorque = 0.0,
+    isGrounded = false,
+    contactPoint = Vec3(x = 0.0, y = 0.0, z = 0.0),
+    contactNormal = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  )
+  vehicleAddWheel(veh, wheel)
+  vehicleStepSimulation(veh, world, 0.1)
+  let w0: RaycastWheel3D = veh.wheels[0]
+  assert(w0.isGrounded, "Vehicle wheel grounded on ground plane")
+
+  mut scene: VehicleScene = createVehicleScene()
+  let c0: RigidBody3D = scene.world.bodies[0]
+  let z0 = c0.position.z
+  let y0 = c0.position.y
+  stepScene(scene, 0, 0.05)
+  let c1: RigidBody3D = scene.world.bodies[0]
+  let z1 = c1.position.z
+  let y1 = c1.position.y
+  let sw1: RaycastWheel3D = scene.vehicle.wheels[0]
+  let len1 = sw1.currentSuspensionLength
+  assert(z1 > z0 and y1 != y0, "t=0 -> t=1 drives vehicle forward and compresses suspension")
+
+  mut f = 1
+  while f <= 20:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let c20: RigidBody3D = scene.world.bodies[0]
+  let z20 = c20.position.z
+  let sw20: RaycastWheel3D = scene.vehicle.wheels[0]
+  let len20 = sw20.currentSuspensionLength
+  assert(z20 > z1 and len20 != len1, "t=1 -> t=20 progresses vehicle travel and suspension length")
+
+  while f <= 100:
+    stepScene(scene, f, 0.05)
+    f = f + 1
+  let c100: RigidBody3D = scene.world.bodies[0]
+  let z100 = c100.position.z
+  let sw100: RaycastWheel3D = scene.vehicle.wheels[0]
+  let len100 = sw100.currentSuspensionLength
+  assert(z100 > z20 and len100 != len20, "t=20 -> t=100 continues vehicle travel and suspension oscillation without freezing")
+
+  let audit = auditPhys3dVehicleSuspension()
+  assert(audit == 44, "3D vehicle raycast suspension audit")
+
+pub fn main(): int:
+  test_phys3d_vehicle_raycast_suspension()
+  println("PASS: ex_229_phys3d_vehicle_raycast_suspension_window_test")
+  ret 0

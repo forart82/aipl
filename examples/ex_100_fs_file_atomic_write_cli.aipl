@@ -1,0 +1,69 @@
+// ============================================================================
+// Example 100: VFS File Handles, Exclusive Locks & Atomic Write (CLI)
+// Demonstrates: fsOpenOptionsDefault, fsOpenReadOnly, fsOpenWriteCreate,
+//               fsOpenAppend, fsFileCreateInMem, fsFileAppendText,
+//               fsFileReadAllText, fsFileReadAllBytes, fsFileWriteText,
+//               fsFileTruncate, fsFileLockExclusive, fsFileUnlock, and
+//               fsAtomicWriteSim from std/fs.
+// ============================================================================
+module Ex100FsFileAtomicWriteCli
+
+import {
+  fsOpenOptionsDefault,
+  fsOpenReadOnly,
+  fsOpenWriteCreate,
+  fsOpenAppend,
+  fsFileCreateInMem,
+  fsFileAppendText,
+  fsFileReadAllText,
+  fsFileReadAllBytes,
+  fsFileWriteText,
+  fsFileTruncate,
+  fsFileLockExclusive,
+  fsFileUnlock,
+  fsAtomicWriteSim
+} from "../std/fs"
+
+// Creates an in-memory VFS file, appends text, truncates it, and returns the byte length sum.
+pub fn evaluateVfsAppendAndTruncateByteCount(): int:
+  let o1 = fsOpenOptionsDefault()
+  let o2 = fsOpenReadOnly()
+  let o3 = fsOpenWriteCreate()
+  let o4 = fsOpenAppend()
+  assert(o1.read and o2.read and o3.write and o4.append, "open option flags")
+
+  mut f = fsFileCreateInMem("/tmp/notes.txt", "Hello")
+  f = fsFileAppendText(f, " World")
+  let afterAppendLen = fsFileReadAllBytes(f).len()
+  f = fsFileWriteText(f, "Hello World!")
+  f = fsFileTruncate(f, 5)
+  let afterTruncLen = fsFileReadAllText(f).len
+  ret afterAppendLen + afterTruncLen
+
+// Verifies exclusive advisory file locking contention and atomic temp-file-rename persistence.
+pub fn verifyFileExclusiveLockAndAtomicWrite(): int:
+  mut f = fsFileCreateInMem("/tmp/lock.pid", "4242")
+  let firstLock = fsFileLockExclusive(f)
+  f = firstLock.unwrap()
+  let secondLockRejected = fsFileLockExclusive(f).isErr()
+  f = fsFileUnlock(f)
+  let relockOk = fsFileLockExclusive(f).isOk()
+
+  let atomicFile = fsAtomicWriteSim("/etc/app/settings.toml", "port = 8080").unwrap()
+  let contentOk = fsFileReadAllText(atomicFile) == "port = 8080"
+  if secondLockRejected and relockOk and contentOk:
+    ret 1
+  ret 0
+
+// Returns a canonical label for an atomic file write commit phase.
+pub fn describeAtomicPersistenceStage(committed: bool): str:
+  if committed:
+    ret "FS:ATOMIC_TMP_RENAME_COMMITTED"
+  ret "FS:STAGED_TEMP_BUFFER"
+
+pub fn main(): int:
+  let byteSum = evaluateVfsAppendAndTruncateByteCount()
+  let lockOk = verifyFileExclusiveLockAndAtomicWrite()
+  let stage = describeAtomicPersistenceStage(lockOk == 1)
+  println("ex_100_fs_file_atomic_write_cli: byteSum=" + str(byteSum) + " lockOk=" + str(lockOk) + " stage=" + stage)
+  ret 0

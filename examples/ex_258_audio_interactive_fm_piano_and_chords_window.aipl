@@ -1,0 +1,125 @@
+// ============================================================================
+// Canonical Example 258: Audio Interactive FM Electric Piano & Chords (WINDOW)
+// Target Profile: WINDOW | Rhodes / Bell Voicings (Cmaj9, Amin11, Fmaj9, G13)
+// ============================================================================
+module Ex258AudioInteractiveFmPianoAndChordsWindow
+
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawRoundedRect,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d.aipl"
+import { playToneEx } from "../std/audio/audio_device.aipl"
+import { clampInt } from "../std/std_root.aipl"
+
+pub fn describeFmPianoChordVoicing(chordIdx: int): str:
+  let voicings = ["Cmaj9 (C4-E4-G4-B4-D5)", "Amin11 (A3-E4-G4-C5-D5)", "Fmaj9 (F3-A3-C4-E4-G4)", "G13 (G3-D4-F4-B4-E5)"]
+  ret voicings[clampInt(chordIdx % 4, 0, 3)]
+
+pub fn computeFmPianoVoicingNotesHz(chordIdx: int): [float]:
+  let c = clampInt(chordIdx % 4, 0, 3)
+  if c == 0:
+    ret [261.63, 329.63, 392.00, 493.88, 587.33]
+  if c == 1:
+    ret [220.00, 329.63, 392.00, 523.25, 587.33]
+  if c == 2:
+    ret [174.61, 220.00, 261.63, 329.63, 392.00]
+  ret [196.00, 293.66, 349.23, 493.88, 659.25]
+
+pub fn triggerFmPianoProgressionStep(frameIndex: int): int:
+  let chordIdx = (frameIndex / 30) % 4
+  let notes = computeFmPianoVoicingNotesHz(chordIdx)
+  mut triggered = 0
+  if frameIndex % 30 == 0:
+    mut i = 0
+    while i < notes.len:
+      let _ = playToneEx(notes[i], 540.0, 0.26, "fm_epiano")
+      i = i + 1
+    triggered = triggered + notes.len
+  if frameIndex % 6 == 0:
+    let arpNote = notes[(frameIndex / 6) % notes.len]
+    let _ = playToneEx(arpNote * 2.0, 180.0, 0.18, "bell")
+    triggered = triggered + 1
+  ret triggered
+
+pub fn renderInteractiveFmPianoAndChordsScene(frameIndex: int): int:
+  let chordIdx = (frameIndex / 30) % 4
+  let notes = computeFmPianoVoicingNotesHz(chordIdx)
+  let activeArpIdx = (frameIndex / 6) % notes.len
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(24.0, 16.0, 1232.0, 50.0, rgb(18, 28, 48))
+  drawRectOutline(24.0, 16.0, 1232.0, 50.0, 2.0, rgb(56, 189, 248))
+  drawText("EX_258 // POLYPHONIC FM ELECTRIC PIANO & CHORD WORKSTATION (Cmaj9 / Amin11 / Fmaj9 / G13)", 44.0, 34.0, 18.0, rgb(240, 249, 255))
+
+  // Top Panel: Harmonic Overtone & ADSR Envelope Display
+  let tx = 24.0
+  let ty = 84.0
+  let tw = 1232.0
+  let th = 270.0
+  drawRoundedRect(tx, ty, tw, th, 8.0, rgb(15, 22, 38))
+  drawRectOutline(tx, ty, tw, th, 2.0, rgb(56, 189, 248))
+  drawText("ACTIVE FM RHODES VOICING: " + describeFmPianoChordVoicing(chordIdx), tx + 24.0, ty + 20.0, 17.0, rgb(125, 211, 252))
+
+  mut overtoneSum = 0
+  mut n = 0
+  while n < notes.len:
+    let nx = tx + 60.0 + float(n * 230)
+    let hz = notes[n]
+    let isArp = n == activeArpIdx
+    let barH = 60.0 + (hz * 0.22)
+    let by = ty + th - 30.0 - barH
+    drawRect(nx, by, 160.0, barH, if isArp: rgb(34, 197, 94) else: rgb(56, 189, 248))
+    drawCircle(nx + 80.0, by, 7.0, rgb(250, 204, 21))
+    drawText(str(int(hz)) + " Hz", nx + 48.0, by + 18.0, 15.0, rgb(10, 14, 24))
+    overtoneSum = overtoneSum + int(hz)
+    n = n + 1
+
+  // Bottom Panel: 24-Key Interactive Piano Keyboard Visual
+  let kx = 24.0
+  let ky = 374.0
+  let kw = 1232.0
+  let kh = 320.0
+  drawRect(kx, ky, kw, kh, rgb(14, 20, 34))
+  drawRectOutline(kx, ky, kw, kh, 2.0, rgb(168, 85, 247))
+  drawText("24-KEY POLYPHONIC VELOCITY KEYBED (CARRIER + 2X/3X FM BELL MODULATORS)", kx + 24.0, ky + 18.0, 15.0, rgb(216, 180, 254))
+
+  mut k = 0
+  while k < 24:
+    let keyX = kx + 28.0 + float(k * 49)
+    let isHeld = (k % 5) == activeArpIdx or (k % 4) == chordIdx
+    let keyCol = if isHeld: rgb(56, 189, 248) else: rgb(241, 245, 249)
+    drawRoundedRect(keyX, ky + 54.0, 44.0, 240.0, 5.0, keyCol)
+    drawRectOutline(keyX, ky + 54.0, 44.0, 240.0, 1.5, rgb(30, 41, 59))
+    if (k % 7) != 2 and (k % 7) != 6 and k < 23:
+      drawRect(keyX + 30.0, ky + 54.0, 26.0, 145.0, if isHeld: rgb(168, 85, 247) else: rgb(15, 23, 42))
+    k = k + 1
+
+  ret overtoneSum + activeArpIdx * 23 + chordIdx * 101
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let v = triggerFmPianoProgressionStep(frameIndex)
+  let m = renderInteractiveFmPianoAndChordsScene(frameIndex)
+  ret m + v * 10 + int(dt * 0.0)
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_258 - Interactive FM Electric Piano & Chord Workstation")
+  mut frame: int = 0
+  while not windowShouldClose():
+    let _ = triggerFmPianoProgressionStep(frame)
+    beginDrawing()
+    let _ = renderInteractiveFmPianoAndChordsScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

@@ -1,0 +1,39 @@
+module Ex177Gfx3dMaterial3dGgxPbrSpheresWindowTest
+
+import {
+  buildMaterial3dGgxPbrAudit, stepPbrLightNdotL
+} from "../../examples/ex_177_gfx3d_material3d_ggx_pbr_spheres_window"
+import { Vec3 } from "../../std/math/vec_math"
+import {
+  createDefaultPbrMaterial, evaluateGgxDistribution,
+  evaluateSmithSchlickGeometry, evaluateSchlickFresnel, evaluateCookTorranceBrdf
+} from "../../std/gfx3d/material3d"
+
+pub fn test_gfx3d_material3d_ggx_pbr_spheres(): void:
+  let defMat = createDefaultPbrMaterial()
+  assert(defMat.roughnessFactor == 0.5, "Default PBR roughness == 0.5")
+
+  let ggxD = evaluateGgxDistribution(1.0, 0.3)
+  assert(ggxD > 3.0 and ggxD < 4.0, "Trowbridge-Reitz GGX D(NdotH=1, r=0.3) in [3..4]")
+
+  let geomG = evaluateSmithSchlickGeometry(1.0, 1.0, 0.3)
+  assert(geomG > 0.8 and geomG <= 1.0, "Smith-Schlick G(1, 1, 0.3) in (0.8..1.0]")
+
+  let f0 = Vec3(x = 0.04, y = 0.04, z = 0.04)
+  let fresnel = evaluateSchlickFresnel(1.0, f0)
+  assert(fresnel.x > 0.039 and fresnel.x < 0.041, "Schlick Fresnel at normal incidence equals F0 (0.04)")
+
+  let brdf = evaluateCookTorranceBrdf(1.0, 1.0, 1.0, 1.0, Vec3(x = 1.0, y = 0.2, z = 0.1), 0.0, 0.3)
+  assert(brdf.x > 0.25, "Cook-Torrance BRDF specular + diffuse red radiance > 0.25")
+  assert(buildMaterial3dGgxPbrAudit() > 400, "buildMaterial3dGgxPbrAudit returns valid GGX + G + BRDF score")
+
+  let n0 = stepPbrLightNdotL(0)
+  let n1 = stepPbrLightNdotL(1)
+  let n20 = stepPbrLightNdotL(20)
+  let n100 = stepPbrLightNdotL(100)
+  assert(n0 != n1 and n1 != n20 and n20 != n100, "PBR NdotL light angle evolves without aliasing across frames 0, 1, 20, 100")
+
+pub fn main(): int:
+  test_gfx3d_material3d_ggx_pbr_spheres()
+  println("PASS: ex_177_gfx3d_material3d_ggx_pbr_spheres_window_test")
+  ret 0

@@ -1,0 +1,61 @@
+// ============================================================================
+// Example 007: Generic Containers, DynVec[T], ArraySlice[T] & Sorting CLI
+// Demonstrates: Generic DynVec[T], ArraySlice[T], capacity growth, sortInts,
+//               and sortStringsNatural from std/collections/dyn_vec.
+// ============================================================================
+module Ex007GenericsAndContainersCli
+
+import {
+  dynVecWithCapacity,
+  sortInts,
+  sortStringsNatural
+} from "../std/collections/dyn_vec"
+
+pub struct ContainerBatchSummary:
+  count: int
+  capacity: int
+  minItem: int
+  maxItem: int
+
+pub fn collectSortedWindowSlice(values: [int], startIdx: int, endIdx: int): [int]:
+  let ordered = sortInts(values)
+  mut vec = dynVecWithCapacity[int](4)
+  for i in 0..ordered.len:
+    vec.push(ordered[i])
+  let sliceView = vec.asSlice(startIdx, endIdx)
+  ret sliceView.toArray()
+
+pub fn firstNaturalOrderedTag(tags: [str]): str:
+  let ordered = sortStringsNatural(tags)
+  if ordered.len == 0:
+    ret ""
+  ret ordered[0]
+
+pub fn describeContainerLoad(count: int, capacity: int): str:
+  if count <= 0:
+    ret "VEC:EMPTY"
+  ret "VEC:ACTIVE_" + str(count) + "_OF_" + str(capacity)
+
+pub fn buildContainerBatchSummary(values: [int]): ContainerBatchSummary:
+  let ordered = sortInts(values)
+  mut vec = dynVecWithCapacity[int](4)
+  for i in 0..ordered.len:
+    vec.push(ordered[i])
+  let firstVal = vec.first().unwrapOr(0)
+  let lastVal = vec.last().unwrapOr(0)
+  ret ContainerBatchSummary(
+    count = vec.len(),
+    capacity = vec.cap(),
+    minItem = firstVal,
+    maxItem = lastVal
+  )
+
+pub fn main(): int:
+  let sample = [42, 7, 19, 3, 25]
+  let summary = buildContainerBatchSummary(sample)
+  let win = collectSortedWindowSlice(sample, 1, 4)
+  let firstTag = firstNaturalOrderedTag(["step_10", "step_2", "step_1"])
+  let status = describeContainerLoad(summary.count, summary.capacity)
+  println("[ex_007_generics_and_containers_cli] ContainerBatchSummary(count=" + str(summary.count) + ", cap=" + str(summary.capacity) + ", min=" + str(summary.minItem) + ", max=" + str(summary.maxItem) + ")")
+  println("[ex_007_generics_and_containers_cli] windowSliceLen=" + str(win.len) + " | firstNatural='" + firstTag + "' | " + status)
+  ret 0

@@ -1,0 +1,159 @@
+// ============================================================================
+// Example 053: 3D Octree 8-Octant Subdivision & Box Query Window
+// Demonstrates: octreeNew, OctreeItem, .insert(), .containsPoint(),
+//               .intersectsBox(), .queryBox(), .count(), and .divided from
+//               std/collections/octree, projected in 3D via rotateEuler and
+//               project3D on a 1280x720 desktop window.
+// ============================================================================
+module Ex053CollectionsOctree3dVisualizerWindow
+
+import { clampInt } from "../std/prelude"
+import { OctreeNode, OctreeItem, octreeNew } from "../std/collections/octree"
+import { vec3, rotateEuler, project3D } from "../std/math/geom3d"
+import {
+  initWindow,
+  windowShouldClose,
+  beginDrawing,
+  endDrawing,
+  closeWindow,
+  clearScreen,
+  drawRect,
+  drawRectOutline,
+  drawCircle,
+  drawLine,
+  drawText,
+  rgb
+} from "../std/gfx2d/shape2d"
+
+pub struct OctreeVizState:
+  totalVoxels: int
+  octantZeroHits: int
+  dividedFlag: int
+  projX: float
+
+pub fn buildDemoOctreeItems(): [OctreeItem[int]]:
+  ret [
+    OctreeItem(x = 12.0, y = 14.0, z = 16.0, payload = 10),
+    OctreeItem(x = 22.0, y = 24.0, z = 26.0, payload = 20),
+    OctreeItem(x = 75.0, y = 80.0, z = 85.0, payload = 30),
+    OctreeItem(x = 85.0, y = 15.0, z = 75.0, payload = 40)
+  ]
+
+pub fn buildDemoOctree(): OctreeNode[int]:
+  mut ot = octreeNew[int](0.0, 0.0, 0.0, 100.0, 100.0, 100.0, 2)
+  let items = buildDemoOctreeItems()
+  for i in 0..items.len:
+    let _ = ot.insert(items[i])
+  ret ot
+
+pub fn evaluateOctreeSubdivisionAndBoxQuery(): int:
+  let ot = buildDemoOctree()
+  let hits = ot.queryBox(0.0, 0.0, 0.0, 40.0, 40.0, 40.0)
+  let divPart = if ot.divided and ot.containsPoint(12.0, 14.0, 16.0) and ot.intersectsBox(0.0, 0.0, 0.0, 50.0, 50.0, 50.0): 100 else: 0
+  ret divPart + ot.count() * 10 + hits.len
+
+pub fn describeOctreeSplitTopology(octants: int): str:
+  if octants == 8:
+    ret "OCTREE:8_OCTANT_SPATIAL_SUBDIVISION"
+  ret "OCTREE:FLAT_VOXEL_LEAF"
+
+pub fn buildOctreeVizState(frameIdx: int): OctreeVizState:
+  let ot = buildDemoOctree()
+  let hits = ot.queryBox(0.0, 0.0, 0.0, 40.0, 40.0, 40.0)
+  let ext = (ot.maxX - ot.minX) * 0.018
+  let yaw = float(frameIdx) * 0.025
+  let p0 = project3D(rotateEuler(vec3(-ext, -ext, -ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+  ret OctreeVizState(
+    totalVoxels = ot.count(),
+    octantZeroHits = hits.len,
+    dividedFlag = if ot.divided: 1 else: 0,
+    projX = p0.x
+  )
+
+pub fn renderFrameStep(frameIndex: int, dt: float): int:
+  let st = buildOctreeVizState(frameIndex)
+  let dtPad = clampInt(int(dt * 0.0), 0, 0)
+  ret st.totalVoxels * 100 + st.octantZeroHits + frameIndex + dtPad
+
+pub fn renderOctreeWindowScene(frame: int): void:
+  let ot = buildDemoOctree()
+  let items = buildDemoOctreeItems()
+  let st = buildOctreeVizState(frame)
+  let yaw = float(frame) * 0.025
+  let qSpan = 35.0 + float((frame * 2) % 70)
+  let boxHits = ot.queryBox(0.0, 0.0, 0.0, qSpan, qSpan, qSpan)
+
+  clearScreen(rgb(10, 14, 24))
+  drawRect(0.0, 0.0, 1280.0, 56.0, rgb(18, 26, 44))
+  drawText("AIPL ex_053: 3D Octree 8-Octant Spatial Subdivision & Box Query Wireframe", 24.0, 18.0, 20.0, rgb(226, 232, 240))
+
+  // Project outer 3D Octree bounding cube scaled from ot.minX..ot.maxX
+  let ext = (ot.maxX - ot.minX) * 0.018
+  let p0 = project3D(rotateEuler(vec3(-ext, -ext, -ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+  let p1 = project3D(rotateEuler(vec3(ext, -ext, -ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+  let p2 = project3D(rotateEuler(vec3(ext, ext, -ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+  let p3 = project3D(rotateEuler(vec3(-ext, ext, -ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+  let p4 = project3D(rotateEuler(vec3(-ext, -ext, ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+  let p5 = project3D(rotateEuler(vec3(ext, -ext, ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+  let p6 = project3D(rotateEuler(vec3(ext, ext, ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+  let p7 = project3D(rotateEuler(vec3(-ext, ext, ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+  drawLine(p0.x, p0.y, p1.x, p1.y, rgb(56, 189, 248), 2.0)
+  drawLine(p1.x, p1.y, p2.x, p2.y, rgb(56, 189, 248), 2.0)
+  drawLine(p2.x, p2.y, p3.x, p3.y, rgb(56, 189, 248), 2.0)
+  drawLine(p3.x, p3.y, p0.x, p0.y, rgb(56, 189, 248), 2.0)
+  drawLine(p4.x, p4.y, p5.x, p5.y, rgb(56, 189, 248), 2.0)
+  drawLine(p5.x, p5.y, p6.x, p6.y, rgb(56, 189, 248), 2.0)
+  drawLine(p6.x, p6.y, p7.x, p7.y, rgb(56, 189, 248), 2.0)
+  drawLine(p7.x, p7.y, p4.x, p4.y, rgb(56, 189, 248), 2.0)
+  drawLine(p0.x, p0.y, p4.x, p4.y, rgb(56, 189, 248), 1.5)
+  drawLine(p1.x, p1.y, p5.x, p5.y, rgb(56, 189, 248), 1.5)
+  drawLine(p2.x, p2.y, p6.x, p6.y, rgb(56, 189, 248), 1.5)
+  drawLine(p3.x, p3.y, p7.x, p7.y, rgb(56, 189, 248), 1.5)
+
+  // Octant partition crosshairs read from child octant 0 bounds
+  if ot.divided:
+    let ch0: OctreeNode[int] = ot.children[0].unwrap()
+    let midNorm = ((ch0.maxX - ot.minX) / (ot.maxX - ot.minX) - 0.5) * 3.6
+    let ax0 = project3D(rotateEuler(vec3(-ext, midNorm, 0.0), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+    let ax1 = project3D(rotateEuler(vec3(ext, midNorm, 0.0), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+    let ay0 = project3D(rotateEuler(vec3(midNorm, -ext, 0.0), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+    let ay1 = project3D(rotateEuler(vec3(midNorm, ext, 0.0), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+    let az0 = project3D(rotateEuler(vec3(0.0, midNorm, -ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+    let az1 = project3D(rotateEuler(vec3(0.0, midNorm, ext), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+    drawLine(ax0.x, ax0.y, ax1.x, ax1.y, rgb(148, 163, 184), 1.5)
+    drawLine(ay0.x, ay0.y, ay1.x, ay1.y, rgb(148, 163, 184), 1.5)
+    drawLine(az0.x, az0.y, az1.x, az1.y, rgb(148, 163, 184), 1.5)
+
+  // Project the 3D octree items directly from OctreeItem coordinates & queryBox hits
+  for i in 0..items.len:
+    let it = items[i]
+    let nx = ((it.x - ot.minX) / (ot.maxX - ot.minX) - 0.5) * 3.2
+    let ny = ((it.y - ot.minY) / (ot.maxY - ot.minY) - 0.5) * 3.2
+    let nz = ((it.z - ot.minZ) / (ot.maxZ - ot.minZ) - 0.5) * 3.2
+    let vp = project3D(rotateEuler(vec3(nx, ny, nz), 0.3, yaw, 0.0), 6.0, 720.0, 720.0, 420.0)
+    mut hit = false
+    for j in 0..boxHits.len:
+      if boxHits[j] == it.payload:
+        hit = true
+    let col = if hit: rgb(250, 204, 21) else: rgb(52, 211, 153)
+    drawCircle(vp.x, vp.y, 8.0, col)
+
+  // Right Telemetry Panel
+  drawRect(720.0, 96.0, 512.0, 540.0, rgb(17, 24, 39))
+  drawRectOutline(720.0, 96.0, 512.0, 540.0, 2.0, rgb(56, 189, 248))
+  drawText("Topology: " + describeOctreeSplitTopology(ot.children.len), 748.0, 132.0, 18.0, rgb(125, 211, 252))
+  drawText("8-Octant Subdivision Active: " + str(ot.divided), 748.0, 172.0, 16.0, rgb(74, 222, 128))
+  drawText("Total 3D Items Indexed: " + str(st.totalVoxels), 748.0, 208.0, 16.0, rgb(203, 213, 225))
+  drawText("Live Box Query Hits: " + str(boxHits.len) + " (Octant-0: " + str(st.octantZeroHits) + ")", 748.0, 244.0, 16.0, rgb(250, 204, 21))
+  drawText("Query Span: [0.." + str(int(qSpan)) + "]  Corner-X: " + str(int(st.projX)), 748.0, 280.0, 16.0, rgb(148, 163, 184))
+
+pub fn main(): int:
+  initWindow(1280, 720, "AIPL ex_053 - 3D Octree 8-Octant Subdivision Visualizer")
+  mut frame = 0
+  while not windowShouldClose():
+    beginDrawing()
+    renderOctreeWindowScene(frame)
+    endDrawing()
+    frame = frame + 1
+  closeWindow()
+  ret 0

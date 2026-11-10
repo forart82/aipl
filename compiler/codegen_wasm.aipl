@@ -1,0 +1,1897 @@
+module CompilerCodegenWasm
+
+import { AstArena, ExprNode, StmtNode } from "./ast.aipl"
+import { HirModule, HirFunction } from "./hir.aipl"
+
+// ============================================================================
+// Phase 5 (Step 5.1): WebAssembly 1.0 + WASI (wasm32-wasi) Direct Binary Emitter
+// ============================================================================
+
+pub struct WasmStringEntry:
+  text: str
+  offset: int
+  length: int
+
+pub struct WasmFuncType:
+  paramCount: int
+  returnCount: int
+
+pub struct WasmFnContext:
+  paramNames: [str]
+  localNames: [str]
+  stringPool: [WasmStringEntry]
+  loopContinueDepth: int = 0
+  loopBreakDepth: int = 0
+  inLoop: bool = false
+  returnsVal: bool = false
+
+pub fn wasmPushUleb128(mut out: [int], mut val: int): [int]:
+  if val <= 0:
+    out.push(0)
+    ret out
+  while val > 0:
+    let b = val & 127
+    val = val >> 7
+    if val > 0:
+      out.push(b | 128)
+    else:
+      out.push(b)
+  ret out
+
+pub fn wasmPushSleb128(mut out: [int], mut val: int): [int]:
+  mut more = true
+  while more:
+    let b = val & 127
+    val = val >> 7
+    let signBit = (b & 64) != 0
+    if (val == 0 and not signBit) or (val == -1 and signBit):
+      more = false
+      out.push(b)
+    else:
+      out.push(b | 128)
+  ret out
+
+pub fn emitSleb128_64(mut out: [int], mut val: int): [int]:
+  mut more = true
+  while more:
+    let b = val & 127
+    val = val >> 7
+    let signBit = (b & 64) != 0
+    if (val == 0 and not signBit) or (val == -1 and signBit):
+      more = false
+      out.push(b)
+    else:
+      out.push(b | 128)
+  ret out
+
+pub fn wasmValTypeOpcode(ty: str): int:
+  if ty == "i64":
+    ret 0x7E
+  if ty == "float" or ty == "f64":
+    ret 0x7C
+  ret 0x7F
+
+pub fn emitWasmI64BinOp(op: str): int:
+  if op == "+":
+    ret 0x7C
+  if op == "-":
+    ret 0x7D
+  if op == "*":
+    ret 0x7E
+  if op == "/":
+    ret 0x7F
+  if op == "%":
+    ret 0x81
+  if op == "==":
+    ret 0x51
+  if op == "!=":
+    ret 0x52
+  if op == "<":
+    ret 0x53
+  if op == ">":
+    ret 0x55
+  if op == "<=":
+    ret 0x57
+  if op == ">=":
+    ret 0x59
+  ret 0x7C
+
+pub fn emitWasmF64BinOp(op: str): int:
+  if op == "+":
+    ret 0xA0
+  if op == "-":
+    ret 0xA1
+  if op == "*":
+    ret 0xA2
+  if op == "/":
+    ret 0xA3
+  if op == "==":
+    ret 0x61
+  if op == "!=":
+    ret 0x62
+  if op == "<":
+    ret 0x63
+  if op == ">":
+    ret 0x64
+  if op == "<=":
+    ret 0x65
+  if op == ">=":
+    ret 0x66
+  ret 0xA0
+
+pub fn emitWasmBumpAllocBody(): [int]:
+  mut b: [int] = []
+  b = wasmPushUleb128(b, 0) // 0 local declarations
+  // 1. global.get 0 (old heap pointer to return)
+  b.push(0x23) // global.get
+  b = wasmPushUleb128(b, 0) // global 0
+  // 2. Align size (local 0) to 8 bytes and add to global.get 0
+  b.push(0x23) // global.get
+  b = wasmPushUleb128(b, 0) // global 0
+  b.push(0x20) // local.get
+  b = wasmPushUleb128(b, 0) // local 0 (size)
+  b.push(0x41) // i32.const
+  b = wasmPushSleb128(b, 7)
+  b.push(0x6A) // i32.add
+  b.push(0x41) // i32.const
+  b = wasmPushSleb128(b, -8) // ~7
+  b.push(0x71) // i32.and
+  b.push(0x6A) // i32.add (new heap pointer)
+  b.push(0x24) // global.set
+  b = wasmPushUleb128(b, 0) // global 0
+  b.push(0x0B) // end
+  ret b
+
+pub fn wasmPushStr(mut out: [int], s: str): [int]:
+  out = wasmPushUleb128(out, s.len)
+  mut i = 0
+  while i < s.len:
+    out.push(s.charCodeAt(i))
+    i += 1
+  ret out
+
+pub fn wasmPushSection(mut out: [int], sectionId: int, payload: [int]): [int]:
+  if payload.len == 0:
+    ret out
+  out.push(sectionId)
+  out = wasmPushUleb128(out, payload.len)
+  mut i = 0
+  while i < payload.len:
+    out.push(payload[i])
+    i += 1
+  ret out
+
+fn wasmAppend(mut dst: [int], src: [int]): [int]:
+  mut i = 0
+  while i < src.len:
+    dst.push(src[i])
+    i += 1
+  ret dst
+
+fn lookupStringIndex(pool: [WasmStringEntry], s: str): int:
+  mut i = 0
+  while i < pool.len:
+    if pool[i].text == s:
+      ret i
+    i += 1
+  ret -1
+
+fn getNextStringOffset(pool: [WasmStringEntry]): int:
+  if pool.len == 0:
+    ret 256
+  let last = pool[pool.len - 1]
+  ret last.offset + last.length
+
+fn internString(mut pool: [WasmStringEntry], s: str): [WasmStringEntry]:
+  if lookupStringIndex(pool, s) >= 0:
+    ret pool
+  let off = getNextStringOffset(pool)
+  let entry = WasmStringEntry(text = s, offset = off, length = s.len)
+  pool.push(entry)
+  ret pool
+
+fn scanStringsFromExpr(arena: AstArena, exprId: int, mut pool: [WasmStringEntry]): [WasmStringEntry]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret pool
+  let e = arena.exprs[exprId]
+  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or e.kind == "StrLit":
+    pool = internString(pool, e.strVal)
+  if e.kind == "Call":
+    let callee = if e.left >= 0 and e.left < arena.exprs.len: arena.exprs[e.left].strVal else: ""
+    if callee == "println":
+      if e.children.len > 0:
+        let argId = e.children[0]
+        if argId >= 0 and argId < arena.exprs.len:
+          let ae = arena.exprs[argId]
+          if ae.kind == "STRING" or ae.kind == "RAW_STRING" or ae.kind == "INTERP_STRING" or ae.kind == "StrLit":
+            pool = internString(pool, ae.strVal + "\n")
+      else:
+        pool = internString(pool, "\n")
+  if e.left >= 0:
+    pool = scanStringsFromExpr(arena, e.left, pool)
+  if e.right >= 0:
+    pool = scanStringsFromExpr(arena, e.right, pool)
+  if e.cond >= 0:
+    pool = scanStringsFromExpr(arena, e.cond, pool)
+  mut ci = 0
+  while ci < e.children.len:
+    pool = scanStringsFromExpr(arena, e.children[ci], pool)
+    ci += 1
+  ret pool
+
+fn scanStringsFromStmts(arena: AstArena, stmtIds: [int], mut pool: [WasmStringEntry]): [WasmStringEntry]:
+  mut i = 0
+  while i < stmtIds.len:
+    let stId = stmtIds[i]
+    if stId >= 0 and stId < arena.stmts.len:
+      let st = arena.stmts[stId]
+      if st.exprId >= 0:
+        pool = scanStringsFromExpr(arena, st.exprId, pool)
+      if st.condExpr >= 0:
+        pool = scanStringsFromExpr(arena, st.condExpr, pool)
+      if st.bodyStmts.len > 0:
+        pool = scanStringsFromStmts(arena, st.bodyStmts, pool)
+      if st.elseStmts.len > 0:
+        pool = scanStringsFromStmts(arena, st.elseStmts, pool)
+    i += 1
+  ret pool
+
+fn collectLocalsFromStmts(arena: AstArena, stmtIds: [int], paramNames: [str], mut locals: [str]): [str]:
+  mut i = 0
+  while i < stmtIds.len:
+    let stId = stmtIds[i]
+    if stId >= 0 and stId < arena.stmts.len:
+      let st = arena.stmts[stId]
+      if st.kind == "VarDecl" or st.kind == "Let" or st.kind == "TupleVarDecl" or st.kind == "For":
+        mut alreadyParam = false
+        mut pi = 0
+        while pi < paramNames.len:
+          if paramNames[pi] == st.name:
+            alreadyParam = true
+          pi += 1
+        mut alreadyLocal = false
+        mut li = 0
+        while li < locals.len:
+          if locals[li] == st.name:
+            alreadyLocal = true
+          li += 1
+        if not alreadyParam and not alreadyLocal and st.name.len > 0:
+          locals.push(st.name)
+      if st.bodyStmts.len > 0:
+        locals = collectLocalsFromStmts(arena, st.bodyStmts, paramNames, locals)
+      if st.elseStmts.len > 0:
+        locals = collectLocalsFromStmts(arena, st.elseStmts, paramNames, locals)
+    i += 1
+  ret locals
+
+fn lookupLocalIndex(paramNames: [str], localNames: [str], name: str): int:
+  mut i = 0
+  while i < paramNames.len:
+    if paramNames[i] == name:
+      ret i
+    i += 1
+  mut j = 0
+  while j < localNames.len:
+    if localNames[j] == name:
+      ret paramNames.len + j
+    j += 1
+  ret -1
+
+fn lookupFuncIndex(hir: HirModule, name: str): int:
+  mut i = 0
+  while i < hir.functions.len:
+    if hir.functions[i].name == name:
+      ret 2 + i
+    i += 1
+  ret -1
+
+fn emitWasmPrintArgExpr(arena: AstArena, exprId: int, locals: [str], mut out: [int]): [int]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    out.push(0x41)
+    out = wasmPushSleb128(out, 0)
+    ret out
+  let e = arena.exprs[exprId]
+  if e.kind == "IntLit":
+    if e.intVal > 2147483647 or e.intVal < -2147483648:
+      out.push(0x42) // i64.const
+      out = emitSleb128_64(out, e.intVal)
+      out.push(0xA7) // i32.wrap_i64
+      ret out
+    out.push(0x41) // i32.const
+    out = wasmPushSleb128(out, e.intVal)
+    ret out
+  if e.kind == "BoolLit":
+    out.push(0x41)
+    let bVal = if e.boolVal or e.strVal == "true": 1 else: 0
+    out = wasmPushSleb128(out, bVal)
+    ret out
+  if e.kind == "Ident":
+    mut locIdx = -1
+    mut i = 0
+    while i < locals.len:
+      if locals[i] == e.strVal:
+        locIdx = i
+      i += 1
+    if locIdx >= 0:
+      out.push(0x20) // local.get
+      out = wasmPushUleb128(out, locIdx)
+    elif e.strVal == "true":
+      out.push(0x41)
+      out = wasmPushSleb128(out, 1)
+    elif e.strVal == "false":
+      out.push(0x41)
+      out = wasmPushSleb128(out, 0)
+    else:
+      mut constExprId = -1
+      mut cdi = 0
+      while cdi < arena.decls.len:
+        let cd = arena.decls[cdi]
+        if cd.kind == "Const" and cd.name == e.strVal and cd.bodyStmts.len > 0:
+          constExprId = cd.bodyStmts[0]
+        cdi += 1
+      if constExprId >= 0 and constExprId != exprId:
+        out = emitWasmPrintArgExpr(arena, constExprId, locals, out)
+      else:
+        out.push(0x41)
+        out = wasmPushSleb128(out, 0)
+    ret out
+  if e.kind == "Unary":
+    if e.op == "-":
+      out.push(0x41)
+      out = wasmPushSleb128(out, 0)
+      out = emitWasmPrintArgExpr(arena, e.left, locals, out)
+      out.push(0x6B) // i32.sub
+    elif e.op == "not":
+      out = emitWasmPrintArgExpr(arena, e.left, locals, out)
+      out.push(0x45) // i32.eqz
+    elif e.op == "~":
+      out = emitWasmPrintArgExpr(arena, e.left, locals, out)
+      out.push(0x41)
+      out = wasmPushSleb128(out, -1)
+      out.push(0x73) // i32.xor
+    else:
+      out = emitWasmPrintArgExpr(arena, e.left, locals, out)
+    ret out
+  if e.kind == "Binary":
+    out = emitWasmPrintArgExpr(arena, e.left, locals, out)
+    out = emitWasmPrintArgExpr(arena, e.right, locals, out)
+    if e.op == "+":
+      out.push(0x6A) // i32.add
+    elif e.op == "-":
+      out.push(0x6B) // i32.sub
+    elif e.op == "*":
+      out.push(0x6C) // i32.mul
+    elif e.op == "/":
+      out.push(0x6D) // i32.div_s
+    elif e.op == "%":
+      out.push(0x6F) // i32.rem_s
+    elif e.op == "==":
+      out.push(0x46) // i32.eq
+    elif e.op == "!=":
+      out.push(0x47) // i32.ne
+    elif e.op == "<":
+      out.push(0x48) // i32.lt_s
+    elif e.op == "<=":
+      out.push(0x4C) // i32.le_s
+    elif e.op == ">":
+      out.push(0x4A) // i32.gt_s
+    elif e.op == ">=":
+      out.push(0x4E) // i32.ge_s
+    elif e.op == "and" or e.op == "&" or e.op == "&&":
+      out.push(0x71) // i32.and
+    elif e.op == "or" or e.op == "|" or e.op == "||":
+      out.push(0x72) // i32.or
+    elif e.op == "xor" or e.op == "^":
+      out.push(0x73) // i32.xor
+    elif e.op == "<<":
+      out.push(0x74) // i32.shl
+    elif e.op == ">>":
+      out.push(0x75) // i32.shr_s
+    else:
+      out.push(0x6A)
+    ret out
+  if e.kind == "Index":
+    out = emitWasmPrintArgExpr(arena, e.left, locals, out)
+    out = emitWasmPrintArgExpr(arena, e.right, locals, out)
+    out.push(0x41)
+    out = wasmPushSleb128(out, 1)
+    out.push(0x6A) // i32.add
+    out.push(0x41)
+    out = wasmPushSleb128(out, 4)
+    out.push(0x6C) // i32.mul
+    out.push(0x6A) // i32.add
+    out.push(0x41)
+    out = wasmPushSleb128(out, 4194300) // 0x3FFFFC
+    out.push(0x71) // i32.and
+    out.push(0x28) // i32.load
+    out = wasmPushUleb128(out, 2)
+    out = wasmPushUleb128(out, 0)
+    ret out
+  if e.kind == "Member":
+    if e.strVal == "len":
+      out = emitWasmPrintArgExpr(arena, e.left, locals, out)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 4194300) // 0x3FFFFC
+      out.push(0x71) // i32.and
+      out.push(0x28) // i32.load
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+      ret out
+    out = emitWasmPrintArgExpr(arena, e.left, locals, out)
+    ret out
+  if e.kind == "IfExpr":
+    out = emitWasmPrintArgExpr(arena, e.cond, locals, out)
+    out.push(0x04) // if
+    out.push(0x7F) // i32
+    out = emitWasmPrintArgExpr(arena, e.left, locals, out)
+    out.push(0x05) // else
+    out = emitWasmPrintArgExpr(arena, e.right, locals, out)
+    out.push(0x0B) // end
+    ret out
+  out.push(0x41)
+  out = wasmPushSleb128(out, 0)
+  ret out
+
+pub fn emitWasmExprPrint(arena: AstArena, id: int, locals: [str], strPool: [str], strOffsets: [int], newline: bool): [int]:
+  mut out: [int] = []
+
+  if id < 0:
+    if newline:
+      // Lookup "\n" in strPool
+      mut sIdx = -1
+      mut si = 0
+      while si < strPool.len:
+        if strPool[si] == "\n":
+          sIdx = si
+        si += 1
+      mut strOffset = 256
+      mut strLen = 1
+      if sIdx >= 0 and sIdx < strOffsets.len:
+        strOffset = strOffsets[sIdx]
+      else:
+        out.push(0x41)
+        out = wasmPushSleb128(out, 255)
+        out.push(0x41)
+        out = wasmPushSleb128(out, 10)
+        out.push(0x3A)
+        out = wasmPushUleb128(out, 0)
+        out = wasmPushUleb128(out, 0)
+        strOffset = 255
+
+      // Store ciovec: [buf_ptr at 0, buf_len at 4]
+      out.push(0x41)
+      out = wasmPushSleb128(out, 0)
+      out.push(0x41)
+      out = wasmPushSleb128(out, strOffset)
+      out.push(0x36)
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+
+      out.push(0x41)
+      out = wasmPushSleb128(out, 4)
+      out.push(0x41)
+      out = wasmPushSleb128(out, strLen)
+      out.push(0x36)
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+
+      // Call fd_write(1, 0, 1, 8)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 1)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 0)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 1)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 8)
+      out.push(0x10)
+      out = wasmPushUleb128(out, 0)
+      out.push(0x1A)
+    ret out
+
+  let e = arena.exprs[id]
+  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or e.kind == "StrLit":
+    // Fast path for string literals
+    let lookupText = if newline: e.strVal + "\n" else: e.strVal
+    mut sIdx = -1
+    mut si = 0
+    while si < strPool.len:
+      if strPool[si] == lookupText:
+        sIdx = si
+      si += 1
+    mut strOffset = 256
+    mut strLen = 0
+    if sIdx >= 0 and sIdx < strOffsets.len:
+      strOffset = strOffsets[sIdx]
+      strLen = lookupText.len
+    else:
+      mut rawIdx = -1
+      si = 0
+      while si < strPool.len:
+        if strPool[si] == e.strVal:
+          rawIdx = si
+        si += 1
+      if rawIdx >= 0 and rawIdx < strOffsets.len:
+        strOffset = strOffsets[rawIdx]
+        strLen = e.strVal.len
+
+    // Store ciovec: [buf_ptr at 0, buf_len at 4]
+    out.push(0x41)
+    out = wasmPushSleb128(out, 0)
+    out.push(0x41)
+    out = wasmPushSleb128(out, strOffset)
+    out.push(0x36)
+    out = wasmPushUleb128(out, 2)
+    out = wasmPushUleb128(out, 0)
+
+    out.push(0x41)
+    out = wasmPushSleb128(out, 4)
+    out.push(0x41)
+    out = wasmPushSleb128(out, strLen)
+    out.push(0x36)
+    out = wasmPushUleb128(out, 2)
+    out = wasmPushUleb128(out, 0)
+
+    // Call fd_write(1, 0, 1, 8)
+    out.push(0x41)
+    out = wasmPushSleb128(out, 1)
+    out.push(0x41)
+    out = wasmPushSleb128(out, 0)
+    out.push(0x41)
+    out = wasmPushSleb128(out, 1)
+    out.push(0x41)
+    out = wasmPushSleb128(out, 8)
+    out.push(0x10)
+    out = wasmPushUleb128(out, 0)
+    out.push(0x1A)
+    ret out
+
+  // Non-StrLit: format dynamic i32 using itoa scratch buffer in linear memory
+  // 1. Evaluate expression to address 200
+  out.push(0x41)
+  out = wasmPushSleb128(out, 200)
+  out = emitWasmPrintArgExpr(arena, id, locals, out)
+  out.push(0x36) // i32.store
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+
+  // 2. Initialize ptr (addr 204) and newline if requested
+  if newline:
+    // Store '\n' (10) at 255
+    out.push(0x41)
+    out = wasmPushSleb128(out, 255)
+    out.push(0x41)
+    out = wasmPushSleb128(out, 10)
+    out.push(0x3A) // i32.store8
+    out = wasmPushUleb128(out, 0)
+    out = wasmPushUleb128(out, 0)
+
+    // ptr = 254
+    out.push(0x41)
+    out = wasmPushSleb128(out, 204)
+    out.push(0x41)
+    out = wasmPushSleb128(out, 254)
+    out.push(0x36) // i32.store
+    out = wasmPushUleb128(out, 2)
+    out = wasmPushUleb128(out, 0)
+  else:
+    // ptr = 255
+    out.push(0x41)
+    out = wasmPushSleb128(out, 204)
+    out.push(0x41)
+    out = wasmPushSleb128(out, 255)
+    out.push(0x36) // i32.store
+    out = wasmPushUleb128(out, 2)
+    out = wasmPushUleb128(out, 0)
+
+  // 3. Handle sign (is_neg at 208)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 200)
+  out.push(0x28) // i32.load
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 0)
+  out.push(0x48) // i32.lt_s
+  out.push(0x04) // if
+  out.push(0x40) // void
+
+  // is_neg = 1
+  out.push(0x41)
+  out = wasmPushSleb128(out, 208)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 1)
+  out.push(0x36) // i32.store
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+
+  // val = 0 - val
+  out.push(0x41)
+  out = wasmPushSleb128(out, 200)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 200)
+  out.push(0x28) // i32.load
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x6B) // i32.sub
+  out.push(0x36) // i32.store
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+
+  out.push(0x05) // else
+
+  // is_neg = 0
+  out.push(0x41)
+  out = wasmPushSleb128(out, 208)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 0)
+  out.push(0x36) // i32.store
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+
+  out.push(0x0B) // end if
+
+  // 4. Digit loop (write digits backwards starting at ptr)
+  out.push(0x02) // block void
+  out.push(0x40)
+  out.push(0x03) // loop void
+  out.push(0x40)
+
+  // store char '0' + (val % 10) at ptr:
+  out.push(0x41)
+  out = wasmPushSleb128(out, 204)
+  out.push(0x28) // i32.load ptr
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 48) // '0'
+  out.push(0x41)
+  out = wasmPushSleb128(out, 200)
+  out.push(0x28) // i32.load val
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 10)
+  out.push(0x70) // i32.rem_u
+  out.push(0x6A) // i32.add
+  out.push(0x3A) // i32.store8
+  out = wasmPushUleb128(out, 0)
+  out = wasmPushUleb128(out, 0)
+
+  // ptr = ptr - 1
+  out.push(0x41)
+  out = wasmPushSleb128(out, 204)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 204)
+  out.push(0x28) // i32.load ptr
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 1)
+  out.push(0x6B) // i32.sub
+  out.push(0x36) // i32.store
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+
+  // val = val / 10
+  out.push(0x41)
+  out = wasmPushSleb128(out, 200)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 200)
+  out.push(0x28) // i32.load val
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 10)
+  out.push(0x6E) // i32.div_u
+  out.push(0x36) // i32.store
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+
+  // if val == 0: break
+  out.push(0x41)
+  out = wasmPushSleb128(out, 200)
+  out.push(0x28) // i32.load val
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x45) // i32.eqz
+  out.push(0x0D) // br_if 1
+  out = wasmPushUleb128(out, 1)
+
+  // repeat loop
+  out.push(0x0C) // br 0
+  out = wasmPushUleb128(out, 0)
+  out.push(0x0B) // end loop
+  out.push(0x0B) // end block
+
+  // 5. If is_neg: write '-' (45) at ptr and decrement ptr
+  out.push(0x41)
+  out = wasmPushSleb128(out, 208)
+  out.push(0x28) // i32.load
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x04) // if void
+  out.push(0x40)
+
+  // store '-' at ptr
+  out.push(0x41)
+  out = wasmPushSleb128(out, 204)
+  out.push(0x28) // i32.load
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 45) // '-'
+  out.push(0x3A) // i32.store8
+  out = wasmPushUleb128(out, 0)
+  out = wasmPushUleb128(out, 0)
+
+  // ptr = ptr - 1
+  out.push(0x41)
+  out = wasmPushSleb128(out, 204)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 204)
+  out.push(0x28) // i32.load
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 1)
+  out.push(0x6B) // i32.sub
+  out.push(0x36) // i32.store
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+
+  out.push(0x0B) // end if
+
+  // 6. Setup ciovec at addr 0 and 4
+  // iov.buf = ptr + 1
+  out.push(0x41)
+  out = wasmPushSleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 204)
+  out.push(0x28) // i32.load
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 1)
+  out.push(0x6A) // i32.add
+  out.push(0x36) // i32.store
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+
+  // iov.buf_len = 255 - ptr
+  out.push(0x41)
+  out = wasmPushSleb128(out, 4)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 255)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 204)
+  out.push(0x28) // i32.load
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+  out.push(0x6B) // i32.sub
+  out.push(0x36) // i32.store
+  out = wasmPushUleb128(out, 2)
+  out = wasmPushUleb128(out, 0)
+
+  // 7. Call fd_write(1, 0, 1, 8)
+  out.push(0x41)
+  out = wasmPushSleb128(out, 1) // stdout
+  out.push(0x41)
+  out = wasmPushSleb128(out, 0) // iovs ptr = 0
+  out.push(0x41)
+  out = wasmPushSleb128(out, 1) // iovs len = 1
+  out.push(0x41)
+  out = wasmPushSleb128(out, 8) // nwritten ptr = 8
+  out.push(0x10) // call
+  out = wasmPushUleb128(out, 0) // func 0 (fdWrite)
+  out.push(0x1A) // drop errno
+
+  ret out
+
+pub fn emitWasmF64Const(mut out: [int], val: float): [int]:
+  out.push(0x44) // f64.const
+  let bits = bitcastF64ToI64(val)
+  mut bi = 0
+  while bi < 8:
+    let byteVal = (bits >> (bi * 8)) & 255
+    out.push(byteVal)
+    bi += 1
+  ret out
+
+fn isWasmFloatExpr(arena: AstArena, exprId: int): bool:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret false
+  let e = arena.exprs[exprId]
+  if e.kind == "FloatLit" or (e.kind == "WideningCast" and e.strVal != "ByteToInt" and e.strVal != "int"):
+    ret true
+  if e.kind == "Member" and e.strVal == "f":
+    ret true
+  if e.kind == "Unary":
+    ret isWasmFloatExpr(arena, e.left)
+  if e.kind == "Binary":
+    if e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/":
+      ret isWasmFloatExpr(arena, e.left) or isWasmFloatExpr(arena, e.right)
+  ret false
+
+fn isWasmI64Expr(arena: AstArena, exprId: int): bool:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret false
+  let e = arena.exprs[exprId]
+  if e.kind == "IntLit":
+    ret e.intVal > 2147483647 or e.intVal < -2147483648
+  if e.kind == "Unary":
+    ret isWasmI64Expr(arena, e.left)
+  if e.kind == "Binary":
+    if e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/" or e.op == "%":
+      ret isWasmI64Expr(arena, e.left) or isWasmI64Expr(arena, e.right)
+  ret false
+
+fn emitWasmF64Expr(arena: AstArena, hir: HirModule, exprId: int, ctx: WasmFnContext, mut out: [int]): [int]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    ret emitWasmF64Const(out, 0.0)
+  let e = arena.exprs[exprId]
+  if e.kind == "FloatLit":
+    ret emitWasmF64Const(out, e.floatVal)
+  if e.kind == "IntLit":
+    ret emitWasmF64Const(out, float(e.intVal))
+  if e.kind == "WideningCast" or (e.kind == "Member" and e.strVal == "f"):
+    if isWasmI64Expr(arena, e.left):
+      out = emitWasmI64Expr(arena, hir, e.left, ctx, out)
+      out.push(0xB9) // f64.convert_i64_s
+      ret out
+    out = emitWasmExpr(arena, hir, e.left, ctx, out)
+    out.push(0xB7) // f64.convert_i32_s
+    ret out
+  if e.kind == "Member" and (e.strVal == "floor" or e.strVal == "ceil" or e.strVal == "round"):
+    out = emitWasmF64Expr(arena, hir, e.left, ctx, out)
+    if e.strVal == "floor":
+      out.push(0x9C) // f64.floor
+    elif e.strVal == "ceil":
+      out.push(0x9B) // f64.ceil
+    else:
+      out.push(0x9E) // f64.nearest
+    ret out
+  if e.kind == "Unary" and e.op == "-":
+    out = emitWasmF64Expr(arena, hir, e.left, ctx, out)
+    out.push(0x9A) // f64.neg
+    ret out
+  if e.kind == "Binary" and (e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/"):
+    out = emitWasmF64Expr(arena, hir, e.left, ctx, out)
+    out = emitWasmF64Expr(arena, hir, e.right, ctx, out)
+    out.push(emitWasmF64BinOp(e.op))
+    ret out
+  if isWasmI64Expr(arena, exprId):
+    out = emitWasmI64Expr(arena, hir, exprId, ctx, out)
+    out.push(0xB9) // f64.convert_i64_s
+    ret out
+  out = emitWasmExpr(arena, hir, exprId, ctx, out)
+  out.push(0xB7) // f64.convert_i32_s
+  ret out
+
+fn emitWasmI64Expr(arena: AstArena, hir: HirModule, exprId: int, ctx: WasmFnContext, mut out: [int]): [int]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    out.push(0x42)
+    ret emitSleb128_64(out, 0)
+  let e = arena.exprs[exprId]
+  if e.kind == "IntLit":
+    out.push(0x42) // i64.const
+    ret emitSleb128_64(out, e.intVal)
+  if e.kind == "Unary" and e.op == "-":
+    out.push(0x42)
+    out = emitSleb128_64(out, 0)
+    out = emitWasmI64Expr(arena, hir, e.left, ctx, out)
+    out.push(emitWasmI64BinOp("-"))
+    ret out
+  if e.kind == "Binary" and (e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/" or e.op == "%"):
+    out = emitWasmI64Expr(arena, hir, e.left, ctx, out)
+    out = emitWasmI64Expr(arena, hir, e.right, ctx, out)
+    out.push(emitWasmI64BinOp(e.op))
+    ret out
+  out = emitWasmExpr(arena, hir, exprId, ctx, out)
+  out.push(0xAC) // i64.extend_i32_s
+  ret out
+
+fn emitWasmExpr(arena: AstArena, hir: HirModule, exprId: int, ctx: WasmFnContext, mut out: [int]): [int]:
+  if exprId < 0 or exprId >= arena.exprs.len:
+    out.push(0x41)
+    out = wasmPushSleb128(out, 0)
+    ret out
+  let e = arena.exprs[exprId]
+  if e.kind == "FloatLit":
+    let _f64Ty = wasmValTypeOpcode("f64")
+    out = emitWasmF64Const(out, e.floatVal)
+    out.push(0xFC)
+    out = wasmPushUleb128(out, 2) // i32.trunc_sat_f64_s
+    ret out
+  if e.kind == "IntLit":
+    if e.intVal > 2147483647 or e.intVal < -2147483648:
+      let _i64Ty = wasmValTypeOpcode("i64")
+      out.push(0x42) // i64.const
+      out = emitSleb128_64(out, e.intVal)
+      out.push(0xA7) // i32.wrap_i64
+      ret out
+    out.push(0x41) // i32.const
+    out = wasmPushSleb128(out, e.intVal)
+    ret out
+  if e.kind == "BoolLit":
+    out.push(0x41)
+    let bVal = if e.boolVal or e.strVal == "true": 1 else: 0
+    out = wasmPushSleb128(out, bVal)
+    ret out
+  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or e.kind == "StrLit":
+    let strIdx = lookupStringIndex(ctx.stringPool, e.strVal)
+    let offset = if strIdx >= 0: ctx.stringPool[strIdx].offset else: 256
+    out.push(0x41)
+    out = wasmPushSleb128(out, offset)
+    ret out
+  if e.kind == "Ident":
+    let locIdx = lookupLocalIndex(ctx.paramNames, ctx.localNames, e.strVal)
+    if locIdx >= 0:
+      out.push(0x20) // local.get
+      out = wasmPushUleb128(out, locIdx)
+    elif e.strVal == "true":
+      out.push(0x41)
+      out = wasmPushSleb128(out, 1)
+    elif e.strVal == "false":
+      out.push(0x41)
+      out = wasmPushSleb128(out, 0)
+    else:
+      mut constExprId = -1
+      mut cdi = 0
+      while cdi < arena.decls.len:
+        let cd = arena.decls[cdi]
+        if cd.kind == "Const" and cd.name == e.strVal and cd.bodyStmts.len > 0:
+          constExprId = cd.bodyStmts[0]
+        cdi += 1
+      if constExprId >= 0 and constExprId != exprId:
+        out = emitWasmExpr(arena, hir, constExprId, ctx, out)
+      else:
+        out.push(0x41)
+        out = wasmPushSleb128(out, 0)
+    ret out
+  if e.kind == "Unary":
+    if e.op == "-":
+      if isWasmFloatExpr(arena, e.left):
+        out = emitWasmF64Expr(arena, hir, exprId, ctx, out)
+        out.push(0xFC)
+        out = wasmPushUleb128(out, 2) // i32.trunc_sat_f64_s
+        ret out
+      if isWasmI64Expr(arena, e.left):
+        out = emitWasmI64Expr(arena, hir, exprId, ctx, out)
+        out.push(0xA7) // i32.wrap_i64
+        ret out
+      out.push(0x41)
+      out = wasmPushSleb128(out, 0)
+      out = emitWasmExpr(arena, hir, e.left, ctx, out)
+      out.push(0x6B) // i32.sub
+    elif e.op == "not":
+      out = emitWasmExpr(arena, hir, e.left, ctx, out)
+      out.push(0x45) // i32.eqz
+    elif e.op == "~":
+      out = emitWasmExpr(arena, hir, e.left, ctx, out)
+      out.push(0x41)
+      out = wasmPushSleb128(out, -1)
+      out.push(0x73) // i32.xor
+    else:
+      out = emitWasmExpr(arena, hir, e.left, ctx, out)
+    ret out
+  if e.kind == "Binary":
+    if e.op == "//":
+      out = emitWasmF64Expr(arena, hir, e.left, ctx, out)
+      out = emitWasmF64Expr(arena, hir, e.right, ctx, out)
+      out.push(0xA3) // f64.div
+      out.push(0x9C) // f64.floor
+      out.push(0xFC)
+      out = wasmPushUleb128(out, 2) // i32.trunc_sat_f64_s
+      ret out
+    if (isWasmFloatExpr(arena, e.left) or isWasmFloatExpr(arena, e.right)) and e.op != "%" and e.op != "%%":
+      out = emitWasmF64Expr(arena, hir, e.left, ctx, out)
+      out = emitWasmF64Expr(arena, hir, e.right, ctx, out)
+      out.push(emitWasmF64BinOp(e.op))
+      if e.op != "==" and e.op != "!=" and e.op != "<" and e.op != ">" and e.op != "<=" and e.op != ">=":
+        out.push(0xFC)
+        out = wasmPushUleb128(out, 2) // i32.trunc_sat_f64_s
+      ret out
+    if isWasmI64Expr(arena, e.left) or isWasmI64Expr(arena, e.right):
+      out = emitWasmI64Expr(arena, hir, e.left, ctx, out)
+      out = emitWasmI64Expr(arena, hir, e.right, ctx, out)
+      out.push(emitWasmI64BinOp(e.op))
+      if e.op != "==" and e.op != "!=" and e.op != "<" and e.op != ">" and e.op != "<=" and e.op != ">=":
+        out.push(0xA7) // i32.wrap_i64
+      ret out
+    if e.op == "/":
+      out = emitWasmExpr(arena, hir, e.left, ctx, out)
+      out.push(0xB7) // f64.convert_i32_s
+      out = emitWasmExpr(arena, hir, e.right, ctx, out)
+      out.push(0xB7) // f64.convert_i32_s
+      out.push(0xA3) // f64.div
+      out.push(0xFC)
+      out = wasmPushUleb128(out, 2) // i32.trunc_sat_f64_s
+      ret out
+    if e.op == "%":
+      out = emitWasmExpr(arena, hir, e.left, ctx, out)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 196)
+      out = emitWasmExpr(arena, hir, e.right, ctx, out)
+      out.push(0x36) // i32.store [196] = right
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 196)
+      out.push(0x28) // i32.load [196]
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+      out.push(0x45) // i32.eqz
+      out.push(0x04) // if (result i32)
+      out.push(0x7F)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 1)
+      out.push(0x05) // else
+      out.push(0x41)
+      out = wasmPushSleb128(out, 196)
+      out.push(0x28) // i32.load [196]
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+      out.push(0x0B) // end
+      out.push(0x6F) // i32.rem_s
+      ret out
+    out = emitWasmExpr(arena, hir, e.left, ctx, out)
+    out = emitWasmExpr(arena, hir, e.right, ctx, out)
+    if e.op == "+":
+      out.push(0x6A) // i32.add
+    elif e.op == "-":
+      out.push(0x6B) // i32.sub
+    elif e.op == "*":
+      out.push(0x6C) // i32.mul
+    elif e.op == "/":
+      out.push(0x6D) // i32.div_s
+    elif e.op == "%":
+      out.push(0x6F) // i32.rem_s
+    elif e.op == "==":
+      out.push(0x46) // i32.eq
+    elif e.op == "!=":
+      out.push(0x47) // i32.ne
+    elif e.op == "<":
+      out.push(0x48) // i32.lt_s
+    elif e.op == "<=":
+      out.push(0x4C) // i32.le_s
+    elif e.op == ">":
+      out.push(0x4A) // i32.gt_s
+    elif e.op == ">=":
+      out.push(0x4E) // i32.ge_s
+    elif e.op == "and" or e.op == "&" or e.op == "&&":
+      out.push(0x71) // i32.and
+    elif e.op == "or" or e.op == "|" or e.op == "||":
+      out.push(0x72) // i32.or
+    elif e.op == "xor" or e.op == "^":
+      out.push(0x73) // i32.xor
+    elif e.op == "<<":
+      out.push(0x74) // i32.shl
+    elif e.op == ">>":
+      out.push(0x75) // i32.shr_s
+    else:
+      out.push(0x6A) // default i32.add
+    ret out
+  if e.kind == "Array" or e.kind == "ArrayLit" or e.kind == "StructLit":
+    let _bumpTemplate = emitWasmBumpAllocBody()
+    // Store length / field count at [global.get 0 + 0]
+    out.push(0x23) // global.get 0
+    out = wasmPushUleb128(out, 0)
+    out.push(0x41) // i32.const
+    out = wasmPushSleb128(out, e.children.len)
+    out.push(0x36) // i32.store
+    out = wasmPushUleb128(out, 2)
+    out = wasmPushUleb128(out, 0)
+    // Push N + 1 copies of base pointer (1 for return value + N for element stores)
+    mut bpi = 0
+    while bpi <= e.children.len:
+      out.push(0x23) // global.get 0
+      out = wasmPushUleb128(out, 0)
+      bpi += 1
+    // Bump global 0 by 8-byte aligned size BEFORE evaluating element expressions
+    if _bumpTemplate.len > 0:
+      out.push(0x23) // global.get 0
+      out = wasmPushUleb128(out, 0)
+      let alignedSize = ((e.children.len + 1) * 4 + 7) & (-8)
+      out.push(0x41) // i32.const
+      out = wasmPushSleb128(out, alignedSize)
+      out.push(0x6A) // i32.add
+      out.push(0x24) // global.set 0
+      out = wasmPushUleb128(out, 0)
+    mut ak = 0
+    while ak < e.children.len:
+      out = emitWasmExpr(arena, hir, e.children[ak], ctx, out)
+      out.push(0x36) // i32.store (pops val and pre-pushed base pointer)
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, (ak + 1) * 4)
+      ak += 1
+    ret out
+  if e.kind == "Index":
+    // arr[idx] -> *(arr + (idx + 1) * 4) masked into 4 MiB linear memory
+    out = emitWasmExpr(arena, hir, e.left, ctx, out)
+    out = emitWasmExpr(arena, hir, e.right, ctx, out)
+    out.push(0x41)
+    out = wasmPushSleb128(out, 1)
+    out.push(0x6A) // i32.add
+    out.push(0x41)
+    out = wasmPushSleb128(out, 4)
+    out.push(0x6C) // i32.mul
+    out.push(0x6A) // i32.add
+    out.push(0x41)
+    out = wasmPushSleb128(out, 4194300) // 0x3FFFFC
+    out.push(0x71) // i32.and
+    out.push(0x28) // i32.load
+    out = wasmPushUleb128(out, 2)
+    out = wasmPushUleb128(out, 0)
+    ret out
+  if e.kind == "Member":
+    if e.strVal == "len":
+      out = emitWasmExpr(arena, hir, e.left, ctx, out)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 4194300) // 0x3FFFFC
+      out.push(0x71) // i32.and
+      out.push(0x28) // i32.load
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+      ret out
+    if (e.strVal == "floor" or e.strVal == "ceil" or e.strVal == "round") and isWasmFloatExpr(arena, e.left):
+      out = emitWasmF64Expr(arena, hir, e.left, ctx, out)
+      if e.strVal == "floor":
+        out.push(0x9C) // f64.floor
+      elif e.strVal == "ceil":
+        out.push(0x9B) // f64.ceil
+      else:
+        out.push(0x9E) // f64.nearest
+      out.push(0xFC)
+      out = wasmPushUleb128(out, 2) // i32.trunc_sat_f64_s
+      ret out
+    mut fieldIdx = -1
+    mut si = 0
+    while si < hir.structs.len and fieldIdx < 0:
+      let st = hir.structs[si]
+      mut fi = 0
+      while fi < st.fieldNames.len:
+        if st.fieldNames[fi] == e.strVal:
+          fieldIdx = fi
+          break
+        fi += 1
+      si += 1
+    out = emitWasmExpr(arena, hir, e.left, ctx, out)
+    if fieldIdx >= 0:
+      out.push(0x41)
+      out = wasmPushSleb128(out, (fieldIdx + 1) * 4)
+      out.push(0x6A) // i32.add
+      out.push(0x41)
+      out = wasmPushSleb128(out, 4194300) // 0x3FFFFC
+      out.push(0x71) // i32.and
+      out.push(0x28) // i32.load
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+    ret out
+  if e.kind == "IfExpr":
+    out = emitWasmExpr(arena, hir, e.cond, ctx, out)
+    out.push(0x04) // if
+    out.push(0x7F) // i32
+    out = emitWasmExpr(arena, hir, e.left, ctx, out)
+    out.push(0x05) // else
+    out = emitWasmExpr(arena, hir, e.right, ctx, out)
+    out.push(0x0B) // end
+    ret out
+  if e.kind == "Call":
+    let calleeName = if e.left >= 0 and e.left < arena.exprs.len: arena.exprs[e.left].strVal else: ""
+    let isMemberCall = if e.left >= 0 and e.left < arena.exprs.len: arena.exprs[e.left].kind == "Member" else: false
+    if not isMemberCall and (calleeName == "println" or calleeName == "print"):
+      let newline = (calleeName == "println")
+      mut spStrs: [str] = []
+      mut spOffs: [int] = []
+      mut si = 0
+      while si < ctx.stringPool.len:
+        spStrs.push(ctx.stringPool[si].text)
+        spOffs.push(ctx.stringPool[si].offset)
+        si += 1
+      mut allLocals: [str] = []
+      mut pi = 0
+      while pi < ctx.paramNames.len:
+        allLocals.push(ctx.paramNames[pi])
+        pi += 1
+      mut li = 0
+      while li < ctx.localNames.len:
+        allLocals.push(ctx.localNames[li])
+        li += 1
+      let argId = if e.children.len > 0: e.children[0] else: -1
+      let printBytes = emitWasmExprPrint(arena, argId, allLocals, spStrs, spOffs, newline)
+      out = wasmAppend(out, printBytes)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 0)
+      ret out
+    if not isMemberCall and calleeName == "windowShouldClose":
+      // Increment frame counter at linear memory [192] and return (frame >= 3)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 192)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 192)
+      out.push(0x28) // i32.load [192]
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 1)
+      out.push(0x6A) // i32.add
+      out.push(0x36) // i32.store [192] = c + 1
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 192)
+      out.push(0x28) // i32.load [192]
+      out = wasmPushUleb128(out, 2)
+      out = wasmPushUleb128(out, 0)
+      out.push(0x41)
+      out = wasmPushSleb128(out, 3)
+      out.push(0x4A) // i32.gt_s (true after 3 frames)
+      ret out
+    if not isMemberCall and calleeName == "assert":
+      if e.children.len > 0:
+        out = emitWasmExpr(arena, hir, e.children[0], ctx, out)
+        out.push(0x1A) // drop condition value without trapping in standalone WASI
+      out.push(0x41)
+      out = wasmPushSleb128(out, 0)
+      ret out
+    let fnIdx = if not isMemberCall: lookupFuncIndex(hir, calleeName) else: -1
+    if fnIdx >= 2 and (fnIdx - 2) < hir.functions.len:
+      let targetFn = hir.functions[fnIdx - 2]
+      let expectedParams = targetFn.paramNames.len
+      let targetReturnsVoid = (targetFn.retType == "void" or targetFn.retType == "")
+      mut ai = 0
+      while ai < e.children.len:
+        out = emitWasmExpr(arena, hir, e.children[ai], ctx, out)
+        if ai >= expectedParams:
+          out.push(0x1A) // drop excess argument
+        ai += 1
+      while ai < expectedParams:
+        out.push(0x41) // pad missing default argument with i32.const 0
+        out = wasmPushSleb128(out, 0)
+        ai += 1
+      out.push(0x10) // call
+      out = wasmPushUleb128(out, fnIdx)
+      if targetReturnsVoid:
+        out.push(0x41)
+        out = wasmPushSleb128(out, 0)
+      ret out
+    if isMemberCall and e.left >= 0 and e.left < arena.exprs.len:
+      out = emitWasmExpr(arena, hir, arena.exprs[e.left].left, ctx, out)
+      out.push(0x1A) // drop receiver
+    mut uai = 0
+    while uai < e.children.len:
+      out = emitWasmExpr(arena, hir, e.children[uai], ctx, out)
+      out.push(0x1A) // drop arg
+      uai += 1
+    out.push(0x41)
+    out = wasmPushSleb128(out, 0)
+    ret out
+  out.push(0x41)
+  out = wasmPushSleb128(out, 0)
+  ret out
+
+fn emitWasmStmt(arena: AstArena, hir: HirModule, stmtId: int, ctx: WasmFnContext, mut out: [int]): [int]:
+  if stmtId < 0 or stmtId >= arena.stmts.len:
+    ret out
+  let st = arena.stmts[stmtId]
+  if st.kind == "VarDecl" or st.kind == "Let" or st.kind == "TupleVarDecl":
+    let locIdx = lookupLocalIndex(ctx.paramNames, ctx.localNames, st.name)
+    if locIdx >= 0:
+      if st.exprId >= 0:
+        out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+      else:
+        out.push(0x41)
+        out = wasmPushSleb128(out, 0)
+      out.push(0x21) // local.set
+      out = wasmPushUleb128(out, locIdx)
+    ret out
+  if st.kind == "Assign":
+    if st.condExpr >= 0 and arena.exprs[st.condExpr].kind == "Ident":
+      let lhsName = arena.exprs[st.condExpr].strVal
+      let lhsIdx = lookupLocalIndex(ctx.paramNames, ctx.localNames, lhsName)
+      if lhsIdx >= 0 and st.exprId >= 0:
+        if st.name == "+=":
+          out.push(0x20) // local.get
+          out = wasmPushUleb128(out, lhsIdx)
+          out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+          out.push(0x6A) // i32.add
+          out.push(0x21) // local.set
+          out = wasmPushUleb128(out, lhsIdx)
+        elif st.name == "-=":
+          out.push(0x20) // local.get
+          out = wasmPushUleb128(out, lhsIdx)
+          out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+          out.push(0x6B) // i32.sub
+          out.push(0x21) // local.set
+          out = wasmPushUleb128(out, lhsIdx)
+        elif st.name == "*=":
+          out.push(0x20) // local.get
+          out = wasmPushUleb128(out, lhsIdx)
+          out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+          out.push(0x6C) // i32.mul
+          out.push(0x21) // local.set
+          out = wasmPushUleb128(out, lhsIdx)
+        elif st.name == "/=":
+          out.push(0x20) // local.get
+          out = wasmPushUleb128(out, lhsIdx)
+          out.push(0xB7) // f64.convert_i32_s
+          out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+          out.push(0xB7) // f64.convert_i32_s
+          out.push(0xA3) // f64.div
+          out.push(0xFC)
+          out.push(0x02) // i32.trunc_sat_f64_s
+          out.push(0x21) // local.set
+          out = wasmPushUleb128(out, lhsIdx)
+        elif st.name == "%=":
+          out.push(0x20) // local.get
+          out = wasmPushUleb128(out, lhsIdx)
+          out.push(0x41)
+          out = wasmPushSleb128(out, 196)
+          out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+          out.push(0x36)
+          out.push(0x02)
+          out.push(0x00)
+          out.push(0x41)
+          out = wasmPushSleb128(out, 196)
+          out.push(0x28)
+          out.push(0x02)
+          out.push(0x00)
+          out.push(0x41)
+          out = wasmPushSleb128(out, 1)
+          out.push(0x41)
+          out = wasmPushSleb128(out, 196)
+          out.push(0x28)
+          out.push(0x02)
+          out.push(0x00)
+          out.push(0x45)
+          out.push(0x45)
+          out.push(0x1B) // select safe divisor
+          out.push(0x6F) // i32.rem_s
+          out.push(0x21) // local.set
+          out = wasmPushUleb128(out, lhsIdx)
+        else:
+          out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+          out.push(0x21)
+          out = wasmPushUleb128(out, lhsIdx)
+    else:
+      let locIdx = lookupLocalIndex(ctx.paramNames, ctx.localNames, st.name)
+      if locIdx >= 0 and st.exprId >= 0:
+        out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+        out.push(0x21)
+        out = wasmPushUleb128(out, locIdx)
+    ret out
+  if st.kind == "Break" or st.kind == "break":
+    if ctx.inLoop:
+      out.push(0x0C) // br
+      out = wasmPushUleb128(out, ctx.loopBreakDepth)
+    ret out
+  if st.kind == "Continue" or st.kind == "continue":
+    if ctx.inLoop:
+      out.push(0x0C) // br
+      out = wasmPushUleb128(out, ctx.loopContinueDepth)
+    ret out
+  if st.kind == "Return":
+    if st.exprId >= 0:
+      out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+      if not ctx.returnsVal:
+        out.push(0x1A) // drop return value inside void function
+      out.push(0x0F) // return
+    else:
+      if ctx.returnsVal:
+        out.push(0x41)
+        out = wasmPushSleb128(out, 0)
+      out.push(0x0F) // return
+    ret out
+  if st.kind == "ExprStmt":
+    if st.exprId >= 0:
+      out = emitWasmExpr(arena, hir, st.exprId, ctx, out)
+      out.push(0x1A) // drop
+    ret out
+  if st.kind == "If":
+    out = emitWasmExpr(arena, hir, st.condExpr, ctx, out)
+    out.push(0x04) // if
+    out.push(0x40) // void blocktype
+    let ifCtx = if ctx.inLoop:
+      WasmFnContext(
+        paramNames = ctx.paramNames,
+        localNames = ctx.localNames,
+        stringPool = ctx.stringPool,
+        loopContinueDepth = ctx.loopContinueDepth + 1,
+        loopBreakDepth = ctx.loopBreakDepth + 1,
+        inLoop = true,
+        returnsVal = ctx.returnsVal
+      )
+    else:
+      ctx
+    mut bi = 0
+    while bi < st.bodyStmts.len:
+      out = emitWasmStmt(arena, hir, st.bodyStmts[bi], ifCtx, out)
+      bi += 1
+    if st.elseStmts.len > 0:
+      out.push(0x05) // else
+      mut ei = 0
+      while ei < st.elseStmts.len:
+        out = emitWasmStmt(arena, hir, st.elseStmts[ei], ifCtx, out)
+        ei += 1
+    out.push(0x0B) // end
+    ret out
+  if st.kind == "While":
+    out.push(0x02) // block
+    out.push(0x40)
+    out.push(0x03) // loop
+    out.push(0x40)
+    out = emitWasmExpr(arena, hir, st.condExpr, ctx, out)
+    out.push(0x45) // i32.eqz
+    out.push(0x0D) // br_if 1
+    out = wasmPushUleb128(out, 1)
+    let loopCtx = WasmFnContext(
+      paramNames = ctx.paramNames,
+      localNames = ctx.localNames,
+      stringPool = ctx.stringPool,
+      loopContinueDepth = 0,
+      loopBreakDepth = 1,
+      inLoop = true,
+      returnsVal = ctx.returnsVal
+    )
+    mut wi = 0
+    while wi < st.bodyStmts.len:
+      out = emitWasmStmt(arena, hir, st.bodyStmts[wi], loopCtx, out)
+      wi += 1
+    out.push(0x0C) // br 0
+    out = wasmPushUleb128(out, 0)
+    out.push(0x0B) // end loop
+    out.push(0x0B) // end block
+    ret out
+  if st.kind == "For":
+    let locIdx = lookupLocalIndex(ctx.paramNames, ctx.localNames, st.name)
+    if locIdx >= 0 and st.exprId >= 0:
+      let rng = arena.exprs[st.exprId]
+      if rng.kind == "Binary" and (rng.op == ".." or rng.op == "..="):
+        out = emitWasmExpr(arena, hir, rng.left, ctx, out)
+        out.push(0x21) // local.set iterVar
+        out = wasmPushUleb128(out, locIdx)
+        out.push(0x02) // block
+        out.push(0x40)
+        out.push(0x03) // loop
+        out.push(0x40)
+        out.push(0x20) // local.get iterVar
+        out = wasmPushUleb128(out, locIdx)
+        out = emitWasmExpr(arena, hir, rng.right, ctx, out)
+        if rng.op == "..=":
+          out.push(0x4C) // i32.le_s
+        else:
+          out.push(0x48) // i32.lt_s
+        out.push(0x45) // i32.eqz
+        out.push(0x0D) // br_if 1
+        out = wasmPushUleb128(out, 1)
+        let loopCtx = WasmFnContext(
+          paramNames = ctx.paramNames,
+          localNames = ctx.localNames,
+          stringPool = ctx.stringPool,
+          loopContinueDepth = 0,
+          loopBreakDepth = 1,
+          inLoop = true,
+          returnsVal = ctx.returnsVal
+        )
+        mut fbi = 0
+        while fbi < st.bodyStmts.len:
+          out = emitWasmStmt(arena, hir, st.bodyStmts[fbi], loopCtx, out)
+          fbi += 1
+        out.push(0x20) // local.get iterVar
+        out = wasmPushUleb128(out, locIdx)
+        out.push(0x41)
+        out = wasmPushSleb128(out, 1)
+        out.push(0x6A) // i32.add
+        out.push(0x21) // local.set iterVar
+        out = wasmPushUleb128(out, locIdx)
+        out.push(0x0C) // br 0
+        out = wasmPushUleb128(out, 0)
+        out.push(0x0B)
+        out.push(0x0B)
+    ret out
+  if st.kind == "Pass":
+    out.push(0x01) // nop
+    ret out
+
+  ret out
+
+pub fn emitWasm32Bytes(hir: HirModule, bundledSource: str): bytes:
+  // Step 1: Collect string pool for Data section
+  mut stringPool: [WasmStringEntry] = []
+  mut fi = 0
+  while fi < hir.functions.len:
+    stringPool = scanStringsFromStmts(hir.arena, hir.functions[fi].bodyStmts, stringPool)
+    fi += 1
+
+  mut allDataBytes: [int] = []
+  mut si = 0
+  while si < stringPool.len:
+    let item = stringPool[si]
+    mut chI = 0
+    while chI < item.text.len:
+      allDataBytes.push(item.text.charCodeAt(chI))
+      chI += 1
+    si += 1
+
+  // Step 2: Types section
+  // Type 0: (i32, i32, i32, i32) -> i32 (fd_write)
+  // Type 1: () -> void (_start)
+  mut types: [WasmFuncType] = []
+  types.push(WasmFuncType(paramCount = 4, returnCount = 1))
+  types.push(WasmFuncType(paramCount = 0, returnCount = 0))
+
+  mut funcTypeIndices: [int] = []
+  fi = 0
+  while fi < hir.functions.len:
+    let f = hir.functions[fi]
+    let pCount = f.paramNames.len
+    let rCount = if f.retType == "void" or f.retType == "": 0 else: 1
+    mut matchedTypeIdx = -1
+    mut ti = 0
+    while ti < types.len:
+      if types[ti].paramCount == pCount and types[ti].returnCount == rCount:
+        matchedTypeIdx = ti
+      ti += 1
+    if matchedTypeIdx < 0:
+      matchedTypeIdx = types.len
+      types.push(WasmFuncType(paramCount = pCount, returnCount = rCount))
+    funcTypeIndices.push(matchedTypeIdx)
+    fi += 1
+
+  mut typePayload: [int] = []
+  typePayload = wasmPushUleb128(typePayload, types.len)
+  mut ti = 0
+  while ti < types.len:
+    let ty = types[ti]
+    typePayload.push(0x60) // func type tag
+    typePayload = wasmPushUleb128(typePayload, ty.paramCount)
+    mut pi = 0
+    while pi < ty.paramCount:
+      typePayload.push(0x7F) // i32
+      pi += 1
+    typePayload = wasmPushUleb128(typePayload, ty.returnCount)
+    mut ri = 0
+    while ri < ty.returnCount:
+      typePayload.push(0x7F) // i32
+      ri += 1
+    ti += 1
+
+  // Step 3: Import section (Import fd_write as function 0)
+  mut importPayload: [int] = []
+  importPayload = wasmPushUleb128(importPayload, 1)
+  importPayload = wasmPushStr(importPayload, "wasi_snapshot_preview1")
+  importPayload = wasmPushStr(importPayload, "fd_write")
+  importPayload.push(0x00) // kind = func
+  importPayload = wasmPushUleb128(importPayload, 0) // type 0
+
+  // Step 4: Function section (Declare type indices for _start and user functions)
+  mut funcPayload: [int] = []
+  funcPayload = wasmPushUleb128(funcPayload, 1 + hir.functions.len)
+  funcPayload = wasmPushUleb128(funcPayload, 1) // _start has type 1
+  fi = 0
+  while fi < funcTypeIndices.len:
+    funcPayload = wasmPushUleb128(funcPayload, funcTypeIndices[fi])
+    fi += 1
+
+  // Step 5: Memory section (64 pages = 4 MiB linear memory)
+  mut memPayload: [int] = []
+  memPayload = wasmPushUleb128(memPayload, 1)
+  memPayload.push(0x00) // flags: no max
+  memPayload = wasmPushUleb128(memPayload, 64)
+
+  // Step 5b: Global section (Section ID 6)
+  // Global 0: $__heap_ptr (type i32, mutable 0x01, initialized past string pool >= 65536)
+  let rawHeapBase = 256 + allDataBytes.len + 1024
+  let alignedHeapBase = ((rawHeapBase + 15) / 16) * 16
+  let heapBase = if alignedHeapBase > 65536: alignedHeapBase else: 65536
+  mut globalPayload: [int] = []
+  globalPayload = wasmPushUleb128(globalPayload, 1) // 1 global
+  globalPayload.push(0x7F) // i32
+  globalPayload.push(0x01) // mutable
+  globalPayload.push(0x41) // i32.const
+  globalPayload = wasmPushSleb128(globalPayload, heapBase)
+  globalPayload.push(0x0B) // end
+
+  // Step 6: Export section (Export memory 0, _start, and user functions)
+  mut expPayload: [int] = []
+  expPayload = wasmPushUleb128(expPayload, 2 + hir.functions.len)
+  expPayload = wasmPushStr(expPayload, "memory")
+  expPayload.push(0x02) // memory
+  expPayload = wasmPushUleb128(expPayload, 0)
+  expPayload = wasmPushStr(expPayload, "_start")
+  expPayload.push(0x00) // func
+  expPayload = wasmPushUleb128(expPayload, 1) // func 1 is _start
+  fi = 0
+  while fi < hir.functions.len:
+    expPayload = wasmPushStr(expPayload, hir.functions[fi].name)
+    expPayload.push(0x00) // func
+    expPayload = wasmPushUleb128(expPayload, 2 + fi)
+    fi += 1
+
+  // Step 7: Code section bodies
+  // 7a. Body for _start:
+  mut startBody: [int] = []
+  startBody = wasmPushUleb128(startBody, 0) // 0 locals
+  let mainIdx = lookupFuncIndex(hir, "main")
+  if mainIdx >= 0:
+    mut mainReturnsNonVoid = true
+    mut mainParamCount = 0
+    mut mfi = 0
+    while mfi < hir.functions.len:
+      if hir.functions[mfi].name == "main":
+        mainParamCount = hir.functions[mfi].paramNames.len
+        if hir.functions[mfi].retType == "void" or hir.functions[mfi].retType == "":
+          mainReturnsNonVoid = false
+      mfi += 1
+    mut mpi = 0
+    while mpi < mainParamCount:
+      startBody.push(0x41)
+      startBody = wasmPushSleb128(startBody, 0)
+      mpi += 1
+    startBody.push(0x10) // call
+    startBody = wasmPushUleb128(startBody, mainIdx)
+    if mainReturnsNonVoid:
+      startBody.push(0x1A) // drop
+  startBody.push(0x0B) // end
+
+  // 7b. Bodies for user functions:
+  mut userBodies: [[int]] = [] // or flat representation
+  mut codePayload: [int] = []
+  codePayload = wasmPushUleb128(codePayload, 1 + hir.functions.len)
+
+  codePayload = wasmPushUleb128(codePayload, startBody.len)
+  codePayload = wasmAppend(codePayload, startBody)
+
+  fi = 0
+  while fi < hir.functions.len:
+    let f = hir.functions[fi]
+    let locals = collectLocalsFromStmts(hir.arena, f.bodyStmts, f.paramNames, [])
+    let fReturnsVal = (f.retType != "void" and f.retType != "")
+    let ctx = WasmFnContext(
+      paramNames = f.paramNames,
+      localNames = locals,
+      stringPool = stringPool,
+      loopContinueDepth = 0,
+      loopBreakDepth = 0,
+      inLoop = false,
+      returnsVal = fReturnsVal
+    )
+    mut fBody: [int] = []
+    if locals.len == 0:
+      fBody = wasmPushUleb128(fBody, 0)
+    else:
+      fBody = wasmPushUleb128(fBody, 1)
+      fBody = wasmPushUleb128(fBody, locals.len)
+      fBody.push(0x7F) // i32
+    mut sIdx = 0
+    while sIdx < f.bodyStmts.len:
+      fBody = emitWasmStmt(hir.arena, hir, f.bodyStmts[sIdx], ctx, fBody)
+      sIdx += 1
+    if f.retType != "void" and f.retType != "":
+      fBody.push(0x41)
+      fBody = wasmPushSleb128(fBody, 0)
+      fBody.push(0x0B)
+    else:
+      fBody.push(0x0B)
+
+    codePayload = wasmPushUleb128(codePayload, fBody.len)
+    codePayload = wasmAppend(codePayload, fBody)
+    fi += 1
+
+  // Step 8: Data section
+  mut dataPayload: [int] = []
+  if allDataBytes.len > 0:
+    dataPayload = wasmPushUleb128(dataPayload, 1) // 1 segment
+    dataPayload.push(0x00) // mem 0, active
+    dataPayload.push(0x41) // i32.const
+    dataPayload = wasmPushSleb128(dataPayload, 256) // offset 256
+    dataPayload.push(0x0B) // end
+    dataPayload = wasmPushUleb128(dataPayload, allDataBytes.len)
+    dataPayload = wasmAppend(dataPayload, allDataBytes)
+
+  // Step 9: Assemble final WebAssembly binary
+  mut wasmBytesArr: [int] = [0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]
+  wasmBytesArr = wasmPushSection(wasmBytesArr, 1, typePayload)
+  wasmBytesArr = wasmPushSection(wasmBytesArr, 2, importPayload)
+  wasmBytesArr = wasmPushSection(wasmBytesArr, 3, funcPayload)
+  wasmBytesArr = wasmPushSection(wasmBytesArr, 5, memPayload)
+  wasmBytesArr = wasmPushSection(wasmBytesArr, 6, globalPayload)
+  wasmBytesArr = wasmPushSection(wasmBytesArr, 7, expPayload)
+  wasmBytesArr = wasmPushSection(wasmBytesArr, 10, codePayload)
+  if dataPayload.len > 0:
+    wasmBytesArr = wasmPushSection(wasmBytesArr, 11, dataPayload)
+
+  ret bytesFromArray(wasmBytesArr)
+
+pub fn wasmBytesToBase64(data: bytes): str:
+  let alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+  mut chunks: [str] = []
+  let n = data.len()
+  mut i = 0
+  while i < n:
+    let b0 = data[i]
+    let has1 = i + 1 < n
+    let has2 = i + 2 < n
+    let b1 = if has1: data[i + 1] else: 0
+    let b2 = if has2: data[i + 2] else: 0
+    let triple = (b0 << 16) | (b1 << 8) | b2
+    let c0 = alphabet.charAt((triple >> 18) & 63)
+    let c1 = alphabet.charAt((triple >> 12) & 63)
+    let c2 = if has1: alphabet.charAt((triple >> 6) & 63) else: "="
+    let c3 = if has2: alphabet.charAt(triple & 63) else: "="
+    chunks.push(c0 + c1 + c2 + c3)
+    i += 3
+  ret chunks.join("")
+
+pub fn emitWasmBrowserHostScript(wasmFileName: str, wasmBase64: str): str:
+  mut lines: [str] = []
+  lines.push("/* --- AIPL WebAssembly Browser Host Bridge (v0.9.0) --- */")
+  lines.push("const __aiplWasmFileName = \"" + wasmFileName + "\";")
+  lines.push("const __aiplWasmBase64 = \"" + wasmBase64 + "\";")
+  lines.push("function __aiplDecodeBase64ToBytes(b64) {")
+  lines.push("  const alpha = \"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/\";")
+  lines.push("  const lookup = new Uint8Array(256);")
+  lines.push("  for (let i = 0; i < alpha.length; i++) lookup[alpha.charCodeAt(i)] = i;")
+  lines.push("  let pad = 0;")
+  lines.push("  if (b64.endsWith(\"==\")) pad = 2; else if (b64.endsWith(\"=\")) pad = 1;")
+  lines.push("  const outLen = ((b64.length * 3) >> 2) - pad;")
+  lines.push("  const bytes = new Uint8Array(outLen > 0 ? outLen : 0);")
+  lines.push("  let p = 0;")
+  lines.push("  for (let i = 0; i < b64.length; i += 4) {")
+  lines.push("    const e1 = lookup[b64.charCodeAt(i) & 255];")
+  lines.push("    const e2 = lookup[b64.charCodeAt(i + 1) & 255];")
+  lines.push("    const e3 = lookup[b64.charCodeAt(i + 2) & 255];")
+  lines.push("    const e4 = lookup[b64.charCodeAt(i + 3) & 255];")
+  lines.push("    const n = (e1 << 18) | (e2 << 12) | (e3 << 6) | e4;")
+  lines.push("    if (p < outLen) bytes[p++] = (n >> 16) & 255;")
+  lines.push("    if (p < outLen) bytes[p++] = (n >> 8) & 255;")
+  lines.push("    if (p < outLen) bytes[p++] = n & 255;")
+  lines.push("  }")
+  lines.push("  return bytes;")
+  lines.push("}")
+  lines.push("async function __aiplBootWasmModule() {")
+  lines.push("  if (typeof WebAssembly === \"undefined\") return null;")
+  lines.push("  let wasmBytes = null;")
+  lines.push("  if (typeof fetch === \"function\" && typeof location !== \"undefined\" && location.protocol !== \"file:\") {")
+  lines.push("    try {")
+  lines.push("      const resp = await fetch(__aiplWasmFileName);")
+  lines.push("      if (resp && resp.ok) wasmBytes = new Uint8Array(await resp.arrayBuffer());")
+  lines.push("    } catch (_e) {}")
+  lines.push("  }")
+  lines.push("  if (!wasmBytes || wasmBytes.length < 8) {")
+  lines.push("    wasmBytes = __aiplDecodeBase64ToBytes(__aiplWasmBase64);")
+  lines.push("  }")
+  lines.push("  let wasmMemRef = null;")
+  lines.push("  const wasiImports = {")
+  lines.push("    fd_write(fd, iovsPtr, iovsLen, nwrittenPtr) {")
+  lines.push("      if (!wasmMemRef) return 0;")
+  lines.push("      const view = new DataView(wasmMemRef.buffer);")
+  lines.push("      const u8 = new Uint8Array(wasmMemRef.buffer);")
+  lines.push("      let total = 0;")
+  lines.push("      let textOut = \"\";")
+  lines.push("      for (let i = 0; i < iovsLen; i++) {")
+  lines.push("        const ptr = view.getUint32(iovsPtr + i * 8, true);")
+  lines.push("        const len = view.getUint32(iovsPtr + i * 8 + 4, true);")
+  lines.push("        total += len;")
+  lines.push("        for (let j = 0; j < len && (ptr + j) < u8.length; j++) {")
+  lines.push("          textOut += String.fromCharCode(u8[ptr + j]);")
+  lines.push("        }")
+  lines.push("      }")
+  lines.push("      if (nwrittenPtr > 0 && (nwrittenPtr + 4) <= u8.length) {")
+  lines.push("        view.setUint32(nwrittenPtr, total, true);")
+  lines.push("      }")
+  lines.push("      if (textOut.trim().length > 0 && typeof console !== \"undefined\") {")
+  lines.push("        console.log(\"[WASM]\", textOut.trim());")
+  lines.push("      }")
+  lines.push("      return 0;")
+  lines.push("    }")
+  lines.push("  };")
+  lines.push("  const res = await WebAssembly.instantiate(wasmBytes, { wasiSnapshotPreview1: wasiImports, env: wasiImports });")
+  lines.push("  const instance = res.instance || res;")
+  lines.push("  wasmMemRef = instance.exports.memory || null;")
+  lines.push("  if (typeof window !== \"undefined\") {")
+  lines.push("    window.__aiplWasmInstance = instance;")
+  lines.push("    window.__aiplWasmExports = instance.exports;")
+  lines.push("  }")
+  lines.push("  if (typeof globalThis !== \"undefined\") {")
+  lines.push("    globalThis.__aiplWasmInstance = instance;")
+  lines.push("    globalThis.__aiplWasmExports = instance.exports;")
+  lines.push("  }")
+  lines.push("  if (instance.exports && typeof instance.exports._start === \"function\") {")
+  lines.push("    try { instance.exports._start(); } catch (_err) {}")
+  lines.push("  }")
+  lines.push("  return instance;")
+  lines.push("}")
+  lines.push("if (typeof WebAssembly !== \"undefined\") { __aiplBootWasmModule().catch(function(){}); }")
+  ret lines.join("\n")
+
+pub fn witKebabIdent(name: str): str:
+  if name.len == 0:
+    ret "item"
+  mut out = ""
+  mut i = 0
+  while i < name.len:
+    let ch = name.charCodeAt(i)
+    if ch >= 65 and ch <= 90:
+      if i > 0 and name.charCodeAt(i - 1) != 45 and name.charCodeAt(i - 1) != 95:
+        out = out + "-"
+      out = out + fromCharCode(ch + 32)
+    elif ch == 95:
+      out = out + "-"
+    else:
+      out = out + name.slice(i, i + 1)
+    i += 1
+  ret out
+
+pub fn wasmTypeToWitType(ty: str): str:
+  let s = ty.trim()
+  if s == "int" or s == "i64":
+    ret "s64"
+  if s == "i32":
+    ret "s32"
+  if s == "u32":
+    ret "u32"
+  if s == "u64":
+    ret "u64"
+  if s == "u8" or s == "byte":
+    ret "u8"
+  if s == "float" or s == "f64":
+    ret "f64"
+  if s == "f32":
+    ret "f32"
+  if s == "bool":
+    ret "bool"
+  if s == "str" or s == "string":
+    ret "string"
+  if s == "bytes":
+    ret "list<u8>"
+  if s.startsWith("[") and s.endsWith("]"):
+    ret "list<" + wasmTypeToWitType(s.slice(1, s.len - 1)) + ">"
+  if s.startsWith("Option[") and s.endsWith("]"):
+    ret "option<" + wasmTypeToWitType(s.slice(7, s.len - 1)) + ">"
+  if s.startsWith("?"):
+    ret "option<" + wasmTypeToWitType(s.slice(1, s.len)) + ">"
+  ret witKebabIdent(s)
+
+pub fn emitWitInterface(hir: HirModule, packageName: str): str:
+  let pkg = if packageName.len > 0: packageName else: "aipl:component@0.1.0"
+  let ifaceName = witKebabIdent(if hir.moduleName.len > 0: hir.moduleName else: "exports")
+  mut lines: [str] = []
+  lines.push("package " + pkg + ";")
+  lines.push("")
+  lines.push("interface " + ifaceName + " {")
+  mut si = 0
+  while si < hir.structs.len:
+    let st = hir.structs[si]
+    lines.push("  record " + witKebabIdent(st.name) + " {")
+    mut fi = 0
+    while fi < st.fieldNames.len:
+      let fnm = witKebabIdent(st.fieldNames[fi])
+      let fty = if fi < st.fieldTypes.len: wasmTypeToWitType(st.fieldTypes[fi]) else: "s64"
+      lines.push("    " + fnm + ": " + fty + ",")
+      fi += 1
+    lines.push("  }")
+    si += 1
+  mut fni = 0
+  while fni < hir.functions.len:
+    let fnDecl = hir.functions[fni]
+    if fnDecl.isPub or fnDecl.name != "main":
+      mut pList: [str] = []
+      mut pi = 0
+      while pi < fnDecl.paramNames.len:
+        let pnm = witKebabIdent(fnDecl.paramNames[pi])
+        let pty = if pi < fnDecl.paramTypes.len: wasmTypeToWitType(fnDecl.paramTypes[pi]) else: "s64"
+        pList.push(pnm + ": " + pty)
+        pi += 1
+      let retStr = if fnDecl.retType == "" or fnDecl.retType == "void": "" else: (" -> " + wasmTypeToWitType(fnDecl.retType))
+      lines.push("  " + witKebabIdent(fnDecl.name) + ": func(" + pList.join(", ") + ")" + retStr + ";")
+    fni += 1
+  lines.push("}")
+  lines.push("")
+  lines.push("world " + ifaceName + "-world {")
+  lines.push("  export " + ifaceName + ";")
+  lines.push("}")
+  ret lines.join("\n")

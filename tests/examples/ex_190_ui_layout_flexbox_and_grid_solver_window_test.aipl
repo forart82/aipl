@@ -1,0 +1,56 @@
+module Ex190UiLayoutFlexboxAndGridSolverWindowTest
+
+import {
+  distributeFlexGrowSpanPx, computeContainerInnerSpanPx,
+  stepResponsiveContainerWidth, buildUiLayoutSolverAudit
+} from "../../examples/ex_190_ui_layout_flexbox_and_grid_solver_window"
+import {
+  FLEX_ROW, JUSTIFY_SPACE_BETWEEN, BoxConstraints, LayoutBox,
+  createLayoutNode, appendLayoutChild, solveFlexboxLayout,
+  layoutInset, auraGrid12Row, auraResponsiveTier
+} from "../../std/ui/ui_layout"
+
+pub fn test_ui_layout_flexbox_and_grid_solver(): void:
+  assert(distributeFlexGrowSpanPx(400, 2) == 200, "distributeFlexGrowSpanPx divides remaining space by total grow weight")
+  assert(computeContainerInnerSpanPx(1280, 120) == 1160, "computeContainerInnerSpanPx subtracts two-sided padding")
+
+  mut root = createLayoutNode(1, FLEX_ROW)
+  root.constraints = BoxConstraints(minWidth = 300.0, maxWidth = 300.0, minHeight = 100.0, maxHeight = 100.0)
+  root.justify = JUSTIFY_SPACE_BETWEEN
+
+  mut child1 = createLayoutNode(2, FLEX_ROW)
+  child1.constraints = BoxConstraints(minWidth = 50.0, maxWidth = 50.0, minHeight = 50.0, maxHeight = 50.0)
+  mut child2 = createLayoutNode(3, FLEX_ROW)
+  child2.constraints = BoxConstraints(minWidth = 50.0, maxWidth = 50.0, minHeight = 50.0, maxHeight = 50.0)
+
+  root = appendLayoutChild(root, child1)
+  root = appendLayoutChild(root, child2)
+  let solved = solveFlexboxLayout(root, 300.0, 100.0)
+  assert(solved.computedRect.w == 300.0 and solved.children[1].computedRect.x == 250.0, "solveFlexboxLayout SPACE_BETWEEN positions second child at x=250")
+  root.constraints = BoxConstraints(minWidth = 420.0, maxWidth = 420.0, minHeight = 100.0, maxHeight = 100.0)
+  let solvedWide = solveFlexboxLayout(root, 420.0, 100.0)
+  assert(solvedWide.children[1].computedRect.x > solved.children[1].computedRect.x, "Wider container increases SPACE_BETWEEN child offset")
+
+  let lbox = LayoutBox(x = 0.0, y = 0.0, w = 200.0, h = 100.0)
+  let inset = layoutInset(lbox, 10.0)
+  assert(inset.w == 180.0, "layoutInset shrinks box width by 20px")
+
+  let grid12 = auraGrid12Row(lbox, [4, 4, 4], 8.0, 8.0, 32.0)
+  assert(grid12.len() == 3 and auraResponsiveTier(1280.0) >= 2, "12-column grid row and responsive breakpoint tier")
+  assert(buildUiLayoutSolverAudit() == 1913, "buildUiLayoutSolverAudit returns 200 + 1160 + 300 + 250 + 3 == 1913")
+
+  // Multi-frame progression across t=0 -> t=1 -> t=20 -> t=100
+  let w0 = stepResponsiveContainerWidth(0)
+  let w1 = stepResponsiveContainerWidth(1)
+  let w20 = stepResponsiveContainerWidth(20)
+  let w100 = stepResponsiveContainerWidth(100)
+  assert(w0 != w1 and w1 != w20 and w20 != w100, "Responsive container width progresses across t=0, 1, 20, 100")
+  let g0 = auraGrid12Row(LayoutBox(x = 60.0, y = 340.0, w = w0, h = 200.0), [3, 6, 3], 12.0, 12.0, 84.0)
+  let g20 = auraGrid12Row(LayoutBox(x = 60.0, y = 340.0, w = w20, h = 200.0), [3, 6, 3], 12.0, 12.0, 84.0)
+  let g100 = auraGrid12Row(LayoutBox(x = 60.0, y = 340.0, w = w100, h = 200.0), [3, 6, 3], 12.0, 12.0, 84.0)
+  assert(g0[1].w != g20[1].w and g20[1].w != g100[1].w, "12-column center span dynamically resizes across frames")
+
+pub fn main(): int:
+  test_ui_layout_flexbox_and_grid_solver()
+  println("PASS: ex_190_ui_layout_flexbox_and_grid_solver_window_test")
+  ret 0

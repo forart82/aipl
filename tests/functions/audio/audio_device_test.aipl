@@ -1,0 +1,719 @@
+// Generated function test suite for std/audio/audio_device.aipl (61 functions)
+module tests.functions.audio.audio_device_test
+
+import * from "std/audio/audio_device"
+import { Option, Result, Some, None, Ok, Err, assert, assertEqInt, assertEqStr, assertApproxEq } from "std/prelude"
+import { audioComputeDistanceGain } from "std/audio/audio_spatial"
+import { clampFloat, clampInt, maxFloat, maxInt } from "std/math/consts"
+import { decodeWavPcm16, inspectPcmBuffer } from "std/audio/audio_codec"
+import { getEnv, setEnv } from "std/os/env"
+import { mixBufferAt, midiToFrequency } from "std/audio/audio_mixer"
+import { pow } from "std/math/trig"
+import { synthesizeToneBuffer, renderNoiseBuffer, renderSfxPatch, sfxCoin, sfxLaser, sfxExplosion, sfxJump } from "std/audio/audio_synth"
+
+pub fn test_audio_device_createAudioDevice_1(): int:
+  let arg_sampleRate = 4
+  let edge_sampleRate = 1
+  let arg_bufferSize = 4
+  let edge_bufferSize = 1
+  let arg_channels = 4
+  let edge_channels = 1
+  let resNom = createAudioDevice(arg_sampleRate, arg_bufferSize, arg_channels)
+  let resEdge = createAudioDevice(edge_sampleRate, edge_bufferSize, edge_channels)
+  assert(resNom.isRunning == false, "createAudioDevice nominal resNom.isRunning == false")
+  assert(resEdge.isRunning == false, "createAudioDevice boundary resEdge.isRunning == false")
+  ret 0
+
+pub fn test_audio_device_startAudioDevice_2(): int:
+  let arg_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 4, channels = 4, bitDepth = 4), isRunning = true, deviceHandle = 4, underrunCount = 4)
+  let edge_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 1, channels = 4, bitDepth = 1), isRunning = false, deviceHandle = 1, underrunCount = 1)
+  let resNom = startAudioDevice(arg_device)
+  let resEdge = startAudioDevice(edge_device)
+  assert(resNom.isRunning == true, "startAudioDevice nominal resNom.isRunning == true")
+  assert(resEdge.isRunning == true, "startAudioDevice boundary resEdge.isRunning == true")
+  ret 0
+
+pub fn test_audio_device_stopAudioDevice_3(): int:
+  let arg_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 4, channels = 4, bitDepth = 4), isRunning = true, deviceHandle = 4, underrunCount = 4)
+  let edge_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 1, channels = 4, bitDepth = 1), isRunning = false, deviceHandle = 1, underrunCount = 1)
+  let resNom = stopAudioDevice(arg_device)
+  let resEdge = stopAudioDevice(edge_device)
+  assert(resNom.isRunning == false, "stopAudioDevice nominal resNom.isRunning == false")
+  assert(resEdge.isRunning == false, "stopAudioDevice boundary resEdge.isRunning == false")
+  ret 0
+
+pub fn test_audio_device_writeAudioPcmInterleaved_4(): int:
+  let arg_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 4, channels = 4, bitDepth = 4), isRunning = true, deviceHandle = 4, underrunCount = 4)
+  let edge_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 1, channels = 4, bitDepth = 1), isRunning = false, deviceHandle = 1, underrunCount = 1)
+  let arg_pcm = [1.0]
+  let edge_pcm = []
+  let resNom = writeAudioPcmInterleaved(arg_device, arg_pcm)
+  let resEdge = writeAudioPcmInterleaved(edge_device, edge_pcm)
+  assertEqInt(resNom, 0, "writeAudioPcmInterleaved nominal resNom == 0")
+  assertEqInt(resEdge, 0, "writeAudioPcmInterleaved boundary resEdge == 0")
+  ret 0
+
+pub fn test_audio_device_getAudioLatencyMs_5(): int:
+  let arg_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 4, channels = 4, bitDepth = 4), isRunning = true, deviceHandle = 4, underrunCount = 4)
+  let edge_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 1, channels = 4, bitDepth = 1), isRunning = false, deviceHandle = 1, underrunCount = 1)
+  let resNom = getAudioLatencyMs(arg_device)
+  let resEdge = getAudioLatencyMs(edge_device)
+  assertApproxEq(resNom, 1000.0, 0.001, "getAudioLatencyMs nominal resNom ~= 1000.0")
+  assertApproxEq(resEdge, 250.0, 0.001, "getAudioLatencyMs boundary resEdge ~= 250.0")
+  ret 0
+
+pub fn test_audio_device_destroyAudioDevice_6(): int:
+  let arg_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 4, channels = 4, bitDepth = 4), isRunning = true, deviceHandle = 4, underrunCount = 4)
+  let edge_device = AudioDevice(config = AudioDeviceConfig(sampleRate = 4, bufferSizeFrames = 1, channels = 4, bitDepth = 1), isRunning = false, deviceHandle = 1, underrunCount = 1)
+  let resNom = destroyAudioDevice(arg_device)
+  let resEdge = destroyAudioDevice(edge_device)
+  assert(resNom.isRunning == false, "destroyAudioDevice nominal resNom.isRunning == false")
+  assert(resEdge.isRunning == false, "destroyAudioDevice boundary resEdge.isRunning == false")
+  ret 0
+
+pub fn test_audio_device_audioGetEnvOr_7(): int:
+  let arg_key = "test"
+  let edge_key = "a"
+  let arg_fallback = "test"
+  let edge_fallback = "a"
+  let resNom = audioGetEnvOr(arg_key, arg_fallback)
+  let resEdge = audioGetEnvOr(edge_key, edge_fallback)
+  assertEqStr(resNom, "test", "audioGetEnvOr nominal string matches")
+  assertEqStr(resEdge, "a", "audioGetEnvOr boundary string matches")
+  ret 0
+
+pub fn test_audio_device_stopAllSounds_8(): int:
+  mut completedCalls = 0
+  stopAllSounds()
+  stopAllSounds()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "stopAllSounds nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_audioInit_9(): int:
+  mut completedCalls = 0
+  let arg_sampleRate = 4
+  let edge_sampleRate = 1
+  let arg_channels = 4
+  let edge_channels = 1
+  audioInit(arg_sampleRate, arg_channels)
+  audioInit(edge_sampleRate, edge_channels)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "audioInit nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_audioShutdown_10(): int:
+  mut completedCalls = 0
+  audioShutdown()
+  audioShutdown()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "audioShutdown nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_getAudioEnergy_11(): int:
+  let resNom = getAudioEnergy()
+  let resEdge = getAudioEnergy()
+  assertApproxEq(resNom, 0.0, 0.001, "getAudioEnergy nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "getAudioEnergy boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_audio_device_getAudioBand_12(): int:
+  let arg_band = 4
+  let edge_band = 1
+  let resNom = getAudioBand(arg_band)
+  let resEdge = getAudioBand(edge_band)
+  assertApproxEq(resNom, 0.0, 0.001, "getAudioBand nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "getAudioBand boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_audio_device_setMasterVolume_13(): int:
+  mut completedCalls = 0
+  let arg_volume = 1.0
+  let edge_volume = 0.5
+  setMasterVolume(arg_volume)
+  setMasterVolume(edge_volume)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "setMasterVolume nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_getMasterVolume_14(): int:
+  let resNom = getMasterVolume()
+  let resEdge = getMasterVolume()
+  assertApproxEq(resNom, 0.5, 0.001, "getMasterVolume nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.5, 0.001, "getMasterVolume boundary resEdge ~= 0.5")
+  ret 0
+
+pub fn test_audio_device_loadSound_15(): int:
+  let arg_path = "/tmp/aipl_test_path"
+  let edge_path = "/tmp/aipl_test_path"
+  let resNom = loadSound(arg_path)
+  let resEdge = loadSound(edge_path)
+  assert(resNom.isOk() == true, "loadSound nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "loadSound boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_audio_device_decodeSound_16(): int:
+  let arg_data = [65, 73, 80, 76]
+  let edge_data = [65]
+  let resNom = decodeSound(arg_data)
+  let resEdge = decodeSound(edge_data)
+  assert(resNom.isOk() == true, "decodeSound nominal resNom.isOk() == true")
+  assert(resEdge.isOk() == true, "decodeSound boundary resEdge.isOk() == true")
+  ret 0
+
+pub fn test_audio_device_unloadSound_17(): int:
+  mut completedCalls = 0
+  let arg_soundId = 4
+  let edge_soundId = 1
+  unloadSound(arg_soundId)
+  unloadSound(edge_soundId)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "unloadSound nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_audioEngineNew_18(): int:
+  let resNom = audioEngineNew()
+  let resEdge = audioEngineNew()
+  assertEqInt(resNom.activeVoices, 0, "audioEngineNew nominal resNom.activeVoices == 0")
+  assertEqInt(resEdge.activeVoices, 0, "audioEngineNew boundary resEdge.activeVoices == 0")
+  ret 0
+
+pub fn test_audio_device_playSoundEx_19(): int:
+  let arg_soundId = 4
+  let edge_soundId = 1
+  let arg_volume = 1.0
+  let edge_volume = 0.5
+  let arg_pitch = 2.0
+  let edge_pitch = 1.0
+  let arg_pan = 1.0
+  let edge_pan = 0.5
+  let arg_loopSound = true
+  let edge_loopSound = false
+  let resNom = playSoundEx(arg_soundId, arg_volume, arg_pitch, arg_pan, arg_loopSound)
+  let resEdge = playSoundEx(edge_soundId, edge_volume, edge_pitch, edge_pan, edge_loopSound)
+  assertEqInt(resNom, 1, "playSoundEx nominal resNom == 1")
+  assertEqInt(resEdge, 2, "playSoundEx boundary resEdge == 2")
+  ret 0
+
+pub fn test_audio_device_playSound_20(): int:
+  let arg_soundId = 4
+  let edge_soundId = 1
+  let resNom = playSound(arg_soundId)
+  let resEdge = playSound(edge_soundId)
+  assertEqInt(resNom, 3, "playSound nominal resNom == 3")
+  assertEqInt(resEdge, 4, "playSound boundary resEdge == 4")
+  ret 0
+
+pub fn test_audio_device_pauseVoice_21(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  pauseVoice(arg_voiceId)
+  pauseVoice(edge_voiceId)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "pauseVoice nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_resumeVoice_22(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  resumeVoice(arg_voiceId)
+  resumeVoice(edge_voiceId)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "resumeVoice nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_stopVoice_23(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  stopVoice(arg_voiceId)
+  stopVoice(edge_voiceId)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "stopVoice nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_isVoicePlaying_24(): int:
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  let resNom = isVoicePlaying(arg_voiceId)
+  let resEdge = isVoicePlaying(edge_voiceId)
+  assert(resNom == false, "isVoicePlaying nominal resNom == false")
+  assert(resEdge == false, "isVoicePlaying boundary resEdge == false")
+  ret 0
+
+pub fn test_audio_device_seekVoice_25(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  let arg_seconds = 1.0
+  let edge_seconds = 0.5
+  seekVoice(arg_voiceId, arg_seconds)
+  seekVoice(edge_voiceId, edge_seconds)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "seekVoice nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_getVoicePosition_26(): int:
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  let resNom = getVoicePosition(arg_voiceId)
+  let resEdge = getVoicePosition(edge_voiceId)
+  assertApproxEq(resNom, 0.0, 0.001, "getVoicePosition nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "getVoicePosition boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_audio_device_getSoundDuration_27(): int:
+  let arg_soundId = 4
+  let edge_soundId = 1
+  let resNom = getSoundDuration(arg_soundId)
+  let resEdge = getSoundDuration(edge_soundId)
+  assertApproxEq(resNom, 0.5, 0.001, "getSoundDuration nominal resNom ~= 0.5")
+  assertApproxEq(resEdge, 0.0, 0.001, "getSoundDuration boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_audio_device_setVoiceVolume_28(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  let arg_volume = 1.0
+  let edge_volume = 0.5
+  setVoiceVolume(arg_voiceId, arg_volume)
+  setVoiceVolume(edge_voiceId, edge_volume)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "setVoiceVolume nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_setVoicePitch_29(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  let arg_pitch = 2.0
+  let edge_pitch = 1.0
+  setVoicePitch(arg_voiceId, arg_pitch)
+  setVoicePitch(edge_voiceId, edge_pitch)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "setVoicePitch nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_setVoicePan_30(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  let arg_pan = 1.0
+  let edge_pan = 0.5
+  setVoicePan(arg_voiceId, arg_pan)
+  setVoicePan(edge_voiceId, edge_pan)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "setVoicePan nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_AudioEngine_play_31(): int:
+  let recv_self = AudioEngine(activeVoices = 2, nextVoiceId = 4, masterVolume = 1.0, energy = 1.0)
+  let edge_self = AudioEngine(activeVoices = 0, nextVoiceId = 1, masterVolume = 0.5, energy = 0.5)
+  let arg_soundId = 4
+  let edge_soundId = 1
+  let arg_volume = 1.0
+  let edge_volume = 0.5
+  let arg_pitch = 2.0
+  let edge_pitch = 1.0
+  let arg_pan = 1.0
+  let edge_pan = 0.5
+  let arg_loopSound = true
+  let edge_loopSound = false
+  let resNom = recv_self.play(arg_soundId, arg_volume, arg_pitch, arg_pan, arg_loopSound)
+  let resEdge = edge_self.play(edge_soundId, edge_volume, edge_pitch, edge_pan, edge_loopSound)
+  assertEqInt(resNom, 5, "play nominal resNom == 5")
+  assertEqInt(resEdge, 6, "play boundary resEdge == 6")
+  ret 0
+
+pub fn test_audio_device_AudioEngine_isPlaying_32(): int:
+  let recv_self = AudioEngine(activeVoices = 2, nextVoiceId = 4, masterVolume = 1.0, energy = 1.0)
+  let edge_self = AudioEngine(activeVoices = 0, nextVoiceId = 1, masterVolume = 0.5, energy = 0.5)
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  let resNom = recv_self.isPlaying(arg_voiceId)
+  let resEdge = edge_self.isPlaying(edge_voiceId)
+  assert(resNom == false, "isPlaying nominal resNom == false")
+  assert(resEdge == false, "isPlaying boundary resEdge == false")
+  ret 0
+
+pub fn test_audio_device_audioTime_33(): int:
+  let resNom = audioTime()
+  let resEdge = audioTime()
+  assertApproxEq(resNom, 0.0, 0.001, "audioTime nominal resNom ~= 0.0")
+  assertApproxEq(resEdge, 0.0, 0.001, "audioTime boundary resEdge ~= 0.0")
+  ret 0
+
+pub fn test_audio_device_playPcmBuffer_34(): int:
+  let arg_samples = [1.0]
+  let edge_samples = []
+  let arg_sampleRate = 4
+  let edge_sampleRate = 1
+  let resNom = playPcmBuffer(arg_samples, arg_sampleRate)
+  let resEdge = playPcmBuffer(edge_samples, edge_sampleRate)
+  assertEqInt(resNom, 7, "playPcmBuffer nominal resNom == 7")
+  assertEqInt(resEdge, 0, "playPcmBuffer boundary resEdge == 0")
+  ret 0
+
+pub fn test_audio_device_playToneEx_35(): int:
+  let arg_frequency = 2.0
+  let edge_frequency = 1.0
+  let arg_durationMs = 1.0
+  let edge_durationMs = 0.5
+  let arg_volume = 1.0
+  let edge_volume = 0.5
+  let arg_waveform = "test"
+  let edge_waveform = "a"
+  let resNom = playToneEx(arg_frequency, arg_durationMs, arg_volume, arg_waveform)
+  let resEdge = playToneEx(edge_frequency, edge_durationMs, edge_volume, edge_waveform)
+  assertEqInt(resNom, 8, "playToneEx nominal resNom == 8")
+  assertEqInt(resEdge, 9, "playToneEx boundary resEdge == 9")
+  ret 0
+
+pub fn test_audio_device_playTone_36(): int:
+  mut completedCalls = 0
+  let arg_frequency = 2.0
+  let edge_frequency = 1.0
+  let arg_durationMs = 1.0
+  let edge_durationMs = 0.5
+  let arg_volume = 1.0
+  let edge_volume = 0.5
+  playTone(arg_frequency, arg_durationMs, arg_volume)
+  playTone(edge_frequency, edge_durationMs, edge_volume)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playTone nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_beep_37(): int:
+  mut completedCalls = 0
+  let arg_frequency = 2.0
+  let edge_frequency = 1.0
+  let arg_durationMs = 1.0
+  let edge_durationMs = 0.5
+  let arg_waveform = "test"
+  let edge_waveform = "a"
+  beep(arg_frequency, arg_durationMs, arg_waveform)
+  beep(edge_frequency, edge_durationMs, edge_waveform)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "beep nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playBounce_38(): int:
+  mut completedCalls = 0
+  let arg_intensity = 1.0
+  let edge_intensity = 0.5
+  playBounce(arg_intensity)
+  playBounce(edge_intensity)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playBounce nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playImpact_39(): int:
+  mut completedCalls = 0
+  let arg_force = 1.0
+  let edge_force = 0.5
+  playImpact(arg_force)
+  playImpact(edge_force)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playImpact nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playExplosion_40(): int:
+  mut completedCalls = 0
+  playExplosion()
+  playExplosion()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playExplosion nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playCoin_41(): int:
+  mut completedCalls = 0
+  playCoin()
+  playCoin()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playCoin nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playJump_42(): int:
+  mut completedCalls = 0
+  playJump()
+  playJump()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playJump nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playLaser_43(): int:
+  mut completedCalls = 0
+  playLaser()
+  playLaser()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playLaser nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playPowerup_44(): int:
+  mut completedCalls = 0
+  playPowerup()
+  playPowerup()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playPowerup nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playHit_45(): int:
+  mut completedCalls = 0
+  playHit()
+  playHit()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playHit nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playBossAlert_46(): int:
+  mut completedCalls = 0
+  playBossAlert()
+  playBossAlert()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playBossAlert nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playVictory_47(): int:
+  mut completedCalls = 0
+  playVictory()
+  playVictory()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playVictory nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playGameOver_48(): int:
+  mut completedCalls = 0
+  playGameOver()
+  playGameOver()
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playGameOver nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playNote_49(): int:
+  mut completedCalls = 0
+  let arg_midiNote = 4
+  let edge_midiNote = 1
+  let arg_durationMs = 1.0
+  let edge_durationMs = 0.5
+  playNote(arg_midiNote, arg_durationMs)
+  playNote(edge_midiNote, edge_durationMs)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playNote nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playNoise_50(): int:
+  mut completedCalls = 0
+  let arg_durationMs = 1.0
+  let edge_durationMs = 0.5
+  let arg_volume = 1.0
+  let edge_volume = 0.5
+  playNoise(arg_durationMs, arg_volume)
+  playNoise(edge_durationMs, edge_volume)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playNoise nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_loadMusicStream_51(): int:
+  let arg_path = "/tmp/aipl_test_path"
+  let edge_path = "/tmp/aipl_test_path"
+  let resNom = loadMusicStream(arg_path)
+  let resEdge = loadMusicStream(edge_path)
+  assertEqInt(resNom, 1, "loadMusicStream nominal resNom == 1")
+  assertEqInt(resEdge, 1, "loadMusicStream boundary resEdge == 1")
+  ret 0
+
+pub fn test_audio_device_playMusicStream_52(): int:
+  let arg_musicId = 4
+  let edge_musicId = 1
+  let resNom = playMusicStream(arg_musicId)
+  let resEdge = playMusicStream(edge_musicId)
+  assertEqInt(resNom, 40, "playMusicStream nominal resNom == 40")
+  assertEqInt(resEdge, 41, "playMusicStream boundary resEdge == 41")
+  ret 0
+
+pub fn test_audio_device_stopMusicStream_53(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  stopMusicStream(arg_voiceId)
+  stopMusicStream(edge_voiceId)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "stopMusicStream nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_pauseMusicStream_54(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  pauseMusicStream(arg_voiceId)
+  pauseMusicStream(edge_voiceId)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "pauseMusicStream nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_resumeMusicStream_55(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  resumeMusicStream(arg_voiceId)
+  resumeMusicStream(edge_voiceId)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "resumeMusicStream nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_setMusicVolume_56(): int:
+  mut completedCalls = 0
+  let arg_voiceId = 1
+  let edge_voiceId = 0
+  let arg_volume = 1.0
+  let edge_volume = 0.5
+  setMusicVolume(arg_voiceId, arg_volume)
+  setMusicVolume(edge_voiceId, edge_volume)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "setMusicVolume nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playProceduralChime_57(): int:
+  let arg_kind = "test"
+  let edge_kind = "a"
+  let arg_pitch = 2.0
+  let edge_pitch = 1.0
+  let resNom = playProceduralChime(arg_kind, arg_pitch)
+  let resEdge = playProceduralChime(edge_kind, edge_pitch)
+  assertEqInt(resNom, 0, "playProceduralChime nominal resNom == 0")
+  assertEqInt(resEdge, 0, "playProceduralChime boundary resEdge == 0")
+  ret 0
+
+pub fn test_audio_device_audioMockSinkNew_58(): int:
+  let resNom = audioMockSinkNew()
+  let resEdge = audioMockSinkNew()
+  assertEqInt(resNom.toneCount, 0, "audioMockSinkNew nominal resNom.toneCount == 0")
+  assertEqInt(resEdge.toneCount, 0, "audioMockSinkNew boundary resEdge.toneCount == 0")
+  ret 0
+
+pub fn test_audio_device_audioMockSinkPlay_59(): int:
+  let arg_sink = AudioMockSink(toneCount = 4, lastFrequency = 2.0, lastDuration = 1.0, lastWaveform = "test")
+  let edge_sink = AudioMockSink(toneCount = 1, lastFrequency = 1.0, lastDuration = 0.5, lastWaveform = "a")
+  let arg_freq = 2.0
+  let edge_freq = 1.0
+  let arg_dur = 1.0
+  let edge_dur = 0.5
+  let arg_wave = "test"
+  let edge_wave = "a"
+  let resNom = audioMockSinkPlay(arg_sink, arg_freq, arg_dur, arg_wave)
+  let resEdge = audioMockSinkPlay(edge_sink, edge_freq, edge_dur, edge_wave)
+  assertEqInt(resNom.toneCount, 5, "audioMockSinkPlay nominal resNom.toneCount == 5")
+  assertEqInt(resEdge.toneCount, 2, "audioMockSinkPlay boundary resEdge.toneCount == 2")
+  ret 0
+
+pub fn test_audio_device_playChord_60(): int:
+  mut completedCalls = 0
+  let arg_midiNotes = [4]
+  let edge_midiNotes = []
+  let arg_durationMs = 1.0
+  let edge_durationMs = 0.5
+  let arg_volume = 1.0
+  let edge_volume = 0.5
+  playChord(arg_midiNotes, arg_durationMs, arg_volume)
+  playChord(edge_midiNotes, edge_durationMs, edge_volume)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playChord nominal and boundary void calls completed")
+  ret 0
+
+pub fn test_audio_device_playSpatialTone_61(): int:
+  mut completedCalls = 0
+  let arg_freq = 2.0
+  let edge_freq = 1.0
+  let arg_durationMs = 1.0
+  let edge_durationMs = 0.5
+  let arg_listenerX = 1.0
+  let edge_listenerX = 0.5
+  let arg_listenerY = 1.0
+  let edge_listenerY = 0.5
+  let arg_sourceX = 1.0
+  let edge_sourceX = 0.5
+  let arg_sourceY = 1.0
+  let edge_sourceY = 0.5
+  let arg_maxDist = 2.0
+  let edge_maxDist = 1.0
+  let arg_baseVol = 1.0
+  let edge_baseVol = 0.5
+  playSpatialTone(arg_freq, arg_durationMs, arg_listenerX, arg_listenerY, arg_sourceX, arg_sourceY, arg_maxDist, arg_baseVol)
+  playSpatialTone(edge_freq, edge_durationMs, edge_listenerX, edge_listenerY, edge_sourceX, edge_sourceY, edge_maxDist, edge_baseVol)
+  completedCalls = completedCalls + 2
+  assertEqInt(completedCalls, 2, "playSpatialTone nominal and boundary void calls completed")
+  let dev = startAudioDevice(createAudioDevice(44100, 256, 2))
+  let framesW = writeAudioPcmInterleaved(dev, [0.25, -0.25, 0.5, -0.5])
+  assertEqInt(framesW, 2, "writeAudioPcmInterleaved bridges stereo frames to runtime mixer")
+  let vPad = playToneEx(261.63, 120.0, 0.4, "warm_pad")
+  let vPiano = playToneEx(329.63, 120.0, 0.4, "fm_epiano")
+  assert(vPad > 0 and vPiano > vPad, "polyphonic warm_pad and fm_epiano voices allocated")
+  ret 0
+
+pub fn main(): int:
+  test_audio_device_createAudioDevice_1()
+  test_audio_device_startAudioDevice_2()
+  test_audio_device_stopAudioDevice_3()
+  test_audio_device_writeAudioPcmInterleaved_4()
+  test_audio_device_getAudioLatencyMs_5()
+  test_audio_device_destroyAudioDevice_6()
+  test_audio_device_audioGetEnvOr_7()
+  test_audio_device_stopAllSounds_8()
+  test_audio_device_audioInit_9()
+  test_audio_device_audioShutdown_10()
+  test_audio_device_getAudioEnergy_11()
+  test_audio_device_getAudioBand_12()
+  test_audio_device_setMasterVolume_13()
+  test_audio_device_getMasterVolume_14()
+  test_audio_device_loadSound_15()
+  test_audio_device_decodeSound_16()
+  test_audio_device_unloadSound_17()
+  test_audio_device_audioEngineNew_18()
+  test_audio_device_playSoundEx_19()
+  test_audio_device_playSound_20()
+  test_audio_device_pauseVoice_21()
+  test_audio_device_resumeVoice_22()
+  test_audio_device_stopVoice_23()
+  test_audio_device_isVoicePlaying_24()
+  test_audio_device_seekVoice_25()
+  test_audio_device_getVoicePosition_26()
+  test_audio_device_getSoundDuration_27()
+  test_audio_device_setVoiceVolume_28()
+  test_audio_device_setVoicePitch_29()
+  test_audio_device_setVoicePan_30()
+  test_audio_device_AudioEngine_play_31()
+  test_audio_device_AudioEngine_isPlaying_32()
+  test_audio_device_audioTime_33()
+  test_audio_device_playPcmBuffer_34()
+  test_audio_device_playToneEx_35()
+  test_audio_device_playTone_36()
+  test_audio_device_beep_37()
+  test_audio_device_playBounce_38()
+  test_audio_device_playImpact_39()
+  test_audio_device_playExplosion_40()
+  test_audio_device_playCoin_41()
+  test_audio_device_playJump_42()
+  test_audio_device_playLaser_43()
+  test_audio_device_playPowerup_44()
+  test_audio_device_playHit_45()
+  test_audio_device_playBossAlert_46()
+  test_audio_device_playVictory_47()
+  test_audio_device_playGameOver_48()
+  test_audio_device_playNote_49()
+  test_audio_device_playNoise_50()
+  test_audio_device_loadMusicStream_51()
+  test_audio_device_playMusicStream_52()
+  test_audio_device_stopMusicStream_53()
+  test_audio_device_pauseMusicStream_54()
+  test_audio_device_resumeMusicStream_55()
+  test_audio_device_setMusicVolume_56()
+  test_audio_device_playProceduralChime_57()
+  test_audio_device_audioMockSinkNew_58()
+  test_audio_device_audioMockSinkPlay_59()
+  test_audio_device_playChord_60()
+  test_audio_device_playSpatialTone_61()
+  println("PASS: tests/functions/audio/audio_device_test.aipl")
+  ret 0

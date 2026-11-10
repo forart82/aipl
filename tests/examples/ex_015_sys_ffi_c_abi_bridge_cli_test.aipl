@@ -1,0 +1,38 @@
+// ============================================================================
+// Twin Test Suite 015: Dynamic Library FFI, C ABI Trampolines & Dlopen CLI
+// Verifies examples/ex_015_sys_ffi_c_abi_bridge_cli.aipl
+// ============================================================================
+module Ex015SysFfiCAbiBridgeCliTest
+
+import {
+  FfiBridgeReport,
+  invokeLibcAbsViaFfi,
+  invokeCAbiRegisterSum,
+  describeFfiSymbolStatus,
+  buildFfiBridgeReport
+} from "../../examples/ex_015_sys_ffi_c_abi_bridge_cli.aipl"
+
+pub fn test_libc_ffi_and_c_abi_trampolines(): int:
+  assert(invokeLibcAbsViaFfi(-42) == 42, "ffiCallInt('libc', 'abs', [-42]) == 42")
+  assert(invokeCAbiRegisterSum(10, 20, 30, 40) == 100, "sysCallC4(1, 10, 20, 30, 40) == 100")
+  ret 0
+
+pub fn test_ffi_symbol_status_classification(): int:
+  assert(describeFfiSymbolStatus(true, "") == "FFI:SYMBOL_BOUND", "resolved symbol with empty dlerror")
+  assert(describeFfiSymbolStatus(false, "not found") == "FFI:SYMBOL_MISSING", "missing symbol")
+  ret 0
+
+pub fn test_build_ffi_bridge_report(): int:
+  let rep = buildFfiBridgeReport(-125)
+  assert(rep.absResult == 125, "absResult == 125")
+  assert(rep.cAbiSum4 == 10, "sysCallC4(1, 1, 2, 3, 4) == 10")
+  assert(rep.hasAbsSymbol == true, "libc has abs symbol")
+  assert(rep.statusTag == "FFI:SYMBOL_BOUND", "statusTag")
+  ret 0
+
+pub fn main(): int:
+  test_libc_ffi_and_c_abi_trampolines()
+  test_ffi_symbol_status_classification()
+  test_build_ffi_bridge_report()
+  println("PASS: ex_015_sys_ffi_c_abi_bridge_cli_test")
+  ret 0

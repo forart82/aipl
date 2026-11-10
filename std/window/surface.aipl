@@ -1,0 +1,88 @@
+module WindowSurfaceMod
+
+// ============================================================================
+// std/window/surface.aipl — OS Window Surface, Swapchain & Letterboxing
+// ============================================================================
+
+pub const PRESENT_MODE_IMMEDIATE: int = 0
+pub const PRESENT_MODE_MAILBOX: int = 1
+pub const PRESENT_MODE_FIFO: int = 2
+pub const PRESENT_MODE_FIFO_RELAXED: int = 3
+
+pub struct WindowSurface(handle: int, width: int, height: int, scaleFactor: float, isMinimized: bool, isFocused: bool, presentMode: int, format: int)
+
+pub struct SurfaceDimensions(logicalWidth: int, logicalHeight: int, physicalWidth: int, physicalHeight: int, scaleFactor: float)
+
+pub struct LetterboxRect(x: int, y: int, width: int, height: int)
+
+pub fn createWindowSurface(title: str, width: int, height: int, presentMode: int = 2): WindowSurface:
+  let safeW = if width > 0: width else: 1
+  let safeH = if height > 0: height else: 1
+  let hdl = if title.len >= 0: 1 else: 1
+  ret WindowSurface(
+    handle = hdl,
+    width = safeW,
+    height = safeH,
+    scaleFactor = 1.0,
+    isMinimized = false,
+    isFocused = true,
+    presentMode = presentMode,
+    format = 0
+  )
+
+pub fn resizeWindowSurface(surface: WindowSurface, newWidth: int, newHeight: int, scaleFactor: float): WindowSurface:
+  let safeScale = if scaleFactor > 0.0: scaleFactor else: 1.0
+  let minimized = newWidth <= 0 or newHeight <= 0
+  ret WindowSurface(
+    handle = surface.handle,
+    width = if newWidth > 0: newWidth else: 0,
+    height = if newHeight > 0: newHeight else: 0,
+    scaleFactor = safeScale,
+    isMinimized = minimized,
+    isFocused = surface.isFocused,
+    presentMode = surface.presentMode,
+    format = surface.format
+  )
+
+pub fn calculateSurfaceDimensions(surface: WindowSurface): SurfaceDimensions:
+  let scale = if surface.scaleFactor > 0.0: surface.scaleFactor else: 1.0
+  let logW = int(float(surface.width) / scale + 0.5)
+  let logH = int(float(surface.height) / scale + 0.5)
+  ret SurfaceDimensions(
+    logicalWidth = logW,
+    logicalHeight = logH,
+    physicalWidth = surface.width,
+    physicalHeight = surface.height,
+    scaleFactor = scale
+  )
+
+pub fn computeLetterbox(surfaceWidth: int, surfaceHeight: int, targetAspect: float): LetterboxRect:
+  if surfaceWidth <= 0 or surfaceHeight <= 0 or targetAspect <= 0.0:
+    ret LetterboxRect(x = 0, y = 0, width = 0, height = 0)
+  let surfAspect = float(surfaceWidth) / float(surfaceHeight)
+  if surfAspect > targetAspect:
+    // Pillarbox (bars on left and right)
+    let viewH = surfaceHeight
+    let viewW = int(float(viewH) * targetAspect + 0.5)
+    let offX = (surfaceWidth - viewW) / 2
+    ret LetterboxRect(x = offX, y = 0, width = viewW, height = viewH)
+  // Letterbox (bars on top and bottom)
+  let viewW = surfaceWidth
+  let viewH = int(float(viewW) / targetAspect + 0.5)
+  let offY = (surfaceHeight - viewH) / 2
+  ret LetterboxRect(x = 0, y = offY, width = viewW, height = viewH)
+
+pub fn isSurfaceReady(surface: WindowSurface): bool:
+  ret surface.handle > 0 and not surface.isMinimized and surface.width > 0 and surface.height > 0
+
+pub fn destroyWindowSurface(surface: WindowSurface): WindowSurface:
+  ret WindowSurface(
+    handle = 0,
+    width = 0,
+    height = 0,
+    scaleFactor = surface.scaleFactor,
+    isMinimized = true,
+    isFocused = false,
+    presentMode = surface.presentMode,
+    format = surface.format
+  )

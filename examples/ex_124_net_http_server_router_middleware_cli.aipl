@@ -1,0 +1,50 @@
+// ============================================================================
+// Canonical Example 124: HTTP Server Router, Path Params & SSE Formatter (CLI)
+// Target Profile: CLI | Standard Library Module: std/net
+// ============================================================================
+module Ex124NetHttpServerRouterMiddlewareCli
+
+import {
+  ServerSentEvent,
+  createHttpRouter,
+  routerAddRoute,
+  routerMatch,
+  formatSseMessage,
+  renderHttpResponse
+} from "../std/net/net_mod.aipl"
+import { clampInt, maxInt } from "../std/std_root.aipl"
+
+pub fn verifyHttpRouterPathMatchAndSse(): int:
+  mut router = createHttpRouter()
+  router = routerAddRoute(router, 1, "/api/v1/users/:id", 102)
+  let ctx = routerMatch(router, 1, "/api/v1/users/9942?role=admin").unwrap()
+  assert(ctx.pathParams.get("id").unwrap() == "9942", "path param :id == 9942")
+  assert(ctx.queryParams.get("role").unwrap() == "admin", "query param role == admin")
+
+  let sse = formatSseMessage(ServerSentEvent(event = "tick", data = "ok", id = "1", retryMs = 1000))
+  assert(sse.contains("event: tick"), "SSE event line")
+  let wireResp = renderHttpResponse(ctx, [79, 75])
+  assert(wireResp.len() > 15, "HTTP/1.1 response serialized")
+  ret ctx.handlerId
+
+pub fn computeMiddlewareChainOverheadUs(layerCount: int, perLayerUs: int): int:
+  let l = clampInt(layerCount, 0, 64)
+  let u = maxInt(0, perLayerUs)
+  ret l * u
+
+pub fn describeHttpRouteDispatch(methodId: int, handlerId: int): str:
+  let m = clampInt(methodId, 1, 5)
+  if m == 1:
+    ret "ROUTER:GET_HANDLER_" + str(handlerId)
+  if m == 2:
+    ret "ROUTER:POST_HANDLER_" + str(handlerId)
+  ret "ROUTER:METHOD_" + str(m) + "_HANDLER_" + str(handlerId)
+
+pub fn main(): int:
+  let hId = verifyHttpRouterPathMatchAndSse()
+  let overheadUs = computeMiddlewareChainOverheadUs(4, 15)
+  let tag = describeHttpRouteDispatch(1, hId)
+  assert(hId == 102, "handlerId 102")
+  assert(overheadUs == 60, "60us middleware overhead")
+  println(tag + " | overheadUs=" + str(overheadUs))
+  ret 0

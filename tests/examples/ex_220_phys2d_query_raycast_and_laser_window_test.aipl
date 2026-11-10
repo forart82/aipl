@@ -1,0 +1,44 @@
+module Ex220Phys2dQueryRaycastAndLaserWindowTest
+
+import {
+  buildPhys2dQueryRaycastAudit, stepLaserScanY, stepTargetBoxAngle
+} from "../../examples/ex_220_phys2d_query_raycast_and_laser_window"
+import { Vec2 } from "../../std/math/vec_math"
+import { Ray2D } from "../../std/math/geom2d"
+import { PhysicsMaterial2D, circleColliderNew } from "../../std/phys2d/collider2d"
+import {
+  RayHit2D, raycast2dSegment, raycast2dCircle,
+  raycast2dBox, shapeCastCircle2D
+} from "../../std/phys2d/phys_query2d"
+
+pub fn test_phys2d_query_raycast_and_laser(): void:
+  let ray = Ray2D(origin = Vec2(x = -20.0, y = 0.0), dir = Vec2(x = 1.0, y = 0.0), direction = Vec2(x = 1.0, y = 0.0), maxDistance = 100.0)
+  let hSeg = raycast2dSegment(ray, Vec2(x = 0.0, y = -10.0), Vec2(x = 0.0, y = 10.0))
+  assert(hSeg.isSome(), "raycast2dSegment hits vertical segment at x=0")
+
+  let hCir = raycast2dCircle(ray, Vec2(x = 0.0, y = 0.0), 10.0)
+  let hc: RayHit2D = hCir.unwrap()
+  assert(hc.point.x == -10.0, "raycast2dCircle hits circle surface at x=-10.0")
+
+  let hBox = raycast2dBox(ray, Vec2(x = 0.0, y = 0.0), Vec2(x = 5.0, y = 5.0), 0.0)
+  assert(hBox.isSome(), "raycast2dBox hits box")
+
+  let mat = PhysicsMaterial2D(restitution = 0.2, friction = 0.3, density = 1.0)
+  let colC = circleColliderNew(5.0, mat)
+  let hSweep = shapeCastCircle2D(Vec2(x = -20.0, y = 0.0), 2.0, Vec2(x = 40.0, y = 0.0), [colC])
+  assert(hSweep.isSome(), "shapeCastCircle2D detects swept circle collision")
+  assert(buildPhys2dQueryRaycastAudit() == 13, "buildPhys2dQueryRaycastAudit returns 10 + 1 + 1 + 1 == 13")
+
+  // Multi-frame progression across early and late frames (t=0 -> t=1 -> t=20 -> t=100)
+  let y0 = stepLaserScanY(0)
+  let y1 = stepLaserScanY(1)
+  let y20 = stepLaserScanY(20)
+  let y100 = stepLaserScanY(100)
+  assert(y0 != y1 and y1 != y20 and y20 != y100, "laser scan Y progresses across t=0,1,20,100")
+  assert(stepLaserScanY(5) != stepLaserScanY(45) and stepLaserScanY(45) != stepLaserScanY(105), "snapshot frames 5, 45, 105 have distinct laser Y")
+  assert(stepTargetBoxAngle(5) != stepTargetBoxAngle(45) and stepTargetBoxAngle(45) != stepTargetBoxAngle(105), "rotated box angle advances across frames 5, 45, 105")
+
+pub fn main(): int:
+  test_phys2d_query_raycast_and_laser()
+  println("PASS: ex_220_phys2d_query_raycast_and_laser_window_test")
+  ret 0

@@ -1,0 +1,69 @@
+// ============================================================================
+// Step 3.7: Exhaustive Per-Function Unit Tests for std/sys/sys_net.aipl (12)
+// Target: tests/functions/sys/sys_net_test.aipl
+// ============================================================================
+module SysNetTest
+
+import {
+  assert,
+  assertEqInt
+} from "../../../std/prelude.aipl"
+
+import {
+  SYS_AF_INET,
+  SYS_SOCK_STREAM,
+  SYS_SOCK_DGRAM,
+  SYS_IPPROTO_TCP,
+  SYS_IPPROTO_UDP,
+  SysSocketHandle,
+  sysNetSocket,
+  sysNetBind,
+  sysNetListen,
+  sysNetAccept,
+  sysNetConnect,
+  sysNetSend,
+  sysNetRecv,
+  sysNetSendTo,
+  sysNetRecvFrom,
+  sysNetClose,
+  sysNetSetNonBlocking,
+  sysNetPoll
+} from "../../../std/sys/sys_net.aipl"
+
+pub fn test_sys_net_socket_lifecycle(): int:
+  assertEqInt(SYS_AF_INET, 2, "AF_INET == 2")
+  assertEqInt(SYS_SOCK_STREAM, 1, "SOCK_STREAM == 1")
+  assertEqInt(SYS_SOCK_DGRAM, 2, "SOCK_DGRAM == 2")
+
+  // Create a TCP stream socket
+  let sock = sysNetSocket(SYS_AF_INET, SYS_SOCK_STREAM, SYS_IPPROTO_TCP)
+  assert(sock >= 0, "socket descriptor >= 0")
+
+  // Test set non-blocking
+  let nbRes = sysNetSetNonBlocking(sock, true)
+  assert(nbRes >= 0, "set non-blocking returns >= 0")
+  assertEqInt(sysNetSetNonBlocking(-1, true), -1, "invalid fd returns -1")
+
+  // Test poll with 0 fds and 0 timeout
+  let pollRes = sysNetPoll(1000, 0, 0)
+  assert(pollRes >= 0, "poll 0 fds returns >= 0")
+  assertEqInt(sysNetPoll(0, 1, 0), -1, "null pollFdsPtr returns -1")
+
+  // Test invalid fd error handling for network operations
+  assert(sysNetBind(-1, 0, 0) < 0, "bind invalid fd returns < 0")
+  assert(sysNetListen(-1, 5) < 0, "listen invalid fd returns < 0")
+  assert(sysNetAccept(-1, 0, 0) < 0, "accept invalid fd returns < 0")
+  assert(sysNetConnect(-1, 0, 0) < 0, "connect invalid fd returns < 0")
+  assert(sysNetSend(-1, 0, 0, 0) < 0, "send invalid fd returns < 0")
+  assert(sysNetRecv(-1, 0, 0, 0) < 0, "recv invalid fd returns < 0")
+  assert(sysNetSendTo(-1, 0, 0, 0, 0, 0) < 0, "sendto invalid fd returns < 0")
+  assert(sysNetRecvFrom(-1, 0, 0, 0, 0, 0) < 0, "recvfrom invalid fd returns < 0")
+
+  // Close socket
+  assertEqInt(sysNetClose(sock), 0, "close socket returns 0")
+  ret 0
+
+pub fn main(): int:
+  test_sys_net_socket_lifecycle()
+  println("PASS: sys_net_test")
+  ret 0

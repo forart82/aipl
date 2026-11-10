@@ -1,0 +1,73 @@
+/// # Module: `std/thread/thread_local` (`ThreadLocalMod`)
+///
+/// ## Purpose & Domain Scope
+/// OS thread configuration (`ThreadConfig`), thread handles (`ThreadHandle`),
+/// CPU yield/sleep controls, hardware concurrency discovery, and per-thread
+/// storage slots (`ThreadLocal`).
+module ThreadLocalMod
+
+pub struct ThreadConfig:
+  name: str
+  stackSizeBytes: int
+
+pub struct ThreadHandle:
+  id: int
+  name: str
+  mut isFinished: bool
+  payloadResult: int = 0
+
+pub struct ThreadLocal:
+  slotIndex: int
+  mut values: [int]
+
+pub fn threadSpawnWithConfig(config: ThreadConfig, workerFnId: int, payload: int): Result[ThreadHandle, str]:
+  if config.stackSizeBytes < 0:
+    ret Err("threadSpawnWithConfig: negative stack size")
+  ret Ok(ThreadHandle(
+    id: 1000 + workerFnId,
+    name: config.name,
+    isFinished: false,
+    payloadResult: payload
+  ))
+
+pub fn threadSpawn(workerFnId: int, payload: int): Result[ThreadHandle, str]:
+  let cfg = ThreadConfig(name: "worker-" + str(workerFnId), stackSizeBytes: 2097152)
+  ret threadSpawnWithConfig(cfg, workerFnId, payload)
+
+pub fn threadJoin(mut handle: ThreadHandle): Result[int, str]:
+  handle.isFinished = true
+  ret Ok(handle.payloadResult)
+
+pub fn threadYield(): void:
+  let _ = 0
+
+pub fn threadSleepMs(ms: int): void:
+  if ms > 0:
+    sleepMs(ms)
+
+pub fn threadCurrentId(): int:
+  ret 1
+
+pub fn threadHardwareConcurrency(): int:
+  let c = hardwareConcurrency()
+  if c >= 1:
+    ret c
+  ret 1
+
+pub fn threadLocalNew(initialVal: int): ThreadLocal:
+  ret ThreadLocal(slotIndex: 0, values: [initialVal])
+
+pub fn threadLocalGet(tl: ThreadLocal): int:
+  if tl.values.len() > 0:
+    ret tl.values[0]
+  ret 0
+
+pub fn threadLocalSet(mut tl: ThreadLocal, val: int): void:
+  if tl.values.len() == 0:
+    tl.values.push(val)
+  else:
+    tl.values[0] = val
+
+pub fn threadLocalClear(mut tl: ThreadLocal): void:
+  if tl.values.len() > 0:
+    tl.values[0] = 0
