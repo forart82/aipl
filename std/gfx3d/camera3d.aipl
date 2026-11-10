@@ -27,7 +27,7 @@ pub fn createPerspectiveCamera3D(pos: Vec3, target: Vec3, fovDeg: float, aspect:
     fovYRad = fovDeg * DEG2RAD,
     aspect = if aspect > 0.0001: aspect else: 1.0,
     nearZ = if nearZ > 0.0001: nearZ else: 0.1,
-    farZ = if farZ > nearZ: farZ else: nearZ + 100.0,
+    farZ = if farZ > (if nearZ > 0.0001: nearZ else: 0.1): farZ else: (if nearZ > 0.0001: nearZ else: 0.1) + 100.0,
     isOrthographic = false,
     orthoWidth = 0.0,
     orthoHeight = 0.0
@@ -56,7 +56,8 @@ pub fn computeViewMatrix(cam: Camera3D): Mat4:
   let fwd: Vec3 = if fwdLen > EPSILON: vec3Normalize(fwdRaw) else: Vec3(x = 0.0, y = 0.0, z = -1.0)
   let rightRaw: Vec3 = vec3Cross(fwd, cam.up)
   let rightLen = vec3Length(rightRaw)
-  let right: Vec3 = if rightLen > EPSILON: vec3Normalize(rightRaw) else: Vec3(x = 1.0, y = 0.0, z = 0.0)
+  let fallbackUp = if absFloat(fwd.x) > 0.99: Vec3(x = 0.0, y = 1.0, z = 0.0) else: Vec3(x = 1.0, y = 0.0, z = 0.0)
+  let right: Vec3 = if rightLen > EPSILON: vec3Normalize(rightRaw) else: vec3Normalize(vec3Cross(fwd, fallbackUp))
   let upVec: Vec3 = vec3Normalize(vec3Cross(right, fwd))
 
   let tx = -vec3Dot(right, cam.position)
@@ -84,7 +85,7 @@ pub fn computeProjectionMatrix(cam: Camera3D): Mat4:
       m20 = 0.0,     m21 = 0.0,     m22 = 1.0 / dz,       m23 = 0.0,
       m30 = 0.0,     m31 = 0.0,     m32 = -nearZ / dz,    m33 = 1.0
     )
-  let halfFov = if cam.fovYRad > 0.001: cam.fovYRad * 0.5 else: 0.5
+  let halfFov = clampFloat(if cam.fovYRad > 0.001: cam.fovYRad * 0.5 else: 0.5, 0.001, 1.56)
   let f = 1.0 / tan(halfFov)
   let aspect = if cam.aspect > 0.0001: cam.aspect else: 1.0
   let q = farZ / (farZ - nearZ)
@@ -221,10 +222,27 @@ pub fn mat4FromTRS(translation: Vec3, rotation: Quat, scaleVec: Vec3): Mat4:
   ret tMat.mul(rMat.mul(sMat))
 
 pub fn mat3NormalFromMat4(m: Mat4): Mat3:
+  let c00 = m.m11 * m.m22 - m.m12 * m.m21
+  let c01 = -(m.m10 * m.m22 - m.m12 * m.m20)
+  let c02 = m.m10 * m.m21 - m.m11 * m.m20
+  let det = m.m00 * c00 + m.m01 * c01 + m.m02 * c02
+  if absFloat(det) <= EPSILON:
+    ret Mat3(
+      m00 = m.m00, m01 = m.m01, m02 = m.m02,
+      m10 = m.m10, m11 = m.m11, m12 = m.m12,
+      m20 = m.m20, m21 = m.m21, m22 = m.m22
+    )
+  let invDet = 1.0 / det
+  let c10 = -(m.m01 * m.m22 - m.m02 * m.m21)
+  let c11 = m.m00 * m.m22 - m.m02 * m.m20
+  let c12 = -(m.m00 * m.m21 - m.m01 * m.m20)
+  let c20 = m.m01 * m.m12 - m.m02 * m.m11
+  let c21 = -(m.m00 * m.m12 - m.m02 * m.m10)
+  let c22 = m.m00 * m.m11 - m.m01 * m.m10
   ret Mat3(
-    m00 = m.m00, m01 = m.m01, m02 = m.m02,
-    m10 = m.m10, m11 = m.m11, m12 = m.m12,
-    m20 = m.m20, m21 = m.m21, m22 = m.m22
+    m00 = c00 * invDet, m01 = c01 * invDet, m02 = c02 * invDet,
+    m10 = c10 * invDet, m11 = c11 * invDet, m12 = c12 * invDet,
+    m20 = c20 * invDet, m21 = c21 * invDet, m22 = c22 * invDet
   )
 
 pub fn mat4TransformVec3(m: Mat4, v: Vec3): Vec3:

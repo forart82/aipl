@@ -22,10 +22,10 @@ pub fn createCamera2D(viewportW: float = 800.0, viewportH: float = 600.0, zoom: 
     viewportWidth = vw,
     viewportHeight = vh,
     trauma = 0.0,
-    x = viewportW,
-    y = viewportH,
-    targetX = viewportW,
-    targetY = viewportH,
+    x = 0.0,
+    y = 0.0,
+    targetX = 0.0,
+    targetY = 0.0,
     rotation = 0.0,
     shakeOffsetX = 0.0,
     shakeOffsetY = 0.0,
@@ -631,15 +631,16 @@ pub fn fixedAccumulatorNew(fixedDt: float, maxFrameDt: float): FixedStepAccumula
 /// Advances the fixed-timestep accumulator by `rawDeltaSec` (clamped to `maxFrameDt` to prevent
 /// spiral of death) and computes `stepsToRun` and render interpolation `alpha` in `[0.0, 1.0)`.
 pub fn fixedAccumulatorAdvance(acc: FixedStepAccumulator, rawDeltaSec: float): FixedStepAccumulator:
+  let fdt = if acc.fixedDt > 0.00001: acc.fixedDt else: 0.01666667
   let clampedDt = clampFloat(rawDeltaSec, 0.0, acc.maxFrameDt)
   mut rem = acc.accumulator + clampedDt
   mut steps = 0
-  while rem >= acc.fixedDt and steps < 32:
-    rem = rem - acc.fixedDt
+  while rem >= fdt and steps < 32:
+    rem = rem - fdt
     steps = steps + 1
-  let interp = clampFloat(rem / acc.fixedDt, 0.0, 1.0)
+  let interp = clampFloat(rem / fdt, 0.0, 1.0)
   ret FixedStepAccumulator(
-    fixedDt = acc.fixedDt,
+    fixedDt = fdt,
     maxFrameDt = acc.maxFrameDt,
     accumulator = rem,
     stepsToRun = steps,

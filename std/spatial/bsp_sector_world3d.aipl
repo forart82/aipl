@@ -25,6 +25,7 @@ pub fn bspAddSector(mut world: BspSectorWorld3D, sector: BspSector): int:
 
 pub fn bspAddPortal(mut world: BspSectorWorld3D, fromSector: int, toSector: int, portal: BspPortal): bool:
   mut secs = world.sectors
+  let bit = if toSector >= 0 and toSector < 62: (1 << toSector) else: 0
   mut i = 0
   while i < secs.len:
     let sec: BspSector = secs[i]
@@ -42,7 +43,7 @@ pub fn bspAddPortal(mut world: BspSectorWorld3D, fromSector: int, toSector: int,
         floorHeight = sec.floorHeight,
         ceilingHeight = sec.ceilingHeight,
         portals = pts,
-        pvsMask = sec.pvsMask | (1 << toSector)
+        pvsMask = sec.pvsMask | bit
       )
       world.sectors = secs
       ret true
@@ -94,7 +95,8 @@ pub fn bspQueryVisibleSectors(world: BspSectorWorld3D, currentSectorId: int, cam
       mut p = 0
       while p < curSec.portals.len:
         let portal: BspPortal = curSec.portals[p]
-        if portal.isOpen and ((curSec.pvsMask & (1 << portal.targetSectorId)) != 0):
+        let tBit = if portal.targetSectorId >= 0 and portal.targetSectorId < 62: (1 << portal.targetSectorId) else: 0
+        if portal.isOpen and ((curSec.pvsMask & tBit) != 0):
           mut anyVertInFrustum = portal.polygonVertices.len == 0
           mut v = 0
           while v < portal.polygonVertices.len:

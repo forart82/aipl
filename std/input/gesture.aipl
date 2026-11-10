@@ -55,7 +55,7 @@ pub fn touchMoveVirtualJoystick(joystick: VirtualJoystick, pointerId: int, touch
   let dx = touchX - joystick.centerOriginX
   let dy = touchY - joystick.centerOriginY
   let dist = sqrt(dx * dx + dy * dy)
-  let r = joystick.radiusPixels
+  let r = if joystick.radiusPixels > 0.0001: joystick.radiusPixels else: 100.0
   let clampedDist = if dist > r: r else: dist
   let dirX = if dist > 0.00001: dx / dist else: 0.0
   let dirY = if dist > 0.00001: dy / dist else: 0.0
@@ -63,13 +63,12 @@ pub fn touchMoveVirtualJoystick(joystick: VirtualJoystick, pointerId: int, touch
   let handleY = joystick.centerOriginY + dirY * clampedDist
 
   let normDist = clampedDist / r
-  let dz = joystick.deadzoneFraction
+  let dz = if joystick.deadzoneFraction >= 0.0 and joystick.deadzoneFraction < 0.95: joystick.deadzoneFraction else: 0.15
   mut outMag = 0.0
   if normDist > dz:
     outMag = (normDist - dz) / (1.0 - dz)
     if outMag > 1.0:
       outMag = 1.0
-
   ret VirtualJoystick(
     centerOriginX = joystick.centerOriginX,
     centerOriginY = joystick.centerOriginY,

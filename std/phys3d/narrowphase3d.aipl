@@ -51,7 +51,7 @@ pub fn testSphereBox3D(spherePos: Vec3, radius: float, boxPos: Vec3, boxRot: Qua
   let cx = clampFloat(localP.x, -boxHalfExtents.x, boxHalfExtents.x)
   let cy = clampFloat(localP.y, -boxHalfExtents.y, boxHalfExtents.y)
   let cz = clampFloat(localP.z, -boxHalfExtents.z, boxHalfExtents.z)
-  let closestLocal = Vec3(x = cx, y = cy, z = cz)
+  mut closestLocal = Vec3(x = cx, y = cy, z = cz)
 
   let delta: Vec3 = localP.sub(closestLocal)
   let distSq = delta.lenSq()
@@ -59,13 +59,35 @@ pub fn testSphereBox3D(spherePos: Vec3, radius: float, boxPos: Vec3, boxRot: Qua
     ret None
 
   let dist = sqrt(distSq)
-  let localN: Vec3 = if dist > 0.000001: delta.scale(1.0 / dist) else: Vec3(x = 0.0, y = 1.0, z = 0.0)
+  mut localN = Vec3(x = 0.0, y = 1.0, z = 0.0)
+  mut pen = radius - dist
+  if dist > 0.000001:
+    localN = delta.scale(1.0 / dist)
+  else:
+    let dx = boxHalfExtents.x - absFloat(localP.x)
+    let dy = boxHalfExtents.y - absFloat(localP.y)
+    let dz = boxHalfExtents.z - absFloat(localP.z)
+    if dx <= dy and dx <= dz:
+      let sx = if localP.x >= 0.0: 1.0 else: -1.0
+      localN = Vec3(x = sx, y = 0.0, z = 0.0)
+      closestLocal = Vec3(x = sx * boxHalfExtents.x, y = localP.y, z = localP.z)
+      pen = radius + dx
+    elif dy <= dz:
+      let sy = if localP.y >= 0.0: 1.0 else: -1.0
+      localN = Vec3(x = 0.0, y = sy, z = 0.0)
+      closestLocal = Vec3(x = localP.x, y = sy * boxHalfExtents.y, z = localP.z)
+      pen = radius + dy
+    else:
+      let sz = if localP.z >= 0.0: 1.0 else: -1.0
+      localN = Vec3(x = 0.0, y = 0.0, z = sz)
+      closestLocal = Vec3(x = localP.x, y = localP.y, z = sz * boxHalfExtents.z)
+      pen = radius + dz
   let worldN: Vec3 = boxRot.rotateVec3(localN)
   let worldClosest: Vec3 = boxPos.add(boxRot.rotateVec3(closestLocal))
   let cp = ContactPoint3D(
     position = worldClosest,
     normal = worldN,
-    penetration = radius - dist,
+    penetration = pen,
     normalImpulse = 0.0,
     tangentImpulse1 = 0.0,
     tangentImpulse2 = 0.0
@@ -90,14 +112,15 @@ pub fn testGjkEpa3D(colliderA: Collider3D, transformA: Transform3D, colliderB: C
   if ox <= 0.0 or oy <= 0.0 or oz <= 0.0:
     ret None
 
+  let rel: Vec3 = transformB.position.sub(transformA.position)
   mut pen = ox
-  mut n = Vec3(x = 1.0, y = 0.0, z = 0.0)
+  mut n = Vec3(x = if rel.x >= 0.0: 1.0 else: -1.0, y = 0.0, z = 0.0)
   if oy < pen:
     pen = oy
-    n = Vec3(x = 0.0, y = 1.0, z = 0.0)
+    n = Vec3(x = 0.0, y = if rel.y >= 0.0: 1.0 else: -1.0, z = 0.0)
   if oz < pen:
     pen = oz
-    n = Vec3(x = 0.0, y = 0.0, z = 1.0)
+    n = Vec3(x = 0.0, y = 0.0, z = if rel.z >= 0.0: 1.0 else: -1.0)
 
   let mid: Vec3 = transformA.position.add(transformB.position).scale(0.5)
   let cp = ContactPoint3D(

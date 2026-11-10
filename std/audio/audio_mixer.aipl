@@ -194,12 +194,20 @@ pub fn mixAudioBlock(mixer: AudioMixer, mut outBuffer: [float], framesToRender: 
     let v = mixer.voices[i]
     if v.isPlaying:
       mut busGain = 1.0
-      mut bi = 0
-      while bi < mixer.buses.len:
-        let b = mixer.buses[bi]
-        if b.id == v.busId:
-          busGain = if b.mute: 0.0 else: (b.volume * b.duckingFactor)
-        bi += 1
+      mut curBusId = v.busId
+      mut hops = 0
+      while curBusId >= 0 and hops < 8:
+        mut foundParent = -1
+        mut bi = 0
+        while bi < mixer.buses.len:
+          let b = mixer.buses[bi]
+          if b.id == curBusId:
+            busGain = busGain * (if b.mute: 0.0 else: (b.volume * b.duckingFactor))
+            if b.parentBusId != curBusId:
+              foundParent = b.parentBusId
+          bi += 1
+        curBusId = foundParent
+        hops += 1
       activeMixGain = activeMixGain + v.volume * busGain * mixer.masterVolume
       let adv = int(float(framesToRender) * v.pitch)
       let nextPos = v.playbackPositionSamples + adv

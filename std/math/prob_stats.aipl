@@ -50,7 +50,8 @@ pub fn sampleWeightedIndex(weights: [int], roll: int): int:
     i += 1
   if total <= 0:
     ret 0
-  let target = if roll >= 0: (roll % total) else: ((-roll) % total)
+  let rem = roll % total
+  let target = if rem < 0: rem + total else: rem
   mut accum = 0
   mut j = 0
   while j < weights.len:
@@ -138,7 +139,8 @@ pub fn kalman1DNew(initialEstimate: float, initialError: float, processNoise: fl
 
 pub fn kalman1DUpdate(kf: KalmanFilter1D, measurement: float): KalmanFilter1D:
   let predErr = kf.errorCov + kf.processNoise
-  let gain = predErr / (predErr + kf.measurementNoise)
+  let denom = predErr + kf.measurementNoise
+  let gain = if denom > 0.0: predErr / denom else: 0.0
   let nextEst = kf.estimate + gain * (measurement - kf.estimate)
   let nextErr = (1.0 - gain) * predErr
   ret KalmanFilter1D(

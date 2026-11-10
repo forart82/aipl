@@ -4,8 +4,7 @@
 /// Self-hosted runtime dynamic array growth kernel and geometric reallocation engine.
 module RtArray
 
-import { ptrAlloc, ptrFree, ptrReadI64, ptrWriteI64, ptrCopy, ptrMemcpy } from "std/rt/rt_ptr"
-
+import { ptrAlloc, ptrFree, ptrReadU8, ptrWriteU8, ptrReadU16LE, ptrWriteU16LE, ptrReadU32LE, ptrWriteU32LE, ptrReadI64, ptrWriteI64, ptrCopy, ptrMemcpy } from "std/rt/rt_ptr"
 pub struct RtArrayHeader:
   dataPtr: int
   length: int
@@ -65,7 +64,15 @@ pub fn rtArrayPush(mut arr: RtArray, val: int): int:
     rtArrayReserve(arr, arr.len + 1)
   let idx = arr.len
   if arr.data != 0 and arr.len < arr.cap:
-    ptrWriteI64(arr.data, arr.len * 8, val)
+    let es = if arr.elementSize > 0: arr.elementSize else: 8
+    if es == 1:
+      ptrWriteU8(arr.data, idx, val & 255)
+    elif es == 2:
+      ptrWriteU16LE(arr.data, idx * 2, val)
+    elif es == 4:
+      ptrWriteU32LE(arr.data, idx * 4, val)
+    else:
+      ptrWriteI64(arr.data, idx * es, val)
     arr.len += 1
     arr.length = arr.len
   ret idx
@@ -73,12 +80,27 @@ pub fn rtArrayPush(mut arr: RtArray, val: int): int:
 pub fn rtArrayGet(arr: RtArray, index: int): int:
   if index < 0 or index >= arr.len or arr.data == 0:
     ret 0
-  ret ptrReadI64(arr.data, index * 8)
+  let es = if arr.elementSize > 0: arr.elementSize else: 8
+  if es == 1:
+    ret ptrReadU8(arr.data, index)
+  if es == 2:
+    ret ptrReadU16LE(arr.data, index * 2)
+  if es == 4:
+    ret ptrReadU32LE(arr.data, index * 4)
+  ret ptrReadI64(arr.data, index * es)
 
 pub fn rtArraySet(mut arr: RtArray, index: int, val: int): bool:
   if index < 0 or index >= arr.len or arr.data == 0:
     ret false
-  ptrWriteI64(arr.data, index * 8, val)
+  let es = if arr.elementSize > 0: arr.elementSize else: 8
+  if es == 1:
+    ptrWriteU8(arr.data, index, val & 255)
+  elif es == 2:
+    ptrWriteU16LE(arr.data, index * 2, val)
+  elif es == 4:
+    ptrWriteU32LE(arr.data, index * 4, val)
+  else:
+    ptrWriteI64(arr.data, index * es, val)
   ret true
 
 pub fn rtArrayPop(mut arr: RtArray): int:
@@ -86,7 +108,14 @@ pub fn rtArrayPop(mut arr: RtArray): int:
     ret 0
   arr.len -= 1
   arr.length = arr.len
-  ret ptrReadI64(arr.data, arr.len * 8)
+  let es = if arr.elementSize > 0: arr.elementSize else: 8
+  if es == 1:
+    ret ptrReadU8(arr.data, arr.len)
+  if es == 2:
+    ret ptrReadU16LE(arr.data, arr.len * 2)
+  if es == 4:
+    ret ptrReadU32LE(arr.data, arr.len * 4)
+  ret ptrReadI64(arr.data, arr.len * es)
 
 pub fn rtArrayLen(arr: RtArray): int:
   ret arr.len

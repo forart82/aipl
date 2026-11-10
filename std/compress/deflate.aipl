@@ -161,11 +161,22 @@ pub fn deflateCompress(data: bytes, opts: DeflateOptions): bytes:
   while ti < tokens.len:
     let tok = tokens[ti]
     if tok.isMatch:
-      // Marker 255 + length (u8) + distance (u16 LE)
-      out.push(255)
-      out.push((tok.literalOrLength - 3) & 255)
-      out.push(tok.distance & 255)
-      out.push((tok.distance >> 8) & 255)
+      // Marker 255 + lengthCode (0..252 -> len 3..255; split 256..258 into 250 + 6..8 so 255 literal escape is never collided)
+      if tok.literalOrLength > 255:
+        out.push(255)
+        out.push(247)
+        out.push(tok.distance & 255)
+        out.push((tok.distance >> 8) & 255)
+        let remLen = tok.literalOrLength - 250
+        out.push(255)
+        out.push((remLen - 3) & 255)
+        out.push(tok.distance & 255)
+        out.push((tok.distance >> 8) & 255)
+      else:
+        out.push(255)
+        out.push((tok.literalOrLength - 3) & 255)
+        out.push(tok.distance & 255)
+        out.push((tok.distance >> 8) & 255)
     else:
       let b = tok.literalOrLength & 255
       if b == 255:

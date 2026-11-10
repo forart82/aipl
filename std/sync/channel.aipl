@@ -45,10 +45,13 @@ pub fn mpscChannelNew(capacity: int): MpscChannel:
 pub fn mpscTrySend(mut ch: MpscChannel, val: int): Result[bool, ChannelError]:
   if ch.closed:
     ret Err(ChannelError(kind: 3, message: "mpscTrySend: channel is closed"))
-  if ch.count >= ch.capacity:
+  if ch.capacity <= 0 or ch.count >= ch.capacity:
     ret Err(ChannelError(kind: 1, message: "mpscTrySend: channel is full"))
-  ch.buffer[ch.tail] = val
-  ch.tail = (ch.tail + 1) % ch.capacity
+  while ch.buffer.len() < ch.capacity:
+    ch.buffer.push(0)
+  let slot = if ch.tail >= 0: ch.tail % ch.capacity else: 0
+  ch.buffer[slot] = val
+  ch.tail = (slot + 1) % ch.capacity
   ch.count = ch.count + 1
   ret Ok(true)
 
@@ -56,12 +59,13 @@ pub fn mpscSend(mut ch: MpscChannel, val: int): Result[bool, ChannelError]:
   ret mpscTrySend(ch, val)
 
 pub fn mpscTryRecv(mut ch: MpscChannel): Result[int, ChannelError]:
-  if ch.count == 0:
+  if ch.count <= 0 or ch.capacity <= 0:
     if ch.closed:
       ret Err(ChannelError(kind: 3, message: "mpscTryRecv: channel is closed and empty"))
     ret Err(ChannelError(kind: 2, message: "mpscTryRecv: channel is empty"))
-  let v = ch.buffer[ch.head]
-  ch.head = (ch.head + 1) % ch.capacity
+  let slot = if ch.head >= 0: ch.head % ch.capacity else: 0
+  let v = if slot < ch.buffer.len(): ch.buffer[slot] else: 0
+  ch.head = (slot + 1) % ch.capacity
   ch.count = ch.count - 1
   ret Ok(v)
 
@@ -97,9 +101,11 @@ pub fn spscChannelNew(capacity: int): SpscRingChannel:
 pub fn spscTrySend(mut ch: SpscRingChannel, val: int): Result[bool, ChannelError]:
   if ch.closed:
     ret Err(ChannelError(kind: 3, message: "spscTrySend: channel is closed"))
-  if (ch.writePos - ch.readPos) >= ch.capacity:
+  if ch.capacity <= 0 or (ch.writePos - ch.readPos) >= ch.capacity:
     ret Err(ChannelError(kind: 1, message: "spscTrySend: ring buffer is full"))
-  let slot = ch.writePos % ch.capacity
+  while ch.buffer.len() < ch.capacity:
+    ch.buffer.push(0)
+  let slot = (if ch.writePos >= 0: ch.writePos else: 0) % ch.capacity
   ch.buffer[slot] = val
   ch.writePos = ch.writePos + 1
   ret Ok(true)
@@ -108,15 +114,14 @@ pub fn spscSend(mut ch: SpscRingChannel, val: int): Result[bool, ChannelError]:
   ret spscTrySend(ch, val)
 
 pub fn spscTryRecv(mut ch: SpscRingChannel): Result[int, ChannelError]:
-  if ch.readPos >= ch.writePos:
+  if ch.readPos >= ch.writePos or ch.capacity <= 0:
     if ch.closed:
       ret Err(ChannelError(kind: 3, message: "spscTryRecv: channel is closed and empty"))
     ret Err(ChannelError(kind: 2, message: "spscTryRecv: ring buffer is empty"))
-  let slot = ch.readPos % ch.capacity
-  let v = ch.buffer[slot]
+  let slot = (if ch.readPos >= 0: ch.readPos else: 0) % ch.capacity
+  let v = if slot < ch.buffer.len(): ch.buffer[slot] else: 0
   ch.readPos = ch.readPos + 1
   ret Ok(v)
-
 pub fn spscRecv(mut ch: SpscRingChannel): Result[int, ChannelError]:
   ret spscTryRecv(ch)
 

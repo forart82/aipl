@@ -36,31 +36,57 @@ pub fn ringAvailable(ring: RingBufferAllocator): int:
 pub fn ringAlloc(mut ring: RingBufferAllocator, bytes: int): int:
   if bytes <= 0 or ring.baseAddr == 0 or bytes > ringAvailable(ring):
     ret 0
-  if ring.head + bytes <= ring.capacity:
-    let addr = ring.baseAddr + ring.head
-    ring.head = (ring.head + bytes) % ring.capacity
-    ring.usedBytes += bytes
-    ring.allocatedCount += 1
-    ret addr
-  // Wrap-around to start of ring buffer if contiguous space at end is insufficient
-  let tailGap = ring.capacity - ring.head
-  if bytes + tailGap > ringAvailable(ring) and ring.tail > 0 and bytes > ring.tail:
-    ret 0
-  let addr = ring.baseAddr
-  ring.head = bytes % ring.capacity
-  ring.usedBytes += bytes
-  ring.allocatedCount += 1
-  ret addr
-
-pub fn ringFreeOldest(mut ring: RingBufferAllocator, bytes: int): void:
-  if bytes <= 0:
-    ret
-  let reclaim = if bytes > ring.usedBytes: ring.usedBytes else: bytes
-  ring.tail = (ring.tail + reclaim) % ring.capacity
-  ring.usedBytes -= reclaim
   if ring.usedBytes == 0:
     ring.head = 0
     ring.tail = 0
+    if bytes > ring.capacity:
+      ret 0
+    let addr = ring.baseAddr
+    ring.head = bytes % ring.capacity
+    ring.usedBytes = bytes
+    ring.allocatedCount += 1
+    ret addr
+  if ring.head > ring.tail:
+    if ring.head + bytes <= ring.capacity:
+      let addr = ring.baseAddr + ring.head
+      ring.head = (ring.head + bytes) % ring.capacity
+      ring.usedBytes += bytes
+      ring.allocatedCount += 1
+      ret addr
+    if bytes <= ring.tail:
+      let addr = ring.baseAddr
+      ring.head = bytes % ring.capacity
+      ring.usedBytes += bytes
+      ring.allocatedCount += 1
+      ret addr
+    ret 0
+  if ring.head + bytes <= ring.tail:
+    let addr = ring.baseAddr + ring.head
+    ring.head = ring.head + bytes
+    ring.usedBytes += bytes
+    ring.allocatedCount += 1
+    ret addr
+  ret 0
+
+pub fn ringFreeOldest(mut ring: RingBufferAllocator, bytes: int): void:
+  if bytes <= 0 or ring.usedBytes <= 0:
+    ret
+  let reclaim = if bytes > ring.usedBytes: ring.usedBytes else: bytes
+  if reclaim >= ring.usedBytes:
+    ring.usedBytes = 0
+    ring.head = 0
+    ring.tail = 0
+    ret
+  if ring.head > ring.tail:
+    ring.tail += reclaim
+    ring.usedBytes -= reclaim
+    ret
+  let preWrapLive = ring.usedBytes - ring.head
+  if reclaim >= preWrapLive:
+    ring.tail = reclaim - preWrapLive
+  else:
+    ring.tail += reclaim
+  ring.usedBytes -= reclaim
   ret
 
 pub fn ringReset(mut ring: RingBufferAllocator): void:

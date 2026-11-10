@@ -15,42 +15,66 @@ pub fn radToDeg(rad: float): float:
 pub fn sqrt(x: float): float:
   if x <= 0.0:
     ret 0.0
-  mut guess = if x > 1.0: x * 0.5 else: 1.0
+  mut m = x
+  mut scale = 1.0
+  while m >= 4.0:
+    m *= 0.25
+    scale *= 2.0
+  while m < 0.25:
+    m *= 4.0
+    scale *= 0.5
+  mut guess = 0.5 * (m + 1.0)
   mut i = 0
-  while i < 20:
-    guess = 0.5 * (guess + (x / guess))
+  while i < 10:
+    guess = 0.5 * (guess + (m / guess))
     i += 1
-  ret guess
+  ret guess * scale
 
 pub fn cbrt(x: float): float:
   if x == 0.0:
     ret 0.0
   let neg = x < 0.0
-  let ax = if neg: -x else: x
-  mut g = ax / 3.0
-  if g < 1.0:
-    g = 1.0
+  mut m = if neg: -x else: x
+  mut scale = 1.0
+  while m >= 8.0:
+    m *= 0.125
+    scale *= 2.0
+  while m < 0.125:
+    m *= 8.0
+    scale *= 0.5
+  mut g = 1.0
   mut i = 0
-  while i < 20:
-    g = (2.0 * g + (ax / (g * g))) / 3.0
+  while i < 12:
+    g = (2.0 * g + (m / (g * g))) / 3.0
     i += 1
-  ret if neg: -g else: g
+  let res = g * scale
+  ret if neg: -res else: res
 
 pub fn hypot(x: float, y: float): float:
-  ret sqrt(x * x + y * y)
+  let ax = absFloat(x)
+  let ay = absFloat(y)
+  let m = if ax > ay: ax else: ay
+  if m == 0.0:
+    ret 0.0
+  let rx = ax / m
+  let ry = ay / m
+  ret m * sqrt(rx * rx + ry * ry)
 
 pub fn powInt(base: float, exp: int): float:
   if exp == 0:
     ret 1.0
   mut result = 1.0
-  mut e = if exp < 0: -exp else: exp
+  mut e = exp
   mut current = base
-  while e > 0:
-    if (e % 2) == 1:
+  while e != 0:
+    let rem = e % 2
+    if rem != 0:
       result *= current
     current *= current
     e = e / 2
-  ret if exp < 0: 1.0 / result else: result
+  if exp < 0:
+    ret if result != 0.0: 1.0 / result else: 0.0
+  ret result
 
 pub fn lnFloat(x: float): float:
   if x <= 0.0:
@@ -69,7 +93,7 @@ pub fn lnFloat(x: float): float:
   mut term = y
   mut denom = 3.0
   mut i = 0
-  while i < 12:
+  while i < 14:
     term *= y2
     sum += term / denom
     denom += 2.0
@@ -77,22 +101,33 @@ pub fn lnFloat(x: float): float:
   ret 2.0 * sum + (float(k) * 0.6931471805599453)
 
 pub fn expFloat(x: float): float:
-  if x < -80.0:
+  if x < -709.0:
     ret 0.0
+  if x > 709.0:
+    ret 1.7976931348623157e308
+  let ln2 = 0.6931471805599453
+  let k = int(floor((x / ln2) + 0.5))
+  let r = x - (float(k) * ln2)
   mut sum = 1.0
   mut term = 1.0
   mut i = 1
-  while i <= 28:
-    term = (term * x) / float(i)
+  while i <= 18:
+    term = (term * r) / float(i)
     sum += term
     i += 1
-  ret sum
+  ret sum * powInt(2.0, k)
 
 pub fn pow(base: float, exponent: float): float:
-  if base <= 0.0:
+  if exponent == 0.0:
+    ret 1.0
+  if base == 0.0:
+    ret 0.0
+  if base < 0.0:
+    let intExp = int(exponent)
+    if float(intExp) == exponent:
+      ret powInt(base, intExp)
     ret 0.0
   ret expFloat(exponent * lnFloat(base))
-
 pub fn sin(rad: float): float:
   mut x = rad % TAU
   if x > PI:

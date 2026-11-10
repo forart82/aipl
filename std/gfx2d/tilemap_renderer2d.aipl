@@ -43,13 +43,7 @@ pub fn createWangBlob47Autotiler(): WangBlob47Autotiler:
     if w: reduced = reduced | 64
     if nw: reduced = reduced | 128
 
-    if reduced == 0:
-      table.push(0)
-    elif reduced == 255:
-      table.push(46)
-    else:
-      let mapped = 1 + ((reduced * 43) % 45)
-      table.push(mapped)
+    table.push(tilemapBlobMaskToIndex47(reduced))
     m += 1
   ret WangBlob47Autotiler(transitionTable = table)
 
@@ -88,8 +82,12 @@ pub fn cullTilemapLayer(layer: TilemapLayer2D, bounds: ViewportBounds2D, tileW: 
   mut maxRow = int(bounds.maxY / th) + 1
   if minCol < 0: minCol = 0
   if minRow < 0: minRow = 0
+  if minCol > layer.width: minCol = layer.width
+  if minRow > layer.height: minRow = layer.height
   if maxCol > layer.width: maxCol = layer.width
   if maxRow > layer.height: maxRow = layer.height
+  if maxCol < minCol: maxCol = minCol
+  if maxRow < minRow: maxRow = minRow
   ret [minCol, minRow, maxCol, maxRow]
 
 pub struct Tilemap2D(width: int, height: int, tileSize: float, tiles: [int], solidIds: [int], spawnX: float, spawnY: float)
@@ -117,13 +115,19 @@ pub fn tilemapInBounds(m: Tilemap2D, col: int, row: int): bool:
 pub fn tilemapGet(m: Tilemap2D, col: int, row: int): int:
   if not tilemapInBounds(m, col, row):
     ret 0
-  ret m.tiles[row * m.width + col]
+  let idx = row * m.width + col
+  if idx < 0 or idx >= m.tiles.len:
+    ret 0
+  ret m.tiles[idx]
 
 pub fn tilemapSet(m: Tilemap2D, col: int, row: int, tileId: int): Tilemap2D:
   if not tilemapInBounds(m, col, row):
     ret m
+  let idx = row * m.width + col
+  if idx < 0 or idx >= m.tiles.len:
+    ret m
   mut nextTiles = m.tiles.clone()
-  nextTiles[row * m.width + col] = tileId
+  nextTiles[idx] = tileId
   ret Tilemap2D(
     width = m.width,
     height = m.height,
@@ -137,7 +141,9 @@ pub fn tilemapSet(m: Tilemap2D, col: int, row: int, tileId: int): Tilemap2D:
 pub fn tilemapSetInPlace(mut m: Tilemap2D, col: int, row: int, tileId: int): Tilemap2D:
   if not tilemapInBounds(m, col, row):
     ret m
-  m.tiles[row * m.width + col] = tileId
+  let idx = row * m.width + col
+  if idx >= 0 and idx < m.tiles.len:
+    m.tiles[idx] = tileId
   ret m
 
 pub fn tilemapIsSolidAtGrid(m: Tilemap2D, col: int, row: int): bool:

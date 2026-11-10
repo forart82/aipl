@@ -6,10 +6,9 @@
 module PathfindMod
 
 import { absInt, minFloat } from "std/math/consts"
-import { sqrt } from "std/math/trig"
+import { sqrt, floor } from "std/math/trig"
 import { Vec2, IVec2 } from "std/math/vec_math"
 import { CellularGrid2D } from "std/procgen/cellular_automata"
-
 pub struct PathResult2D(found: bool, path: [Vec2], cost: float)
 
 pub struct DijkstraMap2D(width: int, height: int, distances: [float])
@@ -26,6 +25,8 @@ pub fn aStarPathfind(grid: CellularGrid2D, start: IVec2, goal: IVec2, allowDiago
   let h = grid.height
   let total = w * h
   mut emptyPath: [Vec2] = []
+  if w <= 0 or h <= 0 or grid.cells.len < total:
+    ret PathResult2D(found = false, path = emptyPath, cost = 0.0)
   if (not isWalkable(grid, start.x, start.y)) or (not isWalkable(grid, goal.x, goal.y)):
     ret PathResult2D(found = false, path = emptyPath, cost = 0.0)
 
@@ -48,7 +49,11 @@ pub fn aStarPathfind(grid: CellularGrid2D, start: IVec2, goal: IVec2, allowDiago
   let startIdx = start.y * w + start.x
   let goalIdx = goal.y * w + goal.x
   gScore[startIdx] = 0.0
-  fScore[startIdx] = float(absInt(goal.x - start.x) + absInt(goal.y - start.y))
+  let sdx = absInt(goal.x - start.x)
+  let sdy = absInt(goal.y - start.y)
+  let sMin = if sdx < sdy: sdx else: sdy
+  let sMax = if sdx > sdy: sdx else: sdy
+  fScore[startIdx] = if allowDiagonal: float(sMax - sMin) + 1.41421356 * float(sMin) else: float(sdx + sdy)
   inOpen[startIdx] = true
 
   mut openList: [int] = [startIdx]
@@ -100,7 +105,8 @@ pub fn aStarPathfind(grid: CellularGrid2D, start: IVec2, goal: IVec2, allowDiago
     while d < dirCount:
       let nx = ux + dxs[d]
       let ny = uy + dys[d]
-      if isWalkable(grid, nx, ny):
+      let noCornerCut = if d < 4: true else: (isWalkable(grid, ux + dxs[d], uy) and isWalkable(grid, ux, uy + dys[d]))
+      if isWalkable(grid, nx, ny) and noCornerCut:
         let nIdx = ny * w + nx
         if not closed[nIdx]:
           let stepCost = if d < 4: 1.0 else: 1.41421356
@@ -108,7 +114,11 @@ pub fn aStarPathfind(grid: CellularGrid2D, start: IVec2, goal: IVec2, allowDiago
           if tentG < gScore[nIdx]:
             cameFrom[nIdx] = bestNode
             gScore[nIdx] = tentG
-            let hVal = float(absInt(goal.x - nx) + absInt(goal.y - ny))
+            let hdx = absInt(goal.x - nx)
+            let hdy = absInt(goal.y - ny)
+            let hMin = if hdx < hdy: hdx else: hdy
+            let hMax = if hdx > hdy: hdx else: hdy
+            let hVal = if allowDiagonal: float(hMax - hMin) + 1.41421356 * float(hMin) else: float(hdx + hdy)
             fScore[nIdx] = tentG + hVal
             if not inOpen[nIdx]:
               openList.push(nIdx)
@@ -256,6 +266,8 @@ pub struct DotGraph(name: str, nodes: [DotNode], edges: [DotEdge])
 
 pub fn gridNew(width: int, height: int, defaultVal: int = 0): Grid2D:
   mut cells: [int] = []
+  if width <= 0 or height <= 0:
+    ret Grid2D(width = 0, height = 0, cells = cells)
   let total = width * height
   mut i = 0
   while i < total:
@@ -480,11 +492,11 @@ pub fn spatialGridNew(cellSize: float): SpatialGrid2D:
   ret SpatialGrid2D(cellSize = cs, keys = k, ids = i)
 
 pub fn spatialGridInsert(mut sg: SpatialGrid2D, id: int, x: float, y: float, w: float, h: float): SpatialGrid2D:
-  let cs = sg.cellSize
-  let startX = int(x / cs)
-  let endX = int((x + w) / cs)
-  let startY = int(y / cs)
-  let endY = int((y + h) / cs)
+  let cs = if sg.cellSize > 0.0001: sg.cellSize else: 1.0
+  let startX = int(floor(x / cs))
+  let endX = int(floor((x + w) / cs))
+  let startY = int(floor(y / cs))
+  let endY = int(floor((y + h) / cs))
   mut cy = startY
   while cy <= endY:
     mut cx = startX
@@ -497,11 +509,11 @@ pub fn spatialGridInsert(mut sg: SpatialGrid2D, id: int, x: float, y: float, w: 
   ret sg
 
 pub fn spatialGridQuery(sg: SpatialGrid2D, x: float, y: float, w: float, h: float): [int]:
-  let cs = sg.cellSize
-  let startX = int(x / cs)
-  let endX = int((x + w) / cs)
-  let startY = int(y / cs)
-  let endY = int((y + h) / cs)
+  let cs = if sg.cellSize > 0.0001: sg.cellSize else: 1.0
+  let startX = int(floor(x / cs))
+  let endX = int(floor((x + w) / cs))
+  let startY = int(floor(y / cs))
+  let endY = int(floor((y + h) / cs))
   mut out: [int] = []
   mut cy = startY
   while cy <= endY:

@@ -130,24 +130,26 @@ pub fn Mat4.rotationZ(rad: float): Mat4:
   )
 
 pub fn Mat4.perspective(fovyRad: float, aspect: float, near: float, far: float): Mat4:
-  let f = 1.0 / tan(fovyRad * 0.5)
-  let nf = 1.0 / (near - far)
+  let tanHalf = tan(fovyRad * 0.5)
+  let f = if absFloat(tanHalf) > EPSILON: 1.0 / tanHalf else: 0.0
+  let m00Val = if absFloat(aspect) > EPSILON: f / aspect else: 0.0
+  let nf = if absFloat(near - far) > EPSILON: 1.0 / (near - far) else: 0.0
   ret Mat4(
-    m00 = f / aspect, m01 = 0.0, m02 = 0.0,               m03 = 0.0,
-    m10 = 0.0,        m11 = f,   m12 = 0.0,               m13 = 0.0,
-    m20 = 0.0,        m21 = 0.0, m22 = (far + near) * nf, m23 = (2.0 * far * near) * nf,
-    m30 = 0.0,        m31 = 0.0, m32 = -1.0,              m33 = 0.0
+    m00 = m00Val, m01 = 0.0, m02 = 0.0,               m03 = 0.0,
+    m10 = 0.0,    m11 = f,   m12 = 0.0,               m13 = 0.0,
+    m20 = 0.0,    m21 = 0.0, m22 = (far + near) * nf, m23 = (2.0 * far * near) * nf,
+    m30 = 0.0,    m31 = 0.0, m32 = -1.0,              m33 = 0.0
   )
 
 pub fn Mat4.orthographic(left: float, right: float, bottom: float, top: float, near: float, far: float): Mat4:
-  let rl = 1.0 / (right - left)
-  let tb = 1.0 / (top - bottom)
-  let fnInv = 1.0 / (far - near)
+  let rl = if absFloat(right - left) > EPSILON: 1.0 / (right - left) else: 0.0
+  let tb = if absFloat(top - bottom) > EPSILON: 1.0 / (top - bottom) else: 0.0
+  let fnInv = if absFloat(far - near) > EPSILON: 1.0 / (far - near) else: 0.0
   ret Mat4(
-    m00 = 2.0 * rl, m01 = 0.0,      m02 = 0.0,         m03 = -(right + left) * rl,
-    m10 = 0.0,      m11 = 2.0 * tb, m12 = 0.0,         m13 = -(top + bottom) * tb,
+    m00 = 2.0 * rl, m01 = 0.0,      m02 = 0.0,          m03 = -(right + left) * rl,
+    m10 = 0.0,      m11 = 2.0 * tb, m12 = 0.0,          m13 = -(top + bottom) * tb,
     m20 = 0.0,      m21 = 0.0,      m22 = -2.0 * fnInv, m23 = -(far + near) * fnInv,
-    m30 = 0.0,      m31 = 0.0,      m32 = 0.0,         m33 = 1.0
+    m30 = 0.0,      m31 = 0.0,      m32 = 0.0,          m33 = 1.0
   )
 
 pub fn Mat4.lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4:
@@ -198,30 +200,42 @@ pub fn (self: Mat4) transpose(): Mat4:
   )
 
 pub fn (self: Mat4) inverse(): Option[Mat4]:
-  // Affine + diagonal fast inversion with determinant check
-  let det3 = self.m00 * (self.m11 * self.m22 - self.m12 * self.m21) - self.m01 * (self.m10 * self.m22 - self.m12 * self.m20) + self.m02 * (self.m10 * self.m21 - self.m11 * self.m20)
-  if absFloat(det3) < EPSILON:
-    ret None
-  let invDet = 1.0 / det3
-  let r00 = (self.m11 * self.m22 - self.m12 * self.m21) * invDet
-  let r01 = (self.m02 * self.m21 - self.m01 * self.m22) * invDet
-  let r02 = (self.m01 * self.m12 - self.m02 * self.m11) * invDet
-  let r10 = (self.m12 * self.m20 - self.m10 * self.m22) * invDet
-  let r11 = (self.m00 * self.m22 - self.m02 * self.m20) * invDet
-  let r12 = (self.m02 * self.m10 - self.m00 * self.m12) * invDet
-  let r20 = (self.m10 * self.m21 - self.m11 * self.m20) * invDet
-  let r21 = (self.m01 * self.m20 - self.m00 * self.m21) * invDet
-  let r22 = (self.m00 * self.m11 - self.m01 * self.m10) * invDet
-  let tx = -(r00 * self.m03 + r01 * self.m13 + r02 * self.m23)
-  let ty = -(r10 * self.m03 + r11 * self.m13 + r12 * self.m23)
-  let tz = -(r20 * self.m03 + r21 * self.m13 + r22 * self.m23)
-  ret Some(Mat4(
-    m00 = r00, m01 = r01, m02 = r02, m03 = tx,
-    m10 = r10, m11 = r11, m12 = r12, m13 = ty,
-    m20 = r20, m21 = r21, m22 = r22, m23 = tz,
-    m30 = 0.0, m31 = 0.0, m32 = 0.0, m33 = 1.0
-  ))
+  let s0 = self.m00 * self.m11 - self.m10 * self.m01
+  let s1 = self.m00 * self.m12 - self.m10 * self.m02
+  let s2 = self.m00 * self.m13 - self.m10 * self.m03
+  let s3 = self.m01 * self.m12 - self.m11 * self.m02
+  let s4 = self.m01 * self.m13 - self.m11 * self.m03
+  let s5 = self.m02 * self.m13 - self.m12 * self.m03
 
+  let c5 = self.m22 * self.m33 - self.m32 * self.m23
+  let c4 = self.m21 * self.m33 - self.m31 * self.m23
+  let c3 = self.m21 * self.m32 - self.m31 * self.m22
+  let c2 = self.m20 * self.m33 - self.m30 * self.m23
+  let c1 = self.m20 * self.m32 - self.m30 * self.m22
+  let c0 = self.m20 * self.m31 - self.m30 * self.m21
+
+  let det = s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0
+  if absFloat(det) < EPSILON:
+    ret None
+  let invDet = 1.0 / det
+  ret Some(Mat4(
+    m00 = ( self.m11 * c5 - self.m12 * c4 + self.m13 * c3) * invDet,
+    m01 = (-self.m01 * c5 + self.m02 * c4 - self.m03 * c3) * invDet,
+    m02 = ( self.m31 * s5 - self.m32 * s4 + self.m33 * s3) * invDet,
+    m03 = (-self.m21 * s5 + self.m22 * s4 - self.m23 * s3) * invDet,
+    m10 = (-self.m10 * c5 + self.m12 * c2 - self.m13 * c1) * invDet,
+    m11 = ( self.m00 * c5 - self.m02 * c2 + self.m03 * c1) * invDet,
+    m12 = (-self.m30 * s5 + self.m32 * s2 - self.m33 * s1) * invDet,
+    m13 = ( self.m20 * s5 - self.m22 * s2 + self.m23 * s1) * invDet,
+    m20 = ( self.m10 * c4 - self.m11 * c2 + self.m13 * c0) * invDet,
+    m21 = (-self.m00 * c4 + self.m01 * c2 - self.m03 * c0) * invDet,
+    m22 = ( self.m30 * s4 - self.m31 * s2 + self.m33 * s0) * invDet,
+    m23 = (-self.m20 * s4 + self.m21 * s2 - self.m23 * s0) * invDet,
+    m30 = (-self.m10 * c3 + self.m11 * c1 - self.m12 * c0) * invDet,
+    m31 = ( self.m00 * c3 - self.m01 * c1 + self.m02 * c0) * invDet,
+    m32 = (-self.m30 * s3 + self.m31 * s1 - self.m32 * s0) * invDet,
+    m33 = ( self.m20 * s3 - self.m21 * s1 + self.m22 * s0) * invDet
+  ))
 pub fn mat3Identity(): Mat3:
   ret Mat3.identity()
 

@@ -739,10 +739,13 @@ pub fn auraScrollAreaBegin(mut ctx: AuraContext, id: str, rect: AuraRect, conten
   if maxScroll > 0.0 and contentHeight > 0.0:
     let trackX = rect.x + rect.w - 6.0
     drawRoundedRect(trackX, rect.y + 2.0, 4.0, rect.h - 4.0, 2.0, colorHex(ctx.theme.surface2))
-    mut thumbH = (rect.h / contentHeight) * (rect.h - 4.0)
+    let availTrack = maxFloat(1.0, rect.h - 4.0)
+    mut thumbH = (rect.h / contentHeight) * availTrack
     if thumbH < 18.0:
       thumbH = 18.0
-    let thumbY = rect.y + 2.0 + (offset / maxScroll) * (rect.h - 4.0 - thumbH)
+    if thumbH > availTrack:
+      thumbH = availTrack
+    let thumbY = rect.y + 2.0 + (offset / maxScroll) * maxFloat(0.0, availTrack - thumbH)
     drawRoundedRect(trackX, thumbY, 4.0, thumbH, 2.0, colorHex(ctx.theme.primary))
   ret offset
 
@@ -1012,8 +1015,12 @@ pub fn auraTextEditInsert(mut buf: AuraTextEditBuffer, typed: str): AuraTextEdit
   if typed.len == 0:
     ret buf
   buf.undoStack.push(buf.text)
-  let lo = if buf.selStart < buf.selEnd: buf.selStart else: buf.selEnd
-  let hi = if buf.selStart > buf.selEnd: buf.selStart else: buf.selEnd
+  buf.redoStack = []
+  let rawLo = if buf.selStart < buf.selEnd: buf.selStart else: buf.selEnd
+  let rawHi = if buf.selStart > buf.selEnd: buf.selStart else: buf.selEnd
+  let lo = clampInt(rawLo, 0, buf.text.len)
+  let hi = clampInt(rawHi, lo, buf.text.len)
+  buf.cursor = clampInt(buf.cursor, 0, buf.text.len)
   let insPos = if lo != hi: lo else: buf.cursor
   let endPos = if lo != hi: hi else: buf.cursor
   let safeLo = if insPos < 0: 0 elif insPos > buf.text.len: buf.text.len else: insPos
@@ -1087,8 +1094,12 @@ pub fn auraTextEditMouseSelect(mut buf: AuraTextEditBuffer, textStartX: float, c
 
 pub fn auraTextEditApplyShortcut(mut buf: AuraTextEditBuffer, key: str, ctrlHeld: bool, shiftHeld: bool): AuraTextEditBuffer:
   let k = key.toUpper()
-  let loSel = if buf.selStart < buf.selEnd: buf.selStart else: buf.selEnd
-  let hiSel = if buf.selStart > buf.selEnd: buf.selStart else: buf.selEnd
+  let nLen = buf.text.len
+  let rawLo = if buf.selStart < buf.selEnd: buf.selStart else: buf.selEnd
+  let rawHi = if buf.selStart > buf.selEnd: buf.selStart else: buf.selEnd
+  let loSel = clampInt(rawLo, 0, nLen)
+  let hiSel = clampInt(rawHi, loSel, nLen)
+  buf.cursor = clampInt(buf.cursor, 0, nLen)
   let hasSel = loSel < hiSel
   if ctrlHeld and k == "A":
     buf.selStart = 0
@@ -1105,6 +1116,7 @@ pub fn auraTextEditApplyShortcut(mut buf: AuraTextEditBuffer, key: str, ctrlHeld
     let hi = if hasSel: hiSel else: buf.text.len
     setClipboardText(buf.text.slice(lo, hi))
     buf.undoStack.push(buf.text)
+    buf.redoStack = []
     buf.text = buf.text.slice(0, lo) + buf.text.slice(hi, buf.text.len)
     buf.cursor = lo
     buf.selStart = lo
@@ -1114,6 +1126,7 @@ pub fn auraTextEditApplyShortcut(mut buf: AuraTextEditBuffer, key: str, ctrlHeld
     let clip = getClipboardText()
     if clip.len > 0:
       buf.undoStack.push(buf.text)
+      buf.redoStack = []
       let lo = if hasSel: loSel else: buf.cursor
       let hi = if hasSel: hiSel else: buf.cursor
       buf.text = buf.text.slice(0, lo) + clip + buf.text.slice(hi, buf.text.len)
@@ -1145,7 +1158,7 @@ pub fn auraTextEditApplyShortcut(mut buf: AuraTextEditBuffer, key: str, ctrlHeld
       buf.selEnd = buf.cursor
     ret buf
   if k == "LEFT" or k == "ARROWLEFT":
-    let anchor = if buf.cursor == buf.selEnd: buf.selStart else: buf.selEnd
+    let anchor = clampInt(if buf.cursor == buf.selEnd: buf.selStart else: buf.selEnd, 0, nLen)
     let nextPos = if ctrlHeld: auraWordJumpLeft(buf.text, buf.cursor) else: (if buf.cursor > 0: buf.cursor - 1 else: 0)
     if shiftHeld:
       buf.selStart = if anchor < nextPos: anchor else: nextPos
@@ -1161,7 +1174,7 @@ pub fn auraTextEditApplyShortcut(mut buf: AuraTextEditBuffer, key: str, ctrlHeld
       buf.selEnd = nextPos
     ret buf
   if k == "RIGHT" or k == "ARROWRIGHT":
-    let anchor = if buf.cursor == buf.selStart: buf.selEnd else: buf.selStart
+    let anchor = clampInt(if buf.cursor == buf.selStart: buf.selEnd else: buf.selStart, 0, nLen)
     let nextPos = if ctrlHeld: auraWordJumpRight(buf.text, buf.cursor) else: (if buf.cursor < buf.text.len: buf.cursor + 1 else: buf.text.len)
     if shiftHeld:
       buf.selStart = if anchor < nextPos: anchor else: nextPos
@@ -1177,7 +1190,7 @@ pub fn auraTextEditApplyShortcut(mut buf: AuraTextEditBuffer, key: str, ctrlHeld
       buf.selEnd = nextPos
     ret buf
   if k == "HOME":
-    let anchor = if buf.cursor == buf.selEnd: buf.selStart else: buf.selEnd
+    let anchor = clampInt(if buf.cursor == buf.selEnd: buf.selStart else: buf.selEnd, 0, nLen)
     if shiftHeld:
       buf.selStart = 0
       buf.selEnd = anchor
@@ -1187,7 +1200,7 @@ pub fn auraTextEditApplyShortcut(mut buf: AuraTextEditBuffer, key: str, ctrlHeld
     buf.cursor = 0
     ret buf
   if k == "END":
-    let anchor = if buf.cursor == buf.selStart: buf.selEnd else: buf.selStart
+    let anchor = clampInt(if buf.cursor == buf.selStart: buf.selEnd else: buf.selStart, 0, nLen)
     if shiftHeld:
       buf.selStart = anchor
       buf.selEnd = buf.text.len
@@ -1199,12 +1212,14 @@ pub fn auraTextEditApplyShortcut(mut buf: AuraTextEditBuffer, key: str, ctrlHeld
   if k == "BACKSPACE":
     if hasSel:
       buf.undoStack.push(buf.text)
+      buf.redoStack = []
       buf.text = buf.text.slice(0, loSel) + buf.text.slice(hiSel, buf.text.len)
       buf.cursor = loSel
       buf.selStart = loSel
       buf.selEnd = loSel
     elif buf.cursor > 0:
       buf.undoStack.push(buf.text)
+      buf.redoStack = []
       let delStart = if ctrlHeld: auraWordJumpLeft(buf.text, buf.cursor) else: buf.cursor - 1
       buf.text = buf.text.slice(0, delStart) + buf.text.slice(buf.cursor, buf.text.len)
       buf.cursor = delStart
@@ -1214,12 +1229,14 @@ pub fn auraTextEditApplyShortcut(mut buf: AuraTextEditBuffer, key: str, ctrlHeld
   if k == "DELETE" or k == "DEL":
     if hasSel:
       buf.undoStack.push(buf.text)
+      buf.redoStack = []
       buf.text = buf.text.slice(0, loSel) + buf.text.slice(hiSel, buf.text.len)
       buf.cursor = loSel
       buf.selStart = loSel
       buf.selEnd = loSel
     elif buf.cursor < buf.text.len:
       buf.undoStack.push(buf.text)
+      buf.redoStack = []
       let delEnd = if ctrlHeld: auraWordJumpRight(buf.text, buf.cursor) else: buf.cursor + 1
       buf.text = buf.text.slice(0, buf.cursor) + buf.text.slice(delEnd, buf.text.len)
       buf.selStart = buf.cursor
@@ -1771,7 +1788,7 @@ pub fn auraSlider(mut ctx: AuraContext, id: str, rect: AuraRect, label: str, val
     ctx.uiState.set("activeId", id)
   let isActiveDrag = ctx.activeId == id or ctx.uiState.get("activeId").unwrapOr("") == id
   if (ctx.mouseDown and (hovered or isActiveDrag)) or clicked:
-    let t = clampFloat((ctx.mouseX - rect.x) / rect.w, 0.0, 1.0)
+    let t = clampFloat((ctx.mouseX - rect.x) / maxFloat(1.0, rect.w), 0.0, 1.0)
     nextVal = minVal + t * span
   let ratio = clampFloat((nextVal - minVal) / span, 0.0, 1.0)
   if label.len > 0:
@@ -5755,7 +5772,7 @@ pub fn auraWaveformPlot(x: float, y: float, w: float, h: float, samples: [float]
       let y0 = midY - clampFloat(samples[i], -1.0, 1.0) * amp
       let x1 = fx + 4.0 + float(i + 1) * stepX
       let y1 = midY - clampFloat(samples[i + 1], -1.0, 1.0) * amp
-      drawLine(x0, y0, x1, y1, 1.5, colorHex(accentHex))
+      drawLine(x0, y0, x1, y1, colorHex(accentHex), 1.5)
       i += 1
   ret n
 

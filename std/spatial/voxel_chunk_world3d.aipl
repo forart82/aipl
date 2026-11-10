@@ -36,6 +36,8 @@ fn posModInt(a: int, b: int): int:
 
 pub fn voxelGetBlock(world: VoxelChunkWorld3D, gx: int, gy: int, gz: int): Option[VoxelBlock]:
   let cs = world.chunkSize
+  if cs <= 0:
+    ret None
   let cx = floorDivInt(gx, cs)
   let cy = floorDivInt(gy, cs)
   let cz = floorDivInt(gz, cs)
@@ -49,12 +51,16 @@ pub fn voxelGetBlock(world: VoxelChunkWorld3D, gx: int, gy: int, gz: int): Optio
     let ch: VoxelChunk16 = world.chunks[i]
     let cc: IVec3 = ch.coord
     if cc.x == cx and cc.y == cy and cc.z == cz:
+      if idx < 0 or idx >= ch.blocks.len:
+        ret None
       ret Some(ch.blocks[idx])
     i = i + 1
   ret None
 
 pub fn voxelSetBlock(mut world: VoxelChunkWorld3D, gx: int, gy: int, gz: int, block: VoxelBlock): bool:
   let cs = world.chunkSize
+  if cs <= 0:
+    ret false
   let cx = floorDivInt(gx, cs)
   let cy = floorDivInt(gy, cs)
   let cz = floorDivInt(gz, cs)
@@ -70,6 +76,8 @@ pub fn voxelSetBlock(mut world: VoxelChunkWorld3D, gx: int, gy: int, gz: int, bl
     let cc: IVec3 = ch.coord
     if cc.x == cx and cc.y == cy and cc.z == cz:
       mut blks = ch.blocks
+      if idx < 0 or idx >= blks.len:
+        ret false
       blks[idx] = block
       chunks[i] = VoxelChunk16(coord = cc, chunkSize = cs, blocks = blks, isDirty = true)
       world.chunks = chunks
@@ -172,6 +180,8 @@ pub fn voxelRaycastDDA(world: VoxelChunkWorld3D, origin: Vec3, dir: Vec3, maxDis
 pub fn voxelExtractGreedyFaces(chunk: VoxelChunk16): [QuadFace3D]:
   let cs = chunk.chunkSize
   mut faces: [QuadFace3D] = []
+  if cs <= 0 or chunk.blocks.len < cs * cs * cs:
+    ret faces
 
   mut z = 0
   while z < cs:

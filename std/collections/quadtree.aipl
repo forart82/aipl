@@ -54,6 +54,9 @@ pub fn (mut self: QuadtreeNode[T]) insert(item: QuadtreeItem[T]): bool:
     self.items.push(item)
     ret true
   if not self.divided:
+    if self.boundaryW <= 0.000001 or self.boundaryH <= 0.000001:
+      self.items.push(item)
+      ret true
     let hw = self.boundaryW * 0.5
     let hh = self.boundaryH * 0.5
     let x = self.boundaryX
@@ -63,22 +66,23 @@ pub fn (mut self: QuadtreeNode[T]) insert(item: QuadtreeItem[T]): bool:
     self.sw = Some(quadtreeNew[T](x, y + hh, hw, hh, self.capacity))
     self.se = Some(quadtreeNew[T](x + hw, y + hh, hw, hh, self.capacity))
     self.divided = true
-  mut nwNode: QuadtreeNode[T] = self.nw.unwrap()
-  if nwNode.insert(item):
-    self.nw = Some(nwNode)
-    ret true
-  mut neNode: QuadtreeNode[T] = self.ne.unwrap()
-  if neNode.insert(item):
-    self.ne = Some(neNode)
-    ret true
-  mut swNode: QuadtreeNode[T] = self.sw.unwrap()
-  if swNode.insert(item):
-    self.sw = Some(swNode)
-    ret true
-  mut seNode: QuadtreeNode[T] = self.se.unwrap()
-  if seNode.insert(item):
-    self.se = Some(seNode)
-    ret true
+  if self.nw.isSome() and self.ne.isSome() and self.sw.isSome() and self.se.isSome():
+    mut nwNode: QuadtreeNode[T] = self.nw.unwrap()
+    if nwNode.insert(item):
+      self.nw = Some(nwNode)
+      ret true
+    mut neNode: QuadtreeNode[T] = self.ne.unwrap()
+    if neNode.insert(item):
+      self.ne = Some(neNode)
+      ret true
+    mut swNode: QuadtreeNode[T] = self.sw.unwrap()
+    if swNode.insert(item):
+      self.sw = Some(swNode)
+      ret true
+    mut seNode: QuadtreeNode[T] = self.se.unwrap()
+    if seNode.insert(item):
+      self.se = Some(seNode)
+      ret true
   self.items.push(item)
   ret true
 
@@ -90,7 +94,7 @@ pub fn (self: QuadtreeNode[T]) queryRange(qx: float, qy: float, qw: float, qh: f
     let it = self.items[i]
     if it.x >= qx and it.x <= (qx + qw) and it.y >= qy and it.y <= (qy + qh):
       out.push(it.payload)
-  if self.divided:
+  if self.divided and self.nw.isSome() and self.ne.isSome() and self.sw.isSome() and self.se.isSome():
     let nwNode: QuadtreeNode[T] = self.nw.unwrap()
     let nwHits = nwNode.queryRange(qx, qy, qw, qh)
     for i in 0..nwHits.len:
@@ -111,7 +115,7 @@ pub fn (self: QuadtreeNode[T]) queryRange(qx: float, qy: float, qw: float, qh: f
 
 pub fn (self: QuadtreeNode[T]) count(): int:
   mut total = self.items.len
-  if self.divided:
+  if self.divided and self.nw.isSome() and self.ne.isSome() and self.sw.isSome() and self.se.isSome():
     let nwNode: QuadtreeNode[T] = self.nw.unwrap()
     let neNode: QuadtreeNode[T] = self.ne.unwrap()
     let swNode: QuadtreeNode[T] = self.sw.unwrap()

@@ -121,9 +121,12 @@ pub fn decodeBmp(bytes: [int]): Option[DecodedImage]:
   let dataOffset = readU32LEImg(bytes, 10)
   let width = readU32LEImg(bytes, 18)
   let rawHeight = readU32LEImg(bytes, 22)
+  let signedH = if rawHeight >= 2147483648: rawHeight - 4294967296 else: rawHeight
+  let absH = if signedH < 0: -signedH else: signedH
+  let topDown = signedH < 0
   let bpp = readU16LEImg(bytes, 28)
   let comp = readU32LEImg(bytes, 30)
-  if width <= 0 or rawHeight <= 0 or comp != 0:
+  if width <= 0 or absH <= 0 or comp != 0:
     ret None
   if bpp != 24 and bpp != 32:
     ret None
@@ -135,7 +138,7 @@ pub fn decodeBmp(bytes: [int]): Option[DecodedImage]:
   mut rgba: [int] = []
   mut px: [int] = []
   mut i = 0
-  let totalPx = width * rawHeight
+  let totalPx = width * absH
   while i < totalPx:
     rgba.push(0)
     rgba.push(0)
@@ -145,8 +148,8 @@ pub fn decodeBmp(bytes: [int]): Option[DecodedImage]:
     i += 1
 
   mut bmpRow = 0
-  while bmpRow < rawHeight:
-    let imgY = (rawHeight - 1) - bmpRow
+  while bmpRow < absH:
+    let imgY = if topDown: bmpRow else: (absH - 1) - bmpRow
     let rowBase = dataOffset + bmpRow * rowStride
     mut x = 0
     while x < width:
@@ -168,7 +171,7 @@ pub fn decodeBmp(bytes: [int]): Option[DecodedImage]:
 
   ret Some(DecodedImage(
     width = width,
-    height = rawHeight,
+    height = absH,
     channels = 4,
     pixelsRgba = rgba,
     format = FORMAT_BMP,
@@ -337,7 +340,7 @@ fn matchesKeyColor(pixels: [int], idx4: int, kr: int, kg: int, kb: int, tol: int
 pub fn applyBorderFloodAlphaKey(image: DecodedImage, keyColorR: int, keyColorG: int, keyColorB: int, tolerance: int = 0): DecodedImage:
   let w = image.width
   let h = image.height
-  if w <= 0 or h <= 0:
+  if w <= 0 or h <= 0 or image.pixelsRgba.len < w * h * 4:
     ret image
   mut outPx: [int] = []
   mut i = 0
@@ -445,19 +448,27 @@ pub fn setPixelRgba(img: DecodedImage, x: int, y: int, r: int, g: int, b: int, a
   while i < img.pixelsRgba.len:
     outPx.push(img.pixelsRgba[i])
     i += 1
-  let idx = (y * img.width + x) * 4
+  let pIdx = y * img.width + x
+  let idx = pIdx * 4
   if idx + 3 < outPx.len:
     outPx[idx] = r & 255
     outPx[idx + 1] = g & 255
     outPx[idx + 2] = b & 255
     outPx[idx + 3] = a & 255
+  mut outPacked: [int] = []
+  mut k = 0
+  while k < img.pixels.len:
+    outPacked.push(img.pixels[k])
+    k += 1
+  if pIdx >= 0 and pIdx < outPacked.len:
+    outPacked[pIdx] = ((a & 255) << 24) | ((r & 255) << 16) | ((g & 255) << 8) | (b & 255)
   ret DecodedImage(
     width = img.width,
     height = img.height,
     channels = img.channels,
     pixelsRgba = outPx,
     format = img.format,
-    pixels = img.pixels
+    pixels = outPacked
   )
 
 pub fn imageResizeNearest(img: DecodedImage, newWidth: int, newHeight: int): DecodedImage:

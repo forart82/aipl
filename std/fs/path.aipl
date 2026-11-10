@@ -78,11 +78,17 @@ pub fn pathParent(p: str): str:
   let norm = pathNormalize(p)
   if norm == "/" or norm == ".":
     ret norm
+  if norm.len() == 3 and norm.charAt(1) == ":" and norm.charAt(2) == "/":
+    ret norm
   let lastSlash = norm.lastIndexOf("/")
   if lastSlash < 0:
+    if norm.len() == 2 and norm.charAt(1) == ":":
+      ret norm + "/"
     ret "."
   if lastSlash == 0:
     ret "/"
+  if lastSlash == 2 and norm.charAt(1) == ":":
+    ret norm.slice(0, 3)
   ret norm.slice(0, lastSlash)
 
 pub fn pathFileName(p: str): str:
@@ -131,6 +137,8 @@ pub fn pathWithExtension(p: str, ext: str): str:
 pub fn pathRelativeTo(base: str, target: str): str:
   let bComp = pathComponents(base)
   let tComp = pathComponents(target)
+  if bComp.hasRoot != tComp.hasRoot or bComp.drivePrefix != tComp.drivePrefix:
+    ret pathNormalize(target)
   mut common = 0
   while common < bComp.segments.len() and common < tComp.segments.len():
     if bComp.segments[common] == tComp.segments[common]:

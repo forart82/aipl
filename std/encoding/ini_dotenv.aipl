@@ -12,17 +12,18 @@ pub struct DotEnvMap:
   entries: [(str, str)]
 
 fn stripIniInlineComment(line: str): str:
-  mut inQuote = false
+  mut quoteChar = 0
   mut i = 0
   while i < line.len:
     let c = line.charCodeAt(i)
-    if c == 34 or c == 39:
-      inQuote = not inQuote
-    elif (c == 59 or c == 35) and not inQuote:
+    if quoteChar == 0 and (c == 34 or c == 39):
+      quoteChar = c
+    elif quoteChar != 0 and c == quoteChar:
+      quoteChar = 0
+    elif (c == 59 or c == 35) and quoteChar == 0:
       ret line.slice(0, i).trim()
     i = i + 1
   ret line.trim()
-
 fn unquoteIniVal(v: str): str:
   let t = v.trim()
   if (t.startsWith("\"") and t.endsWith("\"") and t.len >= 2) or (t.startsWith("'") and t.endsWith("'") and t.len >= 2):

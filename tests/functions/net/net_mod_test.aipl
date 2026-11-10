@@ -1,11 +1,23 @@
-// Generated barrel test suite for std/net/net_mod.aipl
 module tests.functions.net.net_mod_test
 
-import "std/net/net_mod"
-import { assert } from "std/prelude"
+import * from "std/net/net_mod"
+import { assert, assertEqInt, assertEqStr } from "std/prelude"
 
 pub fn test_step_9_33_barrel(): int:
-  assert(true, "std/net/net_mod.aipl barrel loaded")
+  let u1 = parseUrl("http://[::1]:8080/health")
+  assert(u1.isSome() == true, "parseUrl IPv6 with port")
+  assertEqStr(u1.unwrap().host, "[::1]", "IPv6 host preserved")
+  assertEqInt(u1.unwrap().port, 8080, "IPv6 port == 8080")
+  let u2 = parseUrl("http://[::1]/health")
+  assert(u2.isSome() == true, "parseUrl IPv6 without port")
+  assertEqStr(u2.unwrap().host, "[::1]", "IPv6 host without port preserved")
+  assertEqInt(u2.unwrap().port, 80, "IPv6 default port == 80")
+  let frame = WsFrame(fin: true, rsv: 0, opcode: 1, masked: true, maskKey: [170], payload: [1, 2, 3, 4])
+  let wire = encodeWsFrame(frame)
+  let dec = decodeWsFrame(wire)
+  assert(dec.isSome() == true, "short maskKey WsFrame roundtrips")
+  let parsedFrame = dec.unwrap()
+  assertEqInt(parsedFrame.payload[0], 1, "unmasked payload[0] == 1")
   ret 0
 
 pub fn main(): int:

@@ -119,32 +119,41 @@ pub fn sphereIntersectsSphere(a: Sphere3D, b: Sphere3D): bool:
   let dz = a.center.z - b.center.z
   ret (dx * dx + dy * dy + dz * dz) <= (rSum * rSum)
 
+fn ray3DDir(ray: Ray3D): Vec3:
+  if ray.dir.x != 0.0 or ray.dir.y != 0.0 or ray.dir.z != 1.0:
+    ret ray.dir
+  ret ray.direction
+
+fn plane3DDist(pl: Plane3D): float:
+  ret if pl.distance != 0.0: pl.distance else: pl.d
+
 pub fn rayIntersectsAABB(ray: Ray3D, aabb: AABB3D): Option[float]:
+  let rdir = ray3DDir(ray)
   mut tMin = -1e18
   mut tMax = 1e18
-  if absFloat(ray.dir.x) < EPSILON:
+  if absFloat(rdir.x) < EPSILON:
     if ray.origin.x < aabb.min.x or ray.origin.x > aabb.max.x:
       ret None
   else:
-    let invX = 1.0 / ray.dir.x
+    let invX = 1.0 / rdir.x
     let t1 = (aabb.min.x - ray.origin.x) * invX
     let t2 = (aabb.max.x - ray.origin.x) * invX
     tMin = maxFloat(tMin, minFloat(t1, t2))
     tMax = minFloat(tMax, maxFloat(t1, t2))
-  if absFloat(ray.dir.y) < EPSILON:
+  if absFloat(rdir.y) < EPSILON:
     if ray.origin.y < aabb.min.y or ray.origin.y > aabb.max.y:
       ret None
   else:
-    let invY = 1.0 / ray.dir.y
+    let invY = 1.0 / rdir.y
     let t1 = (aabb.min.y - ray.origin.y) * invY
     let t2 = (aabb.max.y - ray.origin.y) * invY
     tMin = maxFloat(tMin, minFloat(t1, t2))
     tMax = minFloat(tMax, maxFloat(t1, t2))
-  if absFloat(ray.dir.z) < EPSILON:
+  if absFloat(rdir.z) < EPSILON:
     if ray.origin.z < aabb.min.z or ray.origin.z > aabb.max.z:
       ret None
   else:
-    let invZ = 1.0 / ray.dir.z
+    let invZ = 1.0 / rdir.z
     let t1 = (aabb.min.z - ray.origin.z) * invZ
     let t2 = (aabb.max.z - ray.origin.z) * invZ
     tMin = maxFloat(tMin, minFloat(t1, t2))
@@ -154,15 +163,16 @@ pub fn rayIntersectsAABB(ray: Ray3D, aabb: AABB3D): Option[float]:
   ret Some(if tMin >= 0.0: tMin else: tMax)
 
 pub fn rayIntersectsTriangle(ray: Ray3D, tri: Triangle3D): Option[float]:
+  let rdir = ray3DDir(ray)
   let e1x = tri.v1.x - tri.v0.x
   let e1y = tri.v1.y - tri.v0.y
   let e1z = tri.v1.z - tri.v0.z
   let e2x = tri.v2.x - tri.v0.x
   let e2y = tri.v2.y - tri.v0.y
   let e2z = tri.v2.z - tri.v0.z
-  let hx = ray.dir.y * e2z - ray.dir.z * e2y
-  let hy = ray.dir.z * e2x - ray.dir.x * e2z
-  let hz = ray.dir.x * e2y - ray.dir.y * e2x
+  let hx = rdir.y * e2z - rdir.z * e2y
+  let hy = rdir.z * e2x - rdir.x * e2z
+  let hz = rdir.x * e2y - rdir.y * e2x
   let a = e1x * hx + e1y * hy + e1z * hz
   if absFloat(a) < EPSILON:
     ret None
@@ -176,7 +186,7 @@ pub fn rayIntersectsTriangle(ray: Ray3D, tri: Triangle3D): Option[float]:
   let qx = sy * e1z - sz * e1y
   let qy = sz * e1x - sx * e1z
   let qz = sx * e1y - sy * e1x
-  let v = f * (ray.dir.x * qx + ray.dir.y * qy + ray.dir.z * qz)
+  let v = f * (rdir.x * qx + rdir.y * qy + rdir.z * qz)
   if v < 0.0 or (u + v) > 1.0:
     ret None
   let t = f * (e2x * qx + e2y * qy + e2z * qz)
@@ -189,7 +199,7 @@ pub fn frustumContainsPoint(frustum: Frustum3D, pt: Vec3): bool:
   while i < frustum.planes.len:
     let pl = frustum.planes[i]
     let dotVal = pl.normal.x * pt.x + pl.normal.y * pt.y + pl.normal.z * pt.z
-    if (dotVal + pl.distance) < 0.0:
+    if (dotVal + plane3DDist(pl)) < 0.0:
       ret false
     i += 1
   ret true
@@ -202,11 +212,10 @@ pub fn frustumIntersectsAABB(frustum: Frustum3D, aabb: AABB3D): bool:
     let py = if pl.normal.y >= 0.0: aabb.max.y else: aabb.min.y
     let pz = if pl.normal.z >= 0.0: aabb.max.z else: aabb.min.z
     let dotVal = pl.normal.x * px + pl.normal.y * py + pl.normal.z * pz
-    if (dotVal + pl.distance) < 0.0:
+    if (dotVal + plane3DDist(pl)) < 0.0:
       ret false
     i += 1
   ret true
-
 pub struct GeomRayHit3D:
   hit: bool
   distance: float

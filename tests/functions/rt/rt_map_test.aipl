@@ -87,8 +87,27 @@ pub fn test_rt_swiss_hash_map(): int:
   assertEqInt(shm.ctrlPtr, 0, "ctrlPtr 0 after free")
   ret 0
 
+pub fn test_rt_swiss_tombstone_no_dup(): int:
+  mut shm = rtHashMapNew(16)
+  let sameHash = rtHashFnv1a("collide")
+  assert(rtMapInsert(shm, sameHash, 501, 10) == true, "insert 501")
+  assert(rtMapInsert(shm, sameHash, 502, 20) == true, "insert 502 colliding")
+  assertEqInt(shm.size, 2, "size 2")
+  assert(rtMapRemove(shm, sameHash, 501) == true, "remove 501 leaves tombstone")
+  assertEqInt(shm.size, 1, "size 1 after remove")
+  // Updating 502 past tombstone must update existing slot and NOT duplicate!
+  assert(rtMapInsert(shm, sameHash, 502, 99) == false, "update 502 returns false")
+  assertEqInt(shm.size, 1, "size remains 1 on update past tombstone")
+  assertEqInt(rtMapFind(shm, sameHash, 502), 99, "502 updated to 99")
+  rtMapRehash(shm, 32)
+  assertEqInt(shm.size, 1, "size 1 after rehash")
+  assertEqInt(rtMapFind(shm, sameHash, 502), 99, "502 still 99 after rehash")
+  rtMapFree(shm)
+  ret 0
+
 pub fn main(): int:
   test_rt_map_robin_hood()
   test_rt_swiss_hash_map()
+  test_rt_swiss_tombstone_no_dup()
   println("PASS: rt_map_test")
   ret 0

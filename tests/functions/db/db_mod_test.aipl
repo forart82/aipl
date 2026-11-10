@@ -3,6 +3,16 @@ import * from "std/prelude"
 import * from "std/db/db_mod"
 
 pub fn test_db_mod_barrel(): int:
-  let dbRes = sqliteOpenInMemory()
-  assert(dbRes.isOk(), "sqliteOpenInMemory via db_mod")
+  let db = sqliteOpenInMemory()
+  assert(db.isOpen == true, "sqliteOpenInMemory via db_mod")
+  ret 0
+pub fn test_db_sqlite_invalid_where_rejected(): int:
+  mut db = sqliteOpenInMemory()
+  assert(sqliteExec(db, "CREATE TABLE users (id INT, name TEXT)").isOk() == true, "create table")
+  assert(sqliteExec(db, "INSERT INTO users VALUES (1, 'Ada')").isOk() == true, "insert Ada")
+  assert(sqliteExec(db, "DELETE FROM users WHERE nonexistent_col = 1").isErr() == true, "DELETE unknown WHERE col rejected")
+  assert(sqliteExec(db, "DELETE FROM users WHERE malformed_clause").isErr() == true, "DELETE malformed WHERE rejected")
+  let qRes = sqliteQuery(db, "SELECT name FROM users")
+  assert(qRes.isOk() == true, "SELECT succeeds")
+  assertEqInt(qRes.unwrap().rows.len(), 1, "Ada was NOT wiped by invalid DELETE WHERE")
   ret 0

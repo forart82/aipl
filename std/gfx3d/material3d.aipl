@@ -173,7 +173,19 @@ pub fn evaluateMaterial3DWithLight(mat: Material3D, normal: Vec3, tangentNormal:
     y = normal.y + tangentNormal.y * mat.normalScale,
     z = normal.z + tangentNormal.z * mat.normalScale
   )
-  let baseHex = evaluateMaterial3D(mat, perturbed, viewDir, light.direction)
+  let nonEmissiveMat = Material3D(
+    name = mat.name,
+    shadingModel = mat.shadingModel,
+    albedoHex = mat.albedoHex,
+    metallic = mat.metallic,
+    roughness = mat.roughness,
+    ao = mat.ao,
+    specularStrength = mat.specularStrength,
+    shininess = mat.shininess,
+    emissiveHex = 0,
+    normalScale = mat.normalScale
+  )
+  let baseHex = evaluateMaterial3D(nonEmissiveMat, perturbed, viewDir, light.direction)
   let br = float((baseHex >> 16) & 255)
   let bg = float((baseHex >> 8) & 255)
   let bb = float(baseHex & 255)
@@ -181,11 +193,13 @@ pub fn evaluateMaterial3DWithLight(mat: Material3D, normal: Vec3, tangentNormal:
   let lg = float((light.colorHex >> 8) & 255) / 255.0
   let lb = float(light.colorHex & 255) / 255.0
   let inten = clampFloat(light.intensity, 0.0, 10.0)
-  let outR = clampInt(int(br * lr * inten + 0.5), 0, 255)
-  let outG = clampInt(int(bg * lg * inten + 0.5), 0, 255)
-  let outB = clampInt(int(bb * lb * inten + 0.5), 0, 255)
+  let emR = (mat.emissiveHex >> 16) & 255
+  let emG = (mat.emissiveHex >> 8) & 255
+  let emB = mat.emissiveHex & 255
+  let outR = clampInt(int(br * lr * inten + 0.5) + emR, 0, 255)
+  let outG = clampInt(int(bg * lg * inten + 0.5) + emG, 0, 255)
+  let outB = clampInt(int(bb * lb * inten + 0.5) + emB, 0, 255)
   ret (outR << 16) | (outG << 8) | outB
-
 pub fn createRenderPass3D(cameraPos: Vec3, lightDir: Vec3, nearClip: float): RenderPass3D:
   let emptyTris: [RenderTri3D] = []
   ret RenderPass3D(

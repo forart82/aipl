@@ -124,8 +124,10 @@ pub fn encodeWav(buffer: PcmAudioBuffer): [int]:
 pub fn resamplePcmLinear(buffer: PcmAudioBuffer, targetSampleRate: int): PcmAudioBuffer:
   if targetSampleRate <= 0 or buffer.sampleRate <= 0 or buffer.totalFrames <= 0:
     ret buffer
-  let ratio = float(buffer.sampleRate) / float(targetSampleRate)
   let ch = buffer.channels
+  if ch <= 0 or buffer.samples.len < buffer.totalFrames * ch:
+    ret PcmAudioBuffer(sampleRate = targetSampleRate, channels = if ch > 0: ch else: 1, totalFrames = 0, samples = [])
+  let ratio = float(buffer.sampleRate) / float(targetSampleRate)
   let outFrames = int(float(buffer.totalFrames) / ratio)
   mut outSamples: [float] = []
   mut f = 0
@@ -151,8 +153,10 @@ pub fn resamplePcmLinear(buffer: PcmAudioBuffer, targetSampleRate: int): PcmAudi
 pub fn resamplePcmCubic(buffer: PcmAudioBuffer, targetSampleRate: int): PcmAudioBuffer:
   if targetSampleRate <= 0 or buffer.sampleRate <= 0 or buffer.totalFrames <= 0:
     ret buffer
-  let ratio = float(buffer.sampleRate) / float(targetSampleRate)
   let ch = buffer.channels
+  if ch <= 0 or buffer.samples.len < buffer.totalFrames * ch:
+    ret PcmAudioBuffer(sampleRate = targetSampleRate, channels = if ch > 0: ch else: 1, totalFrames = 0, samples = [])
+  let ratio = float(buffer.sampleRate) / float(targetSampleRate)
   let outFrames = int(float(buffer.totalFrames) / ratio)
   mut outSamples: [float] = []
   mut f = 0
@@ -272,7 +276,10 @@ pub fn decodeWavPcm16(data: bytes): Result[[float], str]:
       idx = data.len
     else:
       let chunkSize = data[idx + 4] | (data[idx + 5] << 8) | (data[idx + 6] << 16) | (data[idx + 7] << 24)
-      idx = idx + 8 + chunkSize
+      if chunkSize < 0:
+        idx = data.len
+      else:
+        idx = idx + 8 + chunkSize + (chunkSize & 1)
   if dataOffset < 0:
     ret Err("Missing data chunk in WAV")
   let numSamples = dataLen / 2

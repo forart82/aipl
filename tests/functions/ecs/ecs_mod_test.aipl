@@ -1,9 +1,26 @@
 module tests.functions.ecs.ecs_mod_test
 
 import * from "std/ecs/ecs_mod"
-import { Option, Result, Some, None, Ok, Err, assert, assertEqInt } from "std/prelude"
+import { assert, assertEqInt, assertApproxEq } from "std/prelude"
 
 pub fn test_ecs_mod_reexports(): int:
+  mut w = createEcsWorld()
+  mut buf = createCommandBuffer()
+  buf.commands.push(EcsCommand(cmdType = CMD_SET_RESOURCE, targetEntity = EntityId(index = 0, generation = 0), paramId = 2, paramValue = 42.5))
+  w = flushCommandBuffer(w, buf)
+  assertApproxEq(getWorldResource(w, 2).unwrap(), 42.5, 0.001, "CMD_SET_RESOURCE flushed via ecs_mod")
+
+  mut bus = createEventBus()
+  mut reader = EventReader(readCursorPrev = 0, readCursorCurr = 0)
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 7, sourceEntityIndex = 1, payloadA = 1.0, payloadB = 0.0))
+  let (evs1, r1) = readNewEvents(bus, reader, 7)
+  assertEqInt(evs1.len, 1, "event read before swap")
+  bus = swapEventBuffers(bus)
+  let (evs2, r2) = readNewEvents(bus, r1, 7)
+  assertEqInt(evs2.len, 0, "event not double-read after swap")
+  bus = publishEvent(bus, EventEnvelope(eventTypeId = 7, sourceEntityIndex = 2, payloadA = 2.0, payloadB = 0.0))
+  let (evs3, _r3) = readNewEvents(bus, r2, 7)
+  assertEqInt(evs3.len, 1, "new event after swap delivered")
   ret 0
 
 fn main(): int:

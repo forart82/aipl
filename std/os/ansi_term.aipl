@@ -199,9 +199,9 @@ pub fn progressBarUpdate(mut pb: ProgressBar, current: int): str:
   if cur > pb.total:
     cur = pb.total
   pb.current = cur
-  let filled = (cur * pb.width) / pb.total
-  let empty = pb.width - filled
-  let pct = (cur * 100) / pb.total
+  let filled = if pb.total > 0: (cur * pb.width) / pb.total else: 0
+  let empty = if pb.width > filled: pb.width - filled else: 0
+  let pct = if pb.total > 0: (cur * 100) / pb.total else: 0
   ret pb.prefix + " [" + repeatChar(pb.fillChar, filled) + repeatChar(pb.emptyChar, empty) + "] " + str(pct) + "%"
 
 pub fn progressBarFinish(mut pb: ProgressBar): str:
@@ -211,11 +211,14 @@ pub fn spinnerNew(message: str): Spinner:
   ret Spinner(frames: ["-", "/", "|", "*"], currentFrame: 0, message: message)
 
 pub fn spinnerTick(mut s: Spinner): str:
-  let idx = s.currentFrame % s.frames.len()
+  if s.frames.len() == 0:
+    s.currentFrame = s.currentFrame + 1
+    ret "[nil] " + s.message
+  let curF = if s.currentFrame >= 0: s.currentFrame else: 0
+  let idx = curF % s.frames.len()
   let frame = s.frames[idx]
-  s.currentFrame = s.currentFrame + 1
+  s.currentFrame = curF + 1
   ret "[" + frame + "] " + s.message
-
 pub fn spinnerFinish(mut s: Spinner, finalMsg: str): str:
   s.message = finalMsg
   ret "[ok] " + s.message

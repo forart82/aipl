@@ -384,8 +384,10 @@ pub fn jsonQueryPath(val: JsonValue, path: str): Option[JsonValue]:
           if closeIdx < 0:
             ret None
           let idxStr = rem.slice(1, closeIdx).trim()
-          let idxVal = int(idxStr)
-          let elemOpt = cur.getIndex(idxVal)
+          let idxOpt = parseNonNegInt(idxStr)
+          if idxOpt.isNone():
+            ret None
+          let elemOpt = cur.getIndex(idxOpt.unwrap())
           if elemOpt.isNone():
             ret None
           cur = elemOpt.unwrap()
@@ -466,18 +468,6 @@ pub fn formatJsonPrettyString(jsonStr: str, indent: int = 2): str:
   if pRes.isErr():
     ret jsonStr
   ret jsonStringifyPretty(pRes.unwrap(), indent)
-
-fn skipJsonWs(s: str, idx: int): int:
-  mut i = idx
-  let n = s.len
-  while i < n:
-    let c = s.charAt(i)
-    if c == " " or c == "\t" or c == "\n" or c == "\r":
-      i = i + 1
-    else:
-      ret i
-  ret i
-
 fn findJsonValueEnd(s: str, startIdx: int): int:
   let i0 = skipJsonWs(s, startIdx)
   let n = s.len
@@ -591,6 +581,8 @@ fn extractArrayIndexRaw(jsonArr: str, targetIdx: int): Option[str]:
       ret None
     if s.charAt(i) == ",":
       i = skipJsonWs(s, i + 1)
+      if i >= n or s.charAt(i) == "]":
+        ret None
     let valStart = skipJsonWs(s, i)
     let valEnd = findJsonValueEnd(s, valStart)
     if curIdx == targetIdx:

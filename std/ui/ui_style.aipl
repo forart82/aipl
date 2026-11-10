@@ -215,14 +215,24 @@ fn parseHexColorRgb(s: str): Result[RgbColor, str]:
       ret Err("invalid hex color")
     ret Ok(RgbColor(r = r * 17, g = g * 17, b = b * 17, a = 255))
   if hex.len == 6 or hex.len == 8:
-    let r = hexNibbleVal(hex.charAt(0)) * 16 + hexNibbleVal(hex.charAt(1))
-    let g = hexNibbleVal(hex.charAt(2)) * 16 + hexNibbleVal(hex.charAt(3))
-    let b = hexNibbleVal(hex.charAt(4)) * 16 + hexNibbleVal(hex.charAt(5))
-    if r < 0 or g < 0 or b < 0:
+    let rHi = hexNibbleVal(hex.charAt(0))
+    let rLo = hexNibbleVal(hex.charAt(1))
+    let gHi = hexNibbleVal(hex.charAt(2))
+    let gLo = hexNibbleVal(hex.charAt(3))
+    let bHi = hexNibbleVal(hex.charAt(4))
+    let bLo = hexNibbleVal(hex.charAt(5))
+    if rHi < 0 or rLo < 0 or gHi < 0 or gLo < 0 or bHi < 0 or bLo < 0:
       ret Err("invalid hex color")
+    let r = rHi * 16 + rLo
+    let g = gHi * 16 + gLo
+    let b = bHi * 16 + bLo
     mut a = 255
     if hex.len == 8:
-      a = hexNibbleVal(hex.charAt(6)) * 16 + hexNibbleVal(hex.charAt(7))
+      let aHi = hexNibbleVal(hex.charAt(6))
+      let aLo = hexNibbleVal(hex.charAt(7))
+      if aHi < 0 or aLo < 0:
+        ret Err("invalid hex color")
+      a = aHi * 16 + aLo
     ret Ok(RgbColor(r = r, g = g, b = b, a = a))
   ret Err("invalid hex color length")
 
@@ -323,7 +333,7 @@ pub fn toCssRgba(rgb: RgbColor): str:
   ret "rgba({rgb.r}, {rgb.g}, {rgb.b}, {aFloat})"
 
 pub fn toCssHsl(hsl: HslColor): str:
-  let h = int(wrapHue(hsl.h) + 0.5)
+  let h = int(wrapHue(hsl.h) + 0.5) % 360
   let s = int(clampUnit(hsl.s) * 100.0 + 0.5)
   let l = int(clampUnit(hsl.l) * 100.0 + 0.5)
   ret "hsl({h}, {s}%, {l}%)"
@@ -426,11 +436,10 @@ pub fn paletteShades(base: RgbColor, steps: int = 5): [RgbColor]:
 // =============================================================================
 
 pub fn packedHexToRgb(hex: int): RgbColor:
-  let r = (hex / 65536) % 256
-  let g = (hex / 256) % 256
-  let b = hex % 256
-  ret RgbColor(r = clampByte(r), g = clampByte(g), b = clampByte(b), a = 255)
-
+  let r = (hex >> 16) & 255
+  let g = (hex >> 8) & 255
+  let b = hex & 255
+  ret RgbColor(r = r, g = g, b = b, a = 255)
 pub fn rgbToPackedHex(rgb: RgbColor): int:
   let r = clampByte(rgb.r)
   let g = clampByte(rgb.g)

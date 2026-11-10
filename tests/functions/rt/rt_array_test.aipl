@@ -79,8 +79,33 @@ pub fn test_rt_array_header(): int:
   assertEqInt(hdr.dataPtr, 0, "hdr dataPtr 0 after free")
   ret 0
 
+pub fn test_rt_array_small_elem_sizes(): int:
+  mut u8Arr = rtArrayNew(4, 1)
+  mut i = 0
+  while i < 16:
+    rtArrayPush(u8Arr, 200 + i)
+    i += 1
+  assertEqInt(rtArrayLen(u8Arr), 16, "u8Arr len 16")
+  assertEqInt(rtArrayGet(u8Arr, 0), 200, "u8Arr[0] == 200")
+  assertEqInt(rtArrayGet(u8Arr, 15), 215, "u8Arr[15] == 215")
+  assert(rtArraySet(u8Arr, 5, 42) == true, "u8Arr set 5")
+  assertEqInt(rtArrayGet(u8Arr, 5), 42, "u8Arr[5] == 42")
+  assertEqInt(rtArrayPop(u8Arr), 215, "u8Arr pop == 215")
+  rtArrayFree(u8Arr)
+
+  mut u32Arr = rtArrayNew(2, 4)
+  rtArrayPush(u32Arr, 0x12345678)
+  rtArrayPush(u32Arr, 0x7ABCDEF0)
+  rtArrayPush(u32Arr, 999999)
+  assertEqInt(rtArrayGet(u32Arr, 0), 0x12345678, "u32Arr[0]")
+  assertEqInt(rtArrayGet(u32Arr, 1), 0x7ABCDEF0, "u32Arr[1]")
+  assertEqInt(rtArrayPop(u32Arr), 999999, "u32Arr pop")
+  rtArrayFree(u32Arr)
+  ret 0
+
 pub fn main(): int:
   test_rt_array_ops()
   test_rt_array_header()
+  test_rt_array_small_elem_sizes()
   println("PASS: rt_array_test")
   ret 0

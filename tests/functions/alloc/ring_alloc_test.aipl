@@ -56,7 +56,34 @@ pub fn test_ring_alloc_lifecycle(): int:
   assertEqInt(ringAvailable(ring), 0, "available 0 after destroy")
   ret 0
 
+pub fn test_ring_alloc_wrap_safety(): int:
+  mut ring = ringAllocNew(256)
+  let a1 = ringAlloc(ring, 100)
+  let a2 = ringAlloc(ring, 100)
+  assert(a1 == ring.baseAddr, "a1 at base")
+  assert(a2 == ring.baseAddr + 100, "a2 at +100")
+  ringFreeOldest(ring, 100)
+  assertEqInt(ring.tail, 100, "tail at 100")
+  // Wrap around: 80 bytes at [0, 80), while [100, 200) is still live!
+  let a3 = ringAlloc(ring, 80)
+  assertEqInt(a3, ring.baseAddr, "a3 wrapped to baseAddr")
+  assertEqInt(ring.head, 80, "head at 80")
+  assertEqInt(ring.tail, 100, "tail still 100")
+  // Attempting 30 bytes while wrapped must fail (80 + 30 > 100 would overwrite live a2!)
+  let bad = ringAlloc(ring, 30)
+  assertEqInt(bad, 0, "wrapped alloc crossing tail rejected")
+  // 20 bytes fits exactly in [80, 100)
+  let a4 = ringAlloc(ring, 20)
+  assertEqInt(a4, ring.baseAddr + 80, "a4 fits at +80")
+  // Freeing a2 (100 bytes) skips the 56-byte unused tail gap [200, 256) and lands tail at 0!
+  ringFreeOldest(ring, 100)
+  assertEqInt(ring.tail, 0, "tail skips unused wrap padding to 0")
+  assertEqInt(ring.usedBytes, 100, "100 post-wrap bytes remain live")
+  ringDestroy(ring)
+  ret 0
+
 pub fn main(): int:
   test_ring_alloc_lifecycle()
+  test_ring_alloc_wrap_safety()
   println("PASS: ring_alloc_test")
   ret 0

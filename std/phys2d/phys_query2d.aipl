@@ -16,7 +16,10 @@ pub struct RayHit2D(bodyId: int, point: Vec2, normal: Vec2, fraction: float, hit
 fn extractRayDir2D(ray: Ray2D): Vec2:
   let dirPrimary: Vec2 = ray.direction
   let dirFallback: Vec2 = ray.dir
-  if dirPrimary.x != 1.0 or dirPrimary.y != 0.0:
+  if dirPrimary.x == 1.0 and dirPrimary.y == 0.0 and (dirFallback.x != 1.0 or dirFallback.y != 0.0):
+    if absFloat(dirFallback.x) > 0.000001 or absFloat(dirFallback.y) > 0.000001:
+      ret dirFallback
+  if absFloat(dirPrimary.x) > 0.000001 or absFloat(dirPrimary.y) > 0.000001:
     ret dirPrimary
   ret dirFallback
 
@@ -170,6 +173,35 @@ pub fn shapeCastCircle2D(startPos: Vec2, radius: float, delta: Vec2, colliders: 
     let col: Collider2D = colliders[i]
     if col.shapeType == ColliderShapeType2D.Circle:
       let hOpt = raycast2dCircle(ray, col.offset, col.circleRadius + radius)
+      if hOpt.isSome():
+        let h: RayHit2D = hOpt.unwrap()
+        if h.fraction < bestFrac:
+          bestFrac = h.fraction
+          bestHit = Some(h)
+    elif col.shapeType == ColliderShapeType2D.Capsule:
+      let capExt = Vec2(x = col.circleRadius + radius, y = col.capsuleLength * 0.5 + col.circleRadius + radius)
+      let hOpt = raycast2dBox(ray, col.offset, capExt, 0.0)
+      if hOpt.isSome():
+        let h: RayHit2D = hOpt.unwrap()
+        if h.fraction < bestFrac:
+          bestFrac = h.fraction
+          bestHit = Some(h)
+    elif col.shapeType == ColliderShapeType2D.ConvexPolygon and col.polygonVertices.len > 0:
+      mut minX = col.polygonVertices[0].x
+      mut maxX = col.polygonVertices[0].x
+      mut minY = col.polygonVertices[0].y
+      mut maxY = col.polygonVertices[0].y
+      mut v = 1
+      while v < col.polygonVertices.len:
+        let pt: Vec2 = col.polygonVertices[v]
+        if pt.x < minX: minX = pt.x
+        if pt.x > maxX: maxX = pt.x
+        if pt.y < minY: minY = pt.y
+        if pt.y > maxY: maxY = pt.y
+        v = v + 1
+      let polyCenter = Vec2(x = col.offset.x + (minX + maxX) * 0.5, y = col.offset.y + (minY + maxY) * 0.5)
+      let polyExt = Vec2(x = (maxX - minX) * 0.5 + radius, y = (maxY - minY) * 0.5 + radius)
+      let hOpt = raycast2dBox(ray, polyCenter, polyExt, 0.0)
       if hOpt.isSome():
         let h: RayHit2D = hOpt.unwrap()
         if h.fraction < bestFrac:

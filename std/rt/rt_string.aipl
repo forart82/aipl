@@ -85,28 +85,52 @@ pub fn rtStringTableIntern(mut tbl: RtStringTable, dataPtr: int, len: int): int:
   if dataPtr == 0 or len < 0:
     ret 0
   let h = rtStringHash(dataPtr, len)
-  let cap = tbl.buckets.len
+  mut cap = tbl.buckets.len
   if cap <= 0:
     ret dataPtr
-  mut idx = h % cap
-  if idx < 0:
-    idx = -idx
-  let existing = tbl.buckets[idx]
-  if existing != 0:
+  if (tbl.count + 1) * 2 > cap:
+    let newCap = cap * 2
+    mut newBuckets: [int] = []
+    mut k = 0
+    while k < newCap:
+      newBuckets.push(0)
+      k += 1
+    mut oldIdx = 0
+    while oldIdx < cap:
+      let ex = tbl.buckets[oldIdx]
+      if ex != 0:
+        let exHash = ptrReadI64(ex, 8)
+        let rem = exHash % newCap
+        mut slot = if rem < 0: rem + newCap else: rem
+        while newBuckets[slot] != 0:
+          slot = (slot + 1) % newCap
+        newBuckets[slot] = ex
+      oldIdx += 1
+    tbl.buckets = newBuckets
+    cap = newCap
+  let rem0 = h % cap
+  mut idx = if rem0 < 0: rem0 + cap else: rem0
+  mut step = 0
+  while step < cap:
+    let existing = tbl.buckets[idx]
+    if existing == 0:
+      let entry = ptrAlloc(16 + len + 1)
+      if entry != 0:
+        ptrWriteI64(entry, 0, len)
+        ptrWriteI64(entry, 8, h)
+        if len > 0:
+          ptrMemcpy(entry, 16, dataPtr, 0, len)
+        ptrWriteU8(entry, 16 + len, 0)
+        tbl.buckets[idx] = entry
+        tbl.count += 1
+        ret entry + 16
+      ret 0
     let exLen = ptrReadI64(existing, 0)
     let exData = existing + 16
     if exLen == len and rtStringCompare(exData, exLen, dataPtr, len) == 0:
       ret exData
-  let entry = ptrAlloc(16 + len + 1)
-  if entry != 0:
-    ptrWriteI64(entry, 0, len)
-    ptrWriteI64(entry, 8, h)
-    if len > 0:
-      ptrMemcpy(entry, 16, dataPtr, 0, len)
-    ptrWriteU8(entry, 16 + len, 0)
-    tbl.buckets[idx] = entry
-    tbl.count += 1
-    ret entry + 16
+    idx = (idx + 1) % cap
+    step += 1
   ret 0
 
 pub fn rtStrNew(capacity: int): RtString:
@@ -117,12 +141,13 @@ pub fn rtStrNew(capacity: int): RtString:
   ret RtString(data = ptr, len = 0, cap = realCap)
 
 pub fn rtStrFromRaw(ptr: int, len: int): RtString:
-  let buf = ptrAlloc(len + 1)
-  if len > 0 and ptr != 0 and buf != 0:
-    ptrCopy(buf, ptr, len)
+  let safeLen = if len > 0: len else: 0
+  let buf = ptrAlloc(safeLen + 1)
+  if safeLen > 0 and ptr != 0 and buf != 0:
+    ptrCopy(buf, ptr, safeLen)
   if buf != 0:
-    ptrWriteU8(buf, len, 0)
-  ret RtString(data = buf, len = len, cap = len)
+    ptrWriteU8(buf, safeLen, 0)
+  ret RtString(data = buf, len = safeLen, cap = safeLen)
 
 pub fn rtStrLen(s: RtString): int:
   ret s.len
@@ -163,7 +188,11 @@ pub fn rtStrConcat(a: RtString, b: RtString): RtString:
 
 pub fn rtStrIndexOf(haystack: RtString, needle: RtString, fromIndex: int = 0): int:
   if needle.len == 0:
-    ret 0
+    if fromIndex < 0:
+      ret 0
+    if fromIndex > haystack.len:
+      ret haystack.len
+    ret fromIndex
   if haystack.len < needle.len:
     ret -1
   mut i = if fromIndex < 0: 0 else: fromIndex
@@ -188,15 +217,13 @@ pub fn rtIntToStr(val: int): RtString:
       ptrWriteU8(buf, 0, 48)
       ptrWriteU8(buf, 1, 0)
     ret RtString(data = buf, len = 1, cap = 1)
-  mut isNeg = false
+  let isNeg = val < 0
   mut v = val
-  if v < 0:
-    isNeg = true
-    v = -v
   let buf = ptrAlloc(24)
   mut tempDigits: [int] = []
-  while v > 0:
-    let digit = v % 10
+  while v != 0:
+    let rem = v % 10
+    let digit = if rem < 0: -rem else: rem
     tempDigits.push(48 + digit)
     v = v / 10
   mut pos = 0

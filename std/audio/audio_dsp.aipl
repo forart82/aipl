@@ -21,7 +21,8 @@ pub struct CompressorConfig(thresholdDb: float, ratio: float, attackMs: float, r
 
 pub fn createBiquadLowPass(sampleRate: float, cutoffHz: float, q: float = 0.7071): BiquadFilter:
   let sr = if sampleRate > 0.0: sampleRate else: 44100.0
-  let fc = if cutoffHz > 1.0: cutoffHz else: 500.0
+  let rawFc = if cutoffHz > 1.0: cutoffHz else: 500.0
+  let fc = if rawFc > sr * 0.49: sr * 0.49 else: rawFc
   let safeQ = if q > 0.01: q else: 0.7071
   let w0 = 2.0 * 3.141592653589793 * (fc / sr)
   let cosW0 = cos(w0)
@@ -48,7 +49,8 @@ pub fn createBiquadLowPass(sampleRate: float, cutoffHz: float, q: float = 0.7071
 
 pub fn createBiquadHighPass(sampleRate: float, cutoffHz: float, q: float = 0.7071): BiquadFilter:
   let sr = if sampleRate > 0.0: sampleRate else: 44100.0
-  let fc = if cutoffHz > 1.0: cutoffHz else: 500.0
+  let rawFc = if cutoffHz > 1.0: cutoffHz else: 500.0
+  let fc = if rawFc > sr * 0.49: sr * 0.49 else: rawFc
   let safeQ = if q > 0.01: q else: 0.7071
   let w0 = 2.0 * 3.141592653589793 * (fc / sr)
   let cosW0 = cos(w0)
@@ -313,7 +315,8 @@ pub fn fxApplyPhaser(samples: [float], lfoRateHz: float, depth: float, feedback:
   while i < n:
     let t = float(i) / sr
     let lfo = 0.5 + 0.5 * sin(6.283185307179586 * rateHz * t)
-    let sweepHz = 300.0 + 2100.0 * lfo * dep
+    let rawSweepHz = 300.0 + 2100.0 * lfo * dep
+    let sweepHz = if rawSweepHz > sr * 0.45: sr * 0.45 else: rawSweepHz
     let g = tan(3.141592653589793 * sweepHz / sr)
     let a = (1.0 - g) / (1.0 + g)
     mut y = samples[i] + fbSample * fb

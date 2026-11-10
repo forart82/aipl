@@ -1,11 +1,18 @@
-// Generated barrel test suite for std/asset/asset_mod.aipl
 module tests.functions.asset.asset_mod_test
 
-import "std/asset/asset_mod"
-import { assert } from "std/prelude"
+import * from "std/asset/asset_mod"
+import { assert, assertEqInt } from "std/prelude"
 
 pub fn test_step_10_16_barrel(): int:
-  assert(true, "std/asset/asset_mod.aipl barrel loaded")
+  mut mgr = createAssetManager(true)
+  mgr = cacheImage(mgr, "hero.png", 11)
+  assertEqInt(getCachedImage(mgr, "hero.png"), 11, "cacheImage stores path id")
+  mgr = notifyAssetFileChanged(mgr, "hero.png")
+  assertEqInt(getCachedImage(mgr, "hero.png"), 1011, "notifyAssetFileChanged hot-reloads cached image id")
+  mgr = cacheImage(mgr, "hero.png", 22)
+  assertEqInt(findCachedId(mgr.imagePaths, mgr.imageIds, "hero.png"), 22, "findCachedId returns latest entry")
+  let hdr = createAiplApkPayloadHeader("app", 1)
+  assertEqInt(hdr.bootMode, BOOT_LOCKED_SINGLE_APP, "apk_container_format reexported by asset_mod")
   ret 0
 
 pub fn main(): int:

@@ -7,34 +7,39 @@ module EcsEventMod
 
 pub struct EventEnvelope(eventTypeId: int, sourceEntityIndex: int, payloadA: float, payloadB: float)
 
-pub struct EventBus(currentQueue: [EventEnvelope], previousQueue: [EventEnvelope])
+pub struct EventBus(currentQueue: [EventEnvelope], previousQueue: [EventEnvelope], generation: int = 0)
 
-pub struct EventReader(readCursorPrev: int, readCursorCurr: int)
+pub struct EventReader(readCursorPrev: int, readCursorCurr: int, generation: int = 0)
 
 pub fn createEventBus(): EventBus:
   mut curr: [EventEnvelope] = []
   mut prev: [EventEnvelope] = []
-  ret EventBus(currentQueue = curr, previousQueue = prev)
+  ret EventBus(currentQueue = curr, previousQueue = prev, generation = 0)
 
 pub fn publishEvent(bus: EventBus, ev: EventEnvelope): EventBus:
   mut curr = bus.currentQueue
   curr.push(ev)
-  ret EventBus(currentQueue = curr, previousQueue = bus.previousQueue)
+  ret EventBus(currentQueue = curr, previousQueue = bus.previousQueue, generation = bus.generation)
 
 pub fn swapEventBuffers(bus: EventBus): EventBus:
   mut freshCurr: [EventEnvelope] = []
-  ret EventBus(currentQueue = freshCurr, previousQueue = bus.currentQueue)
+  ret EventBus(currentQueue = freshCurr, previousQueue = bus.currentQueue, generation = bus.generation + 1)
 
 pub fn readNewEvents(bus: EventBus, reader: EventReader, eventTypeId: int): ([EventEnvelope], EventReader):
   mut out: [EventEnvelope] = []
-  mut pCursor = reader.readCursorPrev
+  let genDiff = bus.generation - reader.generation
+  mut pCursor = if genDiff <= 0: reader.readCursorPrev elif genDiff == 1: reader.readCursorCurr else: 0
+  mut cCursor = if genDiff <= 0: reader.readCursorCurr else: 0
+  if pCursor < 0:
+    pCursor = 0
+  if cCursor < 0:
+    cCursor = 0
   while pCursor < bus.previousQueue.len:
     let ev: EventEnvelope = bus.previousQueue[pCursor]
     if ev.eventTypeId == eventTypeId:
       out.push(ev)
     pCursor = pCursor + 1
 
-  mut cCursor = reader.readCursorCurr
   while cCursor < bus.currentQueue.len:
     let ev: EventEnvelope = bus.currentQueue[cCursor]
     if ev.eventTypeId == eventTypeId:
@@ -43,5 +48,5 @@ pub fn readNewEvents(bus: EventBus, reader: EventReader, eventTypeId: int): ([Ev
 
   ret (
     out,
-    EventReader(readCursorPrev = pCursor, readCursorCurr = cCursor)
+    EventReader(readCursorPrev = pCursor, readCursorCurr = cCursor, generation = bus.generation)
   )

@@ -64,3 +64,26 @@ pub fn test_compress_mod_decompressZstd_6(): int:
   assert(resNom.isOk() == false, "decompressZstd nominal resNom.isOk() == false")
   assert(resEdge.isOk() == false, "decompressZstd boundary resEdge.isOk() == false")
   ret 0
+pub fn test_compress_len258_and_zstd_rle_roundtrip(): int:
+  mut rep: [int] = []
+  mut i = 0
+  while i < 600:
+    rep.push(65)
+    i = i + 1
+  let rawBytes = bytesFromArray(rep)
+  let gz = compressGzip(rawBytes)
+  let unGz = decompressGzip(gz)
+  assert(unGz.isOk() == true, "gzip 600-byte match len=258 decompresses cleanly")
+  assertEqInt(unGz.unwrap().len(), 600, "gzip roundtrip len == 600")
+  let zs = compressZstd(rawBytes, 3)
+  let unZs = decompressZstd(zs)
+  assert(unZs.isOk() == true, "zstd 600-byte roundtrip succeeds")
+  assertEqInt(unZs.unwrap().len(), 600, "zstd roundtrip len == 600")
+  // Explicit RFC 8878 RLE block (blockType=1, blockSize=50, 1 wire byte 'Z'=90)
+  let bh = (1 << 1) | (50 << 3)
+  let rleFrame = bytesFromArray([40, 181, 47, 253, 0, 50, 0, 0, 0, bh & 255, (bh >> 8) & 255, (bh >> 16) & 255, 90])
+  let rleRes = zstdDecompress(rleFrame)
+  assert(rleRes.isOk() == true, "zstd RLE 1-byte wire block decompresses")
+  assertEqInt(rleRes.unwrap().len(), 50, "zstd RLE regenerated 50 bytes")
+  assertEqInt(rleRes.unwrap()[49], 90, "zstd RLE byte is 'Z'")
+  ret 0

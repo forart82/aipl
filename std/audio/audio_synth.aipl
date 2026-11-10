@@ -184,18 +184,24 @@ pub fn freqHzToMidiNote(freqHz: float): int:
 pub fn evalAdsrEnvelope(t: float, attack: float, decay: float, sustainLevel: float, releaseTime: float, noteDuration: float): float:
   if t < 0.0:
     ret 0.0
+  let safeDur = if noteDuration > 0.0: noteDuration else: 0.0
+  if t > safeDur:
+    let rt = t - safeDur
+    if rt >= releaseTime:
+      ret 0.0
+    mut releaseStart = sustainLevel
+    if safeDur < attack:
+      releaseStart = if attack > 0.0001: safeDur / attack else: 1.0
+    elif safeDur < attack + decay:
+      let dts = (safeDur - attack) / (if decay > 0.0001: decay else: 0.0001)
+      releaseStart = 1.0 + (sustainLevel - 1.0) * dts
+    ret releaseStart * (1.0 - rt / (if releaseTime > 0.0001: releaseTime else: 0.0001))
   if t < attack:
     ret if attack > 0.0001: t / attack else: 1.0
   if t < attack + decay:
     let dt = (t - attack) / (if decay > 0.0001: decay else: 0.0001)
     ret 1.0 + (sustainLevel - 1.0) * dt
-  if t < noteDuration:
-    ret sustainLevel
-  let rt = t - noteDuration
-  if rt >= releaseTime:
-    ret 0.0
-  ret sustainLevel * (1.0 - rt / (if releaseTime > 0.0001: releaseTime else: 0.0001))
-
+  ret sustainLevel
 pub fn polyBlep(t: float, dt: float): float:
   if dt <= 0.0000001:
     ret 0.0
@@ -311,6 +317,22 @@ pub fn ahdsrNew(attackSec: float, holdSec: float, decaySec: float, sustainLevel:
 pub fn evalAhdsrEnvelope(env: AhdsrEnvelope, t: float, noteOnDuration: float): float:
   if t < 0.0:
     ret 0.0
+  let safeOn = if noteOnDuration > 0.0: noteOnDuration else: 0.0
+  if t > safeOn:
+    let rt = t - safeOn
+    if rt >= env.releaseSec:
+      ret 0.0
+    mut releaseStart = env.sustainLevel
+    if safeOn < env.attackSec:
+      let ua = safeOn / (if env.attackSec > 0.00001: env.attackSec else: 0.00001)
+      releaseStart = pow(ua, env.curvePower)
+    elif safeOn < env.attackSec + env.holdSec:
+      releaseStart = 1.0
+    elif safeOn < env.attackSec + env.holdSec + env.decaySec:
+      let ud = (safeOn - env.attackSec - env.holdSec) / (if env.decaySec > 0.00001: env.decaySec else: 0.00001)
+      releaseStart = 1.0 - (1.0 - env.sustainLevel) * pow(ud, env.curvePower)
+    let ur = rt / (if env.releaseSec > 0.00001: env.releaseSec else: 0.00001)
+    ret releaseStart * (1.0 - pow(ur, env.curvePower))
   if t < env.attackSec:
     let u = t / (if env.attackSec > 0.00001: env.attackSec else: 0.00001)
     ret pow(u, env.curvePower)
@@ -319,14 +341,7 @@ pub fn evalAhdsrEnvelope(env: AhdsrEnvelope, t: float, noteOnDuration: float): f
   if t < env.attackSec + env.holdSec + env.decaySec:
     let u = (t - env.attackSec - env.holdSec) / (if env.decaySec > 0.00001: env.decaySec else: 0.00001)
     ret 1.0 - (1.0 - env.sustainLevel) * pow(u, env.curvePower)
-  if t < noteOnDuration:
-    ret env.sustainLevel
-  let rt = t - noteOnDuration
-  if rt >= env.releaseSec:
-    ret 0.0
-  let u = rt / (if env.releaseSec > 0.00001: env.releaseSec else: 0.00001)
-  ret env.sustainLevel * (1.0 - pow(u, env.curvePower))
-
+  ret env.sustainLevel
 pub struct FmOperatorPatch(ratio: float, modIndex: float, feedback: float, attackSec: float, decaySec: float, sustainLevel: float, releaseSec: float)
 
 pub struct Fm4OpPatch(algorithm: int, op1: FmOperatorPatch, op2: FmOperatorPatch, op3: FmOperatorPatch, op4: FmOperatorPatch)

@@ -195,9 +195,10 @@ pub fn cidrContains(cidr: CidrBlock, ip: Ipv4Addr): bool:
     ret true
   let netVal = ipv4ToU32(cidr.network.v4)
   let ipVal = ipv4ToU32(ip)
+  if cidr.prefixLen >= 32:
+    ret netVal == ipVal
   let shift = 32 - cidr.prefixLen
   ret (netVal >> shift) == (ipVal >> shift)
-
 pub fn decodeQueryString(qs: str): Map[str, str]:
   mut m = mapNew()
   mut clean = qs.trim()
@@ -266,13 +267,13 @@ pub fn parseUrl(rawUrl: str): Option[Url]:
 
   mut host = authority
   mut port = if scheme == "https" or scheme == "wss": 443 else: 80
+  let rBrk = authority.indexOf("]")
   let colonIdx = authority.lastIndexOf(":")
-  if colonIdx > 0:
+  if colonIdx > 0 and (rBrk < 0 or colonIdx > rBrk):
     host = authority.slice(0, colonIdx)
     let pOpt = authority.slice(colonIdx + 1, authority.len()).toInt()
     if pOpt.isSome():
       port = pOpt.unwrap()
-
   let qMap = decodeQueryString(queryStr)
   ret Some(Url(
     scheme: scheme,

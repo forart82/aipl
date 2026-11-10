@@ -42,17 +42,18 @@ fn tomlListVal(items: [TomlValue]): TomlValue:
   ret TomlValue(kind = "list", strVal = "", intVal = 0, floatVal = 0.0, boolVal = false, listVal = items, tableVal = emptyTable)
 
 fn stripTomlComment(line: str): str:
-  mut inQuote = false
+  mut quoteChar = 0
   mut i = 0
   while i < line.len:
     let c = line.charCodeAt(i)
-    if c == 34:
-      inQuote = not inQuote
-    elif c == 35 and not inQuote:
+    if quoteChar == 0 and (c == 34 or c == 39):
+      quoteChar = c
+    elif quoteChar != 0 and c == quoteChar:
+      quoteChar = 0
+    elif c == 35 and quoteChar == 0:
       ret line.slice(0, i).trim()
     i = i + 1
   ret line.trim()
-
 fn parseTomlScalar(raw: str): TomlValue:
   let t = raw.trim()
   if (t.startsWith("\"") and t.endsWith("\"") and t.len >= 2) or (t.startsWith("'") and t.endsWith("'") and t.len >= 2):
@@ -215,7 +216,8 @@ pub fn getTomlValue(src: str, section: str, key: str, defaultVal: str): str:
   mut i = 0
   while i < doc.rootTable.len:
     let pair = doc.rootTable[i]
-    if pair[0] == fullKey or pair[0] == key:
+    let matchesKey = if section.len > 0: pair[0] == fullKey else: pair[0] == key
+    if matchesKey:
       ret pair[1].strVal
     i = i + 1
   ret defaultVal

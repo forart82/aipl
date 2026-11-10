@@ -319,11 +319,16 @@ pub fn isoGridMapNew(cols: int, rows: int, tileW: float, tileH: float, defaultHe
 pub fn isoGridGetHeight(map: IsoGridMap, col: int, row: int): float:
   if col < 0 or col >= map.cols or row < 0 or row >= map.rows:
     ret 0.0
-  ret map.heights[row * map.cols + col]
+  let idx = row * map.cols + col
+  if idx < 0 or idx >= map.heights.len:
+    ret 0.0
+  ret map.heights[idx]
 
 pub fn isoGridSetHeight(mut map: IsoGridMap, col: int, row: int, height: float): IsoGridMap:
   if col >= 0 and col < map.cols and row >= 0 and row < map.rows:
-    map.heights[row * map.cols + col] = height
+    let idx = row * map.cols + col
+    if idx >= 0 and idx < map.heights.len:
+      map.heights[idx] = height
   ret map
 
 /// Front-to-back heightfield ray-marching tile picker for elevated 2.5D isometric tiles.
@@ -494,7 +499,7 @@ pub fn drawTileIsoDiamondWireframe(cx: float, cy: float, tileW: float, tileH: fl
   let cG = clampInt(g, 0, 255)
   let cB = clampInt(b, 0, 255)
   let cA = clampInt(a, 0, 255)
-  let col = rgba(cR, cG, cB, cA)
+  let col = rgba(cR, cG, cB, float(cA) / 255.0)
   let topX = cx
   let topY = cy - hh
   let rightX = cx + hw
@@ -518,11 +523,12 @@ pub fn drawTileHeightfieldPrism25D(cx: float, cy: float, tileW: float, tileH: fl
   let cG = clampInt(g, 0, 255)
   let cB = clampInt(b, 0, 255)
   let cA = clampInt(a, 0, 255)
+  let alphaF = float(cA) / 255.0
 
-  let topCol = rgba(minInt(255, int(float(cR) * 1.12)), minInt(255, int(float(cG) * 1.12)), minInt(255, int(float(cB) * 1.12)), cA)
-  let leftCol = rgba(int(float(cR) * 0.80), int(float(cG) * 0.80), int(float(cB) * 0.80), cA)
-  let rightCol = rgba(int(float(cR) * 0.62), int(float(cG) * 0.62), int(float(cB) * 0.62), cA)
-  let edgeCol = rgba(minInt(255, cR + 36), minInt(255, cG + 36), minInt(255, cB + 36), minInt(255, cA + 20))
+  let topCol = rgba(minInt(255, int(float(cR) * 1.12)), minInt(255, int(float(cG) * 1.12)), minInt(255, int(float(cB) * 1.12)), alphaF)
+  let leftCol = rgba(int(float(cR) * 0.80), int(float(cG) * 0.80), int(float(cB) * 0.80), alphaF)
+  let rightCol = rgba(int(float(cR) * 0.62), int(float(cG) * 0.62), int(float(cB) * 0.62), alphaF)
+  let edgeCol = rgba(minInt(255, cR + 36), minInt(255, cG + 36), minInt(255, cB + 36), float(minInt(255, cA + 20)) / 255.0)
 
   let bxR = cx + hw
   let byR = cy

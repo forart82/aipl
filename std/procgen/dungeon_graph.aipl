@@ -89,13 +89,37 @@ pub fn delaunayTriangulateRooms(rooms: [DungeonRoom]): [IVec2]:
 
 pub fn minimumSpanningTreeCorridors(rooms: [DungeonRoom], edges: [IVec2], extraEdgeProbability: float, seed: int): [DungeonCorridor]:
   let n = rooms.len
+  mut corridors: [DungeonCorridor] = []
+  if n == 0 or edges.len == 0:
+    ret corridors
   mut parent: [int] = []
   mut i = 0
   while i < n:
     parent.push(i)
     i = i + 1
 
-  mut sortedEdges = edges
+  mut validEdges: [IVec2] = []
+  mut ei = 0
+  while ei < edges.len:
+    let ev: IVec2 = edges[ei]
+    mut idxA = -1
+    mut idxB = -1
+    mut ri = 0
+    while ri < n:
+      if rooms[ri].id == ev.x:
+        idxA = ri
+      if rooms[ri].id == ev.y:
+        idxB = ri
+      ri = ri + 1
+    if idxA < 0 and ev.x >= 0 and ev.x < n:
+      idxA = ev.x
+    if idxB < 0 and ev.y >= 0 and ev.y < n:
+      idxB = ev.y
+    if idxA >= 0 and idxB >= 0:
+      validEdges.push(IVec2(x = idxA, y = idxB))
+    ei = ei + 1
+
+  mut sortedEdges = validEdges
   let m = sortedEdges.len
   mut a = 0
   while a < m:
@@ -115,7 +139,6 @@ pub fn minimumSpanningTreeCorridors(rooms: [DungeonRoom], edges: [IVec2], extraE
       b = b + 1
     a = a + 1
 
-  mut corridors: [DungeonCorridor] = []
   mut s = if seed != 0: seed else: 1
   mut k = 0
   while k < m:
@@ -135,8 +158,8 @@ pub fn minimumSpanningTreeCorridors(rooms: [DungeonRoom], edges: [IVec2], extraE
       let rb: DungeonRoom = rooms[edge.y]
       let corner = Vec2(x = rb.center.x, y = ra.center.y)
       corridors.push(DungeonCorridor(
-        roomA = edge.x,
-        roomB = edge.y,
+        roomA = ra.id,
+        roomB = rb.id,
         waypoints = [ra.center, corner, rb.center],
         width = 2.0
       ))
@@ -145,6 +168,8 @@ pub fn minimumSpanningTreeCorridors(rooms: [DungeonRoom], edges: [IVec2], extraE
 
 pub fn carveDungeonGrid(rooms: [DungeonRoom], corridors: [DungeonCorridor], gridWidth: int, gridHeight: int): CellularGrid2D:
   mut cells: [int] = []
+  if gridWidth <= 0 or gridHeight <= 0:
+    ret CellularGrid2D(width = 0, height = 0, cells = cells)
   mut i = 0
   while i < gridWidth * gridHeight:
     cells.push(0)

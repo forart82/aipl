@@ -61,8 +61,8 @@ pub fn verletStepSimulation(mut cloth: VerletClothGrid2D, gravity: Vec2, iterati
       let prv: Vec2 = p.prevPosition
       let vx = (cur.x - prv.x) * 0.99
       let vy = (cur.y - prv.y) * 0.99
-      let nx = cur.x + vx + gravity.x * dtSq
-      let ny = cur.y + vy + gravity.y * dtSq
+      let nx = cur.x + vx + (gravity.x + p.acceleration.x) * dtSq
+      let ny = cur.y + vy + (gravity.y + p.acceleration.y) * dtSq
       pts[i] = VerletParticle2D(
         position = Vec2(x = nx, y = ny),
         prevPosition = cur,
@@ -76,29 +76,30 @@ pub fn verletStepSimulation(mut cloth: VerletClothGrid2D, gravity: Vec2, iterati
     mut s = 0
     while s < cloth.sticks.len:
       let stk: VerletStick2D = cloth.sticks[s]
-      let p1: VerletParticle2D = pts[stk.p1Idx]
-      let p2: VerletParticle2D = pts[stk.p2Idx]
-      let dx = p2.position.x - p1.position.x
-      let dy = p2.position.y - p1.position.y
-      let dist = sqrt(dx * dx + dy * dy)
-      if dist > 0.000001:
-        let diff = ((stk.restLength - dist) / dist) * stk.stiffness * 0.5
-        let ox = dx * diff
-        let oy = dy * diff
-        if not p1.isPinned:
-          pts[stk.p1Idx] = VerletParticle2D(
-            position = Vec2(x = p1.position.x - ox, y = p1.position.y - oy),
-            prevPosition = p1.prevPosition,
-            acceleration = p1.acceleration,
-            isPinned = false
-          )
-        if not p2.isPinned:
-          pts[stk.p2Idx] = VerletParticle2D(
-            position = Vec2(x = p2.position.x + ox, y = p2.position.y + oy),
-            prevPosition = p2.prevPosition,
-            acceleration = p2.acceleration,
-            isPinned = false
-          )
+      if stk.p1Idx >= 0 and stk.p1Idx < pts.len and stk.p2Idx >= 0 and stk.p2Idx < pts.len:
+        let p1: VerletParticle2D = pts[stk.p1Idx]
+        let p2: VerletParticle2D = pts[stk.p2Idx]
+        let dx = p2.position.x - p1.position.x
+        let dy = p2.position.y - p1.position.y
+        let dist = sqrt(dx * dx + dy * dy)
+        if dist > 0.000001:
+          let diff = ((stk.restLength - dist) / dist) * stk.stiffness * 0.5
+          let ox = dx * diff
+          let oy = dy * diff
+          if not p1.isPinned:
+            pts[stk.p1Idx] = VerletParticle2D(
+              position = Vec2(x = p1.position.x - ox, y = p1.position.y - oy),
+              prevPosition = p1.prevPosition,
+              acceleration = p1.acceleration,
+              isPinned = false
+            )
+          if not p2.isPinned:
+            pts[stk.p2Idx] = VerletParticle2D(
+              position = Vec2(x = p2.position.x + ox, y = p2.position.y + oy),
+              prevPosition = p2.prevPosition,
+              acceleration = p2.acceleration,
+              isPinned = false
+            )
       s = s + 1
     it = it + 1
 

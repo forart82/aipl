@@ -188,22 +188,27 @@ pub fn parseFloatEx(s: str, opts: ParseFloatOptions): Result[float, str]:
       let d = charToDigit(cleaned.charAt(idx))
       if d < 0 or d >= 10:
         ret Err("invalid exponent digit")
-      expVal = (expVal * 10) + d
+      if expVal < 10000:
+        expVal = (expVal * 10) + d
       idx += 1
 
   mut baseVal = (intPart + fracPart) * sign
-  if expVal > 0:
-    mut e = 0
-    mut pow10 = 1.0
-    while e < expVal:
-      pow10 = pow10 * 10.0
-      e += 1
+  if baseVal != 0.0 and expVal > 0:
     if expSign > 0:
-      baseVal = baseVal * pow10
+      if expVal > 309:
+        ret Ok(sign * 1.7976931348623157e308)
+      mut e = 0
+      while e < expVal:
+        baseVal = baseVal * 10.0
+        e += 1
     else:
-      baseVal = baseVal / pow10
+      if expVal > 325:
+        ret Ok(0.0)
+      mut e = 0
+      while e < expVal:
+        baseVal = baseVal * 0.1
+        e += 1
   ret Ok(baseVal)
-
 pub fn parseFloat(s: str): Result[float, str]:
   let opts = ParseFloatOptions(allowNan = true, allowInf = true, allowHexFloat = false)
   ret parseFloatEx(s, opts)
@@ -248,15 +253,13 @@ pub fn formatInt(val: int, radix: int = 10): str:
     r = 10
   if val == 0:
     ret "0"
+  let isNeg = val < 0
   mut num = val
-  mut isNeg = false
-  if num < 0:
-    isNeg = true
-    num = -num
   let digits = "0123456789abcdefghijklmnopqrstuvwxyz"
   mut out = ""
-  while num > 0:
-    let d = num % r
+  while num != 0:
+    let rem = num % r
+    let d = if rem < 0: -rem else: rem
     out = digits.charAt(d) + out
     num = num / r
   if isNeg:
@@ -284,12 +287,9 @@ pub fn formatIntPadded(val: int, width: int, padChar: str = "0", radix: int = 10
   ret padStr + body
 
 pub fn formatHex(val: int, uppercase: bool = false, prefix: bool = false): str:
-  mut num = val
-  mut isNeg = false
-  if num < 0:
-    isNeg = true
-    num = -num
-  let raw = formatInt(num, 16)
+  let isNeg = val < 0
+  let rawAll = formatInt(val, 16)
+  let raw = if isNeg: rawAll.slice(1, rawAll.len) else: rawAll
   let cased = if uppercase: raw.toUpperCase() else: raw
   let pfx = if prefix: (if uppercase: "0X" else: "0x") else: ""
   if isNeg:
@@ -297,12 +297,9 @@ pub fn formatHex(val: int, uppercase: bool = false, prefix: bool = false): str:
   ret pfx + cased
 
 pub fn formatBinary(val: int, prefix: bool = false, minDigits: int = 0): str:
-  mut num = val
-  mut isNeg = false
-  if num < 0:
-    isNeg = true
-    num = -num
-  mut raw = formatInt(num, 2)
+  let isNeg = val < 0
+  let rawAll = formatInt(val, 2)
+  mut raw = if isNeg: rawAll.slice(1, rawAll.len) else: rawAll
   while raw.len < minDigits:
     raw = "0" + raw
   let pfx = if prefix: "0b" else: ""
@@ -311,17 +308,13 @@ pub fn formatBinary(val: int, prefix: bool = false, minDigits: int = 0): str:
   ret pfx + raw
 
 pub fn formatOctal(val: int, prefix: bool = false): str:
-  mut num = val
-  mut isNeg = false
-  if num < 0:
-    isNeg = true
-    num = -num
-  let raw = formatInt(num, 8)
+  let isNeg = val < 0
+  let rawAll = formatInt(val, 8)
+  let raw = if isNeg: rawAll.slice(1, rawAll.len) else: rawAll
   let pfx = if prefix: "0o" else: ""
   if isNeg:
     ret "-" + pfx + raw
   ret pfx + raw
-
 pub fn intToHex(n: int, minWidth: int = 0): str:
   ret formatIntPadded(n, minWidth, "0", 16)
 
@@ -390,7 +383,10 @@ pub fn formatFloatScientific(val: float, precision: int = 6): str:
   while v > 0.0 and v < 1.0:
     v = v * 10.0
     exp10 -= 1
-  let mantissa = formatFloatFixed(v, prec)
+  mut mantissa = formatFloatFixed(v, prec)
+  if mantissa.startsWith("10.") or mantissa == "10":
+    mantissa = formatFloatFixed(1.0, prec)
+    exp10 += 1
   let signStr = if isNeg: "-" else: ""
   let expSign = if exp10 >= 0: "+" else: "-"
   let absExp = if exp10 >= 0: exp10 else: -exp10

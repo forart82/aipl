@@ -54,6 +54,9 @@ pub fn (mut self: OctreeNode[T]) insert(item: OctreeItem[T]): bool:
     self.items.push(item)
     ret true
   if not self.divided:
+    if (self.maxX - self.minX) <= 0.000001 or (self.maxY - self.minY) <= 0.000001 or (self.maxZ - self.minZ) <= 0.000001:
+      self.items.push(item)
+      ret true
     let midX = (self.minX + self.maxX) * 0.5
     let midY = (self.minY + self.maxY) * 0.5
     let midZ = (self.minZ + self.maxZ) * 0.5
@@ -69,10 +72,11 @@ pub fn (mut self: OctreeNode[T]) insert(item: OctreeItem[T]): bool:
     self.children = octs
     self.divided = true
   for i in 0..self.children.len:
-    mut child: OctreeNode[T] = self.children[i].unwrap()
-    if child.insert(item):
-      self.children[i] = Some(child)
-      ret true
+    if self.children[i].isSome():
+      mut child: OctreeNode[T] = self.children[i].unwrap()
+      if child.insert(item):
+        self.children[i] = Some(child)
+        ret true
   self.items.push(item)
   ret true
 
@@ -86,16 +90,18 @@ pub fn (self: OctreeNode[T]) queryBox(qMinX: float, qMinY: float, qMinZ: float, 
       out.push(it.payload)
   if self.divided:
     for c in 0..self.children.len:
-      let ch: OctreeNode[T] = self.children[c].unwrap()
-      let subHits = ch.queryBox(qMinX, qMinY, qMinZ, qMaxX, qMaxY, qMaxZ)
-      for k in 0..subHits.len:
-        out.push(subHits[k])
+      if self.children[c].isSome():
+        let ch: OctreeNode[T] = self.children[c].unwrap()
+        let subHits = ch.queryBox(qMinX, qMinY, qMinZ, qMaxX, qMaxY, qMaxZ)
+        for k in 0..subHits.len:
+          out.push(subHits[k])
   ret out
 
 pub fn (self: OctreeNode[T]) count(): int:
   mut total = self.items.len
   if self.divided:
     for c in 0..self.children.len:
-      let ch: OctreeNode[T] = self.children[c].unwrap()
-      total = total + ch.count()
+      if self.children[c].isSome():
+        let ch: OctreeNode[T] = self.children[c].unwrap()
+        total = total + ch.count()
   ret total

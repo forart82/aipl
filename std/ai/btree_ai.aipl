@@ -67,6 +67,8 @@ pub fn btreeTickNode(node: BehaviorTreeNode, allNodes: [BehaviorTreeNode], mut b
     if node.children.len == 0:
       ret BTreeNodeStatus.Failure
     let childIdx = node.children[0]
+    if childIdx < 0 or childIdx >= allNodes.len:
+      ret BTreeNodeStatus.Failure
     let childStatus = btreeTickNode(allNodes[childIdx], allNodes, bb)
     if childStatus == BTreeNodeStatus.Success:
       ret BTreeNodeStatus.Failure
@@ -74,10 +76,41 @@ pub fn btreeTickNode(node: BehaviorTreeNode, allNodes: [BehaviorTreeNode], mut b
       ret BTreeNodeStatus.Success
     ret BTreeNodeStatus.Running
 
+  if node.nodeType == BTreeNodeType.CooldownDecorator:
+    if node.children.len == 0:
+      ret BTreeNodeStatus.Failure
+    let childIdx = node.children[0]
+    if childIdx < 0 or childIdx >= allNodes.len:
+      ret BTreeNodeStatus.Failure
+    let cdKey = "__cd_" + str(node.id)
+    let remOpt = blackboardGet(bb, cdKey)
+    if remOpt.isSome() and remOpt.unwrap() > 0:
+      ret BTreeNodeStatus.Failure
+    ret btreeTickNode(allNodes[childIdx], allNodes, bb)
+
+  if node.nodeType == BTreeNodeType.Parallel:
+    mut anyRunning = false
+    mut i = 0
+    while i < node.children.len:
+      let cIdx = node.children[i]
+      if cIdx < 0 or cIdx >= allNodes.len:
+        ret BTreeNodeStatus.Failure
+      let st = btreeTickNode(allNodes[cIdx], allNodes, bb)
+      if st == BTreeNodeStatus.Failure:
+        ret BTreeNodeStatus.Failure
+      if st == BTreeNodeStatus.Running:
+        anyRunning = true
+      i = i + 1
+    if anyRunning:
+      ret BTreeNodeStatus.Running
+    ret BTreeNodeStatus.Success
+
   if node.nodeType == BTreeNodeType.Sequence:
     mut i = 0
     while i < node.children.len:
       let cIdx = node.children[i]
+      if cIdx < 0 or cIdx >= allNodes.len:
+        ret BTreeNodeStatus.Failure
       let st = btreeTickNode(allNodes[cIdx], allNodes, bb)
       if st != BTreeNodeStatus.Success:
         ret st
@@ -88,9 +121,10 @@ pub fn btreeTickNode(node: BehaviorTreeNode, allNodes: [BehaviorTreeNode], mut b
     mut i = 0
     while i < node.children.len:
       let cIdx = node.children[i]
-      let st = btreeTickNode(allNodes[cIdx], allNodes, bb)
-      if st != BTreeNodeStatus.Failure:
-        ret st
+      if cIdx >= 0 and cIdx < allNodes.len:
+        let st = btreeTickNode(allNodes[cIdx], allNodes, bb)
+        if st != BTreeNodeStatus.Failure:
+          ret st
       i = i + 1
     ret BTreeNodeStatus.Failure
 

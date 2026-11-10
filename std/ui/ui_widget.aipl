@@ -48,12 +48,14 @@ pub fn updateButton(btn: ButtonWidget, mousePos: Vec2, isMouseDown: bool): Butto
 pub fn updateSlider(slider: SliderWidget, mousePos: Vec2, isMouseDown: bool): SliderWidget:
   if not isMouseDown or not isPointInRect(mousePos, slider.bounds) or slider.bounds.w <= EPSILON:
     ret slider
+  let loV = if slider.minValue <= slider.maxValue: slider.minValue else: slider.maxValue
+  let hiV = if slider.minValue <= slider.maxValue: slider.maxValue else: slider.minValue
   let t = clampFloat((mousePos.x - slider.bounds.x) / slider.bounds.w, 0.0, 1.0)
-  mut rawVal = slider.minValue + (slider.maxValue - slider.minValue) * t
+  mut rawVal = loV + (hiV - loV) * t
   if slider.step > EPSILON:
-    let steps = round((rawVal - slider.minValue) / slider.step)
-    rawVal = slider.minValue + steps * slider.step
-  let clamped = clampFloat(rawVal, slider.minValue, slider.maxValue)
+    let steps = round((rawVal - loV) / slider.step)
+    rawVal = loV + steps * slider.step
+  let clamped = clampFloat(rawVal, loV, hiV)
   ret SliderWidget(
     value = clamped,
     minValue = slider.minValue,
@@ -67,7 +69,15 @@ pub fn handleTextInputKey(input: TextInputWidget, charCode: int, isBackspace: bo
     ret input
   let len = input.content.len
   let cur = clampInt(input.cursorIndex, 0, len)
+  let rawLo = if input.selectionStart < input.selectionEnd: input.selectionStart else: input.selectionEnd
+  let rawHi = if input.selectionStart > input.selectionEnd: input.selectionStart else: input.selectionEnd
+  let selLo = clampInt(rawLo, 0, len)
+  let selHi = clampInt(rawHi, selLo, len)
+  let hasSel = selLo < selHi
   if isBackspace:
+    if hasSel:
+      let nextStr = input.content.slice(0, selLo) + input.content.slice(selHi, len)
+      ret TextInputWidget(content = nextStr, cursorIndex = selLo, selectionStart = selLo, selectionEnd = selLo, placeholder = input.placeholder, isFocused = true)
     if cur > 0:
       let nextStr = input.content.slice(0, cur - 1) + input.content.slice(cur, len)
       ret TextInputWidget(
@@ -80,6 +90,9 @@ pub fn handleTextInputKey(input: TextInputWidget, charCode: int, isBackspace: bo
       )
     ret input
   if isDelete:
+    if hasSel:
+      let nextStr = input.content.slice(0, selLo) + input.content.slice(selHi, len)
+      ret TextInputWidget(content = nextStr, cursorIndex = selLo, selectionStart = selLo, selectionEnd = selLo, placeholder = input.placeholder, isFocused = true)
     if cur < len:
       let nextStr = input.content.slice(0, cur) + input.content.slice(cur + 1, len)
       ret TextInputWidget(
@@ -93,12 +106,14 @@ pub fn handleTextInputKey(input: TextInputWidget, charCode: int, isBackspace: bo
     ret input
   if charCode >= 32 and charCode <= 126:
     let ch = chr(charCode)
-    let nextStr = input.content.slice(0, cur) + ch + input.content.slice(cur, len)
+    let lo = if hasSel: selLo else: cur
+    let hi = if hasSel: selHi else: cur
+    let nextStr = input.content.slice(0, lo) + ch + input.content.slice(hi, len)
     ret TextInputWidget(
       content = nextStr,
-      cursorIndex = cur + 1,
-      selectionStart = cur + 1,
-      selectionEnd = cur + 1,
+      cursorIndex = lo + 1,
+      selectionStart = lo + 1,
+      selectionEnd = lo + 1,
       placeholder = input.placeholder,
       isFocused = true
     )

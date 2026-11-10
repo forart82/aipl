@@ -57,7 +57,9 @@ pub fn cursorRead(mut c: ByteCursor, maxBytes: int): [int]:
   mut out: [int] = []
   mut i = 0
   while i < avail:
-    out.push(c.buf[c.pos + i])
+    let idx = c.pos + i
+    let bVal = if idx >= 0 and idx < c.buf.len(): c.buf[idx] else: 0
+    out.push(bVal)
     i = i + 1
   c.pos = c.pos + avail
   ret out
@@ -70,7 +72,9 @@ pub fn cursorReadExact(mut c: ByteCursor, n: int): Result[[int], IoError]:
   mut out: [int] = []
   mut i = 0
   while i < n:
-    out.push(c.buf[c.pos + i])
+    let idx = c.pos + i
+    let bVal = if idx >= 0 and idx < c.buf.len(): c.buf[idx] else: 0
+    out.push(bVal)
     i = i + 1
   c.pos = c.pos + n
   ret Ok(out)
@@ -78,11 +82,15 @@ pub fn cursorReadExact(mut c: ByteCursor, n: int): Result[[int], IoError]:
 pub fn cursorReadByte(mut c: ByteCursor): Result[int, IoError]:
   if c.pos >= c.limit:
     ret Err(ioErrUnexpectedEof("cursorReadByte: reached EOF"))
-  let b = c.buf[c.pos]
+  let b = if c.pos >= 0 and c.pos < c.buf.len(): c.buf[c.pos] else: 0
   c.pos = c.pos + 1
   ret Ok(b)
 
 pub fn cursorWrite(mut c: ByteCursor, data: [int]): int:
+  if c.pos < 0:
+    c.pos = 0
+  while c.buf.len() < c.pos:
+    c.buf.push(0)
   mut i = 0
   while i < data.len():
     let b = data[i] & 255
@@ -98,6 +106,10 @@ pub fn cursorWrite(mut c: ByteCursor, data: [int]): int:
 
 pub fn cursorWriteByte(mut c: ByteCursor, b: int): ByteCursor:
   let byteVal = b & 255
+  if c.pos < 0:
+    c.pos = 0
+  while c.buf.len() < c.pos:
+    c.buf.push(0)
   if c.pos < c.buf.len():
     c.buf[c.pos] = byteVal
   else:

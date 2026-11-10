@@ -81,12 +81,22 @@ pub fn rect(x: float, y: float, w: float, h: float): Rect:
 pub fn irect(x: int, y: int, w: int, h: int): IRect:
   ret IRect(x = x, y = y, w = w, h = h)
 
+fn rect2DW(r: Rect2D): float:
+  ret if r.w != 0.0: r.w else: r.width
+
+fn rect2DH(r: Rect2D): float:
+  ret if r.h != 0.0: r.h else: r.height
+
+fn ray2DDir(ray: Ray2D): Vec2:
+  if ray.dir.x != 1.0 or ray.dir.y != 0.0:
+    ret ray.dir
+  ret ray.direction
+
 pub fn rectToRect2D(r: Rect): Rect2D:
-  ret Rect2D(x = r.x, y = r.y, w = r.w, h = r.h)
+  ret Rect2D(x = r.x, y = r.y, w = r.w, h = r.h, width = r.w, height = r.h)
 
 pub fn rectFromRect2D(r: Rect2D): Rect:
-  ret Rect(x = r.x, y = r.y, w = r.w, h = r.h)
-
+  ret Rect(x = r.x, y = r.y, w = rect2DW(r), h = rect2DH(r))
 pub fn vec2Add(a: Vec2, b: Vec2): Vec2:
   ret Vec2(x = a.x + b.x, y = a.y + b.y)
 
@@ -126,10 +136,16 @@ pub fn vec2Reflect(v: Vec2, normal: Vec2): Vec2:
   ret Vec2(x = v.x - dot2 * normal.x, y = v.y - dot2 * normal.y)
 
 pub fn rectContainsPoint(r: Rect2D, p: Vec2): bool:
-  ret p.x >= r.x and p.x <= r.x + r.w and p.y >= r.y and p.y <= r.y + r.h
+  let rw = rect2DW(r)
+  let rh = rect2DH(r)
+  ret p.x >= r.x and p.x <= r.x + rw and p.y >= r.y and p.y <= r.y + rh
 
 pub fn rectIntersectsRect(a: Rect2D, b: Rect2D): bool:
-  ret a.x < b.x + b.w and a.x + a.w > b.x and a.y < b.y + b.h and a.y + a.h > b.y
+  let aw = rect2DW(a)
+  let ah = rect2DH(a)
+  let bw = rect2DW(b)
+  let bh = rect2DH(b)
+  ret a.x < b.x + bw and a.x + aw > b.x and a.y < b.y + bh and a.y + ah > b.y
 
 pub fn rectIntersects(a: Rect2D, b: Rect2D): bool:
   ret rectIntersectsRect(a, b)
@@ -153,8 +169,10 @@ pub fn circleIntersectsCircle(a: Circle2D, b: Circle2D): bool:
 pub fn circleIntersectsRect(c: Circle2D, r: Rect2D): bool:
   let cx = if c.cx != 0.0 or c.x == 0.0: c.cx else: c.x
   let cy = if c.cy != 0.0 or c.y == 0.0: c.cy else: c.y
-  let closestX = clampFloat(cx, r.x, r.x + r.w)
-  let closestY = clampFloat(cy, r.y, r.y + r.h)
+  let rw = rect2DW(r)
+  let rh = rect2DH(r)
+  let closestX = clampFloat(cx, r.x, r.x + rw)
+  let closestY = clampFloat(cy, r.y, r.y + rh)
   let dx = cx - closestX
   let dy = cy - closestY
   ret (dx * dx + dy * dy) <= (c.r * c.r)
@@ -165,8 +183,10 @@ pub fn circleRectIntersects(c: Circle2D, r: Rect2D): bool:
 pub fn collideCircleRect(c: Circle2D, r: Rect2D): CollisionHit:
   let cx = if c.cx != 0.0 or c.x == 0.0: c.cx else: c.x
   let cy = if c.cy != 0.0 or c.y == 0.0: c.cy else: c.y
-  let closestX = clampFloat(cx, r.x, r.x + r.w)
-  let closestY = clampFloat(cy, r.y, r.y + r.h)
+  let rw = rect2DW(r)
+  let rh = rect2DH(r)
+  let closestX = clampFloat(cx, r.x, r.x + rw)
+  let closestY = clampFloat(cy, r.y, r.y + rh)
   let dx = cx - closestX
   let dy = cy - closestY
   let distSq = dx * dx + dy * dy
@@ -178,30 +198,32 @@ pub fn collideCircleRect(c: Circle2D, r: Rect2D): CollisionHit:
   ret CollisionHit(hit = true, normalX = 0.0, normalY = -1.0, depth = c.r)
 
 pub fn rayIntersectsRect2D(ray: Ray2D, rect: Rect2D): Option[float]:
+  let rdir = ray2DDir(ray)
+  let rw = rect2DW(rect)
+  let rh = rect2DH(rect)
   mut tMin = -1e18
   mut tMax = 1e18
-  if absFloat(ray.dir.x) < EPSILON:
-    if ray.origin.x < rect.x or ray.origin.x > rect.x + rect.w:
+  if absFloat(rdir.x) < EPSILON:
+    if ray.origin.x < rect.x or ray.origin.x > rect.x + rw:
       ret None
   else:
-    let invX = 1.0 / ray.dir.x
+    let invX = 1.0 / rdir.x
     let t1 = (rect.x - ray.origin.x) * invX
-    let t2 = (rect.x + rect.w - ray.origin.x) * invX
+    let t2 = (rect.x + rw - ray.origin.x) * invX
     tMin = maxFloat(tMin, minFloat(t1, t2))
     tMax = minFloat(tMax, maxFloat(t1, t2))
-  if absFloat(ray.dir.y) < EPSILON:
-    if ray.origin.y < rect.y or ray.origin.y > rect.y + rect.h:
+  if absFloat(rdir.y) < EPSILON:
+    if ray.origin.y < rect.y or ray.origin.y > rect.y + rh:
       ret None
   else:
-    let invY = 1.0 / ray.dir.y
+    let invY = 1.0 / rdir.y
     let t1 = (rect.y - ray.origin.y) * invY
-    let t2 = (rect.y + rect.h - ray.origin.y) * invY
+    let t2 = (rect.y + rh - ray.origin.y) * invY
     tMin = maxFloat(tMin, minFloat(t1, t2))
     tMax = minFloat(tMax, maxFloat(t1, t2))
   if tMax < 0.0 or tMin > tMax:
     ret None
   ret Some(if tMin >= 0.0: tMin else: tMax)
-
 fn projectPolygonMin(poly: Polygon2D, axis: Vec2): float:
   if poly.vertices.len == 0:
     ret 0.0

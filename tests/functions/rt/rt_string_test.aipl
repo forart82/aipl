@@ -117,8 +117,47 @@ pub fn test_rt_str_struct_lifecycle(): int:
   ptrFree(raw)
   ret 0
 
+pub fn test_rt_string_edge_cases(): int:
+  // Collision & growth preservation in rtStringTableIntern
+  mut tbl = rtStringTableNew(2)
+  let b1 = ptrAlloc(4)
+  ptrWriteU8(b1, 0, 65)
+  let b2 = ptrAlloc(4)
+  ptrWriteU8(b2, 0, 66)
+  let b3 = ptrAlloc(4)
+  ptrWriteU8(b3, 0, 67)
+  let pA = rtStringTableIntern(tbl, b1, 1)
+  let pB = rtStringTableIntern(tbl, b2, 1)
+  let pC = rtStringTableIntern(tbl, b3, 1)
+  assertEqInt(rtStringTableIntern(tbl, b1, 1), pA, "pA preserved across probe & rehash")
+  assertEqInt(rtStringTableIntern(tbl, b2, 1), pB, "pB preserved across probe & rehash")
+  assertEqInt(rtStringTableIntern(tbl, b3, 1), pC, "pC preserved across probe & rehash")
+  ptrFree(b1)
+  ptrFree(b2)
+  ptrFree(b3)
+
+  // INT64_MIN formatting without negation overflow
+  let minI64 = (-9223372036854775807) - 1
+  mut minStr = rtIntToStr(minI64)
+  assertEqInt(rtStrLen(minStr), 20, "INT64_MIN string len is 20")
+  assertEqInt(ptrReadU8(minStr.data, 0), 45, "starts with '-'")
+  assertEqInt(ptrReadU8(minStr.data, 1), 57, "digit 1 is '9'")
+  assertEqInt(ptrReadU8(minStr.data, 19), 56, "last digit is '8'")
+  rtStrFree(minStr)
+
+  // Negative len clamp in rtStrFromRaw & empty needle fromIndex in rtStrIndexOf
+  mut negRaw = rtStrFromRaw(0, -5)
+  assertEqInt(rtStrLen(negRaw), 0, "negative len clamped to 0")
+  mut hay = rtIntToStr(12345)
+  assertEqInt(rtStrIndexOf(hay, negRaw, 3), 3, "empty needle at fromIndex 3 returns 3")
+  assertEqInt(rtStrIndexOf(hay, negRaw, 99), 5, "empty needle past len clamps to 5")
+  rtStrFree(negRaw)
+  rtStrFree(hay)
+  ret 0
+
 pub fn main(): int:
   test_raw_string_helpers()
   test_rt_str_struct_lifecycle()
+  test_rt_string_edge_cases()
   println("PASS: rt_string_test")
   ret 0

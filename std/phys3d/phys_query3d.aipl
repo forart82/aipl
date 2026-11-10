@@ -17,12 +17,18 @@ pub struct RayHit3D(bodyId: int, point: Vec3, normal: Vec3, distance: float, hit
 fn extractRayDir3D(ray: Ray3D): Vec3:
   let dPrimary: Vec3 = ray.direction
   let dFallback: Vec3 = ray.dir
-  if dPrimary.x != 0.0 or dPrimary.y != 0.0 or dPrimary.z != 1.0:
+  if dPrimary.x == 0.0 and dPrimary.y == 0.0 and dPrimary.z == 1.0 and (dFallback.x != 0.0 or dFallback.y != 0.0 or dFallback.z != 1.0):
+    if dFallback.lenSq() > 0.000001:
+      ret dFallback.norm()
+  if dPrimary.lenSq() > 0.000001:
     ret dPrimary.norm()
   ret dFallback.norm()
 
 pub fn raycast3dSphere(ray: Ray3D, sphereCenter: Vec3, radius: float): Option[RayHit3D]:
-  let dir: Vec3 = extractRayDir3D(ray)
+  let rawDir: Vec3 = extractRayDir3D(ray)
+  if rawDir.lenSq() <= 0.000001 or ray.maxDistance < 0.0:
+    ret None
+  let dir: Vec3 = rawDir.norm()
   let orig: Vec3 = ray.origin
   let oc: Vec3 = orig.sub(sphereCenter)
   let b = oc.dot(dir)
@@ -46,7 +52,10 @@ pub fn raycast3dSphere(ray: Ray3D, sphereCenter: Vec3, radius: float): Option[Ra
   ))
 
 pub fn raycast3dBox(ray: Ray3D, boxPos: Vec3, boxRot: Quat, boxHalfExtents: Vec3): Option[RayHit3D]:
-  let dirW: Vec3 = extractRayDir3D(ray)
+  let rawDir: Vec3 = extractRayDir3D(ray)
+  if rawDir.lenSq() <= 0.000001 or ray.maxDistance < 0.0:
+    ret None
+  let dirW: Vec3 = rawDir.norm()
   let origW: Vec3 = ray.origin
   let invRot: Quat = boxRot.conjugate()
   let lo: Vec3 = invRot.rotateVec3(origW.sub(boxPos))

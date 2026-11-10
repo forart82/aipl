@@ -5,3 +5,17 @@ import * from "std/encoding/encoding_mod"
 pub fn test_encoding_mod_barrel(): int:
   assertEqInt(ENCODING_MODULE_VERSION, 1, "encoding mod version")
   ret 0
+pub fn test_encoding_defect_regressions(): int:
+  assert(base64Decode("YW==").isOk() == true, "valid 2-pad base64")
+  assert(base64Decode("YW=A").isOk() == false, "invalid c2=='=' c3!='=' rejected")
+  assert(base64Decode("YW==YW==").isOk() == false, "mid-stream '=' padding rejected")
+  let jRes = jsonParse("{\"items\":[10,20]}")
+  assert(jRes.isOk() == true, "jsonParse valid")
+  assert(jsonQueryPath(jRes.unwrap(), "items[abc]").isNone() == true, "non-numeric array index rejected")
+  assert(jsonQueryPath(jRes.unwrap(), "items[1]").isSome() == true, "valid array index 1")
+  let tomlSrc = "[server]\nport = \"8080\"\n[db]\nport = \"5432\"\nnote = 'keep # hash' # strip"
+  assertEqStr(getTomlValue(tomlSrc, "db", "port", ""), "5432", "TOML section lookup not shadowed by earlier bare key")
+  assertEqStr(getTomlValue(tomlSrc, "db", "note", ""), "keep # hash", "TOML single-quoted '#' preserved")
+  let badXml = parseXml("<foo>hello</bar>")
+  assert(badXml.isErr() == true, "mismatched XML closing tag rejected")
+  ret 0

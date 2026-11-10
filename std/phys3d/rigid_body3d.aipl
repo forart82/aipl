@@ -110,17 +110,19 @@ pub fn rigidBody3dApplyAngularImpulse(mut body: RigidBody3D, impulse: Vec3): voi
   body.angularVelocity = av.add(angDelta)
 
 pub fn rigidBody3dIntegrate(mut body: RigidBody3D, gravity: Vec3, dt: float): void:
-  if body.bodyType != BodyType3D.Dynamic or (not body.isAwake):
+  if body.bodyType == BodyType3D.Static or (not body.isAwake):
     ret
   let lv: Vec3 = body.linearVelocity
   let av: Vec3 = body.angularVelocity
-  let linDamp = 1.0 / (1.0 + maxFloat(0.0, body.linearDamping * dt))
-  let angDamp = 1.0 / (1.0 + maxFloat(0.0, body.angularDamping * dt))
-
-  let nextLv: Vec3 = lv.add(gravity.scale(dt)).scale(linDamp)
-  let nextAv: Vec3 = av.scale(angDamp)
-  body.linearVelocity = nextLv
-  body.angularVelocity = nextAv
+  mut nextLv = lv
+  mut nextAv = av
+  if body.bodyType == BodyType3D.Dynamic:
+    let linDamp = 1.0 / (1.0 + maxFloat(0.0, body.linearDamping * dt))
+    let angDamp = 1.0 / (1.0 + maxFloat(0.0, body.angularDamping * dt))
+    nextLv = lv.add(gravity.scale(dt)).scale(linDamp)
+    nextAv = av.scale(angDamp)
+    body.linearVelocity = nextLv
+    body.angularVelocity = nextAv
 
   let pos: Vec3 = body.position
   body.position = pos.add(nextLv.scale(dt))

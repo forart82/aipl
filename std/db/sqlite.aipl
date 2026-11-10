@@ -150,9 +150,8 @@ fn parseSqlLiteralOrParam(raw: str, params: [SqliteValue], mut paramCursor: [int
     ret sqlValNull()
   if t.equalsIgnoreCase("NULL"):
     ret sqlValNull()
-  if (t.startsWith("'") and t.endsWith("'")) or (t.startsWith("\"") and t.endsWith("\"")):
+  if t.len() >= 2 and ((t.startsWith("'") and t.endsWith("'")) or (t.startsWith("\"") and t.endsWith("\""))):
     ret sqlValStr(t.slice(1, t.len() - 1))
-  if t.contains("."):
     let fOpt = t.toFloat()
     if fOpt.isSome():
       ret sqlValFloat(fOpt.unwrap())
@@ -338,11 +337,13 @@ fn execOnTables(mut tables: [SqliteTable], sql: str, params: [SqliteValue]): Res
     mut wVal = sqlValNull()
     if whereClause.len() > 0:
       let wEq = whereClause.indexOf("=")
-      if wEq >= 0:
-        let wCol = whereClause.slice(0, wEq).trim()
-        wColIdx = findColIdx(tbl.columns, wCol)
-        wVal = parseSqlLiteralOrParam(whereClause.slice(wEq + 1, whereClause.len()), params, paramCursor)
-    mut updated = 0
+      if wEq < 0:
+        ret Err("sqlite: invalid WHERE clause: " + whereClause)
+      let wCol = whereClause.slice(0, wEq).trim()
+      wColIdx = findColIdx(tbl.columns, wCol)
+      if wColIdx < 0:
+        ret Err("sqlite: unknown column in WHERE: " + wCol)
+      wVal = parseSqlLiteralOrParam(whereClause.slice(wEq + 1, whereClause.len()), params, paramCursor)
     mut r = 0
     while r < tbl.rows.len():
       mut matches = true
@@ -372,10 +373,13 @@ fn execOnTables(mut tables: [SqliteTable], sql: str, params: [SqliteValue]): Res
     mut wVal = sqlValNull()
     if whereClause.len() > 0:
       let wEq = whereClause.indexOf("=")
-      if wEq >= 0:
-        let wCol = whereClause.slice(0, wEq).trim()
-        wColIdx = findColIdx(tbl.columns, wCol)
-        wVal = parseSqlLiteralOrParam(whereClause.slice(wEq + 1, whereClause.len()), params, paramCursor)
+      if wEq < 0:
+        ret Err("sqlite: invalid WHERE clause: " + whereClause)
+      let wCol = whereClause.slice(0, wEq).trim()
+      wColIdx = findColIdx(tbl.columns, wCol)
+      if wColIdx < 0:
+        ret Err("sqlite: unknown column in WHERE: " + wCol)
+      wVal = parseSqlLiteralOrParam(whereClause.slice(wEq + 1, whereClause.len()), params, paramCursor)
     mut kept: [SqliteRow] = []
     mut deleted = 0
     mut r = 0
@@ -425,10 +429,13 @@ fn execOnTables(mut tables: [SqliteTable], sql: str, params: [SqliteValue]): Res
     mut wVal = sqlValNull()
     if whereClause.len() > 0:
       let wEq = whereClause.indexOf("=")
-      if wEq >= 0:
-        let wCol = whereClause.slice(0, wEq).trim()
-        wColIdx = findColIdx(tbl.columns, wCol)
-        wVal = parseSqlLiteralOrParam(whereClause.slice(wEq + 1, whereClause.len()), params, paramCursor)
+      if wEq < 0:
+        ret Err("sqlite: invalid WHERE clause: " + whereClause)
+      let wCol = whereClause.slice(0, wEq).trim()
+      wColIdx = findColIdx(tbl.columns, wCol)
+      if wColIdx < 0:
+        ret Err("sqlite: unknown column in WHERE: " + wCol)
+      wVal = parseSqlLiteralOrParam(whereClause.slice(wEq + 1, whereClause.len()), params, paramCursor)
     mut outRows: [SqliteRow] = []
     mut r = 0
     while r < tbl.rows.len():
@@ -767,10 +774,9 @@ pub fn sqlTableFilter(tbl: SqliteTable, colName: str, expectedVal: str): SqliteT
   mut outRows: [SqliteRow] = []
   mut r = 0
   while r < tbl.rows.len():
-    if tbl.rows[r].values[cIdx].strVal == expectedVal:
+    if cIdx < tbl.rows[r].values.len() and tbl.rows[r].values[cIdx].strVal == expectedVal:
       outRows.push(tbl.rows[r])
     r = r + 1
-  ret SqliteTable(name: tbl.name, columns: tbl.columns, rows: outRows)
 
 pub fn sqlTableProject(tbl: SqliteTable, cols: [str]): SqliteTable:
   mut outRows: [SqliteRow] = []

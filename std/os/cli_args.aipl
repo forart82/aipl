@@ -221,6 +221,29 @@ pub fn cliParse(app: CliApp, argv: [str]): Result[CliParseResult, str]:
         continue
     posArgs.push(tok)
     i = i + 1
+  mut reqOptIdx = 0
+  while reqOptIdx < app.options.len():
+    let reqOpt = app.options[reqOptIdx]
+    if reqOpt.required:
+      mut foundReq = false
+      mut pk = 0
+      while pk < optPairs.len():
+        if optPairs[pk][0] == reqOpt.longName:
+          foundReq = true
+          break
+        pk = pk + 1
+      if not foundReq:
+        errs.push("Missing required option: --" + reqOpt.longName)
+    reqOptIdx = reqOptIdx + 1
+
+  mut reqArgCount = 0
+  mut ai = 0
+  while ai < app.args.len():
+    if app.args[ai].required:
+      reqArgCount = reqArgCount + 1
+    ai = ai + 1
+  if posArgs.len() < reqArgCount:
+    errs.push("Missing required positional argument")
 
   if errs.len() > 0:
     ret Err(errs.join("; "))
@@ -231,7 +254,6 @@ pub fn cliParse(app: CliApp, argv: [str]): Result[CliParseResult, str]:
     positionals: posArgs,
     errors: errs
   ))
-
 pub fn cliGetBool(res: CliParseResult, flagName: str): bool:
   mut i = 0
   while i < res.flags.len():

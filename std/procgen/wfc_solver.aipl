@@ -10,8 +10,9 @@ pub struct WfcPattern(id: int, weight: float, compatibleNeighbors: [[int]])
 pub struct WfcSolver2D(width: int, height: int, numPatterns: int, patterns: [WfcPattern], waveMasks: [int], collapsedGrid: [int], isSolved: bool)
 
 pub fn wfcSolver2dNew(width: int, height: int, numPatterns: int): WfcSolver2D:
-  let fullMask = (1 << numPatterns) - 1
-  let total = width * height
+  let safePats = if numPatterns < 0: 0 elif numPatterns > 62: 62 else: numPatterns
+  let fullMask = if safePats <= 0: 0 else: (1 << safePats) - 1
+  let total = if width > 0 and height > 0: width * height else: 0
   mut wave: [int] = []
   mut grid: [int] = []
   mut i = 0
@@ -23,7 +24,7 @@ pub fn wfcSolver2dNew(width: int, height: int, numPatterns: int): WfcSolver2D:
   ret WfcSolver2D(
     width = width,
     height = height,
-    numPatterns = numPatterns,
+    numPatterns = safePats,
     patterns = pats,
     waveMasks = wave,
     collapsedGrid = grid,
@@ -46,6 +47,8 @@ fn countSetBits(mask: int, maxBits: int): int:
 
 pub fn wfcStep(mut solver: WfcSolver2D, seed: int): bool:
   let total = solver.width * solver.height
+  if total <= 0 or solver.waveMasks.len < total or solver.collapsedGrid.len < total:
+    ret false
   mut bestCell = -1
   mut bestBits = solver.numPatterns + 1
 
@@ -87,8 +90,17 @@ pub fn wfcStep(mut solver: WfcSolver2D, seed: int): bool:
   let dxs = [0, 1, 0, -1]
   let dys = [-1, 0, 1, 0]
 
-  if chosenPat < solver.patterns.len:
-    let patObj: WfcPattern = solver.patterns[chosenPat]
+  mut patIdx = -1
+  mut pi = 0
+  while pi < solver.patterns.len:
+    if solver.patterns[pi].id == chosenPat:
+      patIdx = pi
+    pi = pi + 1
+  if patIdx < 0 and chosenPat >= 0 and chosenPat < solver.patterns.len:
+    patIdx = chosenPat
+
+  if patIdx >= 0:
+    let patObj: WfcPattern = solver.patterns[patIdx]
     mut dir = 0
     while dir < 4 and dir < patObj.compatibleNeighbors.len:
       let nx = cx + dxs[dir]
@@ -99,7 +111,9 @@ pub fn wfcStep(mut solver: WfcSolver2D, seed: int): bool:
         mut allowedMask = 0
         mut k = 0
         while k < allowedList.len:
-          allowedMask = allowedMask | (1 << allowedList[k])
+          let nb = allowedList[k]
+          if nb >= 0 and nb < 62:
+            allowedMask = allowedMask | (1 << nb)
           k = k + 1
         wave[nIdx] = wave[nIdx] & allowedMask
         if wave[nIdx] == 0:

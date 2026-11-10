@@ -62,7 +62,7 @@ pub fn createComputeParticlePipeline(maxParticles: int = 65536, workgroupSizeX: 
   )
 
 pub fn spawnGpuParticleSoA(mut soa: GpuParticleSoA, px: float, py: float, pz: float, vx: float, vy: float, vz: float, lifetime: float, rgba: int): GpuParticleSoA:
-  if soa.liveCount >= soa.capacity:
+  if soa.liveCount < 0 or soa.liveCount >= soa.capacity or soa.liveCount >= soa.posX.len:
     ret soa
   let idx = soa.liveCount
   soa.posX[idx] = px
@@ -78,6 +78,10 @@ pub fn spawnGpuParticleSoA(mut soa: GpuParticleSoA, px: float, py: float, pz: fl
   ret soa
 
 pub fn stepGpuParticleSoACpuFallback(mut soa: GpuParticleSoA, dt: float, gravityY: float): GpuParticleSoA:
+  mut limit = if soa.liveCount < soa.posX.len: soa.liveCount else: soa.posX.len
+  if limit < 0:
+    limit = 0
+  soa.liveCount = limit
   mut i = 0
   while i < soa.liveCount:
     let nextAge = soa.age[i] + dt

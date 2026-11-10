@@ -185,6 +185,8 @@ pub fn explainCron(expr: str): Result[str, str]:
   ret Ok("At {minDesc}, {hrDesc}, on {domDesc}, in {monDesc} ({dowDesc})")
 
 pub fn cronMatches(expr: str, minute: int, hour: int, dom: int, month: int, dow: int): bool:
+  if minute < 0 or minute > 59 or hour < 0 or hour > 23 or dom < 1 or dom > 31 or month < 1 or month > 12 or dow < 0 or dow > 7:
+    ret false
   let res = parseCron(expr)
   if res.isErr():
     ret false
@@ -197,6 +199,7 @@ pub fn cronMatches(expr: str, minute: int, hour: int, dom: int, month: int, dow:
     ret false
   if (sched.monthBitset & (1 << month)) == 0:
     ret false
-  if (sched.dayOfWeekBitset & (1 << dow)) == 0:
+  let normDow = if dow == 7: 0 else: dow
+  if (sched.dayOfWeekBitset & (1 << normDow)) == 0 and (sched.dayOfWeekBitset & (1 << dow)) == 0:
     ret false
   ret true

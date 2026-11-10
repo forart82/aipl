@@ -95,10 +95,7 @@ pub fn bloomHashStr(strKey: str, seed: int): int:
   for i in 0..n:
     let b = strKey.charCodeAt(i)
     h = (h ^ b) * 16777619
-  if h < 0:
-    h = -h
-  ret h
-
+  ret h & 9223372036854775807
 pub fn bloomFilterNew(capacity: int, fpp: float): BloomFilter:
   mut cap = capacity
   if cap < 16:
@@ -133,11 +130,9 @@ pub fn (mut self: BloomFilter) add(strKey: str): void:
   let h1 = bloomHashStr(strKey, 101)
   let h2 = bloomHashStr(strKey, 997)
   for k in 0..self.numHashes:
-    let combined = (h1 + k * h2) % m
-    mut idx = combined
-    if idx < 0:
-      idx = -idx
-    self.bits.set(idx % m)
+    let rem = ((h1 % m) + (k * (h2 % m))) % m
+    let idx = if rem < 0: rem + m else: rem
+    self.bits.set(idx)
 
 pub fn (self: BloomFilter) contains(strKey: str): bool:
   let m = self.bits.bitCount
@@ -146,10 +141,8 @@ pub fn (self: BloomFilter) contains(strKey: str): bool:
   let h1 = bloomHashStr(strKey, 101)
   let h2 = bloomHashStr(strKey, 997)
   for k in 0..self.numHashes:
-    let combined = (h1 + k * h2) % m
-    mut idx = combined
-    if idx < 0:
-      idx = -idx
-    if not self.bits.test(idx % m):
+    let rem = ((h1 % m) + (k * (h2 % m))) % m
+    let idx = if rem < 0: rem + m else: rem
+    if not self.bits.test(idx):
       ret false
   ret true

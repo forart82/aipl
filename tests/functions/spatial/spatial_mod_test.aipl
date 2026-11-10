@@ -1,9 +1,23 @@
 module tests.functions.spatial.spatial_mod_test
 
 import * from "std/spatial/spatial_mod"
-import { Option, Result, Some, None, Ok, Err, assert, assertEqInt } from "std/prelude"
+import { Vec2, Vec3 } from "std/math/vec_math"
+import { Ray3D, AABB3D } from "std/math/geom3d"
+import { assert, assertEqInt, assertApproxEq } from "std/prelude"
 
 pub fn test_spatial_mod_reexports(): int:
+  mut ortho = orthoTileWorldNew(4, 4, 1.0, 1)
+  ortho.wrapX = true
+  let nb = orthoNeighbors4(ortho, 0, 1)
+  assertEqInt(nb.len, 4, "wrapped orthoNeighbors4 has 4 neighbors at x=0")
+
+  let iso = isoTileWorldNew(8, 8, 64.0, 32.0, 16.0)
+  let scr = isoWorldGridToScreen(iso, 2, 1, 0.0)
+  assertApproxEq(scr.x, 32.0, 0.001, "isoWorldGridToScreen reexported by spatial_mod")
+
+  let w3 = continuousWorld3dNew(AABB3D(min = Vec3(x = -10.0, y = -10.0, z = -10.0), max = Vec3(x = 10.0, y = 10.0, z = 10.0)))
+  let zeroHit = continuousWorld3dRaycast(w3, Ray3D(origin = Vec3(x = 0.0, y = 0.0, z = 0.0), dir = Vec3(x = 0.0, y = 0.0, z = 0.0), direction = Vec3(x = 0.0, y = 0.0, z = 0.0), maxDistance = 10.0), 10.0, 1)
+  assert(not zeroHit.isSome(), "zero-direction 3D raycast returns None")
   ret 0
 
 fn main(): int:

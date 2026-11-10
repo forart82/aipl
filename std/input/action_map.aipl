@@ -117,19 +117,29 @@ pub fn evaluateActionMap(map: InputActionMap, kbd: KeyboardState, mouse: MouseSt
     mut j = 0
     while j < act.bindings.len:
       let b = act.bindings[j]
-      if b.device == DEVICE_KEYBOARD and not b.isAxis:
+      if b.device == DEVICE_KEYBOARD:
         let modOk = if b.requiredModifiers == 0: true else: hasModifier(kbd, b.requiredModifiers)
         if modOk and isKeyDown(kbd, b.inputCode):
+          let scaled = 1.0 * b.axisMultiplier
+          if b.isAxis:
+            bestVal = bestVal + scaled
+            if absFloatAction(bestVal) > 1.0:
+              bestVal = if bestVal > 0.0: 1.0 else: -1.0
+          elif absFloatAction(scaled) > absFloatAction(bestVal):
+            bestVal = scaled
           pressed = true
-          bestVal = 1.0 * b.axisMultiplier
-      elif b.device == DEVICE_MOUSE and not b.isAxis:
+      elif b.device == DEVICE_MOUSE:
         if isMouseButtonDown(mouse, b.inputCode):
+          let scaled = 1.0 * b.axisMultiplier
+          if absFloatAction(scaled) > absFloatAction(bestVal):
+            bestVal = scaled
           pressed = true
-          bestVal = 1.0 * b.axisMultiplier
       elif b.device == DEVICE_GAMEPAD and not b.isAxis:
         if isGamepadButtonDown(pad, b.inputCode):
+          let scaled = 1.0 * b.axisMultiplier
+          if absFloatAction(scaled) > absFloatAction(bestVal):
+            bestVal = scaled
           pressed = true
-          bestVal = 1.0 * b.axisMultiplier
       elif b.device == DEVICE_GAMEPAD and b.isAxis:
         let rawAxis = if b.inputCode == 0: pad.leftStick.x else: (if b.inputCode == 1: pad.leftStick.y else: (if b.inputCode == 2: pad.rightStick.x else: pad.rightStick.y))
         let scaled = rawAxis * b.axisMultiplier

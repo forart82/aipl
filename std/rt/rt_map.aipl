@@ -234,23 +234,35 @@ pub fn rtMapInsert(mut map: RtHashMap, keyHash: int, keyAddr: int, valAddr: int)
   let h2 = keyHash & 127
   let mask = map.capacity - 1
   mut idx = h1 & mask
+  mut firstDeleted = -1
   mut step = 0
   while step < map.capacity:
     let ctrl = ptrReadU8(map.ctrlPtr, idx)
-    if ctrl == CTRL_EMPTY or ctrl == CTRL_DELETED:
-      ptrWriteU8(map.ctrlPtr, idx, h2)
-      ptrWriteI64(map.ctrlPtr, map.capacity + idx * 8, keyHash)
-      ptrWriteI64(map.keysPtr, idx * 8, keyAddr)
-      ptrWriteI64(map.valsPtr, idx * 8, valAddr)
+    if ctrl == CTRL_EMPTY:
+      let targetIdx = if firstDeleted >= 0: firstDeleted else: idx
+      ptrWriteU8(map.ctrlPtr, targetIdx, h2)
+      ptrWriteI64(map.ctrlPtr, map.capacity + targetIdx * 8, keyHash)
+      ptrWriteI64(map.keysPtr, targetIdx * 8, keyAddr)
+      ptrWriteI64(map.valsPtr, targetIdx * 8, valAddr)
       map.size += 1
-      if map.growthLeft > 0:
+      if firstDeleted < 0 and map.growthLeft > 0:
         map.growthLeft -= 1
       ret true
-    if ctrl == h2 and ptrReadI64(map.keysPtr, idx * 8) == keyAddr:
+    if ctrl == CTRL_DELETED:
+      if firstDeleted < 0:
+        firstDeleted = idx
+    elif ctrl == h2 and ptrReadI64(map.keysPtr, idx * 8) == keyAddr:
       ptrWriteI64(map.valsPtr, idx * 8, valAddr)
       ret false
     idx = (idx + 1) & mask
     step += 1
+  if firstDeleted >= 0:
+    ptrWriteU8(map.ctrlPtr, firstDeleted, h2)
+    ptrWriteI64(map.ctrlPtr, map.capacity + firstDeleted * 8, keyHash)
+    ptrWriteI64(map.keysPtr, firstDeleted * 8, keyAddr)
+    ptrWriteI64(map.valsPtr, firstDeleted * 8, valAddr)
+    map.size += 1
+    ret true
   ret false
 
 pub fn rtMapFind(map: RtHashMap, keyHash: int, keyAddr: int): int:

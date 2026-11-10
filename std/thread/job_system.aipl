@@ -66,15 +66,17 @@ pub fn jobSystemWorkerCount(js: JobSystem): int:
   ret js.workerCount
 
 pub fn jobSubmitWithPriority(mut js: JobSystem, inputVal: int, priority: int): JobHandle:
-  let jid = js.nextJobId
+  let jid = if js.nextJobId > 0: js.nextJobId else: 1
   js.nextJobId = jid + 1
-  let qIdx = (jid - 1) % js.workerCount
+  let safeWorkers = if js.workerCount > 0: js.workerCount else: 1
+  while js.workerQueues.len() < safeWorkers:
+    js.workerQueues.push([])
+  let qIdx = (jid - 1) % safeWorkers
   js.workerQueues[qIdx].push(JobTask(id: jid, priority: priority, inputVal: inputVal, outputVal: inputVal))
   js.dagNodes.push(JobDagNode(jobId: jid, dependencies: [], dependents: [], satisfiedCount: 0))
   let h = JobHandle(jobId: jid, priority: priority, status: 2, result: inputVal)
   js.completedJobs.push(h)
   ret h
-
 pub fn jobSubmit(mut js: JobSystem, inputVal: int): JobHandle:
   ret jobSubmitWithPriority(js, inputVal, 1)
 

@@ -88,8 +88,29 @@ pub fn notifyAssetFileChanged(mgr: AssetManager, changedPath: str): AssetManager
   mut m = mgr.assets
   if m.containsKey(changedPath):
     let curId = m.get(changedPath).unwrap()
+    let _ = m.remove(changedPath)
     m.set(changedPath, curId + 1000)
-  ret AssetManager(assets = m, nextId = mgr.nextId, hotReloadEnabled = mgr.hotReloadEnabled, imagePaths = mgr.imagePaths, imageIds = mgr.imageIds, soundPaths = mgr.soundPaths, soundIds = mgr.soundIds)
+  let imgPaths: [str] = mgr.imagePaths
+  let imgIds: [int] = mgr.imageIds
+  mut nextImgIds: [int] = []
+  mut i = 0
+  while i < imgIds.len:
+    if i < imgPaths.len and imgPaths[i] == changedPath:
+      nextImgIds.push(imgIds[i] + 1000)
+    else:
+      nextImgIds.push(imgIds[i])
+    i = i + 1
+  let sndPaths: [str] = mgr.soundPaths
+  let sndIds: [int] = mgr.soundIds
+  mut nextSndIds: [int] = []
+  mut j = 0
+  while j < sndIds.len:
+    if j < sndPaths.len and sndPaths[j] == changedPath:
+      nextSndIds.push(sndIds[j] + 1000)
+    else:
+      nextSndIds.push(sndIds[j])
+    j = j + 1
+  ret AssetManager(assets = m, nextId = mgr.nextId, hotReloadEnabled = mgr.hotReloadEnabled, imagePaths = imgPaths, imageIds = nextImgIds, soundPaths = sndPaths, soundIds = nextSndIds)
 
 pub fn createImageHandle(id: int, path: str): ImageHandle:
   let w = imageWidth(id)
@@ -201,11 +222,12 @@ pub fn drawLabel(font: FontHandle, x: float, y: float, text: str, size: float, c
   ret
 
 pub fn findCachedId(paths: [str], ids: [int], targetPath: str): int:
-  mut i = 0
-  while i < paths.len and i < ids.len:
+  let n = if paths.len < ids.len: paths.len else: ids.len
+  mut i = n - 1
+  while i >= 0:
     if paths[i] == targetPath:
       ret ids[i]
-    i = i + 1
+    i = i - 1
   ret 0
 
 pub fn getCachedImage(mgr: AssetManager, path: str): int:
@@ -226,22 +248,50 @@ pub fn getCachedSound(mgr: AssetManager, path: str): int:
 
 pub fn cacheImage(mgr: AssetManager, path: str, imageId: int): AssetManager:
   mut m = mgr.assets
-  if not m.containsKey(path):
-    m.set(path, imageId)
-  mut nextPaths = mgr.imagePaths
-  mut nextIds = mgr.imageIds
-  if findCachedId(nextPaths, nextIds, path) == 0:
+  if m.containsKey(path):
+    let _ = m.remove(path)
+  m.set(path, imageId)
+  let curPaths: [str] = mgr.imagePaths
+  let curIds: [int] = mgr.imageIds
+  mut nextPaths: [str] = []
+  mut nextIds: [int] = []
+  mut updated = false
+  mut k = 0
+  while k < curPaths.len and k < curIds.len:
+    let p: str = curPaths[k]
+    nextPaths.push(p)
+    if p == path:
+      nextIds.push(imageId)
+      updated = true
+    else:
+      nextIds.push(curIds[k])
+    k = k + 1
+  if not updated:
     nextPaths.push(path)
     nextIds.push(imageId)
   ret AssetManager(assets = m, nextId = mgr.nextId, hotReloadEnabled = mgr.hotReloadEnabled, imagePaths = nextPaths, imageIds = nextIds, soundPaths = mgr.soundPaths, soundIds = mgr.soundIds)
 
 pub fn cacheSound(mgr: AssetManager, path: str, soundId: int): AssetManager:
   mut m = mgr.assets
-  if not m.containsKey(path):
-    m.set(path, soundId)
-  mut nextPaths = mgr.soundPaths
-  mut nextIds = mgr.soundIds
-  if findCachedId(nextPaths, nextIds, path) == 0:
+  if m.containsKey(path):
+    let _ = m.remove(path)
+  m.set(path, soundId)
+  let curPaths: [str] = mgr.soundPaths
+  let curIds: [int] = mgr.soundIds
+  mut nextPaths: [str] = []
+  mut nextIds: [int] = []
+  mut updated = false
+  mut k = 0
+  while k < curPaths.len and k < curIds.len:
+    let p: str = curPaths[k]
+    nextPaths.push(p)
+    if p == path:
+      nextIds.push(soundId)
+      updated = true
+    else:
+      nextIds.push(curIds[k])
+    k = k + 1
+  if not updated:
     nextPaths.push(path)
     nextIds.push(soundId)
   ret AssetManager(assets = m, nextId = mgr.nextId, hotReloadEnabled = mgr.hotReloadEnabled, imagePaths = mgr.imagePaths, imageIds = mgr.imageIds, soundPaths = nextPaths, soundIds = nextIds)

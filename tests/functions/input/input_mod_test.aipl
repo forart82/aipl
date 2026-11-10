@@ -1,11 +1,20 @@
-// Generated barrel test suite for std/input/input_mod.aipl
 module tests.functions.input.input_mod_test
 
-import "std/input/input_mod"
-import { assert } from "std/prelude"
+import * from "std/input/input_mod"
+import { assert, assertApproxEq } from "std/prelude"
 
 pub fn test_step_10_10_barrel(): int:
-  assert(true, "std/input/input_mod.aipl barrel loaded")
+  mut js = createVirtualJoystick(100.0, 100.0, 0.0, 1.0)
+  js = touchDownVirtualJoystick(js, 1, 100.0, 100.0)
+  js = touchMoveVirtualJoystick(js, 1, 150.0, 100.0)
+  assert(js.outputVectorX >= 0.0 and js.outputVectorX <= 1.0, "zero-radius/dz=1 joystick finite")
+  mut am = createActionMap()
+  am = bindActionAxis(am, "moveX", DEVICE_KEYBOARD, KEY_D, 1.0)
+  am = bindActionAxis(am, "moveX", DEVICE_KEYBOARD, KEY_A, -1.0)
+  mut kbd = createKeyboardState()
+  kbd = pushKeyboardEvent(kbd, KEY_A, true, MOD_NONE)
+  am = evaluateActionMap(am, kbd, createMouseState(), createGamepadState(0))
+  assertApproxEq(getActionValue(am, "moveX"), -1.0, 0.001, "keyboard axis negative multiplier")
   ret 0
 
 pub fn main(): int:

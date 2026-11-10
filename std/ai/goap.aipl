@@ -86,14 +86,22 @@ pub fn goapPlanAStar(planner: GoapPlanner, currentState: GoapWorldState, goalSta
       let act: GoapAction = planner.actions[a]
       if actionApplicable(curMask, act):
         let nextMask = applyActionEffects(curMask, act)
-        let nextG = curG + act.cost
-        let h = float(popcnt((nextMask ^ goalState.stateMask) & goalState.careMask))
-        openStates.push(nextMask)
-        openG.push(nextG)
-        openF.push(nextG + h)
-        openParentIdx.push(bestNode)
-        openActionIdx.push(a)
-        openUsed.push(false)
+        let stepCost = if act.cost > 0.0001: act.cost else: 0.0001
+        let nextG = curG + stepCost
+        mut dominated = false
+        mut sIdx = 0
+        while sIdx < openStates.len:
+          if openStates[sIdx] == nextMask and openG[sIdx] <= nextG:
+            dominated = true
+          sIdx = sIdx + 1
+        if not dominated:
+          let h = float(popcnt((nextMask ^ goalState.stateMask) & goalState.careMask))
+          openStates.push(nextMask)
+          openG.push(nextG)
+          openF.push(nextG + h)
+          openParentIdx.push(bestNode)
+          openActionIdx.push(a)
+          openUsed.push(false)
       a = a + 1
     steps = steps + 1
 

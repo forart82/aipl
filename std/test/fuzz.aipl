@@ -28,10 +28,12 @@ pub fn createFuzzGenerator(seed: int): FuzzGenerator:
   ret FuzzGenerator(seed: seed, state: s)
 
 fn nextRaw64(gen: FuzzGenerator): (FuzzGenerator, int):
-  mut x = gen.state
+  mut x = if gen.state != 0: gen.state else: 88172645463325252
   x = x ^ (x << 13)
-  x = x ^ (x >> 7)
+  x = x ^ ((x >> 7) & 144115188075855871)
   x = x ^ (x << 17)
+  if x == 0:
+    x = 88172645463325252
   let pos = x & 9223372036854775807
   ret (FuzzGenerator(seed: gen.seed, state: x), pos)
 
@@ -41,10 +43,12 @@ pub fn fuzzNextInt(gen: FuzzGenerator, minVal: int, maxVal: int): (FuzzGenerator
   let pair = nextRaw64(gen)
   let nextGen = pair[0]
   let raw = pair[1]
-  let span = (maxVal - minVal) + 1
+  let diff = maxVal - minVal
+  if diff < 0 or diff == 9223372036854775807:
+    ret (nextGen, minVal + raw)
+  let span = diff + 1
   let v = minVal + (raw % span)
   ret (nextGen, v)
-
 pub fn fuzzNextFloat(gen: FuzzGenerator, minVal: float, maxVal: float): (FuzzGenerator, float):
   let pair = fuzzNextInt(gen, 0, 1000000)
   let nextGen = pair[0]
@@ -129,8 +133,9 @@ pub fn verifyProperty(config: FuzzConfig, failThreshold: int): FuzzResult:
         shrunkCounterExample: str(shrunk)
       )
     i = i + 1
+  let actualRuns = if i > 0: i else: 0
   ret FuzzResult(
-    iterationsRun: config.maxIterations,
+    iterationsRun: actualRuns,
     counterExampleFound: false,
     originalCounterExample: "",
     shrunkCounterExample: ""

@@ -85,6 +85,9 @@ pub fn jointSolveVelocity(joint: Joint2D, mut bodyA: RigidBody2D, mut bodyB: Rig
   let vb: Vec2 = bodyB.linearVelocity
   let relVel = (vb.x - va.x) * nx + (vb.y - va.y) * ny
 
+  if joint.jointType == JointType2D.Rope and dist < joint.targetDistance and (dist + relVel * dt) <= joint.targetDistance:
+    ret
+
   mut impulseMag = 0.0
   if joint.jointType == JointType2D.Spring:
     let stretch = dist - joint.targetDistance
@@ -92,6 +95,8 @@ pub fn jointSolveVelocity(joint: Joint2D, mut bodyA: RigidBody2D, mut bodyB: Rig
     impulseMag = -force * dt
   else:
     impulseMag = -relVel / invMassSum
+    if joint.jointType == JointType2D.Rope and impulseMag > 0.0:
+      impulseMag = 0.0
 
   let ix = nx * impulseMag
   let iy = ny * impulseMag
@@ -113,6 +118,8 @@ pub fn jointSolvePosition(joint: Joint2D, mut bodyA: RigidBody2D, mut bodyB: Rig
   let dy = pb.y - pa.y
   let dist = sqrt(dx * dx + dy * dy)
   if dist <= 0.000001:
+    ret
+  if joint.jointType == JointType2D.Rope and dist <= joint.targetDistance:
     ret
 
   let err = dist - joint.targetDistance

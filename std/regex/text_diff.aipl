@@ -112,21 +112,25 @@ pub fn buildUnifiedHunks(edits: [DiffEdit], contextRadius: int = 3): [DiffHunk]:
         hunkEnd = stopAt
         break
 
+    mut prevOld = 0
+    mut prevNew = 0
+    mut pIdx = 0
+    while pIdx < hunkStart:
+      let ped = edits[pIdx]
+      if ped.op == "equal" or ped.op == "delete":
+        prevOld += 1
+      if ped.op == "equal" or ped.op == "insert":
+        prevNew += 1
+      pIdx += 1
+
     mut hLines: [str] = []
-    mut oldStart = 1
-    mut newStart = 1
-    mut foundStart = false
+    let oldStart = prevOld + 1
+    let newStart = prevNew + 1
     mut oldCount = 0
     mut newCount = 0
     mut eIdx = hunkStart
     while eIdx < hunkEnd:
       let ed = edits[eIdx]
-      if not foundStart:
-        if ed.oldLineNo > 0:
-          oldStart = ed.oldLineNo
-        if ed.newLineNo > 0:
-          newStart = ed.newLineNo
-        foundStart = true
       if ed.op == "equal":
         hLines.push(" " + ed.text)
         oldCount += 1
