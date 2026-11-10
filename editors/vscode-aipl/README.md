@@ -13,13 +13,13 @@ Official Visual Studio Code and Cursor extension for the **AI-Programming Langua
 Install the pre-packaged `.vsix` extension directly via the command line or VS Code extension manager:
 
 ```bash
-code --install-extension editors/vscode-aipl/aipl-lang-0.8.0.vsix
+code --install-extension editors/vscode-aipl/aipl-lang-0.9.0.vsix
 ```
 
 Alternatively, in VS Code or Cursor:
 1. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 2. Run **Extensions: Install from VSIX...**.
-3. Select `editors/vscode-aipl/aipl-lang-0.8.0.vsix`.
+3. Select `editors/vscode-aipl/aipl-lang-0.9.0.vsix`.
 
 ---
 
@@ -48,7 +48,7 @@ Selectable from the VS Code Theme Picker (`Ctrl+K Ctrl+T`) or via **AIPL: Select
 - **Operators & Literals**: Range-step operators (`..`, `..=`, `|>`, `::`, `?`), raw strings (`r"""..."""`, `r#""#`), formatted interpolations (`{val:02x}`, `{val:.2f}`), and numeric literals (`0x`, `0b`).
 
 ### 4. Cross-File Symbol Navigation ("Go to Definition", References & Module Links)
-- **Jump Across Files (`F12` / `Ctrl+Click`)**: Click any function, struct, enum, trait, or constant name to jump directly from one `.aipl` file to the exact file and line where it is defined — resolving single-line and multi-line `import { ... } from "..."`, `std/*` domain modules (`std/io/fs.aipl`, `std/gfx2d/canvas.aipl`, `std/core/env.aipl`, etc.), and workspace-wide `.aipl` symbols.
+- **Jump Across Files (`F12` / `Ctrl+Click`)**: Click any function, struct, enum, trait, or constant name to jump directly from one `.aipl` file to the exact file and line where it is defined — resolving single-line and multi-line `import { ... } from "..."`, all 37 `std/*` domain modules and `<domain>_mod.aipl` barrels (`std/fs/fs_mod.aipl`, `std/gfx2d/shape2d.aipl`, `std/os/env.aipl`, etc.), and workspace-wide `.aipl` symbols.
 - **Clickable Import Paths (`DocumentLinkProvider`)**: Click any module path string in `import { ... } from "./module.aipl"` or `std/*` to open that file directly.
 - **Cross-File Hover & Find All References (`Shift+F12`)**: Inspect full function signatures, docstrings, and clickable source links on hover, or find all callers across the workspace.
 
@@ -59,13 +59,13 @@ Selectable from the VS Code Theme Picker (`Ctrl+K Ctrl+T`) or via **AIPL: Select
 - **Misaligned Indentation Highlighting**: Immediately highlights tab indentation (`AIPL_ALIGN_TAB`), non-2-space odd indentation (`AIPL_ALIGN_ODD_INDENT`), unexpected block indentation without `:` (`AIPL_ALIGN_UNEXPECTED_INDENT`), missing block indentation after `:` (`AIPL_ALIGN_MISSING_INDENT`), and dangling dedents (`AIPL_ALIGN_DANGLING_DEDENT`) with visual editor decorations and Quick Fix actions (`Ctrl+.`).
 - **Wrong Syntax & Type Highlighting**: Highlights invalid keywords (`function`, `def`, `var`, `elsif`), invalid literals/operators (`null`, `undefined`, `===`, `!==`), non-AIPL primitive types (`string`, `boolean`, `number`, `integer`), missing block colons (`AIPL_SYNTAX_MISSING_COLON`), unclosed strings, and unbalanced brackets alongside live `aipl lsp` diagnostics.
 
-### 5. Source-Level Debugging (`aipl dap`)
+### 7. Source-Level Debugging (`aipl dap`)
 - Debug Adapter Protocol integration supporting breakpoints, step-in/step-over, demangled call stacks, local variable evaluation, and hover inspection.
 
-### 6. Autonomous Code Self-Repair (`aipl fix`)
+### 8. Autonomous Code Self-Repair (`aipl fix`)
 - Integrates with the compiler's self-repair engine to format files, fix missing `mut` keywords, resolve literal mismatches, and autonomously prune unused imports (`LINT010`).
 
-### 7. Curated & v2.0 Snippets (`snippets/aipl.json`)
+### 9. Curated & v2.0 Snippets (`snippets/aipl.json`)
 - **Foundational**: Public functions (`fn`), structs (`struct`), algebraic enums (`enum`), match expressions (`match`), struct spread updates (`spread`), unit tests (`test`).
 - **Memory & Serialization**: Scoped scratch arenas (`withScratchArena`, `arenaScope`), JSON schema generation (`jsonSchema`), JSON serialization/deserialization (`toJson`, `fromJson`).
 - **Integrations & UI**: Dynamic C FFI (`ffiOpen`), Gemini structured AI requests (`geminiReq`), Material 3 AuraDS desktop/web applications (`auraApp`).
@@ -73,9 +73,9 @@ Selectable from the VS Code Theme Picker (`Ctrl+K Ctrl+T`) or via **AIPL: Select
 - **SMT Contract Functions** (`fnContract`): Precondition `requires` and postcondition `ensures` verification.
 - **Hoare Verified While Loops** (`whileInvariant`): Inductive loop invariants and termination measures (`decreases`).
 - **Embedded SQLite3 Database** (`sqliteDb`): Database connection, table creation, prepared statements, and cursor stepping (`std/db`).
-- **SIMD Tensor Matrix Multiplication** (`tensorMatmul`): Hardware-accelerated tensor arithmetic (`std/tensor`).
-- **Work-Stealing Threadpool & MPSC** (`threadChannel`): Concurrency pools and message-passing channels (`std/thread`).
-- **Property-Based Testing with Shrinking** (`forallTest`): Automated property verification and counterexample shrinking (`std/fuzz`).
+- **SIMD Tensor Matrix Multiplication** (`tensorMatmul`): Hardware-accelerated tensor arithmetic (`std/math/simd`).
+- **Work-Stealing Job System** (`threadChannel`): Work-stealing job queues and task DAG synchronization (`std/thread/job_system`).
+- **Property-Based Testing with Shrinking** (`forallTest`): Automated property verification and counterexample shrinking (`std/test/fuzz`).
 
 ---
 
@@ -95,7 +95,7 @@ Set the path to your compiled AIPL binary in VS Code `settings.json`:
 ## CLI Integration Shortcuts
 
 The extension bridges seamlessly to the AIPL CLI toolchain:
-- **Install extension**: `code --install-extension editors/vscode-aipl/aipl-lang-0.8.0.vsix`
+- **Install extension**: `code --install-extension editors/vscode-aipl/aipl-lang-0.9.0.vsix`
 - **Verify file**: `aipl verify <file.aipl> --json`
 - **Format file (streaming)**: `aipl fmt --stdin < <file.aipl>`
 - **Format file**: `aipl fmt <file.aipl> [--check]`

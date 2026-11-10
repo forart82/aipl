@@ -2,11 +2,12 @@
 """
 AIPL Standard Library (std/) Architectural Auditor (tools/verify_stdlib.py)
 
-Enforces the 4 Non-Negotiable Architectural Laws across std/:
+Enforces the 5 Non-Negotiable Architectural Laws across std/:
   1. Law 1 — 100% Global Filename Uniqueness (Zero Duplicate Basenames)
   2. Law 2 — 100% Application-Agnostic Purity (Zero Franchise or Game Lore Leaks)
   3. Law 3 — Explicit Structural Contracts & Zero Duplicate Top-Level Public Symbols
-  4. Law 4 — Strict 6-Layer Acyclic Dependency DAG
+  4. Law 4 — Strict 6-Layer Acyclic Dependency DAG (37 Canonical Domain Directories)
+  5. Law 5 — 100% Unit Test Coverage for Every pub fn in std/
 """
 
 import argparse
@@ -71,6 +72,9 @@ DOMAIN_LAYERS = {
     "std_root": 5,
 }
 
+CANONICAL_DOMAIN_DIRS = sorted(
+    d for d in DOMAIN_LAYERS if d not in ("prelude", "root_and_prelude", "std_root")
+)
 FORBIDDEN_LORE_PATTERNS = [
     r"warcraft",
     r"\bwc3\b",
@@ -244,7 +248,15 @@ def get_domain_test_corpus(dom: str) -> tuple[str, str | None]:
     return (label, "\n".join(chunks))
 
 
-def audit_files(files: list[str], global_mode: bool = False) -> list[str]:
+def audit_files(
+    files: list[str],
+    global_mode: bool = False,
+    check_basenames: bool = True,
+    check_lore: bool = True,
+    check_symbols: bool = True,
+    check_dag: bool = True,
+    check_coverage: bool = True,
+) -> list[str]:
     errors = []
 
     # 1. Existence check
@@ -256,83 +268,90 @@ def audit_files(files: list[str], global_mode: bool = False) -> list[str]:
     existing_files = [f for f in files if os.path.isfile(os.path.join(REPO_ROOT, f))]
 
     # 2. Law 1: Zero Duplicate Basenames
-    by_basename = defaultdict(list)
-    for rel in existing_files:
-        by_basename[os.path.basename(rel)].append(rel)
-    for bname, paths in sorted(by_basename.items()):
-        if len(paths) > 1:
-            errors.append(
-                f"[LAW 1: DUPLICATE BASENAME] '{bname}' appears {len(paths)} times: {', '.join(paths)}"
-            )
+    if check_basenames:
+        by_basename = defaultdict(list)
+        for rel in existing_files:
+            by_basename[os.path.basename(rel)].append(rel)
+        for bname, paths in sorted(by_basename.items()):
+            if len(paths) > 1:
+                errors.append(
+                    f"[LAW 1: DUPLICATE BASENAME] '{bname}' appears {len(paths)} times: {', '.join(paths)}"
+                )
 
     # 3. Law 2: Zero Franchise Lore
-    for rel in existing_files:
-        abs_p = os.path.join(REPO_ROOT, rel)
-        lines = open(abs_p, "r", encoding="utf-8").read().splitlines()
-        for idx, line in enumerate(lines, start=1):
-            m = FORBIDDEN_REGEX.search(line)
-            if m:
-                errors.append(
-                    f"[LAW 2: FRANCHISE LORE] {rel}:{idx} contains forbidden token '{m.group(0)}': {line.strip()}"
-                )
-
-    # 4. Law 3: Zero Duplicate Public Structs / Enums / Functions
-    symbol_defs = defaultdict(list)
-    for rel in existing_files:
-        abs_p = os.path.join(REPO_ROOT, rel)
-        for kind, sym, line_no in extract_public_symbols(abs_p):
-            symbol_defs[(kind, sym)].append((rel, line_no))
-    for (kind, sym), locs in sorted(symbol_defs.items()):
-        if len(locs) > 1:
-            loc_str = ", ".join(f"{r}:{ln}" for r, ln in locs)
-            errors.append(
-                f"[LAW 3: DUPLICATE PUBLIC {kind.upper()}] '{sym}' defined in multiple modules: {loc_str}"
-            )
-
-    # 5. Law 4: Strict 6-Layer Acyclic Dependency DAG
-    for rel in existing_files:
-        src_dom = get_domain_for_file(rel)
-        if src_dom == "std_root":
-            continue
-        src_layer = DOMAIN_LAYERS.get(src_dom)
-        if src_layer is None:
-            if global_mode:
-                errors.append(f"[LAW 4: UNMAPPED DOMAIN] '{src_dom}' in {rel} is not in the 34 canonical domains")
-            continue
-        abs_p = os.path.join(REPO_ROOT, rel)
-        for imp_path, line_no in extract_std_imports(abs_p):
-            parts = imp_path.split("/")
-            if len(parts) >= 2:
-                dst_dom = parts[1]
-                dst_layer = DOMAIN_LAYERS.get(dst_dom)
-                if dst_layer is not None and dst_layer > src_layer:
+    if check_lore:
+        for rel in existing_files:
+            abs_p = os.path.join(REPO_ROOT, rel)
+            lines = open(abs_p, "r", encoding="utf-8").read().splitlines()
+            for idx, line in enumerate(lines, start=1):
+                m = FORBIDDEN_REGEX.search(line)
+                if m:
                     errors.append(
-                        f"[LAW 4: DAG LAYER VIOLATION] {rel}:{line_no} (domain '{src_dom}', Layer {src_layer}) imports '{imp_path}' (domain '{dst_dom}', Layer {dst_layer})"
+                        f"[LAW 2: FRANCHISE LORE] {rel}:{idx} contains forbidden token '{m.group(0)}': {line.strip()}"
                     )
 
-    # 6. Law 5: 100% Unit Test Coverage for Every pub fn in std/
-    test_cache = {}
-    for rel in existing_files:
-        if not rel.startswith("std/"):
-            continue
-        src_dom = get_domain_for_file(rel)
-        if src_dom not in test_cache:
-            test_cache[src_dom] = get_domain_test_corpus(src_dom)
-        tf_rel, tf_content = test_cache[src_dom]
-        if tf_content is None:
-            errors.append(f"[LAW 5: MISSING TEST FILE] No unit test file found for domain '{src_dom}' ({rel})")
-            continue
-        abs_p = os.path.join(REPO_ROOT, rel)
-        for call_name, qual_name, line_no in extract_public_fns_for_coverage(abs_p):
-            if (
-                f"{call_name}(" not in tf_content
-                and f"{qual_name}(" not in tf_content
-                and f"{call_name}[" not in tf_content
-                and f"{qual_name}[" not in tf_content
-            ):
+    # 4. Law 3: Zero Duplicate Public Structs / Enums / Functions
+    if check_symbols:
+        symbol_defs = defaultdict(list)
+        for rel in existing_files:
+            abs_p = os.path.join(REPO_ROOT, rel)
+            for kind, sym, line_no in extract_public_symbols(abs_p):
+                symbol_defs[(kind, sym)].append((rel, line_no))
+        for (kind, sym), locs in sorted(symbol_defs.items()):
+            if len(locs) > 1:
+                loc_str = ", ".join(f"{r}:{ln}" for r, ln in locs)
                 errors.append(
-                    f"[LAW 5: UNTESTED PUB FN] {rel}:{line_no} 'pub fn {qual_name}' is not called in {tf_rel}"
+                    f"[LAW 3: DUPLICATE PUBLIC {kind.upper()}] '{sym}' defined in multiple modules: {loc_str}"
                 )
+
+    # 5. Law 4: Strict 6-Layer Acyclic Dependency DAG
+    if check_dag:
+        for rel in existing_files:
+            src_dom = get_domain_for_file(rel)
+            if src_dom == "std_root":
+                continue
+            src_layer = DOMAIN_LAYERS.get(src_dom)
+            if src_layer is None:
+                if global_mode:
+                    errors.append(
+                        f"[LAW 4: UNMAPPED DOMAIN] '{src_dom}' in {rel} is not in the {len(CANONICAL_DOMAIN_DIRS)} canonical domain directories"
+                    )
+                continue
+            abs_p = os.path.join(REPO_ROOT, rel)
+            for imp_path, line_no in extract_std_imports(abs_p):
+                parts = imp_path.split("/")
+                if len(parts) >= 2:
+                    dst_dom = parts[1]
+                    dst_layer = DOMAIN_LAYERS.get(dst_dom)
+                    if dst_layer is not None and dst_layer > src_layer:
+                        errors.append(
+                            f"[LAW 4: DAG LAYER VIOLATION] {rel}:{line_no} (domain '{src_dom}', Layer {src_layer}) imports '{imp_path}' (domain '{dst_dom}', Layer {dst_layer})"
+                        )
+
+    # 6. Law 5: 100% Unit Test Coverage for Every pub fn in std/
+    if check_coverage:
+        test_cache = {}
+        for rel in existing_files:
+            if not rel.startswith("std/"):
+                continue
+            src_dom = get_domain_for_file(rel)
+            if src_dom not in test_cache:
+                test_cache[src_dom] = get_domain_test_corpus(src_dom)
+            tf_rel, tf_content = test_cache[src_dom]
+            if tf_content is None:
+                errors.append(f"[LAW 5: MISSING TEST FILE] No unit test file found for domain '{src_dom}' ({rel})")
+                continue
+            abs_p = os.path.join(REPO_ROOT, rel)
+            for call_name, qual_name, line_no in extract_public_fns_for_coverage(abs_p):
+                if (
+                    f"{call_name}(" not in tf_content
+                    and f"{qual_name}(" not in tf_content
+                    and f"{call_name}[" not in tf_content
+                    and f"{qual_name}[" not in tf_content
+                ):
+                    errors.append(
+                        f"[LAW 5: UNTESTED PUB FN] {rel}:{line_no} 'pub fn {qual_name}' is not called in {tf_rel}"
+                    )
 
     return errors
 
@@ -347,13 +366,22 @@ def main() -> int:
     parser.add_argument("--check-dag", action="store_true")
     args = parser.parse_args()
 
+    selective = (args.check_unique_basenames or args.check_zero_lore or args.check_dag) and not args.global_audit
+    check_kwargs = {
+        "check_basenames": args.check_unique_basenames if selective else True,
+        "check_lore": args.check_zero_lore if selective else True,
+        "check_symbols": False if selective else True,
+        "check_dag": args.check_dag if selective else True,
+        "check_coverage": False if selective else True,
+    }
+
     if args.step is not None:
         step_num = int(args.step)
         targets = extract_step_targets(step_num)
         if not targets:
             print(f"ERROR: No target files found for step {step_num:02d}", file=sys.stderr)
             return 1
-        errors = audit_files(targets, global_mode=False)
+        errors = audit_files(targets, global_mode=False, **check_kwargs)
         if errors:
             for e in errors:
                 print(e, file=sys.stderr)
@@ -379,7 +407,7 @@ def main() -> int:
             if not targets:
                 print(f"ERROR: No .aipl files found in std/{dom}", file=sys.stderr)
                 return 1
-        errors = audit_files(targets, global_mode=False)
+        errors = audit_files(targets, global_mode=False, **check_kwargs)
         if errors:
             for e in errors:
                 print(e, file=sys.stderr)
@@ -394,7 +422,7 @@ def main() -> int:
         for p in glob.glob(os.path.join(STD_DIR, "**", "*.aipl"), recursive=True)
         if not os.path.islink(p)
     )
-    errors = audit_files(all_std_files, global_mode=True)
+    errors = audit_files(all_std_files, global_mode=True, **check_kwargs)
     if errors:
         for e in errors:
             print(e, file=sys.stderr)
@@ -403,7 +431,9 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"PASS: Global stdlib audit verified ({len(all_std_files)} files, 0 duplicate basenames, 0 lore strings, 0 symbol collisions, 0 DAG violations).")
+    print(
+        f"PASS: Global stdlib audit verified ({len(all_std_files)} files across {len(CANONICAL_DOMAIN_DIRS)} canonical domains, 0 duplicate basenames, 0 lore strings, 0 symbol collisions, 0 DAG violations, 0 untested pub fns)."
+    )
     return 0
 
 

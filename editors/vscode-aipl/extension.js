@@ -49,6 +49,7 @@ const STD_DOMAINS = [
   "window",
   "input",
   "gfx2d",
+  "gfx25d",
   "gfx3d",
   "gfx",
   "ui",
@@ -57,6 +58,7 @@ const STD_DOMAINS = [
   "procgen",
   "particle",
   "ai",
+  "hebar",
   "mechanics",
 ];
 
@@ -1216,6 +1218,22 @@ function resolveAiplModulePath(baseDir, rawImportPath, workspaceRoots) {
       modName = modName.slice(0, -5);
     }
     modName = modName.replace(/\./g, "/");
+    const STD_LEGACY_ALIASES = {
+      canvas: "gfx2d/shape2d",
+      "gfx2d/canvas": "gfx2d/shape2d",
+      aura: "ui/ui_imui",
+      "ui/aura": "ui/ui_imui",
+      string: "fmt/str_builder",
+      gpu: "gfx/gpu_device",
+      "gfx3d/gpu": "gfx/gpu_device",
+      arena: "alloc/arena",
+      ffi: "sys/sys_ffi",
+      tensor: "math/simd",
+      fuzz: "test/fuzz",
+    };
+    if (Object.prototype.hasOwnProperty.call(STD_LEGACY_ALIASES, modName)) {
+      modName = STD_LEGACY_ALIASES[modName];
+    }
     const leafName = modName.includes("/") ? modName.split("/").pop() : modName;
 
     const searchBases = [];
@@ -1261,13 +1279,32 @@ function resolveAiplModulePath(baseDir, rawImportPath, workspaceRoots) {
 
   for (const base of candidateBases) {
     const exact = path.resolve(base, cleanRaw);
-    if (fs.existsSync(exact) && fs.statSync(exact).isFile()) {
-      return exact;
+    if (fs.existsSync(exact)) {
+      const st = fs.statSync(exact);
+      if (st.isFile()) {
+        return exact;
+      }
+      if (st.isDirectory()) {
+        const leaf = path.basename(exact);
+        const barrelMod = path.join(exact, leaf + "_mod.aipl");
+        if (fs.existsSync(barrelMod) && fs.statSync(barrelMod).isFile()) {
+          return barrelMod;
+        }
+        const plainMod = path.join(exact, "mod.aipl");
+        if (fs.existsSync(plainMod) && fs.statSync(plainMod).isFile()) {
+          return plainMod;
+        }
+      }
     }
     if (!cleanRaw.endsWith(".aipl")) {
       const withExt = path.resolve(base, cleanRaw + ".aipl");
       if (fs.existsSync(withExt) && fs.statSync(withExt).isFile()) {
         return withExt;
+      }
+    } else {
+      const modBarrel = exact.slice(0, -5) + "_mod.aipl";
+      if (fs.existsSync(modBarrel) && fs.statSync(modBarrel).isFile()) {
+        return modBarrel;
       }
     }
   }
@@ -1283,13 +1320,13 @@ function extractFileSymbols(text, filePath) {
   const patterns = [
     {
       kind: "function",
-      regex: /^(\s*(?:@[a-zA-Z_]+\s+)*(?:pub\s+)?(?:async\s+)?(?:extern(?:\s+"[^"]+")?\s+)?fn\s+)([a-zA-Z_][a-zA-Z0-9_]*)/,
+      regex: /^(\s*(?:@[a-zA-Z_]+\s+)*(?:pub\s+)?(?:async\s+)?(?:extern(?:\s+"[^"]+")?\s+)?fn\s+(?:\([^)]*\)\s*|[a-zA-Z_][a-zA-Z0-9_]*\.)?)([a-zA-Z_][a-zA-Z0-9_]*)/,
     },
     { kind: "struct", regex: /^(\s*(?:pub\s+)?(?:struct|component)\s+)([a-zA-Z_][a-zA-Z0-9_]*)/ },
     { kind: "enum", regex: /^(\s*(?:pub\s+)?enum\s+)([a-zA-Z_][a-zA-Z0-9_]*)/ },
     { kind: "trait", regex: /^(\s*(?:pub\s+)?trait\s+)([a-zA-Z_][a-zA-Z0-9_]*)/ },
     { kind: "impl", regex: /^(\s*impl\s+)([a-zA-Z_][a-zA-Z0-9_]*)/ },
-    { kind: "function", regex: /^(\s*(?:pub\s+)?(?:system|shader|ui)\s+)([a-zA-Z_][a-zA-Z0-9_]*)/ },
+    { kind: "function", regex: /^(\s*(?:pub\s+)?(?:system|shader|ui|test)\s+)([a-zA-Z_][a-zA-Z0-9_]*)/ },
     { kind: "const", regex: /^(\s*(?:pub\s+)?const\s+)([a-zA-Z_][a-zA-Z0-9_]*)/ },
     { kind: "type", regex: /^(\s*(?:pub\s+)?type\s+)([a-zA-Z_][a-zA-Z0-9_]*)/ },
   ];
@@ -1377,7 +1414,7 @@ function discoverWorkspaceAiplFiles(workspaceRoots, currentFilePath) {
   ]);
 
   function walk(dir, depth) {
-    if (depth > 5 || aiplFiles.length > 600) return;
+    if (depth > 6 || aiplFiles.length > 5000) return;
     let realDir = dir;
     try {
       realDir = fs.realpathSync(dir);

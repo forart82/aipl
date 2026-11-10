@@ -11,7 +11,7 @@
     "prefix": "struct",
     "body": [
       "struct ${1:Name}:",
-      "  ${2:field}: ${3:float}"
+      "  val ${2:field}: ${3:float}"
     ],
     "description": "Define an AIPL nominal struct"
   },
@@ -43,7 +43,7 @@
   "With Scratch Arena": {
     "prefix": "withScratchArena",
     "body": [
-      "import { withScratchArena } from \"std/arena\"",
+      "import { withScratchArena } from \"std/alloc/arena\"",
       "",
       "let ${1:scratchAddr} = withScratchArena(${2:4096})"
     ],
@@ -52,11 +52,11 @@
   "Arena Scope (Mark/Reset)": {
     "prefix": "arenaScope",
     "body": [
-      "import { arenaScopeBegin, arenaScopeEnd } from \"std/arena\"",
+      "import { arenaScopeBegin, arenaScopeEnd } from \"std/alloc/arena\"",
       "",
       "let ${1:scope} = arenaScopeBegin()",
       "${2:// scratch buffer operations}",
-      "arenaScopeEnd(${1:scope})"
+      "let _ = arenaScopeEnd(${1:scope})"
     ],
     "description": "Scoped arena memory management with manual mark and reset"
   },
@@ -69,7 +69,7 @@
       "  \"${2:gemini-2.5-flash}\",",
       "  \"${3:You are a concise assistant.}\",",
       "  \"${4:User prompt}\",",
-      "  ${5:${6:MyStruct}.jsonSchema()}",
+      "  ${5:\"\"}",
       ")"
     ],
     "description": "Build a structured Gemini inference request payload"
@@ -98,39 +98,40 @@
   "FFI Dynamic C Interop": {
     "prefix": "ffiOpen",
     "body": [
-      "import { ffiOpen, ffiHasSymbol, ffiCallInt, ffiClose } from \"std/ffi\"",
+      "import { ffiOpen, ffiHasSymbol, ffiCallInt, ffiClose } from \"std/sys/sys_ffi\"",
       "",
       "let ${1:lib} = ffiOpen(\"${2:libc}\")",
       "if ${1:lib} > 0:",
       "  if ffiHasSymbol(${1:lib}, \"${3:abs}\"):",
       "    let ${4:res} = ffiCallInt(${1:lib}, \"${3:abs}\", [${5:-42}])",
-      "  ffiClose(${1:lib})"
+      "  let _ = ffiClose(${1:lib})"
     ],
     "description": "Dynamically load a shared library (.so / .dylib) and invoke native C symbols"
   },
   "AuraDS Application Skeleton": {
     "prefix": "auraApp",
     "body": [
-      "import \"std/canvas\"",
-      "import \"std/aura\"",
+      "import * from \"std/gfx2d/shape2d\"",
+      "import * from \"std/ui/ui_imui\"",
+      "import { AuraRect } from \"std/ui/ui_layout\"",
       "",
       "struct AppState:",
-      "  ctx: AuraContext",
-      "  counter: int",
+      "  val ctx: AuraContext",
+      "  val counter: int",
       "",
       "pub fn init(): AppState:",
       "  ret AppState(ctx = auraContextNew(auraThemeDark()), counter = 0)",
       "",
       "pub fn update(state: AppState, dt: float): AppState:",
-      "  mut ctx = auraBeginFrame(state.ctx, mouseX(), mouseY(), isMouseButtonDown(0), isMouseButtonPressed(0), dt)",
+      "  mut ctx = auraBeginFrame(state.ctx, getMouseX(), getMouseY(), isMouseButtonPressed(0), isMouseButtonPressed(0), dt)",
       "  mut nextCount = state.counter",
-      "  if auraButton(ctx, \"btn_inc\", AuraRect(x = 24.0, y = 72.0, w = 160.0, h = 40.0), \"Increment\", \"Filled\", \"+\"):",
+      "  if auraButton(ctx, \"btn_inc\", AuraRect(x = 24.0, y = 72.0, w = 160.0, h = 48.0), \"Increment\", \"Filled\", \"+\"):",
       "    nextCount += 1",
       "  ctx = auraEndFrame(ctx)",
       "  ret AppState(ctx = ctx, counter = nextCount)",
       "",
       "pub fn render(state: AppState, w: float, h: float): void:",
-      "  clearBackground(state.ctx.theme.bgCanvas)",
+      "  auraClearBackground(state.ctx.theme)",
       "  let _ = auraAppBar(state.ctx, \"${1:AuraDS Application}\", [\"Home\"], [\"Settings\"])"
     ],
     "description": "Scaffold a complete Material Design 3 AuraDS desktop/web application"
@@ -162,7 +163,7 @@
     "body": [
       "pub fn ${1:safeDiv}(${2:a}: ${3:int}, ${4:b}: ${3:int}): ${3:int}",
       "  requires ${4:b} != 0",
-      "  ensures ret * ${4:b} <= ${2:a}:",
+      "  ensures result * ${4:b} <= ${2:a}:",
       "  ret ${2:a} / ${4:b}"
     ],
     "description": "Define a formally verified AIPL function with SMT precondition and postcondition contracts"
@@ -182,58 +183,51 @@
   "Embedded SQLite3 Database Query": {
     "prefix": "sqliteDb",
     "body": [
-      "import { dbOpen, dbExec, dbPrepare, dbStep, dbColumnInt, dbColumnText, dbClose } from \"std/db\"",
+      "import { sqliteOpenInMemory, sqliteExec, sqlitePrepare, stmtStep, stmtColInt, stmtColStr, stmtFinalize, sqliteClose } from \"std/db\"",
       "",
-      "let ${1:db} = dbOpen(\"${2:app.db}\")",
-      "let _ = dbExec(${1:db}, \"CREATE TABLE IF NOT EXISTS ${3:items} (id INTEGER PRIMARY KEY, name TEXT);\")",
-      "let ${4:stmt} = dbPrepare(${1:db}, \"SELECT id, name FROM ${3:items} WHERE id = ?1;\")",
-      "while dbStep(${4:stmt}):",
-      "  let ${5:id} = dbColumnInt(${4:stmt}, 0)",
-      "  let ${6:name} = dbColumnText(${4:stmt}, 1)",
-      "dbClose(${1:db})"
+      "mut ${1:db} = sqliteOpenInMemory()",
+      "let _ = sqliteExec(${1:db}, \"CREATE TABLE IF NOT EXISTS ${2:items} (id INTEGER PRIMARY KEY, name TEXT);\")",
+      "mut ${3:stmt} = sqlitePrepare(${1:db}, \"SELECT id, name FROM ${2:items};\")",
+      "while stmtStep(${3:stmt}):",
+      "  let ${4:id} = stmtColInt(${3:stmt}, 0)",
+      "  let ${5:name} = stmtColStr(${3:stmt}, 1)",
+      "let _ = stmtFinalize(${3:stmt})",
+      "let _ = sqliteClose(${1:db})"
     ],
     "description": "Open an embedded SQLite3 database, prepare statements, and execute queries"
   },
   "SIMD Tensor Matrix Multiplication": {
     "prefix": "tensorMatmul",
     "body": [
-      "import { tensorNew, tensorMatmul, tensorShape, tensorFree } from \"std/tensor\"",
+      "import { tensorMatmul } from \"std/math/simd\"",
       "",
-      "let ${1:a} = tensorNew([${2:M}, ${3:K}], ${4:dataA})",
-      "let ${5:b} = tensorNew([${3:K}, ${6:N}], ${7:dataB})",
-      "let ${8:c} = tensorMatmul(${1:a}, ${5:b})",
-      "tensorFree(${1:a})",
-      "tensorFree(${5:b})"
+      "let ${1:c} = tensorMatmul(${2:dataA}, ${3:dataB}, ${4:M}, ${5:N}, ${6:K})"
     ],
-    "description": "Perform SIMD-accelerated tensor matrix multiplication with std/tensor"
+    "description": "Perform SIMD-accelerated tensor matrix multiplication with std/math/simd"
   },
-  "Work-Stealing Threadpool & MPSC Channel": {
+  "Work-Stealing Threadpool & Job DAG": {
     "prefix": "threadChannel",
     "body": [
-      "import { channelNew, channelSend, channelRecv, poolNew, poolSpawn, poolJoin } from \"std/thread\"",
+      "import { jobSystemNew, jobSubmit, jobWait, jobSystemShutdown } from \"std/thread/job_system\"",
       "",
-      "let (${1:tx}, ${2:rx}) = channelNew[${3:int}](16)",
-      "let ${4:pool} = poolNew(${5:4})",
-      "poolSpawn(${4:pool}, fn(): void:",
-      "  channelSend(${1:tx}, ${6:42})",
-      ")",
-      "let ${7:val} = channelRecv(${2:rx})",
-      "poolJoin(${4:pool})"
+      "mut ${1:js} = jobSystemNew(${2:4})",
+      "let ${3:job} = jobSubmit(${1:js}, ${4:42})",
+      "let ${5:val} = jobWait(${1:js}, ${3:job})",
+      "jobSystemShutdown(${1:js})"
     ],
-    "description": "Spawn background tasks on a work-stealing threadpool communicating over an MPSC channel"
+    "description": "Submit and await parallel jobs on the work-stealing job system"
   },
   "Property-Based Test with Shrinking": {
     "prefix": "forallTest",
     "body": [
-      "import { forallInt, shrinkInt } from \"std/fuzz\"",
+      "import { FuzzConfig, verifyProperty, shrinkCounterExampleInt } from \"std/test/fuzz\"",
       "",
       "pub fn test_${1:property}(): void:",
-      "  let ok = forallInt(1000, fn(x: int): bool:",
-      "    ret ${2:x + 0 == x}",
-      "  )",
-      "  if not ok:",
-      "    panic(\"Property violation discovered\")"
+      "  let cfg = FuzzConfig(seed = ${2:1337}, maxIterations = 1000, maxShrinkSteps = 64, maxCollectionLen = 32)",
+      "  let res = verifyProperty(cfg, ${3:1000000})",
+      "  if res.counterExampleFound:",
+      "    panic(\"Property violation: \" + res.shrunkCounterExample)"
     ],
-    "description": "Define a property-based test with 1,000 iterations and counterexample shrinking"
+    "description": "Define a deterministic property-based fuzz test with counterexample shrinking"
   }
 }
