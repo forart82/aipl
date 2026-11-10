@@ -247,9 +247,9 @@ pub fn dbmFloydWarshallClosure(mut dbm: DbmState): DbmState:
         mut j2 = 0
         while j2 < n:
           let opik = dbm.octPlus[i2 * n + k2]
-          let dkj = dbm.dist[k2 * n + j2]
-          if opik < DBM_INF and dkj < DBM_INF:
-            let sVal = opik + dkj
+          let djk = dbm.dist[j2 * n + k2]
+          if opik < DBM_INF and djk < DBM_INF:
+            let sVal = opik + djk
             if sVal < dbm.octPlus[i2 * n + j2]:
               dbm.octPlus[i2 * n + j2] = sVal
               dbm.octPlus[j2 * n + i2] = sVal
@@ -682,10 +682,11 @@ pub fn evalExprInterval(arena: AstArena, env: SmtEnv, exprId: int): SmtInterval:
 
   if e.kind == "Unary":
     if e.op == "-":
+      let minI64 = -9223372036854775807 - 1
       let subIv = evalExprInterval(arena, env, e.left)
-      if subIv.known:
-        let lo = -subIv.hi
-        let hi = -subIv.lo
+      if subIv.known and subIv.lo > minI64 and subIv.hi > minI64:
+        let lo = if subIv.hi >= SMT_INF: -SMT_INF else: -subIv.hi
+        let hi = if subIv.lo <= -SMT_INF: SMT_INF else: -subIv.lo
         ret SmtInterval(
           name = "",
           lo = lo,
@@ -701,7 +702,46 @@ pub fn evalExprInterval(arena: AstArena, env: SmtEnv, exprId: int): SmtInterval:
     if e.op == "+":
       let l = evalExprInterval(arena, env, e.left)
       let r = evalExprInterval(arena, env, e.right)
-      ret smtIntervalAdd(l, r)
+      mut addIv = smtIntervalAdd(l, r)
+      let vL = extractVarNameFromExpr(arena, e.left)
+      let vR = extractVarNameFromExpr(arena, e.right)
+      if vL.len > 0 and vR.len > 0:
+        let xi = dbmFindVar(env.dbm, vL)
+        let yi = dbmFindVar(env.dbm, vR)
+        if xi >= 0 and yi >= 0:
+          let n = env.dbm.vars.len
+          mut lo = addIv.lo
+          mut hi = addIv.hi
+          mut known = addIv.known
+          if env.dbm.octPlus.len == n * n:
+            let opXY = env.dbm.octPlus[xi * n + yi]
+            if opXY < DBM_INF:
+              if not known:
+                lo = -SMT_INF
+                hi = opXY
+                known = true
+              elif opXY < hi:
+                hi = opXY
+          if env.dbm.octMinus.len == n * n:
+            let omXY = env.dbm.octMinus[xi * n + yi]
+            if omXY < DBM_INF:
+              let candLo = -omXY
+              if not known:
+                lo = candLo
+                hi = SMT_INF
+                known = true
+              elif candLo > lo:
+                lo = candLo
+          if known:
+            let nz = addIv.nonZero or (lo > 0 or hi < 0)
+            ret SmtInterval(
+              name = "",
+              lo = lo,
+              hi = hi,
+              nonZero = nz,
+              known = true
+            )
+      ret addIv
     if e.op == "-":
       let l = evalExprInterval(arena, env, e.left)
       let r = evalExprInterval(arena, env, e.right)
@@ -715,18 +755,18 @@ pub fn evalExprInterval(arena: AstArena, env: SmtEnv, exprId: int): SmtInterval:
           let n = env.dbm.vars.len
           let dxy = env.dbm.dist[xi * n + yi]
           let dyx = env.dbm.dist[yi * n + xi]
-          mut lo = subIv.lo
-          mut hi = subIv.hi
+          mut lo = if subIv.known: subIv.lo else: -SMT_INF
+          mut hi = if subIv.known: subIv.hi else: SMT_INF
           mut known = subIv.known
           if dxy < DBM_INF:
-            if not known or dxy < hi:
+            if dxy < hi:
               hi = dxy
-              known = true
+            known = true
           if dyx < DBM_INF:
             let candLo = -dyx
-            if not known or candLo > lo:
+            if candLo > lo:
               lo = candLo
-              known = true
+            known = true
           if known:
             let nz = subIv.nonZero or (lo > 0 or hi < 0)
             ret SmtInterval(
@@ -742,12 +782,21 @@ pub fn evalExprInterval(arena: AstArena, env: SmtEnv, exprId: int): SmtInterval:
       let r = evalExprInterval(arena, env, e.right)
       ret smtIntervalMul(l, r)
     if e.op == "/" or e.op == "//":
+      let minI64 = -9223372036854775807 - 1
       let l = evalExprInterval(arena, env, e.left)
       let r = evalExprInterval(arena, env, e.right)
       if l.known and r.known and r.lo == r.hi and r.lo != 0:
         let k = r.lo
-        let q1 = l.lo / k
-        let q2 = l.hi / k
+        if k == -1 and (l.lo == minI64 or l.hi == minI64):
+          ret smtIntervalUnknown("")
+        mut q1 = 0
+        mut q2 = 0
+        if e.op == "//":
+          q1 = l.lo // k
+          q2 = l.hi // k
+        else:
+          q1 = l.lo / k
+          q2 = l.hi / k
         let lo = if q1 < q2: q1 else: q2
         let hi = if q1 > q2: q1 else: q2
         ret smtIntervalRange(lo, hi)
@@ -912,44 +961,42 @@ pub fn refineEnvFromBinaryCond(arena: AstArena, mut env: SmtEnv, left: int, op: 
       let rIv = evalExprInterval(arena, env, right)
       if rIv.known:
         let existing = envGetInterval(env, varName)
-        mut newLo = existing.lo
-        mut newHi = existing.hi
+        mut newLo = if existing.known: existing.lo else: -SMT_INF
+        mut newHi = if existing.known: existing.hi else: SMT_INF
         mut newNz = existing.nonZero
+        mut updatedBounds = existing.known
         if op == ">":
           let bound = rIv.lo + 1
           if bound > newLo:
             newLo = bound
-          if newHi < newLo:
-            newHi = 1000000000
           if newLo > 0:
             newNz = true
+          updatedBounds = true
         elif op == ">=":
           let bound = rIv.lo
           if bound > newLo:
             newLo = bound
-          if newHi < newLo:
-            newHi = 1000000000
           if newLo > 0:
             newNz = true
+          updatedBounds = true
         elif op == "<":
           let bound = rIv.hi - 1
           if bound < newHi:
             newHi = bound
-          if newLo > newHi:
-            newLo = -1000000000
           if newHi < 0:
             newNz = true
+          updatedBounds = true
         elif op == "<=":
           let bound = rIv.hi
           if bound < newHi:
             newHi = bound
-          if newLo > newHi:
-            newLo = -1000000000
           if newHi < 0:
             newNz = true
+          updatedBounds = true
         elif op == "!=":
           if rIv.lo == 0 and rIv.hi == 0:
             newNz = true
+            updatedBounds = true
         elif op == "==":
           if rIv.lo > newLo:
             newLo = rIv.lo
@@ -957,7 +1004,8 @@ pub fn refineEnvFromBinaryCond(arena: AstArena, mut env: SmtEnv, left: int, op: 
             newHi = rIv.hi
           if rIv.nonZero or (newLo > 0 or newHi < 0):
             newNz = true
-        if newLo <= newHi:
+          updatedBounds = true
+        if updatedBounds and newLo <= newHi:
           env = envSetInterval(env, varName, SmtInterval(
             name = varName,
             lo = newLo,
@@ -974,44 +1022,42 @@ pub fn refineEnvFromBinaryCond(arena: AstArena, mut env: SmtEnv, left: int, op: 
       let lIv = evalExprInterval(arena, env, left)
       if lIv.known:
         let existing = envGetInterval(env, varName)
-        mut newLo = existing.lo
-        mut newHi = existing.hi
+        mut newLo = if existing.known: existing.lo else: -SMT_INF
+        mut newHi = if existing.known: existing.hi else: SMT_INF
         mut newNz = existing.nonZero
+        mut updatedBounds = existing.known
         if op == ">":
           let bound = lIv.hi - 1
           if bound < newHi:
             newHi = bound
-          if newLo > newHi:
-            newLo = -1000000000
           if newHi < 0:
             newNz = true
+          updatedBounds = true
         elif op == ">=":
           let bound = lIv.hi
           if bound < newHi:
             newHi = bound
-          if newLo > newHi:
-            newLo = -1000000000
           if newHi < 0:
             newNz = true
+          updatedBounds = true
         elif op == "<":
           let bound = lIv.lo + 1
           if bound > newLo:
             newLo = bound
-          if newHi < newLo:
-            newHi = 1000000000
           if newLo > 0:
             newNz = true
+          updatedBounds = true
         elif op == "<=":
           let bound = lIv.lo
           if bound > newLo:
             newLo = bound
-          if newHi < newLo:
-            newHi = 1000000000
           if newLo > 0:
             newNz = true
+          updatedBounds = true
         elif op == "!=":
           if lIv.lo == 0 and lIv.hi == 0:
             newNz = true
+            updatedBounds = true
         elif op == "==":
           if lIv.lo > newLo:
             newLo = lIv.lo
@@ -1019,7 +1065,8 @@ pub fn refineEnvFromBinaryCond(arena: AstArena, mut env: SmtEnv, left: int, op: 
             newHi = lIv.hi
           if lIv.nonZero or (newLo > 0 or newHi < 0):
             newNz = true
-        if newLo <= newHi:
+          updatedBounds = true
+        if updatedBounds and newLo <= newHi:
           env = envSetInterval(env, varName, SmtInterval(
             name = varName,
             lo = newLo,

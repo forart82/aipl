@@ -132,6 +132,7 @@ __attribute__((hot)) AiplVal aipl_fn_dbmFloydWarshallClosure(AiplVal v_dbm) {
   AiplVal v_i2 = aipl_nil();
   AiplVal v_j2 = aipl_nil();
   AiplVal v_opik = aipl_nil();
+  AiplVal v_djk = aipl_nil();
   AiplVal v_sVal = aipl_nil();
   AiplVal v_diagIdx = aipl_nil();
   v_n = aipl_member_get(aipl_member_get(v_dbm, "vars"), "len");
@@ -166,9 +167,9 @@ __attribute__((hot)) AiplVal aipl_fn_dbmFloydWarshallClosure(AiplVal v_dbm) {
         v_j2 = aipl_int(0LL);
         while (aipl_truthy(aipl_lt(v_j2, v_n))) {
           v_opik = aipl_index_get(aipl_member_get_idx(v_dbm, 2, "octPlus"), aipl_add(aipl_mul(v_i2, v_n), v_k2));
-          v_dkj = aipl_index_get(aipl_member_get_idx(v_dbm, 1, "dist"), aipl_add(aipl_mul(v_k2, v_n), v_j2));
-          if (aipl_truthy((aipl_truthy(aipl_lt(v_opik, v_DBM_INF)) ? aipl_bool(aipl_truthy(aipl_lt(v_dkj, v_DBM_INF))) : aipl_bool(false)))) {
-            v_sVal = aipl_add(v_opik, v_dkj);
+          v_djk = aipl_index_get(aipl_member_get_idx(v_dbm, 1, "dist"), aipl_add(aipl_mul(v_j2, v_n), v_k2));
+          if (aipl_truthy((aipl_truthy(aipl_lt(v_opik, v_DBM_INF)) ? aipl_bool(aipl_truthy(aipl_lt(v_djk, v_DBM_INF))) : aipl_bool(false)))) {
+            v_sVal = aipl_add(v_opik, v_djk);
             if (aipl_truthy(aipl_lt(v_sVal, aipl_index_get(aipl_member_get_idx(v_dbm, 2, "octPlus"), aipl_add(aipl_mul(v_i2, v_n), v_j2))))) {
               aipl_index_set_val(aipl_member_get_idx(v_dbm, 2, "octPlus"), aipl_add(aipl_mul(v_i2, v_n), v_j2), v_sVal);
               aipl_index_set_val(aipl_member_get_idx(v_dbm, 2, "octPlus"), aipl_add(aipl_mul(v_j2, v_n), v_i2), v_sVal);
@@ -305,6 +306,7 @@ AiplVal aipl_fn_refineEnvFromBinaryCond(AiplVal v_arena, AiplVal v_env, AiplVal 
   AiplVal v_existing = aipl_nil();
   AiplVal v_newLo = aipl_nil();
   AiplVal v_newHi = aipl_nil();
+  AiplVal v_updatedBounds = aipl_nil();
   AiplVal v_bound = aipl_nil();
   AiplVal v_lIv = aipl_nil();
   v_vLeft = aipl_fn_extractVarNameFromExpr(v_arena, v_left);
@@ -413,60 +415,54 @@ AiplVal aipl_fn_refineEnvFromBinaryCond(AiplVal v_arena, AiplVal v_env, AiplVal 
       v_rIv = aipl_fn_evalExprInterval(v_arena, v_env, v_right);
       if (aipl_truthy(aipl_member_get_idx(v_rIv, 4, "known"))) {
         v_existing = aipl_fn_envGetInterval(v_env, v_varName);
-        v_newLo = aipl_member_get_idx(v_existing, 1, "lo");
-        v_newHi = aipl_member_get_idx(v_existing, 2, "hi");
+        v_newLo = (aipl_truthy(aipl_member_get_idx(v_existing, 4, "known")) ? aipl_member_get_idx(v_existing, 1, "lo") : aipl_neg(v_SMT_INF));
+        v_newHi = (aipl_truthy(aipl_member_get_idx(v_existing, 4, "known")) ? aipl_member_get_idx(v_existing, 2, "hi") : v_SMT_INF);
         v_newNz = aipl_member_get_idx(v_existing, 3, "nonZero");
+        v_updatedBounds = aipl_member_get_idx(v_existing, 4, "known");
         if (aipl_truthy(aipl_eq(v_op, aipl_str_n(">", 1)))) {
           v_bound = aipl_add(aipl_member_get_idx(v_rIv, 1, "lo"), aipl_int(1LL));
           if (aipl_truthy(aipl_gt(v_bound, v_newLo))) {
             v_newLo = v_bound;
           }
-          if (aipl_truthy(aipl_lt(v_newHi, v_newLo))) {
-            v_newHi = aipl_int(1000000000LL);
-          }
           if (aipl_truthy(aipl_gt(v_newLo, aipl_int(0LL)))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n(">=", 2)))) {
           v_bound = aipl_member_get_idx(v_rIv, 1, "lo");
           if (aipl_truthy(aipl_gt(v_bound, v_newLo))) {
             v_newLo = v_bound;
           }
-          if (aipl_truthy(aipl_lt(v_newHi, v_newLo))) {
-            v_newHi = aipl_int(1000000000LL);
-          }
           if (aipl_truthy(aipl_gt(v_newLo, aipl_int(0LL)))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n("<", 1)))) {
           v_bound = aipl_sub(aipl_member_get_idx(v_rIv, 2, "hi"), aipl_int(1LL));
           if (aipl_truthy(aipl_lt(v_bound, v_newHi))) {
             v_newHi = v_bound;
           }
-          if (aipl_truthy(aipl_gt(v_newLo, v_newHi))) {
-            v_newLo = aipl_int(-1000000000LL);
-          }
           if (aipl_truthy(aipl_lt(v_newHi, aipl_int(0LL)))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n("<=", 2)))) {
           v_bound = aipl_member_get_idx(v_rIv, 2, "hi");
           if (aipl_truthy(aipl_lt(v_bound, v_newHi))) {
             v_newHi = v_bound;
           }
-          if (aipl_truthy(aipl_gt(v_newLo, v_newHi))) {
-            v_newLo = aipl_int(-1000000000LL);
-          }
           if (aipl_truthy(aipl_lt(v_newHi, aipl_int(0LL)))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n("!=", 2)))) {
           if (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get_idx(v_rIv, 1, "lo"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_rIv, 2, "hi"), aipl_int(0LL)))) : aipl_bool(false)))) {
             v_newNz = aipl_bool(true);
+            v_updatedBounds = aipl_bool(true);
           }
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n("==", 2)))) {
@@ -479,8 +475,9 @@ AiplVal aipl_fn_refineEnvFromBinaryCond(AiplVal v_arena, AiplVal v_env, AiplVal 
           if (aipl_truthy((aipl_truthy(aipl_member_get_idx(v_rIv, 3, "nonZero")) ? aipl_bool(true) : aipl_bool(aipl_truthy((aipl_truthy(aipl_gt(v_newLo, aipl_int(0LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_lt(v_newHi, aipl_int(0LL)))))))))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
-        if (aipl_truthy(aipl_le(v_newLo, v_newHi))) {
+        if (aipl_truthy((aipl_truthy(v_updatedBounds) ? aipl_bool(aipl_truthy(aipl_le(v_newLo, v_newHi))) : aipl_bool(false)))) {
           v_env = aipl_fn_envSetInterval(v_env, v_varName, aipl_struct_new("SmtInterval", 5, (const char*[]){ "name", "lo", "hi", "nonZero", "known" }, (AiplVal[]){ v_varName, v_newLo, v_newHi, v_newNz, aipl_bool(true) }));
           v_env = aipl_fn_smtEnvEnsureDbmOwned(v_env);
           aipl_member_set_idx(v_env, 4, "dbm", aipl_fn_dbmFloydWarshallClosure(aipl_member_get_idx(v_env, 4, "dbm")));
@@ -493,60 +490,54 @@ AiplVal aipl_fn_refineEnvFromBinaryCond(AiplVal v_arena, AiplVal v_env, AiplVal 
       v_lIv = aipl_fn_evalExprInterval(v_arena, v_env, v_left);
       if (aipl_truthy(aipl_member_get_idx(v_lIv, 4, "known"))) {
         v_existing = aipl_fn_envGetInterval(v_env, v_varName);
-        v_newLo = aipl_member_get_idx(v_existing, 1, "lo");
-        v_newHi = aipl_member_get_idx(v_existing, 2, "hi");
+        v_newLo = (aipl_truthy(aipl_member_get_idx(v_existing, 4, "known")) ? aipl_member_get_idx(v_existing, 1, "lo") : aipl_neg(v_SMT_INF));
+        v_newHi = (aipl_truthy(aipl_member_get_idx(v_existing, 4, "known")) ? aipl_member_get_idx(v_existing, 2, "hi") : v_SMT_INF);
         v_newNz = aipl_member_get_idx(v_existing, 3, "nonZero");
+        v_updatedBounds = aipl_member_get_idx(v_existing, 4, "known");
         if (aipl_truthy(aipl_eq(v_op, aipl_str_n(">", 1)))) {
           v_bound = aipl_sub(aipl_member_get_idx(v_lIv, 2, "hi"), aipl_int(1LL));
           if (aipl_truthy(aipl_lt(v_bound, v_newHi))) {
             v_newHi = v_bound;
           }
-          if (aipl_truthy(aipl_gt(v_newLo, v_newHi))) {
-            v_newLo = aipl_int(-1000000000LL);
-          }
           if (aipl_truthy(aipl_lt(v_newHi, aipl_int(0LL)))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n(">=", 2)))) {
           v_bound = aipl_member_get_idx(v_lIv, 2, "hi");
           if (aipl_truthy(aipl_lt(v_bound, v_newHi))) {
             v_newHi = v_bound;
           }
-          if (aipl_truthy(aipl_gt(v_newLo, v_newHi))) {
-            v_newLo = aipl_int(-1000000000LL);
-          }
           if (aipl_truthy(aipl_lt(v_newHi, aipl_int(0LL)))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n("<", 1)))) {
           v_bound = aipl_add(aipl_member_get_idx(v_lIv, 1, "lo"), aipl_int(1LL));
           if (aipl_truthy(aipl_gt(v_bound, v_newLo))) {
             v_newLo = v_bound;
           }
-          if (aipl_truthy(aipl_lt(v_newHi, v_newLo))) {
-            v_newHi = aipl_int(1000000000LL);
-          }
           if (aipl_truthy(aipl_gt(v_newLo, aipl_int(0LL)))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n("<=", 2)))) {
           v_bound = aipl_member_get_idx(v_lIv, 1, "lo");
           if (aipl_truthy(aipl_gt(v_bound, v_newLo))) {
             v_newLo = v_bound;
           }
-          if (aipl_truthy(aipl_lt(v_newHi, v_newLo))) {
-            v_newHi = aipl_int(1000000000LL);
-          }
           if (aipl_truthy(aipl_gt(v_newLo, aipl_int(0LL)))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n("!=", 2)))) {
           if (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get_idx(v_lIv, 1, "lo"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_lIv, 2, "hi"), aipl_int(0LL)))) : aipl_bool(false)))) {
             v_newNz = aipl_bool(true);
+            v_updatedBounds = aipl_bool(true);
           }
         }
         else if (aipl_truthy(aipl_eq(v_op, aipl_str_n("==", 2)))) {
@@ -559,8 +550,9 @@ AiplVal aipl_fn_refineEnvFromBinaryCond(AiplVal v_arena, AiplVal v_env, AiplVal 
           if (aipl_truthy((aipl_truthy(aipl_member_get_idx(v_lIv, 3, "nonZero")) ? aipl_bool(true) : aipl_bool(aipl_truthy((aipl_truthy(aipl_gt(v_newLo, aipl_int(0LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_lt(v_newHi, aipl_int(0LL)))))))))) {
             v_newNz = aipl_bool(true);
           }
+          v_updatedBounds = aipl_bool(true);
         }
-        if (aipl_truthy(aipl_le(v_newLo, v_newHi))) {
+        if (aipl_truthy((aipl_truthy(v_updatedBounds) ? aipl_bool(aipl_truthy(aipl_le(v_newLo, v_newHi))) : aipl_bool(false)))) {
           v_env = aipl_fn_envSetInterval(v_env, v_varName, aipl_struct_new("SmtInterval", 5, (const char*[]){ "name", "lo", "hi", "nonZero", "known" }, (AiplVal[]){ v_varName, v_newLo, v_newHi, v_newNz, aipl_bool(true) }));
           v_env = aipl_fn_smtEnvEnsureDbmOwned(v_env);
           aipl_member_set_idx(v_env, 4, "dbm", aipl_fn_dbmFloydWarshallClosure(aipl_member_get_idx(v_env, 4, "dbm")));

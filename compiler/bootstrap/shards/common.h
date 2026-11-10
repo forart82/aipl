@@ -1485,6 +1485,7 @@ typedef struct AiplUnboxed_X86Emitter {
   AiplVal callRelocs;
   AiplVal strRelocs;
   AiplVal loopBreakOffsets;
+  AiplVal loopContOffsets;
 } AiplUnboxed_X86Emitter;
 static inline AiplUnboxed_X86Emitter aipl_unbox_X86Emitter(AiplVal v) {
   AiplUnboxed_X86Emitter u;
@@ -1497,13 +1498,15 @@ static inline AiplUnboxed_X86Emitter aipl_unbox_X86Emitter(AiplVal v) {
   u.strRelocs = _fv_strRelocs;
   AiplVal _fv_loopBreakOffsets = aipl_member_get(v, "loopBreakOffsets");
   u.loopBreakOffsets = _fv_loopBreakOffsets;
+  AiplVal _fv_loopContOffsets = aipl_member_get(v, "loopContOffsets");
+  u.loopContOffsets = _fv_loopContOffsets;
   return u;
 }
 
 static inline AiplVal aipl_box_X86Emitter(AiplUnboxed_X86Emitter u) {
-  const char* _fnames[] = { "code", "callRelocs", "strRelocs", "loopBreakOffsets" };
-  AiplVal _fvals[] = { u.code, u.callRelocs, u.strRelocs, u.loopBreakOffsets };
-  return aipl_struct_new("X86Emitter", 4, _fnames, _fvals);
+  const char* _fnames[] = { "code", "callRelocs", "strRelocs", "loopBreakOffsets", "loopContOffsets" };
+  AiplVal _fvals[] = { u.code, u.callRelocs, u.strRelocs, u.loopBreakOffsets, u.loopContOffsets };
+  return aipl_struct_new("X86Emitter", 5, _fnames, _fvals);
 }
 
 typedef AiplVal X86FnContext;
@@ -2327,6 +2330,7 @@ __attribute__((hot)) AiplVal aipl_fn_lookupFuncCodeOffset(AiplVal v_fnOffsets, A
 AiplVal aipl_fn_emitMovRbpOffsetToRax(AiplVal v_out, AiplVal v_offset);
 AiplVal aipl_fn_emitMovRaxToRbpOffset(AiplVal v_out, AiplVal v_offset);
 AiplVal aipl_fn_emitMovZeroToRbpOffset(AiplVal v_out, AiplVal v_offset);
+AiplVal aipl_fn_emitSafeX86Idiv(AiplVal v_out);
 AiplVal aipl_fn_emitBuiltinPrintStr(AiplVal v_out);
 AiplVal aipl_fn_emitBuiltinPrintInt(AiplVal v_out);
 __attribute__((hot)) AiplVal aipl_fn_emitX86Expr(AiplVal v_arena, AiplVal v_hir, AiplVal v_exprId, AiplVal v_ctx, AiplVal v_em);
@@ -2816,7 +2820,7 @@ static inline AiplVal aipl_schema_X86FuncEntry(void) {
 }
 
 static inline AiplVal aipl_schema_X86Emitter(void) {
-  return aipl_str_lit("{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"title\":\"X86Emitter\",\"type\":\"object\",\"properties\":{\"code\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"callRelocs\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"strRelocs\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"loopBreakOffsets\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}},\"required\":[\"code\",\"callRelocs\",\"strRelocs\",\"loopBreakOffsets\"],\"additionalProperties\":false}");
+  return aipl_str_lit("{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"title\":\"X86Emitter\",\"type\":\"object\",\"properties\":{\"code\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"callRelocs\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"strRelocs\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"loopBreakOffsets\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"loopContOffsets\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"}},\"required\":[\"code\",\"callRelocs\",\"strRelocs\",\"loopBreakOffsets\",\"loopContOffsets\"],\"additionalProperties\":false}");
 }
 
 static inline AiplVal aipl_schema_X86FnContext(void) {

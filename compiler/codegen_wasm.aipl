@@ -82,6 +82,16 @@ pub fn emitWasmI64BinOp(op: str): int:
     ret 0x7F
   if op == "%":
     ret 0x81
+  if op == "&" or op == "and":
+    ret 0x83
+  if op == "|" or op == "or":
+    ret 0x84
+  if op == "^" or op == "xor":
+    ret 0x85
+  if op == "<<":
+    ret 0x86
+  if op == ">>":
+    ret 0x87
   if op == "==":
     ret 0x51
   if op == "!=":
@@ -824,7 +834,7 @@ fn isWasmI64Expr(arena: AstArena, exprId: int): bool:
   if e.kind == "Unary":
     ret isWasmI64Expr(arena, e.left)
   if e.kind == "Binary":
-    if e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/" or e.op == "%":
+    if e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/" or e.op == "%" or e.op == "&" or e.op == "|" or e.op == "^" or e.op == "xor" or e.op == "<<" or e.op == ">>":
       ret isWasmI64Expr(arena, e.left) or isWasmI64Expr(arena, e.right)
   ret false
 
@@ -884,7 +894,7 @@ fn emitWasmI64Expr(arena: AstArena, hir: HirModule, exprId: int, ctx: WasmFnCont
     out = emitWasmI64Expr(arena, hir, e.left, ctx, out)
     out.push(emitWasmI64BinOp("-"))
     ret out
-  if e.kind == "Binary" and (e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/" or e.op == "%"):
+  if e.kind == "Binary" and (e.op == "+" or e.op == "-" or e.op == "*" or e.op == "/" or e.op == "%" or e.op == "&" or e.op == "|" or e.op == "^" or e.op == "xor" or e.op == "<<" or e.op == ">>"):
     out = emitWasmI64Expr(arena, hir, e.left, ctx, out)
     out = emitWasmI64Expr(arena, hir, e.right, ctx, out)
     out.push(emitWasmI64BinOp(e.op))
@@ -1467,12 +1477,14 @@ fn emitWasmStmt(arena: AstArena, hir: HirModule, stmtId: int, ctx: WasmFnContext
         out.push(0x45) // i32.eqz
         out.push(0x0D) // br_if 1
         out = wasmPushUleb128(out, 1)
+        out.push(0x02) // inner block for continue target
+        out.push(0x40)
         let loopCtx = WasmFnContext(
           paramNames = ctx.paramNames,
           localNames = ctx.localNames,
           stringPool = ctx.stringPool,
           loopContinueDepth = 0,
-          loopBreakDepth = 1,
+          loopBreakDepth = 2,
           inLoop = true,
           returnsVal = ctx.returnsVal
         )
@@ -1480,6 +1492,7 @@ fn emitWasmStmt(arena: AstArena, hir: HirModule, stmtId: int, ctx: WasmFnContext
         while fbi < st.bodyStmts.len:
           out = emitWasmStmt(arena, hir, st.bodyStmts[fbi], loopCtx, out)
           fbi += 1
+        out.push(0x0B) // end inner block
         out.push(0x20) // local.get iterVar
         out = wasmPushUleb128(out, locIdx)
         out.push(0x41)

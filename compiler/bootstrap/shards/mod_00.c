@@ -263,6 +263,9 @@ __attribute__((hot)) AiplVal aipl_fn_isFloorDivAt(AiplVal v_source, AiplVal v_po
   if (aipl_truthy((aipl_truthy(v_isHeaderLine) ? aipl_bool(aipl_truthy(aipl_str_ends_with(v_rhs, aipl_str_n(":", 1)))) : aipl_bool(false)))) {
     v_rhs = aipl_str_trim(aipl_slice(v_rhs, aipl_int(0LL), aipl_sub(aipl_member_get(v_rhs, "len"), aipl_int(1LL))));
   }
+  if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_contains(v_prefix, aipl_str_n("if ", 3))) ? aipl_bool(aipl_truthy(aipl_contains(v_prefix, aipl_str_n(":", 1)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_str_ends_with(v_rhs, aipl_str_n(" else", 5)))) : aipl_bool(false)))) {
+    v_rhs = aipl_str_trim(aipl_slice(v_rhs, aipl_int(0LL), aipl_sub(aipl_member_get(v_rhs, "len"), aipl_int(5LL))));
+  }
   v_rhs = aipl_str_replace(aipl_str_replace(v_rhs, aipl_str_n(" and ", 5), aipl_str_n(" & ", 3)), aipl_str_n(" or ", 4), aipl_str_n(" | ", 3));
   if (aipl_truthy(aipl_eq(aipl_member_get(v_rhs, "len"), aipl_int(0LL)))) {
     return aipl_bool(false);

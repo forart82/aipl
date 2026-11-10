@@ -229,7 +229,7 @@ AiplVal aipl_rt_constantTimeEq(AiplVal a_val, AiplVal b_val) {
 
 void aipl_pbkdf2_hmac_sha256(const uint8_t* pass, size_t pass_len, const uint8_t* salt, size_t salt_len, size_t iterations, size_t out_len, uint8_t* out) {
   size_t iters = iterations > 0 ? iterations : 1; size_t blocks = (out_len + 31) / 32;
-  uint8_t* salt_block = (uint8_t*)malloc(salt_len + 4); memcpy(salt_block, salt, salt_len);
+  uint8_t* salt_block = (uint8_t*)malloc(salt_len + 4); if (salt_len > 0 && salt) memcpy(salt_block, salt, salt_len);
   size_t offset = 0;
   for (uint32_t block_idx = 1; block_idx <= (uint32_t)blocks; block_idx++) {
     salt_block[salt_len] = (uint8_t)((block_idx >> 24) & 0xFF);

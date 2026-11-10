@@ -1,0 +1,281 @@
+module tests.scenarios.compiler.lang_07_compiler_runtime_soundness_and_backends_test
+
+import { assert, assertEqInt, assertEqStr } from "std/prelude"
+
+fn resolveAiplCliBin(): str:
+  if fileExists("./bin/aipl"):
+    ret "./bin/aipl"
+  if fileExists("../../../bin/aipl"):
+    ret "../../../bin/aipl"
+  ret "aipl"
+
+fn dynamicNegOne(): int:
+  ret 0 - 1
+
+fn dynamicMinI64(): int:
+  ret 0 - 9223372036854775807 - 1
+
+fn bumpCounter(mut box: [int], retVal: int): int:
+  box[0] = box[0] + 1
+  ret retVal
+
+fn bumpBool(mut box: [int], retVal: bool): bool:
+  box[0] = box[0] + 1
+  ret retVal
+
+pub fn test_lang_07_runtime_int64_overflow_pow_shifts_and_euclid(): int:
+  let minI64 = dynamicMinI64()
+  let negOne = dynamicNegOne()
+  let divMin = minI64 / negOne
+  let modMin = minI64 % negOne
+  let fdivMin = minI64 // negOne
+  let negMin = -minI64
+  assertEqInt(divMin, minI64, "INT64_MIN / -1 wraps safely without SIGFPE")
+  assertEqInt(modMin, 0, "INT64_MIN % -1 returns 0 without SIGFPE")
+  assertEqInt(fdivMin, minI64, "INT64_MIN floor-div -1 wraps safely without SIGFPE")
+  assertEqInt(negMin, minI64, "unary -INT64_MIN wraps safely in 2s complement")
+  assertEqInt(remEuclid(minI64, negOne), 0, "remEuclid(INT64_MIN, -1) == 0")
+  assertEqInt(remEuclid(-1, minI64), 9223372036854775807, "remEuclid(-1, INT64_MIN) == INT64_MAX")
+  assertEqInt(remEuclid(-7, 3), 2, "remEuclid(-7, 3) == 2")
+
+  let negSeven = 0 - 7
+  let fdivNeg7 = negSeven // 2
+  assertEqInt(fdivNeg7, -4, "floor division -7 floor-div 2 == -4")
+
+  let sh64 = 64 + negOne + 1
+  let shNeg = negOne
+  assertEqInt(1 << sh64, 0, "shl by >= 64 returns 0 safely")
+  assertEqInt(1 << shNeg, 0, "shl by < 0 returns 0 safely")
+  let negEight = 0 - 8
+  assertEqInt(negEight >> sh64, -1, "shr negative by >= 64 sign-fills -1")
+  assertEqInt(8 >> sh64, 0, "shr positive by >= 64 returns 0")
+
+  assertEqInt(1 ** 1000000000000, 1, "O(log b) binary exponentiation completes instantly")
+  assertEqInt(3 ** 20, 3486784401, "O(log b) binary exponentiation exact value")
+  ret 0
+
+pub fn test_lang_07_runtime_format_path_empty_file_and_map_safety(): int:
+  let xVal = 5
+  let wideBin = "{xVal:300b}"
+  assertEqInt(wideBin.len, 255, "wide binary format specifier clamps to 255 chars without stack overflow")
+  assert(wideBin.endsWith("000101"), "wide binary format preserves zero-padded binary suffix")
+
+  mut segs: [str] = [""]
+  mut i = 0
+  while i < 120:
+    segs.push("alpha_segment_long")
+    i += 1
+  segs.push("sub")
+  segs.push("..")
+  segs.push("leaf.aipl")
+  let longPath = segs.join("/")
+  let norm = pathNormalize(longPath)
+  assert(norm.len > 1500, "normalized long path exceeds legacy 1024-byte stack buffer safely")
+  assert(norm.startsWith("/alpha_segment_long/"), "normalized long path keeps leading root")
+  assert(norm.endsWith("/leaf.aipl"), "normalized long path keeps leaf")
+  assert(not norm.contains("/sub/"), "normalized long path collapses .. segment")
+
+  let emptyPath = "/tmp/aipl_lang07_empty.txt"
+  let _ = writeFile(emptyPath, "")
+  assertEqStr(readFile(emptyPath), "", "readFile on 0-byte regular file returns empty string")
+  let rb = readBytes(emptyPath)
+  assert(rb.isOk(), "readBytes on 0-byte regular file returns Ok")
+  assertEqInt(rb.unwrap().len, 0, "readBytes on 0-byte regular file has len 0")
+  assertEqStr(readFile("/tmp"), "", "readFile on directory closes fd and returns empty string")
+  let _ = removeFile(emptyPath)
+
+  mut mp = {"k1": 10, "k2": 20, "k3": 30}
+  let _rem = mp.remove("k2")
+  assert(not mp.has("k2"), "removed key no longer present")
+  assertEqInt(mp["k1"] + mp["k3"], 40, "remaining map entries intact")
+  ret 0
+
+pub fn test_lang_07_hir_side_effects_and_constant_floor_div(): int:
+  mut box = [0]
+  let z1 = bumpCounter(box, 7) * 0
+  assertEqInt(z1, 0, "expr * 0 evaluates to 0")
+  assertEqInt(box[0], 1, "side effect in LHS of * 0 is preserved")
+
+  let z2 = 0 * bumpCounter(box, 9)
+  assertEqInt(z2, 0, "0 * expr evaluates to 0")
+  assertEqInt(box[0], 2, "side effect in RHS of 0 * expr is preserved")
+
+  let b1 = bumpBool(box, true) and false
+  assert(not b1, "expr and false evaluates to false")
+  assertEqInt(box[0], 3, "side effect in LHS of and false is preserved")
+
+  let b2 = bumpBool(box, false) or true
+  assert(b2, "expr or true evaluates to true")
+  assertEqInt(box[0], 4, "side effect in LHS of or true is preserved")
+
+  let foldedFloor = -7 // 2
+  assertEqInt(foldedFloor, -4, "HIR constant folder evaluates -7 floor-div 2 == -4")
+  let inlineFloor = if box[0] == 4: -7 // 2 else: 0
+  assertEqInt(inlineFloor, -4, "lexer tokenizes floor-div inside inline if-else expression")
+  ret 0
+
+pub fn test_lang_07_smt_octagon_closure_and_floor_div(): int:
+  let aiplBin = resolveAiplCliBin()
+  let okPath = "/tmp/aipl_lang07_smt_valid.aipl"
+  let badOctPath = "/tmp/aipl_lang07_smt_bad_oct.aipl"
+  let badFloorPath = "/tmp/aipl_lang07_smt_bad_floor.aipl"
+
+  let okSrc = [
+    "module Lang07SmtValid",
+    "",
+    "pub fn checkSatisfiableOctagonAndFloor(x: int, y: int, z: int, a: int): int:",
+    "  mut acc = 0",
+    "  if x >= 7 and y >= 6 and z - x <= 3 and y + z <= 10:",
+    "    acc += 100 / (13 - (x + y))",
+    "  if a >= -3 and a <= -3:",
+    "    let q = a // 2",
+    "    acc += 100 / (q + 1)",
+    "  ret acc",
+    "",
+    "pub fn main(): int:",
+    "  let _ = checkSatisfiableOctagonAndFloor(10, 6, 0, -3)",
+    "  ret 0"
+  ].join("\n") + "\n"
+  let _ = writeFile(okPath, okSrc)
+
+  let okRes = execCommand(aiplBin, ["verify", okPath])
+  assert(okRes.isOk(), "aipl verify octagon valid execCommand succeeds")
+  assertEqInt(okRes.unwrap().status, 0, "SMT does not conflate z - x <= 3 with x - z <= 3 and proves (a // 2) + 1 != 0")
+
+  let badOctSrc = [
+    "module Lang07SmtBadOct",
+    "",
+    "pub fn forcedOctagonDivZero(x: int, y: int, z: int): int:",
+    "  if x >= 7 and y >= 6 and x - z <= 3 and y + z <= 10:",
+    "    ret 100 / (13 - (x + y))",
+    "  ret 0",
+    "",
+    "pub fn main(): int:",
+    "  ret forcedOctagonDivZero(7, 6, 4)"
+  ].join("\n") + "\n"
+  let _ = writeFile(badOctPath, badOctSrc)
+
+  let badOctRes = execCommand(aiplBin, ["verify", badOctPath])
+  assert(badOctRes.isOk(), "aipl verify octagon div-zero execCommand succeeds")
+  assert(badOctRes.unwrap().status != 0, "SMT octagon closure proves 13 <= x + y <= 13 and flags 100 / (13 - (x + y))")
+
+  let badFloorSrc = [
+    "module Lang07SmtBadFloor",
+    "",
+    "pub fn floorDivZero(a: int): int:",
+    "  if a >= -3 and a <= -3:",
+    "    let q = a // 2",
+    "    ret 100 / (q + 2)",
+    "  ret 0",
+    "",
+    "pub fn main(): int:",
+    "  ret floorDivZero(-3)"
+  ].join("\n") + "\n"
+  let _ = writeFile(badFloorPath, badFloorSrc)
+
+  let badFloorRes = execCommand(aiplBin, ["verify", badFloorPath])
+  assert(badFloorRes.isOk(), "aipl verify floor-div div-zero execCommand succeeds")
+  assert(badFloorRes.unwrap().status != 0, "SMT detects div-by-zero on (a // 2) + 2 when a == -3")
+
+  let _ = removeFile(okPath)
+  let _ = removeFile(badOctPath)
+  let _ = removeFile(badFloorPath)
+  ret 0
+
+pub fn test_lang_07_wasm_for_continue_and_i64_bitwise(): int:
+  let aiplBin = resolveAiplCliBin()
+  let srcPath = "/tmp/aipl_lang07_wasm.aipl"
+  let wasmPath = "/tmp/aipl_lang07_wasm.wasm"
+
+  let wasmSrc = [
+    "module Lang07Wasm",
+    "",
+    "pub fn main(): int:",
+    "  mut oddSum = 0",
+    "  for i in 0..6:",
+    "    if i % 2 == 0:",
+    "      continue",
+    "    oddSum += i",
+    "  if oddSum == 9 and ((4294967296 | oddSum) & 4294967299) == 4294967297:",
+    "    println(\"WASM_FOR_CONTINUE_OK\")",
+    "    ret 0",
+    "  println(\"WASM_FAIL\")",
+    "  ret 1"
+  ].join("\n") + "\n"
+  let _ = writeFile(srcPath, wasmSrc)
+
+  let bRes = execCommand(aiplBin, ["build", "--target=wasm", "-o", wasmPath, srcPath])
+  assert(bRes.isOk(), "wasm build execCommand succeeds")
+  assertEqInt(bRes.unwrap().status, 0, "wasm build exits 0")
+
+  let rRes = execCommand(aiplBin, ["run", wasmPath])
+  assert(rRes.isOk(), "wasm run execCommand succeeds")
+  let rOut = rRes.unwrap()
+  assertEqInt(rOut.status, 0, "wasm execution terminates with status 0")
+  assert(rOut.stdout.contains("WASM_FOR_CONTINUE_OK"), "wasm for-loop continue advances induction var and i64 bitwise matches")
+
+  let _ = removeFile(srcPath)
+  let _ = removeFile(wasmPath)
+  ret 0
+
+pub fn test_lang_07_elf64_x86_64_print_int_for_and_safe_div(): int:
+  let aiplBin = resolveAiplCliBin()
+  let srcPath = "/tmp/aipl_lang07_elf64.aipl"
+  let elfPath = "/tmp/aipl_lang07_elf64"
+
+  let elfSrc = [
+    "module Lang07Elf64",
+    "",
+    "fn dynNegOne(): int:",
+    "  ret 0 - 1",
+    "",
+    "fn dynMinI64(): int:",
+    "  ret 0 - 9223372036854775807 - 1",
+    "",
+    "pub fn main(): int:",
+    "  println(1000000000000000)",
+    "  mut oddSum = 0",
+    "  for i in 0..6:",
+    "    if i % 2 == 0:",
+    "      continue",
+    "    oddSum += i",
+    "  println(oddSum)",
+    "  let negSeven = 0 - 7",
+    "  let fd = negSeven // 2",
+    "  println(fd)",
+    "  println((12 & 10) | 1)",
+    "  let m = dynMinI64()",
+    "  let n = dynNegOne()",
+    "  let q = m / n",
+    "  let r = m % n",
+    "  let z = m / (n + 1)",
+    "  if q == m and r == 0 and z == 0:",
+    "    println(0)",
+    "    ret 0",
+    "  ret 1"
+  ].join("\n") + "\n"
+  let _ = writeFile(srcPath, elfSrc)
+
+  let bRes = execCommand(aiplBin, ["build", "--target=elf64", "-o", elfPath, srcPath])
+  assert(bRes.isOk(), "elf64 build execCommand succeeds")
+  assertEqInt(bRes.unwrap().status, 0, "elf64 build exits 0")
+
+  let _ = execCommand("chmod", ["+x", elfPath])
+  let rRes = execCommand(elfPath, [])
+  assert(rRes.isOk(), "elf64 native binary execCommand succeeds")
+  let rOut = rRes.unwrap()
+  assertEqInt(rOut.status, 0, "elf64 native binary exits 0 without SIGFPE")
+  assertEqStr(rOut.stdout, "1000000000000000\n9\n-4\n9\n0\n", "elf64 prints 16-digit positive int, for-continue sum, floor-div, bitwise, and safe INT64_MIN div")
+
+  let _ = removeFile(srcPath)
+  let _ = removeFile(elfPath)
+  ret 0
+
+fn main(): int:
+  assertEqInt(test_lang_07_runtime_int64_overflow_pow_shifts_and_euclid(), 0, "test_lang_07_runtime_int64_overflow_pow_shifts_and_euclid")
+  assertEqInt(test_lang_07_runtime_format_path_empty_file_and_map_safety(), 0, "test_lang_07_runtime_format_path_empty_file_and_map_safety")
+  assertEqInt(test_lang_07_hir_side_effects_and_constant_floor_div(), 0, "test_lang_07_hir_side_effects_and_constant_floor_div")
+  assertEqInt(test_lang_07_smt_octagon_closure_and_floor_div(), 0, "test_lang_07_smt_octagon_closure_and_floor_div")
+  assertEqInt(test_lang_07_wasm_for_continue_and_i64_bitwise(), 0, "test_lang_07_wasm_for_continue_and_i64_bitwise")
+  assertEqInt(test_lang_07_elf64_x86_64_print_int_for_and_safe_div(), 0, "test_lang_07_elf64_x86_64_print_int_for_and_safe_div")
+  ret 0

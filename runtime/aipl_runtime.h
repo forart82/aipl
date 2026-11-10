@@ -235,20 +235,22 @@ static inline void aipl_prof_record_alloc(size_t sz) {
   _aipl_prof_total_bytes += (int64_t)sz;
 }
 static inline AiplVal aipl_bytes_new(int64_t size) {
+  if (size < 0) size = 0;
   int64_t cap = size > 8 ? size : 8;
   aipl_prof_record_alloc(sizeof(AiplBytes) + (size_t)cap);
   AiplBytes* b = (AiplBytes*)malloc(sizeof(AiplBytes));
   b->len = size; b->cap = cap;
-  b->data = (uint8_t*)calloc(b->cap, 1);
+  b->data = (uint8_t*)calloc((size_t)b->cap, 1);
   AiplVal v; memset(&v, 0, sizeof(v)); v.kind = AIPL_BYTES; v.ptr = b; return v;
 }
 static inline AiplVal aipl_array_new(const AiplVal* elems, int64_t count) {
+  if (count < 0) count = 0;
   int64_t cap = count > 8 ? count : 8;
   aipl_prof_record_alloc(sizeof(AiplArray) + sizeof(AiplVal) * (size_t)cap);
   AiplArray* arr = (AiplArray*)malloc(sizeof(AiplArray));
-  arr->data = (AiplVal*)malloc(sizeof(AiplVal) * cap);
+  arr->data = (AiplVal*)malloc(sizeof(AiplVal) * (size_t)cap);
   arr->len = count; arr->cap = cap;
-  for (int64_t i = 0; i < count; i++) { arr->data[i] = elems[i]; }
+  if (elems) { for (int64_t i = 0; i < count; i++) { arr->data[i] = elems[i]; } }
   AiplVal v; memset(&v, 0, sizeof(v)); v.kind = AIPL_ARRAY; v.ptr = arr; return v;
 }
 static inline AiplVal aipl_bytes_to_string_lossy(AiplVal b_val) {
@@ -679,17 +681,17 @@ static inline AiplVal aipl_add_slow(AiplVal a, AiplVal b) {
     double fb = (b.kind == AIPL_FLOAT) ? b.f : (double)b.i;
     return aipl_float(fa + fb);
   }
-  return aipl_int(a.i + b.i);
+  return aipl_int((int64_t)((uint64_t)a.i + (uint64_t)b.i));
 }
 AIPL_HOT_INLINE AiplVal aipl_add(AiplVal a, AiplVal b) {
-  if ((a.kind == AIPL_INT || a.kind == AIPL_BOOL) && (b.kind == AIPL_INT || b.kind == AIPL_BOOL)) return aipl_int(a.i + b.i);
+  if ((a.kind == AIPL_INT || a.kind == AIPL_BOOL) && (b.kind == AIPL_INT || b.kind == AIPL_BOOL)) return aipl_int((int64_t)((uint64_t)a.i + (uint64_t)b.i));
   if (a.kind == AIPL_FLOAT && b.kind == AIPL_FLOAT) return aipl_float(a.f + b.f);
   if (a.kind == AIPL_FLOAT && b.kind == AIPL_INT) return aipl_float(a.f + (double)b.i);
   if (a.kind == AIPL_INT && b.kind == AIPL_FLOAT) return aipl_float((double)a.i + b.f);
   return aipl_add_slow(a, b);
 }
 AIPL_HOT_INLINE void aipl_inc_int(AiplVal* v, int64_t delta) {
-  if (__builtin_expect(v->kind == AIPL_INT, 1)) { v->extra_i = 0; v->i += delta; return; }
+  if (__builtin_expect(v->kind == AIPL_INT, 1)) { v->extra_i = 0; v->i = (int64_t)((uint64_t)v->i + (uint64_t)delta); return; }
   if (v->kind == AIPL_FLOAT) { v->f += (double)delta; return; }
   *v = aipl_add(*v, aipl_int(delta));
 }
@@ -744,10 +746,10 @@ static inline AiplVal aipl_sub_slow(AiplVal a, AiplVal b) {
     double fb = (b.kind == AIPL_FLOAT) ? b.f : (double)b.i;
     return aipl_float(fa - fb);
   }
-  return aipl_int(a.i - b.i);
+  return aipl_int((int64_t)((uint64_t)a.i - (uint64_t)b.i));
 }
 AIPL_HOT_INLINE AiplVal aipl_sub(AiplVal a, AiplVal b) {
-  if (a.kind == AIPL_INT && b.kind == AIPL_INT) return aipl_int(a.i - b.i);
+  if (a.kind == AIPL_INT && b.kind == AIPL_INT) return aipl_int((int64_t)((uint64_t)a.i - (uint64_t)b.i));
   if (a.kind == AIPL_FLOAT && b.kind == AIPL_FLOAT) return aipl_float(a.f - b.f);
   if (a.kind == AIPL_FLOAT && b.kind == AIPL_INT) return aipl_float(a.f - (double)b.i);
   if (a.kind == AIPL_INT && b.kind == AIPL_FLOAT) return aipl_float((double)a.i - b.f);
@@ -804,10 +806,10 @@ static inline AiplVal aipl_mul_slow(AiplVal a, AiplVal b) {
     double fb = (b.kind == AIPL_FLOAT) ? b.f : (double)b.i;
     return aipl_float(fa * fb);
   }
-  return aipl_int(a.i * b.i);
+  return aipl_int((int64_t)((uint64_t)a.i * (uint64_t)b.i));
 }
 AIPL_HOT_INLINE AiplVal aipl_mul(AiplVal a, AiplVal b) {
-  if (a.kind == AIPL_INT && b.kind == AIPL_INT) return aipl_int(a.i * b.i);
+  if (a.kind == AIPL_INT && b.kind == AIPL_INT) return aipl_int((int64_t)((uint64_t)a.i * (uint64_t)b.i));
   if (a.kind == AIPL_FLOAT && b.kind == AIPL_FLOAT) return aipl_float(a.f * b.f);
   if (a.kind == AIPL_FLOAT && b.kind == AIPL_INT) return aipl_float(a.f * (double)b.i);
   if (a.kind == AIPL_INT && b.kind == AIPL_FLOAT) return aipl_float((double)a.i * b.f);
@@ -815,7 +817,11 @@ AIPL_HOT_INLINE AiplVal aipl_mul(AiplVal a, AiplVal b) {
 }
 AiplVal aipl_div_slow(AiplVal a, AiplVal b);
 AIPL_HOT_INLINE AiplVal aipl_div(AiplVal a, AiplVal b) {
-  if (a.kind == AIPL_INT && b.kind == AIPL_INT) return aipl_int(b.i != 0 ? a.i / b.i : 0);
+  if (a.kind == AIPL_INT && b.kind == AIPL_INT) {
+    if (b.i == 0) return aipl_int(0);
+    if (a.i == INT64_MIN && b.i == -1) return aipl_int(INT64_MIN);
+    return aipl_int(a.i / b.i);
+  }
   if (a.kind == AIPL_FLOAT && b.kind == AIPL_FLOAT) return aipl_float(b.f != 0.0 ? a.f / b.f : 0.0);
   if (a.kind == AIPL_FLOAT && b.kind == AIPL_INT) return aipl_float(b.i != 0 ? a.f / (double)b.i : 0.0);
   if (a.kind == AIPL_INT && b.kind == AIPL_FLOAT) return aipl_float(b.f != 0.0 ? (double)a.i / b.f : 0.0);
@@ -824,6 +830,7 @@ AIPL_HOT_INLINE AiplVal aipl_div(AiplVal a, AiplVal b) {
 AIPL_HOT_INLINE AiplVal aipl_floor_div(AiplVal a, AiplVal b) {
   if (a.kind == AIPL_INT && b.kind == AIPL_INT) {
     if (b.i == 0) return aipl_int(0);
+    if (a.i == INT64_MIN && b.i == -1) return aipl_int(INT64_MIN);
     int64_t q = a.i / b.i;
     int64_t r = a.i % b.i;
     if ((r != 0) && ((r < 0) != (b.i < 0))) q--;
@@ -839,18 +846,26 @@ AIPL_HOT_INLINE AiplVal aipl_mod(AiplVal a, AiplVal b) {
     double fb = (b.kind == AIPL_FLOAT) ? b.f : (double)b.i;
     return aipl_float(fb != 0.0 ? fmod(fa, fb) : 0.0);
   }
-  return aipl_int(b.i != 0 ? a.i % b.i : 0);
+  if (b.i == 0 || (a.i == INT64_MIN && b.i == -1)) return aipl_int(0);
+  return aipl_int(a.i % b.i);
 }
 AiplVal aipl_pow(AiplVal a, AiplVal b);
 AiplVal aipl_euclid_mod(AiplVal a, AiplVal b);
 AIPL_HOT_INLINE AiplVal aipl_neg(AiplVal a) {
   if (a.kind == AIPL_FLOAT) return aipl_float(-a.f);
-  return aipl_int(-a.i);
+  return aipl_int((int64_t)(0ULL - (uint64_t)a.i));
 }
 AIPL_HOT_INLINE AiplVal aipl_not(AiplVal a) { return aipl_bool(!aipl_truthy(a)); }
 AIPL_HOT_INLINE AiplVal aipl_bitnot(AiplVal a) { return aipl_int(~a.i); }
-AIPL_HOT_INLINE AiplVal aipl_shl(AiplVal a, AiplVal b) { return aipl_int(a.i << b.i); }
-AIPL_HOT_INLINE AiplVal aipl_shr(AiplVal a, AiplVal b) { return aipl_int(a.i >> b.i); }
+AIPL_HOT_INLINE AiplVal aipl_shl(AiplVal a, AiplVal b) {
+  if (b.i < 0 || b.i >= 64) return aipl_int(0);
+  return aipl_int((int64_t)((uint64_t)a.i << (unsigned)b.i));
+}
+AIPL_HOT_INLINE AiplVal aipl_shr(AiplVal a, AiplVal b) {
+  if (b.i < 0) return aipl_int(0);
+  if (b.i >= 64) return aipl_int(a.i < 0 ? -1 : 0);
+  return aipl_int(a.i >> (unsigned)b.i);
+}
 AIPL_HOT_INLINE AiplVal aipl_bitand(AiplVal a, AiplVal b) { return aipl_int(a.i & b.i); }
 AIPL_HOT_INLINE AiplVal aipl_bitor(AiplVal a, AiplVal b) { return aipl_int(a.i | b.i); }
 AIPL_HOT_INLINE AiplVal aipl_bitxor(AiplVal a, AiplVal b) { return aipl_int(a.i ^ b.i); }
@@ -1149,7 +1164,7 @@ static inline AiplVal aipl_hex_to_bytes(AiplVal s_val) {
   AiplVal bv = aipl_bytes_new(out_len); AiplBytes* b = (AiplBytes*)bv.ptr;
   for (size_t i = 0; i < slen; i += 2) {
     int d1 = aipl_hex_digit(s[i]); int d2 = aipl_hex_digit(s[i + 1]);
-    if (d1 < 0 || d2 < 0) return aipl_err(aipl_str("invalid hex char"));
+    if (d1 < 0 || d2 < 0) { free(b->data); free(b); return aipl_err(aipl_str("invalid hex char")); }
     b->data[i / 2] = (uint8_t)((d1 << 4) | d2);
   }
   return aipl_ok(bv);

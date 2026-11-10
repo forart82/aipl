@@ -31,7 +31,7 @@ pub struct X86Emitter:
   callRelocs: [X86Reloc]
   strRelocs: [X86StrReloc]
   loopBreakOffsets: [int]
-
+  loopContOffsets: [int]
 pub struct X86FnContext:
   paramNames: [str]
   localNames: [str]
@@ -338,10 +338,28 @@ fn emitMovZeroToRbpOffset(mut out: [int], offset: int): [int]:
     out.push(0x00)
   ret out
 
+fn emitSafeX86Idiv(mut out: [int]): [int]:
+  // Dividend in rcx, divisor in rax -> quotient in rax, remainder in rdx, rcx & r8 preserved
+  out.push(0x49); out.push(0x89); out.push(0xC0)
+  out.push(0x4D); out.push(0x85); out.push(0xC0)
+  out.push(0x74); out.push(0x1A)
+  out.push(0x49); out.push(0x83); out.push(0xF8); out.push(0xFF)
+  out.push(0x75); out.push(0x0A)
+  out.push(0x48); out.push(0x89); out.push(0xC8)
+  out.push(0x48); out.push(0xF7); out.push(0xD8)
+  out.push(0x31); out.push(0xD2)
+  out.push(0xEB); out.push(0x0E)
+  out.push(0x48); out.push(0x89); out.push(0xC8)
+  out.push(0x48); out.push(0x99)
+  out.push(0x49); out.push(0xF7); out.push(0xF8)
+  out.push(0xEB); out.push(0x04)
+  out.push(0x31); out.push(0xC0)
+  out.push(0x31); out.push(0xD2)
+  ret out
+
 // ----------------------------------------------------------------------------
 // Built-in Machine-Code Subroutines: _aipl_print_str & _aipl_print_int
 // ----------------------------------------------------------------------------
-
 fn emitBuiltinPrintStr(mut out: [int]): [int]:
   // mov $1, %rax (sys_write)
   out.push(0x48); out.push(0xC7); out.push(0xC0); out.push(0x01); out.push(0x00); out.push(0x00); out.push(0x00)
@@ -360,24 +378,24 @@ fn emitBuiltinPrintInt(mut out: [int]): [int]:
   out.push(0x48); out.push(0x89); out.push(0xE5)
   // sub $0x30, %rsp
   out.push(0x48); out.push(0x83); out.push(0xEC); out.push(0x30)
-  // mov %rsi, -0x8(%rbp)
-  out.push(0x48); out.push(0x89); out.push(0x75); out.push(0xF8)
-  // movq $0, -0x10(%rbp)
-  out.push(0x48); out.push(0xC7); out.push(0x45); out.push(0xF0); out.push(0x00); out.push(0x00); out.push(0x00); out.push(0x00)
+  // mov %rsi, -0x28(%rbp)
+  out.push(0x48); out.push(0x89); out.push(0x75); out.push(0xD8)
+  // movq $0, -0x30(%rbp)
+  out.push(0x48); out.push(0xC7); out.push(0x45); out.push(0xD0); out.push(0x00); out.push(0x00); out.push(0x00); out.push(0x00)
   // cmp $0, %rdi
   out.push(0x48); out.push(0x83); out.push(0xFF); out.push(0x00)
   // jge .not_neg (+11 bytes)
   out.push(0x7D); out.push(0x0B)
-  // movq $1, -0x10(%rbp)
-  out.push(0x48); out.push(0xC7); out.push(0x45); out.push(0xF0); out.push(0x01); out.push(0x00); out.push(0x00); out.push(0x00)
+  // movq $1, -0x30(%rbp)
+  out.push(0x48); out.push(0xC7); out.push(0x45); out.push(0xD0); out.push(0x01); out.push(0x00); out.push(0x00); out.push(0x00)
   // neg %rdi
   out.push(0x48); out.push(0xF7); out.push(0xDF)
   // .not_neg: mov %rdi, %rax
   out.push(0x48); out.push(0x89); out.push(0xF8)
   // lea -0x1(%rbp), %r8
   out.push(0x4C); out.push(0x8D); out.push(0x45); out.push(0xFF)
-  // cmpq $0, -0x8(%rbp)
-  out.push(0x48); out.push(0x83); out.push(0x7D); out.push(0xF8); out.push(0x00)
+  // cmpq $0, -0x28(%rbp)
+  out.push(0x48); out.push(0x83); out.push(0x7D); out.push(0xD8); out.push(0x00)
   // je .no_nl (+7 bytes)
   out.push(0x74); out.push(0x07)
   // movb $10, (%r8)
@@ -410,8 +428,8 @@ fn emitBuiltinPrintInt(mut out: [int]): [int]:
   out.push(0x48); out.push(0x85); out.push(0xC0)
   // jne .loop_body (-20 bytes)
   out.push(0x75); out.push(0xEC)
-  // .after_digits: cmpq $0, -0x10(%rbp)
-  out.push(0x48); out.push(0x83); out.push(0x7D); out.push(0xF0); out.push(0x00)
+  // .after_digits: cmpq $0, -0x30(%rbp)
+  out.push(0x48); out.push(0x83); out.push(0x7D); out.push(0xD0); out.push(0x00)
   // je .do_print (+7 bytes)
   out.push(0x74); out.push(0x07)
   // movb $45, (%r8)
@@ -528,56 +546,46 @@ fn emitX86Expr(arena: AstArena, hir: HirModule, exprId: int, ctx: X86FnContext, 
       // imul rax, rcx
       em.code.push(0x48); em.code.push(0x0F); em.code.push(0xAF); em.code.push(0xC1)
     elif e.op == "/":
-      // mov r8, rax; mov rax, rcx; cqo; idiv r8
-      em.code.push(0x49); em.code.push(0x89); em.code.push(0xC0)
-      em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8)
-      em.code.push(0x48); em.code.push(0x99)
-      em.code.push(0x49); em.code.push(0xF7); em.code.push(0xF8)
+      em.code = emitSafeX86Idiv(em.code)
+    elif e.op == "//":
+      em.code = emitSafeX86Idiv(em.code)
+      em.code.push(0x48); em.code.push(0x85); em.code.push(0xD2)
+      em.code.push(0x74); em.code.push(0x08)
+      em.code.push(0x4C); em.code.push(0x31); em.code.push(0xC1)
+      em.code.push(0x79); em.code.push(0x03)
+      em.code.push(0x48); em.code.push(0xFF); em.code.push(0xC8)
     elif e.op == "%":
-      // mov r8, rax; mov rax, rcx; cqo; idiv r8; mov rax, rdx
-      em.code.push(0x49); em.code.push(0x89); em.code.push(0xC0)
-      em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8)
-      em.code.push(0x48); em.code.push(0x99)
-      em.code.push(0x49); em.code.push(0xF7); em.code.push(0xF8)
+      em.code = emitSafeX86Idiv(em.code)
       em.code.push(0x48); em.code.push(0x89); em.code.push(0xD0)
     elif e.op == "==":
-      // cmp rcx, rax; sete al; movzbq al, rax
       em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
       em.code.push(0x0F); em.code.push(0x94); em.code.push(0xC0)
       em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
     elif e.op == "!=":
-      // cmp rcx, rax; setne al; movzbq al, rax
       em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
       em.code.push(0x0F); em.code.push(0x95); em.code.push(0xC0)
       em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
     elif e.op == "<":
-      // cmp rcx, rax; setl al; movzbq al, rax
       em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
       em.code.push(0x0F); em.code.push(0x9C); em.code.push(0xC0)
       em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
     elif e.op == "<=":
-      // cmp rcx, rax; setle al; movzbq al, rax
       em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
       em.code.push(0x0F); em.code.push(0x9E); em.code.push(0xC0)
       em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
     elif e.op == ">":
-      // cmp rcx, rax; setg al; movzbq al, rax
       em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
       em.code.push(0x0F); em.code.push(0x9F); em.code.push(0xC0)
       em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
     elif e.op == ">=":
-      // cmp rcx, rax; setge al; movzbq al, rax
       em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
       em.code.push(0x0F); em.code.push(0x9D); em.code.push(0xC0)
       em.code.push(0x48); em.code.push(0x0F); em.code.push(0xB6); em.code.push(0xC0)
-    elif e.op == "and":
-      // and rax, rcx
+    elif e.op == "and" or e.op == "&":
       em.code.push(0x48); em.code.push(0x21); em.code.push(0xC8)
-    elif e.op == "or":
-      // or rax, rcx
+    elif e.op == "or" or e.op == "|":
       em.code.push(0x48); em.code.push(0x09); em.code.push(0xC8)
     elif e.op == "xor" or e.op == "^":
-      // xor rax, rcx
       em.code.push(0x48); em.code.push(0x31); em.code.push(0xC8)
     elif e.op == "<<":
       // mov r8, rcx; mov rcx, rax; mov rax, r8; shl cl, rax
@@ -663,17 +671,17 @@ fn emitX86Expr(arena: AstArena, hir: HirModule, exprId: int, ctx: X86FnContext, 
           em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
           ret em
       else:
-        // Empty println(): print newline
-        let sIdx = lookupStringIndex(ctx.stringPool, "\n")
-        em.code.push(0x48); em.code.push(0xBE)
-        em.code = pushU64LE(em.code, 0)
-        if sIdx >= 0:
-          em.strRelocs.push(X86StrReloc(codeOffset = em.code.len - 8, stringIndex = sIdx))
-        em.code.push(0xBA)
-        em.code = pushU32LE(em.code, 1)
-        em.code.push(0xE8)
-        em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
-        em.callRelocs.push(X86Reloc(codeOffset = em.code.len - 4, targetName = "_aipl_print_str", callNextOffset = em.code.len))
+        if callee == "println":
+          let sIdx = lookupStringIndex(ctx.stringPool, "\n")
+          em.code.push(0x48); em.code.push(0xBE)
+          em.code = pushU64LE(em.code, 0)
+          if sIdx >= 0:
+            em.strRelocs.push(X86StrReloc(codeOffset = em.code.len - 8, stringIndex = sIdx))
+          em.code.push(0xBA)
+          em.code = pushU32LE(em.code, 1)
+          em.code.push(0xE8)
+          em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+          em.callRelocs.push(X86Reloc(codeOffset = em.code.len - 4, targetName = "_aipl_print_str", callNextOffset = em.code.len))
         em.code.push(0x48); em.code.push(0xC7); em.code.push(0xC0); em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
         ret em
 
@@ -777,21 +785,15 @@ fn emitX86Stmt(arena: AstArena, hir: HirModule, stmtId: int, ctx: X86FnContext, 
         em.code.push(0x50)
         em = emitX86Expr(arena, hir, st.exprId, ctx, em)
         em.code.push(0x59)
-        em.code.push(0x49); em.code.push(0x89); em.code.push(0xC0) // mov r8, rax
-        em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8) // mov rax, rcx
-        em.code.push(0x48); em.code.push(0x99) // cqo
-        em.code.push(0x49); em.code.push(0xF7); em.code.push(0xF8) // idiv r8
+        em.code = emitSafeX86Idiv(em.code)
         em.code = emitMovRaxToRbpOffset(em.code, offset)
       elif st.name == "%=":
         em.code = emitMovRbpOffsetToRax(em.code, offset)
         em.code.push(0x50)
         em = emitX86Expr(arena, hir, st.exprId, ctx, em)
         em.code.push(0x59)
-        em.code.push(0x49); em.code.push(0x89); em.code.push(0xC0)
-        em.code.push(0x48); em.code.push(0x89); em.code.push(0xC8)
-        em.code.push(0x48); em.code.push(0x99)
-        em.code.push(0x49); em.code.push(0xF7); em.code.push(0xF8)
-        em.code.push(0x48); em.code.push(0x89); em.code.push(0xD0) // mov rax, rdx
+        em.code = emitSafeX86Idiv(em.code)
+        em.code.push(0x48); em.code.push(0x89); em.code.push(0xD0)
         em.code = emitMovRaxToRbpOffset(em.code, offset)
       else:
         em = emitX86Expr(arena, hir, st.exprId, ctx, em)
@@ -857,7 +859,9 @@ fn emitX86Stmt(arena: AstArena, hir: HirModule, stmtId: int, ctx: X86FnContext, 
     let jzExitPos = em.code.len - 4
 
     let prevBreaks = em.loopBreakOffsets
+    let prevConts = em.loopContOffsets
     em.loopBreakOffsets = []
+    em.loopContOffsets = []
 
     let loopCtx = X86FnContext(
       paramNames = ctx.paramNames,
@@ -872,6 +876,13 @@ fn emitX86Stmt(arena: AstArena, hir: HirModule, stmtId: int, ctx: X86FnContext, 
     while wi < st.bodyStmts.len:
       em = emitX86Stmt(arena, hir, st.bodyStmts[wi], loopCtx, em)
       wi += 1
+
+    mut cti = 0
+    while cti < em.loopContOffsets.len:
+      let cPos = em.loopContOffsets[cti]
+      let cRel32 = startOffset - (cPos + 4)
+      em.code = patchU32LE(em.code, cPos, cRel32)
+      cti += 1
 
     // Back edge: jmp startOffset
     em.code.push(0xE9)
@@ -891,6 +902,79 @@ fn emitX86Stmt(arena: AstArena, hir: HirModule, stmtId: int, ctx: X86FnContext, 
       bki += 1
 
     em.loopBreakOffsets = prevBreaks
+    em.loopContOffsets = prevConts
+    ret em
+
+  // For statement
+  if st.kind == "For":
+    let locIdx = lookupLocalIndex(ctx.paramNames, ctx.localNames, st.name)
+    if locIdx >= 0 and st.exprId >= 0:
+      let rng = arena.exprs[st.exprId]
+      if rng.kind == "Binary" and (rng.op == ".." or rng.op == "..="):
+        let iterOffset = (locIdx + 1) * 8
+        em = emitX86Expr(arena, hir, rng.left, ctx, em)
+        em.code = emitMovRaxToRbpOffset(em.code, iterOffset)
+
+        let startOffset = em.code.len
+        em.code = emitMovRbpOffsetToRax(em.code, iterOffset)
+        em.code.push(0x50)
+        em = emitX86Expr(arena, hir, rng.right, ctx, em)
+        em.code.push(0x59)
+        em.code.push(0x48); em.code.push(0x39); em.code.push(0xC1)
+        if rng.op == "..=":
+          em.code.push(0x0F); em.code.push(0x8F)
+        else:
+          em.code.push(0x0F); em.code.push(0x8D)
+        em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+        let jExitPos = em.code.len - 4
+
+        let prevBreaks = em.loopBreakOffsets
+        let prevConts = em.loopContOffsets
+        em.loopBreakOffsets = []
+        em.loopContOffsets = []
+
+        let loopCtx = X86FnContext(
+          paramNames = ctx.paramNames,
+          localNames = ctx.localNames,
+          frameSize = ctx.frameSize,
+          stringPool = ctx.stringPool,
+          inLoop = true,
+          loopStartOffset = startOffset
+        )
+
+        mut fbi = 0
+        while fbi < st.bodyStmts.len:
+          em = emitX86Stmt(arena, hir, st.bodyStmts[fbi], loopCtx, em)
+          fbi += 1
+
+        let contTargetOffset = em.code.len
+        mut cti = 0
+        while cti < em.loopContOffsets.len:
+          let cPos = em.loopContOffsets[cti]
+          let cRel32 = contTargetOffset - (cPos + 4)
+          em.code = patchU32LE(em.code, cPos, cRel32)
+          cti += 1
+
+        em.code = emitMovRbpOffsetToRax(em.code, iterOffset)
+        em.code.push(0x48); em.code.push(0xFF); em.code.push(0xC0)
+        em.code = emitMovRaxToRbpOffset(em.code, iterOffset)
+
+        em.code.push(0xE9)
+        let backRel32 = startOffset - (em.code.len + 4)
+        em.code = pushU32LE(em.code, backRel32)
+
+        let exitRel32 = em.code.len - (jExitPos + 4)
+        em.code = patchU32LE(em.code, jExitPos, exitRel32)
+
+        mut bki = 0
+        while bki < em.loopBreakOffsets.len:
+          let bPos = em.loopBreakOffsets[bki]
+          let bRel32 = em.code.len - (bPos + 4)
+          em.code = patchU32LE(em.code, bPos, bRel32)
+          bki += 1
+
+        em.loopBreakOffsets = prevBreaks
+        em.loopContOffsets = prevConts
     ret em
 
   // Break statement
@@ -905,10 +989,9 @@ fn emitX86Stmt(arena: AstArena, hir: HirModule, stmtId: int, ctx: X86FnContext, 
   if st.kind == "Continue" or st.kind == "continue":
     if ctx.inLoop:
       em.code.push(0xE9)
-      let contRel32 = ctx.loopStartOffset - (em.code.len + 4)
-      em.code = pushU32LE(em.code, contRel32)
+      em.code.push(0); em.code.push(0); em.code.push(0); em.code.push(0)
+      em.loopContOffsets.push(em.code.len - 4)
     ret em
-
   // Pass statement
   if st.kind == "Pass":
     em.code.push(0x90) // nop
@@ -928,7 +1011,7 @@ pub fn emitElf64X86_64Bytes(hir: HirModule, bundledSource: str): bytes:
     stringPool = scanStringsFromStmts(hir.arena, hir.functions[fi].bodyStmts, stringPool)
     fi += 1
 
-  mut em = X86Emitter(code = [], callRelocs = [], strRelocs = [], loopBreakOffsets = [])
+  mut em = X86Emitter(code = [], callRelocs = [], strRelocs = [], loopBreakOffsets = [], loopContOffsets = [])
   mut fnOffsets: [X86FuncEntry] = []
 
   // 2. Emit _start stub at codeOffset 0 (virtual address 0x400078)

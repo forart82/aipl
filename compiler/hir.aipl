@@ -706,7 +706,8 @@ pub fn foldExprInArena(mut arena: AstArena, exprId: int): int:
       )
       arena.exprs[exprId] = folded
       ret exprId
-    if e.op == "-" and (child.kind == "IntLit" or child.kind == "Int"):
+    let minI64Unary = -9223372036854775807 - 1
+    if e.op == "-" and (child.kind == "IntLit" or child.kind == "Int") and child.intVal != minI64Unary:
       let iVal = -child.intVal
       let folded = ExprNode(
         id = e.id,
@@ -787,12 +788,18 @@ pub fn foldExprInArena(mut arena: AstArena, exprId: int): int:
         let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
         arena.exprs[exprId] = folded
         ret exprId
-      if e.op == "/" and r.intVal != 0:
+      let minI64 = -9223372036854775807 - 1
+      if e.op == "/" and r.intVal != 0 and not (l.intVal == minI64 and r.intVal == -1):
         let val = l.intVal / r.intVal
         let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
         arena.exprs[exprId] = folded
         ret exprId
-      if e.op == "%" and r.intVal != 0:
+      if e.op == "//" and r.intVal != 0 and not (l.intVal == minI64 and r.intVal == -1):
+        let val = l.intVal // r.intVal
+        let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
+        arena.exprs[exprId] = folded
+        ret exprId
+      if e.op == "%" and r.intVal != 0 and not (l.intVal == minI64 and r.intVal == -1):
         let val = l.intVal % r.intVal
         let folded = ExprNode(id = e.id, kind = "IntLit", op = "", intVal = val, floatVal = 0.0, strVal = str(val), boolVal = false, left = -1, right = -1, cond = -1, children = emptyInts, names = emptyNames, typeId = e.typeId, span = e.span)
         arena.exprs[exprId] = folded
@@ -872,15 +879,11 @@ pub fn foldExprInArena(mut arena: AstArena, exprId: int): int:
     if isRightInt and r.intVal == 0:
       if e.op == "+" or e.op == "-":
         ret leftId
-      if e.op == "*":
-        ret rightId
       if e.op == "<<" or e.op == ">>":
         ret leftId
     if isLeftInt and l.intVal == 0:
       if e.op == "+":
         ret rightId
-      if e.op == "*":
-        ret leftId
     if isRightInt and r.intVal == 1:
       if e.op == "*":
         ret leftId
@@ -900,7 +903,7 @@ pub fn foldExprInArena(mut arena: AstArena, exprId: int): int:
           ret leftId
         else:
           ret rightId
-    if isRightBool:
+    if isRightBool and (l.kind == "Ident" or l.kind == "BoolLit"):
       if e.op == "and" or e.op == "&&":
         if not r.boolVal:
           ret rightId

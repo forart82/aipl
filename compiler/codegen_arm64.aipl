@@ -140,19 +140,22 @@ fn scanStringsFromExpr(arena: AstArena, exprId: int, mut pool: [Arm64StringEntry
   if exprId < 0 or exprId >= arena.exprs.len:
     ret pool
   let e = arena.exprs[exprId]
-  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or e.kind == "StrLit":
-    pool = internString(pool, e.strVal)
   if e.kind == "Call":
     let callee = if e.left >= 0 and e.left < arena.exprs.len: arena.exprs[e.left].strVal else: ""
-    if callee == "println":
+    if callee == "println" or callee == "print":
       if e.children.len > 0:
         let argId = e.children[0]
         if argId >= 0 and argId < arena.exprs.len:
           let ae = arena.exprs[argId]
           if ae.kind == "STRING" or ae.kind == "RAW_STRING" or ae.kind == "INTERP_STRING" or ae.kind == "StrLit":
-            pool = internString(pool, ae.strVal + "\n")
-      else:
+            let text = if callee == "println": ae.strVal + "\n" else: ae.strVal
+            pool = internString(pool, text)
+            ret pool
+      elif callee == "println":
         pool = internString(pool, "\n")
+        ret pool
+  if e.kind == "STRING" or e.kind == "RAW_STRING" or e.kind == "INTERP_STRING" or e.kind == "StrLit":
+    pool = internString(pool, e.strVal)
   if e.left >= 0:
     pool = scanStringsFromExpr(arena, e.left, pool)
   if e.right >= 0:

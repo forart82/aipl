@@ -52,14 +52,23 @@ AiplVal aipl_format_val(AiplVal v, const char* spec) {
       return aipl_str(buf);
     }
   }
-  if (sl > 0 && spec[sl - 1] == 'o') {
+  bool valid_mods = (sl > 0 && sl < 24);
+  for (size_t mi = 0; valid_mods && mi + 1 < sl; mi++) {
+    char mc = spec[mi];
+    if (!((mc >= '0' && mc <= '9') || mc == '.' || mc == '-' || mc == '+' || mc == ' ' || mc == '#')) {
+      valid_mods = false;
+    }
+  }
+  if (!valid_mods) return aipl_to_str(v);
+  if (spec[sl - 1] == 'o') {
     char fmt[32];
     snprintf(fmt, sizeof(fmt), "%%%.*sllo", (int)(sl - 1), spec);
     snprintf(buf, sizeof(buf), fmt, (unsigned long long)v.i);
     return aipl_str(buf);
   }
-  if (sl > 0 && spec[sl - 1] == 'b') {
+  if (spec[sl - 1] == 'b') {
     int width = (sl > 1) ? atoi(spec) : 0;
+    if (width >= (int)sizeof(buf)) width = (int)sizeof(buf) - 1;
     unsigned long long uval = (unsigned long long)v.i;
     char tmp[65]; int tidx = 0;
     if (uval == 0) { tmp[tidx++] = '0'; }
@@ -68,8 +77,8 @@ AiplVal aipl_format_val(AiplVal v, const char* spec) {
     for (int k = 0; k < tidx; k++) rev[k] = tmp[tidx - 1 - k];
     rev[tidx] = 0;
     if (width > tidx) {
-      int pad = width - tidx; if (width >= (int)sizeof(buf)) width = (int)sizeof(buf) - 1;
-      memset(buf, '0', pad); memcpy(buf + pad, rev, tidx); buf[width] = 0;
+      int pad = width - tidx;
+      memset(buf, '0', (size_t)pad); memcpy(buf + pad, rev, (size_t)tidx); buf[width] = 0;
       return aipl_str(buf);
     }
     return aipl_str(rev);
@@ -154,12 +163,22 @@ AiplVal aipl_div_slow(AiplVal a, AiplVal b) {
     double fb = (b.kind == AIPL_FLOAT) ? b.f : (double)b.i;
     return aipl_float(fb != 0.0 ? fa / fb : 0.0);
   }
-  return aipl_int(b.i != 0 ? a.i / b.i : 0);
+  if (b.i == 0) return aipl_int(0);
+  if (a.i == INT64_MIN && b.i == -1) return aipl_int(INT64_MIN);
+  return aipl_int(a.i / b.i);
 }
 
 AiplVal aipl_pow(AiplVal a, AiplVal b) {
   if (a.kind == AIPL_INT && b.kind == AIPL_INT && b.i >= 0) {
-    int64_t r = 1; for (int64_t i = 0; i < b.i; i++) r *= a.i; return aipl_int(r);
+    uint64_t r = 1ULL;
+    uint64_t base_u = (uint64_t)a.i;
+    uint64_t exp_u = (uint64_t)b.i;
+    while (exp_u > 0) {
+      if (exp_u & 1ULL) r *= base_u;
+      base_u *= base_u;
+      exp_u >>= 1;
+    }
+    return aipl_int((int64_t)r);
   }
   double base = (a.kind == AIPL_FLOAT) ? a.f : (double)a.i;
   double exp_val = (b.kind == AIPL_FLOAT) ? b.f : (double)b.i;
@@ -175,8 +194,13 @@ AiplVal aipl_euclid_mod(AiplVal a, AiplVal b) {
     if (m < 0.0) m += fabs(fb);
     return aipl_float(m);
   }
-  if (b.i == 0) return aipl_int(0);
-  int64_t m = a.i % b.i; if (m < 0) m += (b.i < 0 ? -b.i : b.i); return aipl_int(m);
+  if (b.i == 0 || b.i == 1 || b.i == -1) return aipl_int(0);
+  int64_t m = a.i % b.i;
+  if (m < 0) {
+    uint64_t abs_b = (b.i < 0) ? (0ULL - (uint64_t)b.i) : (uint64_t)b.i;
+    m = (int64_t)((uint64_t)m + abs_b);
+  }
+  return aipl_int(m);
 }
 
 AiplVal aipl_array_slice(AiplVal arr_val, AiplVal start_val, AiplVal end_val) {
@@ -596,6 +620,15 @@ AiplVal aipl_map_remove(AiplVal map_val, const char* key) {
   int32_t idx = aipl_map_find_slot(m, key, tag);
   if (idx < 0) return aipl_none();
   AiplVal old_val = m->vals[idx];
+  if (m->keys[idx]) {
+    extern AiplArenaPage* _aipl_arena_head;
+    bool in_arena = false;
+    const uint8_t* kp = (const uint8_t*)m->keys[idx];
+    for (AiplArenaPage* pg = _aipl_arena_head; pg; pg = pg->next) {
+      if (pg->buf && kp >= pg->buf && kp < pg->buf + pg->cap) { in_arena = true; break; }
+    }
+    if (!in_arena) free((void*)m->keys[idx]);
+  }
   for (int64_t i = idx; i < m->len - 1; i++) {
     m->keys[i] = m->keys[i + 1];
     m->vals[i] = m->vals[i + 1];
@@ -717,6 +750,7 @@ void aipl_arena_pop(AiplArenaPage* saved) {
       AiplArenaPage* p = target_page->next;
       while (p) {
         p->offset = 0;
+        p->base_offset = -1;
         p = p->next;
       }
     }
@@ -819,16 +853,17 @@ static AiplVal aipl_evacuate_val_inner(AiplArenaPage* saved, AiplVal v) {
     case AIPL_MAP: {
       if (v.ptr) {
         AiplMap* m = (AiplMap*)v.ptr;
+        bool map_in_frame = aipl_ptr_in_arena_frame(saved, m) || aipl_ptr_in_arena_frame(saved, m->keys) || aipl_ptr_in_arena_frame(saved, m->vals);
         for (int64_t i = 0; i < m->len; i++) {
-          if (m->keys[i] && aipl_ptr_in_arena_frame(saved, m->keys[i])) {
+          if (!map_in_frame && m->keys[i] && aipl_ptr_in_arena_frame(saved, m->keys[i])) {
             m->keys[i] = strdup(m->keys[i]);
           }
           m->vals[i] = aipl_evacuate_val_inner(saved, m->vals[i]);
         }
-        if (aipl_ptr_in_arena_frame(saved, m) || aipl_ptr_in_arena_frame(saved, m->keys) || aipl_ptr_in_arena_frame(saved, m->vals)) {
+        if (map_in_frame) {
           AiplVal nm = aipl_map_new();
           for (int64_t i = 0; i < m->len; i++) {
-            aipl_map_set(nm, aipl_str_lit(m->keys[i]), m->vals[i]);
+            aipl_map_set(nm, aipl_str_lit(m->keys[i] ? m->keys[i] : ""), m->vals[i]);
           }
           return nm;
         }
@@ -1589,8 +1624,13 @@ AiplVal aipl_rt_roundTo(AiplVal x, AiplVal n) {
 }
 
 AiplVal aipl_rt_remEuclid(AiplVal a, AiplVal b) {
-  if (b.i == 0) return aipl_int(0);
-  int64_t r = a.i % b.i; if (r < 0) r += (b.i < 0 ? -b.i : b.i); return aipl_int(r);
+  if (b.i == 0 || b.i == 1 || b.i == -1) return aipl_int(0);
+  int64_t r = a.i % b.i;
+  if (r < 0) {
+    uint64_t abs_b = (b.i < 0) ? (0ULL - (uint64_t)b.i) : (uint64_t)b.i;
+    r = (int64_t)((uint64_t)r + abs_b);
+  }
+  return aipl_int(r);
 }
 
 AiplVal aipl_rt_popcnt(AiplVal x) {
@@ -1864,11 +1904,19 @@ AiplVal aipl_rt_readFile(AiplVal path_val) {
   const char* p = path_val.s ? path_val.s : ""; FILE* f = NULL; int is_stdin = 0;
   if (strcmp(p, "/dev/stdin") == 0 || strcmp(p, "-") == 0) { f = stdin; is_stdin = 1; } else { f = fopen(p, "rb"); }
   if (!f) return aipl_str("");
-  struct stat st; if (stat(p, &st) == 0 && S_ISDIR(st.st_mode)) return aipl_str("");
-  long sz = -1; if (!is_stdin) { fseek(f, 0, SEEK_END); sz = ftell(f); fseek(f, 0, SEEK_SET); }
+  if (!is_stdin) {
+    struct stat st;
+    if (stat(p, &st) == 0 && S_ISDIR(st.st_mode)) { fclose(f); return aipl_str(""); }
+  }
+  long sz = -1; if (!is_stdin) { if (fseek(f, 0, SEEK_END) == 0) { sz = ftell(f); fseek(f, 0, SEEK_SET); } }
+  if (!is_stdin && sz == 0) {
+    int ch = fgetc(f);
+    if (ch == EOF) { fclose(f); return aipl_str(""); }
+    ungetc(ch, f);
+  }
   if (sz > 0 && sz < 500000000L) {
-    char* b = (char*)malloc(sz + 1);
-    if (b) { size_t nr = fread(b, 1, sz, f); b[nr] = 0; fclose(f); AiplVal res = aipl_str(b); free(b); return res; }
+    char* b = (char*)malloc((size_t)sz + 1);
+    if (b) { size_t nr = fread(b, 1, (size_t)sz, f); b[nr] = 0; fclose(f); AiplVal res = aipl_str(b); free(b); return res; }
   }
   size_t cap = 4096; size_t len = 0; char* b = (char*)malloc(cap); size_t n;
   while ((n = fread(b + len, 1, cap - len - 1, f)) > 0) {
@@ -1904,17 +1952,23 @@ AiplVal aipl_rt_readBytes(AiplVal path_val) {
   if (strcmp(p, "@self_exe") == 0) p = "/proc/self/exe";
   struct stat st; if (stat(p, &st) == 0 && S_ISDIR(st.st_mode)) return aipl_err(aipl_str("readBytes: path is a directory"));
   FILE* f = fopen(p, "rb"); if (!f) return aipl_err(aipl_str("readBytes: failed to open"));
-  fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+  long sz = -1; if (fseek(f, 0, SEEK_END) == 0) { sz = ftell(f); fseek(f, 0, SEEK_SET); }
+  if (sz == 0) {
+    int ch = fgetc(f);
+    if (ch == EOF) { fclose(f); return aipl_ok(aipl_bytes_new(0)); }
+    ungetc(ch, f);
+  }
   if (sz > 0 && sz < 500000000L) {
     AiplVal bv = aipl_bytes_new(sz); AiplBytes* b = (AiplBytes*)bv.ptr;
-    if (b) { size_t nr = fread(b->data, 1, sz, f); b->len = (int64_t)nr; fclose(f); return aipl_ok(bv); }
+    if (b) { size_t nr = fread(b->data, 1, (size_t)sz, f); b->len = (int64_t)nr; fclose(f); return aipl_ok(bv); }
   }
   size_t cap = 4096; size_t len = 0; uint8_t* data = (uint8_t*)malloc(cap); size_t n;
   while ((n = fread(data + len, 1, cap - len, f)) > 0) {
     len += n; if (len >= cap) { cap *= 2; data = (uint8_t*)realloc(data, cap); }
   }
-  fclose(f); AiplVal bv = aipl_bytes_new(len); AiplBytes* b = (AiplBytes*)bv.ptr;
-  memcpy(b->data, data, len); free(data); return aipl_ok(bv);
+  fclose(f); AiplVal bv = aipl_bytes_new((int64_t)len); AiplBytes* b = (AiplBytes*)bv.ptr;
+  if (len > 0) memcpy(b->data, data, len);
+  free(data); return aipl_ok(bv);
 }
 
 AiplVal aipl_rt_writeBytes(AiplVal path_val, AiplVal data_val) {
@@ -2282,20 +2336,36 @@ AiplVal aipl_rt_pathNormalize(AiplVal p_val) {
   if (strcmp(p, "/proc/self/exe") == 0 || strcmp(p, "@self_exe") == 0) {
     return aipl_rt_realpath(p_val);
   }
-  int is_abs = (p[0] == '/'); char* buf = strdup(p); const char* segs[256]; int count = 0;
+  size_t plen = strlen(p);
+  int is_abs = (p[0] == '/');
+  char* buf = strdup(p);
+  size_t max_segs = (plen / 2) + 4;
+  const char** segs = (const char**)malloc(sizeof(const char*) * max_segs);
+  size_t count = 0;
   char* tok = strtok(buf, "/\\");
   while (tok) {
     if (strcmp(tok, ".") == 0) {}
     else if (strcmp(tok, "..") == 0) {
       if (count > 0 && strcmp(segs[count - 1], "..") != 0) count--;
-      else if (!is_abs && count < 256) segs[count++] = tok;
-    } else if (count < 256) segs[count++] = tok;
+      else if (!is_abs && count < max_segs) segs[count++] = tok;
+    } else if (count < max_segs) segs[count++] = tok;
     tok = strtok(NULL, "/\\");
   }
-  char out[1024]; out[0] = 0; if (is_abs) strcat(out, "/");
-  for (int i = 0; i < count; i++) { strcat(out, segs[i]); if (i + 1 < count) strcat(out, "/"); }
-  if (!out[0]) { strcpy(out, "."); }
+  char* out = (char*)malloc(plen + 4);
+  size_t pos = 0;
+  if (is_abs) out[pos++] = '/';
+  for (size_t i = 0; i < count; i++) {
+    size_t sl = strlen(segs[i]);
+    memcpy(out + pos, segs[i], sl);
+    pos += sl;
+    if (i + 1 < count) out[pos++] = '/';
+  }
+  if (pos == 0) out[pos++] = '.';
+  out[pos] = 0;
+  AiplVal res = aipl_str(out);
+  free(out);
+  free((void*)segs);
   free(buf);
-  return aipl_str(out);
+  return res;
 }
 

@@ -353,7 +353,9 @@ pub fn executeRegBytecode(code: [int], r0Init: int): int:
     let rb = inst & 255
 
     let maxRegNeeded = fp + (if rd > ra: (if rd > rb: rd else: rb) else: (if ra > rb: ra else: rb)) + frameSize
-    if maxRegNeeded >= vregs.len and vregs.len < maxRegs:
+    if maxRegNeeded >= maxRegs:
+      ret if vregs.len > 0: vregs[0] else: 0
+    if maxRegNeeded >= vregs.len:
       mut targetCap = vregs.len * 2
       if targetCap <= maxRegNeeded:
         targetCap = maxRegNeeded + 256
@@ -361,7 +363,6 @@ pub fn executeRegBytecode(code: [int], r0Init: int): int:
         targetCap = maxRegs
       while vregs.len < targetCap:
         vregs.push(0)
-
     if op == REG_OP_HALT:
       let r = if rd != 0: rd else: ra
       ret vregs[fp + r]
@@ -422,6 +423,8 @@ pub fn executeRegBytecode(code: [int], r0Init: int): int:
         callStackFp[csp] = fp
       csp += 1
       fp += frameSize
+      if fp >= maxRegs:
+        ret if vregs.len > 0: vregs[0] else: 0
       while fp >= vregs.len and vregs.len < maxRegs:
         vregs.push(0)
       vregs[fp] = arg

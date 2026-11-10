@@ -615,7 +615,7 @@ AiplVal aipl_fn_isWasmI64Expr(AiplVal v_arena, AiplVal v_exprId) {
     return aipl_fn_isWasmI64Expr(v_arena, aipl_member_get_idx(v_e, 8, "left"));
   }
   if (aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("Binary", 6)))) {
-    if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("+", 1))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("-", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("*", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("/", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("%", 1))))))) {
+    if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("+", 1))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("-", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("*", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("/", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("%", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("&", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("|", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("^", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("xor", 3)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("<<", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n(">>", 2))))))) {
       return (aipl_truthy(aipl_fn_isWasmI64Expr(v_arena, aipl_member_get_idx(v_e, 8, "left"))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_fn_isWasmI64Expr(v_arena, aipl_member_get_idx(v_e, 9, "right")))));
     }
   }
@@ -782,11 +782,11 @@ __attribute__((hot)) AiplVal aipl_fn_emitWasmStmt(AiplVal v_arena, AiplVal v_hir
     v_out = aipl_fn_emitWasmExpr(v_arena, v_hir, aipl_member_get_idx(v_st, 7, "condExpr"), v_ctx, v_out);
     (aipl_array_push(v_out, aipl_int(0x04LL)), aipl_nil());
     (aipl_array_push(v_out, aipl_int(0x40LL)), aipl_nil());
-    v_ifCtx = ({ AiplVal _bif_134333 = aipl_nil(); if (aipl_truthy(aipl_member_get(v_ctx, "inLoop"))) {
-  _bif_134333 = aipl_struct_new("WasmFnContext", 7, (const char*[]){ "paramNames", "localNames", "stringPool", "loopContinueDepth", "loopBreakDepth", "inLoop", "returnsVal" }, (AiplVal[]){ aipl_member_get(v_ctx, "paramNames"), aipl_member_get_idx(v_ctx, 1, "localNames"), aipl_member_get(v_ctx, "stringPool"), aipl_add(aipl_member_get_idx(v_ctx, 3, "loopContinueDepth"), aipl_int(1LL)), aipl_add(aipl_member_get_idx(v_ctx, 4, "loopBreakDepth"), aipl_int(1LL)), aipl_bool(true), aipl_member_get_idx(v_ctx, 6, "returnsVal") });
+    v_ifCtx = ({ AiplVal _bif_134772 = aipl_nil(); if (aipl_truthy(aipl_member_get(v_ctx, "inLoop"))) {
+  _bif_134772 = aipl_struct_new("WasmFnContext", 7, (const char*[]){ "paramNames", "localNames", "stringPool", "loopContinueDepth", "loopBreakDepth", "inLoop", "returnsVal" }, (AiplVal[]){ aipl_member_get(v_ctx, "paramNames"), aipl_member_get_idx(v_ctx, 1, "localNames"), aipl_member_get(v_ctx, "stringPool"), aipl_add(aipl_member_get_idx(v_ctx, 3, "loopContinueDepth"), aipl_int(1LL)), aipl_add(aipl_member_get_idx(v_ctx, 4, "loopBreakDepth"), aipl_int(1LL)), aipl_bool(true), aipl_member_get_idx(v_ctx, 6, "returnsVal") });
 } else {
-  _bif_134333 = ({ AiplVal _db_res_134332 = aipl_nil();   _db_res_134332 = v_ctx;   _db_res_134332; });
-} _bif_134333; });
+  _bif_134772 = ({ AiplVal _db_res_134771 = aipl_nil();   _db_res_134771 = v_ctx;   _db_res_134771; });
+} _bif_134772; });
     v_bi = aipl_int(0LL);
     while (aipl_truthy(aipl_lt(v_bi, aipl_member_get(aipl_member_get(v_st, "bodyStmts"), "len")))) {
       v_out = aipl_fn_emitWasmStmt(v_arena, v_hir, aipl_index_get(aipl_member_get(v_st, "bodyStmts"), v_bi), v_ifCtx, v_out);
@@ -848,12 +848,15 @@ __attribute__((hot)) AiplVal aipl_fn_emitWasmStmt(AiplVal v_arena, AiplVal v_hir
         (aipl_array_push(v_out, aipl_int(0x45LL)), aipl_nil());
         (aipl_array_push(v_out, aipl_int(0x0DLL)), aipl_nil());
         v_out = aipl_fn_wasmPushUleb128(v_out, aipl_int(1LL));
-        v_loopCtx = aipl_struct_new("WasmFnContext", 7, (const char*[]){ "paramNames", "localNames", "stringPool", "loopContinueDepth", "loopBreakDepth", "inLoop", "returnsVal" }, (AiplVal[]){ aipl_member_get(v_ctx, "paramNames"), aipl_member_get_idx(v_ctx, 1, "localNames"), aipl_member_get(v_ctx, "stringPool"), aipl_int(0LL), aipl_int(1LL), aipl_bool(true), aipl_member_get_idx(v_ctx, 6, "returnsVal") });
+        (aipl_array_push(v_out, aipl_int(0x02LL)), aipl_nil());
+        (aipl_array_push(v_out, aipl_int(0x40LL)), aipl_nil());
+        v_loopCtx = aipl_struct_new("WasmFnContext", 7, (const char*[]){ "paramNames", "localNames", "stringPool", "loopContinueDepth", "loopBreakDepth", "inLoop", "returnsVal" }, (AiplVal[]){ aipl_member_get(v_ctx, "paramNames"), aipl_member_get_idx(v_ctx, 1, "localNames"), aipl_member_get(v_ctx, "stringPool"), aipl_int(0LL), aipl_int(2LL), aipl_bool(true), aipl_member_get_idx(v_ctx, 6, "returnsVal") });
         v_fbi = aipl_int(0LL);
         while (aipl_truthy(aipl_lt(v_fbi, aipl_member_get(aipl_member_get(v_st, "bodyStmts"), "len")))) {
           v_out = aipl_fn_emitWasmStmt(v_arena, v_hir, aipl_index_get(aipl_member_get(v_st, "bodyStmts"), v_fbi), v_loopCtx, v_out);
           aipl_inc_int(&v_fbi, 1LL);
         }
+        (aipl_array_push(v_out, aipl_int(0x0BLL)), aipl_nil());
         (aipl_array_push(v_out, aipl_int(0x20LL)), aipl_nil());
         v_out = aipl_fn_wasmPushUleb128(v_out, v_locIdx);
         (aipl_array_push(v_out, aipl_int(0x41LL)), aipl_nil());
@@ -975,2037 +978,2426 @@ AiplVal aipl_fn_emitMovRaxToRbpOffset(AiplVal v_out, AiplVal v_offset) {
   return v_out;
 }
 
-/* AIPL Function: emitX86Expr */
-__attribute__((hot)) AiplVal aipl_fn_emitX86Expr(AiplVal v_arena, AiplVal v_hir, AiplVal v_exprId, AiplVal v_ctx, AiplVal v_em) {
+/* AIPL Function: emitBuiltinPrintInt */
+AiplVal aipl_fn_emitBuiltinPrintInt(AiplVal v_out) {
+  (aipl_array_push(v_out, aipl_int(0x55LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x89LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xE5LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x83LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xECLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x30LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x89LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x75LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xD8LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC7LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x45LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xD0LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x83LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xFFLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x7DLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x0BLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC7LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x45LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xD0LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x01LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xF7LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xDFLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x89LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xF8LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x4CLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x8DLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x45LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xFFLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x83LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x7DLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xD8LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x74LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x07LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x41LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC6LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x0ALL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x49LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xFFLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC8LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x83LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xF8LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x75LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x09LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x41LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC6LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x30LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x49LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xFFLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC8LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xEBLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x1BLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC7LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC1LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x0ALL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x31LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xD2LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xF7LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xF1LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x80LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC2LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x30LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x41LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x88LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x10LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x49LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xFFLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC8LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x85LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC0LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x75LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xECLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x83LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x7DLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xD0LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x74LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x07LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x41LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC6LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x2DLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x49LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xFFLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC8LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x49LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x8DLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x70LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x01LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x8DLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x55LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xFFLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x4CLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x29LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC2LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC7LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC0LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x01LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x48LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC7LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC7LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x01LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x0FLL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0x05LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC9LL)), aipl_nil());
+  (aipl_array_push(v_out, aipl_int(0xC3LL)), aipl_nil());
+  return v_out;
+}
+
+/* AIPL Function: aipl_mod_compiler_codegen_arm64__pushU16LE */
+AiplVal aipl_fn_aipl_mod_compiler_codegen_arm64__pushU16LE(AiplVal v_out, AiplVal v_val) {
+  (aipl_array_push(v_out, aipl_bitand(v_val, aipl_int(0xFFLL))), aipl_nil());
+  (aipl_array_push(v_out, aipl_bitand(aipl_shr(v_val, aipl_int(8LL)), aipl_int(0xFFLL))), aipl_nil());
+  return v_out;
+}
+
+/* AIPL Function: aipl_mod_compiler_codegen_arm64__buildElf64Header */
+__attribute__((hot)) AiplVal aipl_fn_aipl_mod_compiler_codegen_arm64__buildElf64Header(AiplVal v_eMachine, AiplVal v_eEntry) {
+  AiplVal v_h = aipl_nil();
+  AiplVal v_pad = aipl_nil();
+  v_h = aipl_array_new(NULL, 0);
+  (aipl_array_push(v_h, aipl_int(0x7FLL)), aipl_nil());
+  (aipl_array_push(v_h, aipl_int(0x45LL)), aipl_nil());
+  (aipl_array_push(v_h, aipl_int(0x4CLL)), aipl_nil());
+  (aipl_array_push(v_h, aipl_int(0x46LL)), aipl_nil());
+  (aipl_array_push(v_h, aipl_int(0x02LL)), aipl_nil());
+  (aipl_array_push(v_h, aipl_int(0x01LL)), aipl_nil());
+  (aipl_array_push(v_h, aipl_int(0x01LL)), aipl_nil());
+  (aipl_array_push(v_h, aipl_int(0x00LL)), aipl_nil());
+  (aipl_array_push(v_h, aipl_int(0x00LL)), aipl_nil());
+  v_pad = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_pad, aipl_int(7LL)))) {
+    (aipl_array_push(v_h, aipl_int(0x00LL)), aipl_nil());
+    aipl_inc_int(&v_pad, 1LL);
+  }
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU16LE(v_h, aipl_int(2LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU16LE(v_h, v_eMachine);
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU32LE(v_h, aipl_int(1LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU64LE(v_h, v_eEntry);
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU64LE(v_h, aipl_int(64LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU64LE(v_h, aipl_int(0LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU32LE(v_h, aipl_int(0LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU16LE(v_h, aipl_int(64LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU16LE(v_h, aipl_int(56LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU16LE(v_h, aipl_int(1LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU16LE(v_h, aipl_int(0LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU16LE(v_h, aipl_int(0LL));
+  v_h = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU16LE(v_h, aipl_int(0LL));
+  return v_h;
+}
+
+/* AIPL Function: aipl_mod_compiler_codegen_arm64__scanStringsFromExpr */
+__attribute__((hot)) AiplVal aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromExpr(AiplVal v_arena, AiplVal v_exprId, AiplVal v_pool) {
   AiplVal v_e = aipl_nil();
-  AiplVal v_bVal = aipl_nil();
-  AiplVal v_sIdx = aipl_nil();
-  AiplVal v_strLen = aipl_nil();
-  AiplVal v_locIdx = aipl_nil();
-  AiplVal v_offset = aipl_nil();
-  AiplVal v_jzPos = aipl_nil();
-  AiplVal v_jmpEndPos = aipl_nil();
-  AiplVal v_elseRel32 = aipl_nil();
-  AiplVal v_endRel32 = aipl_nil();
   AiplVal v_callee = aipl_nil();
   AiplVal v_argId = aipl_nil();
   AiplVal v_ae = aipl_nil();
-  AiplVal v_lookupText = aipl_nil();
-  AiplVal v_nlFlag = aipl_nil();
-  AiplVal v_ai = aipl_nil();
-  AiplVal v_popIdx = aipl_nil();
+  AiplVal v_text = aipl_nil();
+  AiplVal v_ci = aipl_nil();
   if (aipl_truthy((aipl_truthy(aipl_lt(v_exprId, aipl_int(0LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_ge(v_exprId, aipl_member_get(aipl_member_get_idx(v_arena, 2, "exprs"), "len"))))))) {
-    return v_em;
+    return v_pool;
   }
   v_e = aipl_index_get(aipl_member_get_idx(v_arena, 2, "exprs"), v_exprId);
-  if (aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("IntLit", 6)))) {
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xB8LL)), aipl_nil());
-    aipl_member_set_idx(v_em, 0, "code", aipl_fn_aipl_mod_compiler_codegen_x86_64__pushU64LE(aipl_member_get_idx(v_em, 0, "code"), aipl_member_get_idx(v_e, 4, "intVal")));
-    return v_em;
-  }
-  if (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("BoolLit", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("Bool", 4))))))) {
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC7LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-    v_bVal = (aipl_truthy(aipl_member_get_idx(v_e, 7, "boolVal")) ? aipl_int(1LL) : aipl_int(0LL));
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), v_bVal), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x00LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x00LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x00LL)), aipl_nil());
-    return v_em;
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("STRING", 6))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("RAW_STRING", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("INTERP_STRING", 13)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("StrLit", 6))))))) {
-    v_sIdx = aipl_fn_aipl_mod_compiler_codegen_x86_64__lookupStringIndex(aipl_member_get(v_ctx, "stringPool"), aipl_member_get_idx(v_e, 6, "strVal"));
-    v_strLen = (aipl_truthy(aipl_ge(v_sIdx, aipl_int(0LL))) ? aipl_member_get(aipl_index_get(aipl_member_get(v_ctx, "stringPool"), v_sIdx), "length") : aipl_member_get(aipl_member_get_idx(v_e, 6, "strVal"), "len"));
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xBELL)), aipl_nil());
-    aipl_member_set_idx(v_em, 0, "code", aipl_fn_aipl_mod_compiler_codegen_x86_64__pushU64LE(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)));
-    if (aipl_truthy(aipl_ge(v_sIdx, aipl_int(0LL)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 2, "strRelocs"), aipl_struct_new("X86StrReloc", 2, (const char*[]){ "codeOffset", "stringIndex" }, (AiplVal[]){ aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_int(8LL)), v_sIdx })), aipl_nil());
-    }
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xBALL)), aipl_nil());
-    aipl_member_set_idx(v_em, 0, "code", aipl_fn_aipl_mod_compiler_codegen_x86_64__pushU32LE(aipl_member_get_idx(v_em, 0, "code"), v_strLen));
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xF0LL)), aipl_nil());
-    return v_em;
-  }
-  if (aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("Ident", 5)))) {
-    v_locIdx = aipl_fn_aipl_mod_compiler_codegen_x86_64__lookupLocalIndex(aipl_member_get(v_ctx, "paramNames"), aipl_member_get_idx(v_ctx, 1, "localNames"), aipl_member_get_idx(v_e, 6, "strVal"));
-    if (aipl_truthy(aipl_ge(v_locIdx, aipl_int(0LL)))) {
-      v_offset = aipl_mul(aipl_add(v_locIdx, aipl_int(1LL)), aipl_int(8LL));
-      aipl_member_set_idx(v_em, 0, "code", aipl_fn_emitMovRbpOffsetToRax(aipl_member_get_idx(v_em, 0, "code"), v_offset));
-    }
-    else {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC7LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    }
-    return v_em;
-  }
-  if (aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("Unary", 5)))) {
-    v_em = aipl_fn_emitX86Expr(v_arena, v_hir, aipl_member_get_idx(v_e, 8, "left"), v_ctx, v_em);
-    if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("-", 1)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xF7LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xD8LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("not", 3)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x85LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x94LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xB6LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("~", 1)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xF7LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xD0LL)), aipl_nil());
-    }
-    return v_em;
-  }
-  if (aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("Binary", 6)))) {
-    v_em = aipl_fn_emitX86Expr(v_arena, v_hir, aipl_member_get_idx(v_e, 8, "left"), v_ctx, v_em);
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x50LL)), aipl_nil());
-    v_em = aipl_fn_emitX86Expr(v_arena, v_hir, aipl_member_get_idx(v_e, 9, "right"), v_ctx, v_em);
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x59LL)), aipl_nil());
-    if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("+", 1)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x01LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("-", 1)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x29LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("*", 1)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xAFLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("/", 1)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x49LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x99LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x49LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xF7LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xF8LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("%", 1)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x49LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x99LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x49LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xF7LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xF8LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xD0LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("==", 2)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x39LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x94LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xB6LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("!=", 2)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x39LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x95LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xB6LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("<", 1)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x39LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x9CLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xB6LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("<=", 2)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x39LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x9ELL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xB6LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n(">", 1)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x39LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x9FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xB6LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n(">=", 2)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x39LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x9DLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xB6LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("and", 3)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x21LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("or", 2)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x09LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-    }
-    else if (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("xor", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("^", 1))))))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x31LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n("<<", 2)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x49LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x4CLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xD3LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xE0LL)), aipl_nil());
-    }
-    else if (aipl_truthy(aipl_eq(aipl_member_get_idx(v_e, 3, "op"), aipl_str_n(">>", 2)))) {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x49LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC1LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x4CLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xD3LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xF8LL)), aipl_nil());
-    }
-    else {
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x01LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC8LL)), aipl_nil());
-    }
-    return v_em;
-  }
-  if (aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("IfExpr", 6)))) {
-    v_em = aipl_fn_emitX86Expr(v_arena, v_hir, aipl_member_get_idx(v_e, 10, "cond"), v_ctx, v_em);
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x85LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x84LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    v_jzPos = aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_int(4LL));
-    v_em = aipl_fn_emitX86Expr(v_arena, v_hir, aipl_member_get_idx(v_e, 8, "left"), v_ctx, v_em);
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xE9LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    v_jmpEndPos = aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_int(4LL));
-    v_elseRel32 = aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_add(v_jzPos, aipl_int(4LL)));
-    aipl_member_set_idx(v_em, 0, "code", aipl_fn_patchU32LE(aipl_member_get_idx(v_em, 0, "code"), v_jzPos, v_elseRel32));
-    v_em = aipl_fn_emitX86Expr(v_arena, v_hir, aipl_member_get_idx(v_e, 9, "right"), v_ctx, v_em);
-    v_endRel32 = aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_add(v_jmpEndPos, aipl_int(4LL)));
-    aipl_member_set_idx(v_em, 0, "code", aipl_fn_patchU32LE(aipl_member_get_idx(v_em, 0, "code"), v_jmpEndPos, v_endRel32));
-    return v_em;
-  }
   if (aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("Call", 4)))) {
     v_callee = (aipl_truthy((aipl_truthy(aipl_ge(aipl_member_get_idx(v_e, 8, "left"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_member_get_idx(v_e, 8, "left"), aipl_member_get(aipl_member_get_idx(v_arena, 2, "exprs"), "len")))) : aipl_bool(false))) ? aipl_member_get_idx(aipl_index_get(aipl_member_get_idx(v_arena, 2, "exprs"), aipl_member_get_idx(v_e, 8, "left")), 6, "strVal") : aipl_str(""));
     if (aipl_truthy((aipl_truthy(aipl_eq(v_callee, aipl_str_n("println", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_callee, aipl_str_n("print", 5))))))) {
       if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_e, 11, "children"), "len"), aipl_int(0LL)))) {
         v_argId = aipl_index_get(aipl_member_get_idx(v_e, 11, "children"), aipl_int(0LL));
-        v_ae = (aipl_truthy((aipl_truthy(aipl_ge(v_argId, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_lt(v_argId, aipl_member_get(aipl_member_get_idx(v_arena, 2, "exprs"), "len")))) : aipl_bool(false))) ? aipl_index_get(aipl_member_get_idx(v_arena, 2, "exprs"), v_argId) : aipl_index_get(aipl_member_get_idx(v_arena, 2, "exprs"), aipl_int(0LL)));
-        if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_ae, "kind"), aipl_str_n("STRING", 6))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_ae, "kind"), aipl_str_n("RAW_STRING", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_ae, "kind"), aipl_str_n("INTERP_STRING", 13)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_ae, "kind"), aipl_str_n("StrLit", 6))))))) {
-          v_lookupText = (aipl_truthy(aipl_eq(v_callee, aipl_str_n("println", 7))) ? aipl_add(aipl_member_get_idx(v_ae, 6, "strVal"), aipl_str_n("\n", 1)) : aipl_member_get_idx(v_ae, 6, "strVal"));
-          v_sIdx = aipl_fn_aipl_mod_compiler_codegen_x86_64__lookupStringIndex(aipl_member_get(v_ctx, "stringPool"), v_lookupText);
-          v_strLen = (aipl_truthy(aipl_ge(v_sIdx, aipl_int(0LL))) ? aipl_member_get(aipl_index_get(aipl_member_get(v_ctx, "stringPool"), v_sIdx), "length") : aipl_member_get(v_lookupText, "len"));
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xBELL)), aipl_nil());
-          aipl_member_set_idx(v_em, 0, "code", aipl_fn_aipl_mod_compiler_codegen_x86_64__pushU64LE(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)));
-          if (aipl_truthy(aipl_ge(v_sIdx, aipl_int(0LL)))) {
-            (aipl_array_push(aipl_member_get_idx(v_em, 2, "strRelocs"), aipl_struct_new("X86StrReloc", 2, (const char*[]){ "codeOffset", "stringIndex" }, (AiplVal[]){ aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_int(8LL)), v_sIdx })), aipl_nil());
+        if (aipl_truthy((aipl_truthy(aipl_ge(v_argId, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_lt(v_argId, aipl_member_get(aipl_member_get_idx(v_arena, 2, "exprs"), "len")))) : aipl_bool(false)))) {
+          v_ae = aipl_index_get(aipl_member_get_idx(v_arena, 2, "exprs"), v_argId);
+          if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_ae, "kind"), aipl_str_n("STRING", 6))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_ae, "kind"), aipl_str_n("RAW_STRING", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_ae, "kind"), aipl_str_n("INTERP_STRING", 13)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_ae, "kind"), aipl_str_n("StrLit", 6))))))) {
+            v_text = (aipl_truthy(aipl_eq(v_callee, aipl_str_n("println", 7))) ? aipl_add(aipl_member_get_idx(v_ae, 6, "strVal"), aipl_str_n("\n", 1)) : aipl_member_get_idx(v_ae, 6, "strVal"));
+            v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__internString(v_pool, v_text);
+            return v_pool;
           }
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xBALL)), aipl_nil());
-          aipl_member_set_idx(v_em, 0, "code", aipl_fn_aipl_mod_compiler_codegen_x86_64__pushU32LE(aipl_member_get_idx(v_em, 0, "code"), v_strLen));
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xE8LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 1, "callRelocs"), aipl_struct_new("X86Reloc", 3, (const char*[]){ "codeOffset", "targetName", "callNextOffset" }, (AiplVal[]){ aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_int(4LL)), aipl_str_n("_aipl_print_str", 15), aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len") })), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC7LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          return v_em;
-        }
-        else {
-          v_em = aipl_fn_emitX86Expr(v_arena, v_hir, v_argId, v_ctx, v_em);
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC7LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC7LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC6LL)), aipl_nil());
-          v_nlFlag = (aipl_truthy(aipl_eq(v_callee, aipl_str_n("println", 7))) ? aipl_int(1LL) : aipl_int(0LL));
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), v_nlFlag), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xE8LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 1, "callRelocs"), aipl_struct_new("X86Reloc", 3, (const char*[]){ "codeOffset", "targetName", "callNextOffset" }, (AiplVal[]){ aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_int(4LL)), aipl_str_n("_aipl_print_int", 15), aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len") })), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC7LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-          return v_em;
         }
       }
-      else {
-        v_sIdx = aipl_fn_aipl_mod_compiler_codegen_x86_64__lookupStringIndex(aipl_member_get(v_ctx, "stringPool"), aipl_str_n("\n", 1));
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xBELL)), aipl_nil());
-        aipl_member_set_idx(v_em, 0, "code", aipl_fn_aipl_mod_compiler_codegen_x86_64__pushU64LE(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)));
-        if (aipl_truthy(aipl_ge(v_sIdx, aipl_int(0LL)))) {
-          (aipl_array_push(aipl_member_get_idx(v_em, 2, "strRelocs"), aipl_struct_new("X86StrReloc", 2, (const char*[]){ "codeOffset", "stringIndex" }, (AiplVal[]){ aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_int(8LL)), v_sIdx })), aipl_nil());
-        }
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xBALL)), aipl_nil());
-        aipl_member_set_idx(v_em, 0, "code", aipl_fn_aipl_mod_compiler_codegen_x86_64__pushU32LE(aipl_member_get_idx(v_em, 0, "code"), aipl_int(1LL)));
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xE8LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 1, "callRelocs"), aipl_struct_new("X86Reloc", 3, (const char*[]){ "codeOffset", "targetName", "callNextOffset" }, (AiplVal[]){ aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_int(4LL)), aipl_str_n("_aipl_print_str", 15), aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len") })), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC7LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-        return v_em;
+      else if (aipl_truthy(aipl_eq(v_callee, aipl_str_n("println", 7)))) {
+        v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__internString(v_pool, aipl_str_n("\n", 1));
+        return v_pool;
       }
     }
-    if (aipl_truthy(aipl_eq(v_callee, aipl_str_n("exit", 4)))) {
-      if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_e, 11, "children"), "len"), aipl_int(0LL)))) {
-        v_em = aipl_fn_emitX86Expr(v_arena, v_hir, aipl_index_get(aipl_member_get_idx(v_e, 11, "children"), aipl_int(0LL)), v_ctx, v_em);
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x89LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC7LL)), aipl_nil());
-      }
-      else {
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x31LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xFFLL)), aipl_nil());
-      }
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x48LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC7LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xC0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x3CLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x0FLL)), aipl_nil());
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x05LL)), aipl_nil());
-      return v_em;
-    }
-    v_ai = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_ai, aipl_member_get(aipl_member_get_idx(v_e, 11, "children"), "len")))) {
-      v_em = aipl_fn_emitX86Expr(v_arena, v_hir, aipl_index_get(aipl_member_get_idx(v_e, 11, "children"), v_ai), v_ctx, v_em);
-      (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x50LL)), aipl_nil());
-      aipl_inc_int(&v_ai, 1LL);
-    }
-    v_popIdx = aipl_sub(aipl_member_get(aipl_member_get_idx(v_e, 11, "children"), "len"), aipl_int(1LL));
-    while (aipl_truthy(aipl_ge(v_popIdx, aipl_int(0LL)))) {
-      if (aipl_truthy(aipl_eq(v_popIdx, aipl_int(0LL)))) {
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x5FLL)), aipl_nil());
-      }
-      else if (aipl_truthy(aipl_eq(v_popIdx, aipl_int(1LL)))) {
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x5ELL)), aipl_nil());
-      }
-      else if (aipl_truthy(aipl_eq(v_popIdx, aipl_int(2LL)))) {
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x5ALL)), aipl_nil());
-      }
-      else if (aipl_truthy(aipl_eq(v_popIdx, aipl_int(3LL)))) {
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x59LL)), aipl_nil());
-      }
-      else if (aipl_truthy(aipl_eq(v_popIdx, aipl_int(4LL)))) {
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x41LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x58LL)), aipl_nil());
-      }
-      else if (aipl_truthy(aipl_eq(v_popIdx, aipl_int(5LL)))) {
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x41LL)), aipl_nil());
-        (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0x59LL)), aipl_nil());
-      }
-      aipl_inc_int(&v_popIdx, -1LL);
-    }
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0xE8LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 0, "code"), aipl_int(0LL)), aipl_nil());
-    (aipl_array_push(aipl_member_get_idx(v_em, 1, "callRelocs"), aipl_struct_new("X86Reloc", 3, (const char*[]){ "codeOffset", "targetName", "callNextOffset" }, (AiplVal[]){ aipl_sub(aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len"), aipl_int(4LL)), v_callee, aipl_member_get(aipl_member_get_idx(v_em, 0, "code"), "len") })), aipl_nil());
-    return v_em;
   }
-  return v_em;
-}
-
-/* AIPL Function: aipl_mod_compiler_codegen_arm64__pushU32LE */
-AiplVal aipl_fn_aipl_mod_compiler_codegen_arm64__pushU32LE(AiplVal v_out, AiplVal v_val) {
-  (aipl_array_push(v_out, aipl_bitand(v_val, aipl_int(0xFFLL))), aipl_nil());
-  (aipl_array_push(v_out, aipl_bitand(aipl_shr(v_val, aipl_int(8LL)), aipl_int(0xFFLL))), aipl_nil());
-  (aipl_array_push(v_out, aipl_bitand(aipl_shr(v_val, aipl_int(16LL)), aipl_int(0xFFLL))), aipl_nil());
-  (aipl_array_push(v_out, aipl_bitand(aipl_shr(v_val, aipl_int(24LL)), aipl_int(0xFFLL))), aipl_nil());
-  return v_out;
-}
-
-/* AIPL Function: aipl_mod_compiler_codegen_arm64__buildElf64ProgramHeader */
-AiplVal aipl_fn_aipl_mod_compiler_codegen_arm64__buildElf64ProgramHeader(AiplVal v_pFlags, AiplVal v_totalSize) {
-  AiplVal v_ph = aipl_nil();
-  v_ph = aipl_array_new(NULL, 0);
-  v_ph = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU32LE(v_ph, aipl_int(1LL));
-  v_ph = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU32LE(v_ph, v_pFlags);
-  v_ph = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU64LE(v_ph, aipl_int(0LL));
-  v_ph = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU64LE(v_ph, aipl_int(0x400000LL));
-  v_ph = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU64LE(v_ph, aipl_int(0x400000LL));
-  v_ph = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU64LE(v_ph, v_totalSize);
-  v_ph = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU64LE(v_ph, v_totalSize);
-  v_ph = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU64LE(v_ph, aipl_int(0x1000LL));
-  return v_ph;
-}
-
-/* AIPL Function: aipl_mod_compiler_codegen_arm64__scanStringsFromStmts */
-__attribute__((hot)) AiplVal aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromStmts(AiplVal v_arena, AiplVal v_stmtIds, AiplVal v_pool) {
-  AiplVal v_i = aipl_nil();
-  AiplVal v_stId = aipl_nil();
-  AiplVal v_st = aipl_nil();
-  v_i = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_stmtIds, "len")))) {
-    v_stId = aipl_index_get(v_stmtIds, v_i);
-    if (aipl_truthy((aipl_truthy(aipl_ge(v_stId, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_lt(v_stId, aipl_member_get(aipl_member_get_idx(v_arena, 3, "stmts"), "len")))) : aipl_bool(false)))) {
-      v_st = aipl_index_get(aipl_member_get_idx(v_arena, 3, "stmts"), v_stId);
-      if (aipl_truthy(aipl_ge(aipl_member_get(v_st, "exprId"), aipl_int(0LL)))) {
-        v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromExpr(v_arena, aipl_member_get(v_st, "exprId"), v_pool);
-      }
-      if (aipl_truthy(aipl_ge(aipl_member_get_idx(v_st, 7, "condExpr"), aipl_int(0LL)))) {
-        v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromExpr(v_arena, aipl_member_get_idx(v_st, 7, "condExpr"), v_pool);
-      }
-      if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get(v_st, "bodyStmts"), "len"), aipl_int(0LL)))) {
-        v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromStmts(v_arena, aipl_member_get(v_st, "bodyStmts"), v_pool);
-      }
-      if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_st, 9, "elseStmts"), "len"), aipl_int(0LL)))) {
-        v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromStmts(v_arena, aipl_member_get_idx(v_st, 9, "elseStmts"), v_pool);
-      }
-    }
-    aipl_inc_int(&v_i, 1LL);
+  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("STRING", 6))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("RAW_STRING", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("INTERP_STRING", 13)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_e, "kind"), aipl_str_n("StrLit", 6))))))) {
+    v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__internString(v_pool, aipl_member_get_idx(v_e, 6, "strVal"));
+  }
+  if (aipl_truthy(aipl_ge(aipl_member_get_idx(v_e, 8, "left"), aipl_int(0LL)))) {
+    v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromExpr(v_arena, aipl_member_get_idx(v_e, 8, "left"), v_pool);
+  }
+  if (aipl_truthy(aipl_ge(aipl_member_get_idx(v_e, 9, "right"), aipl_int(0LL)))) {
+    v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromExpr(v_arena, aipl_member_get_idx(v_e, 9, "right"), v_pool);
+  }
+  if (aipl_truthy(aipl_ge(aipl_member_get_idx(v_e, 10, "cond"), aipl_int(0LL)))) {
+    v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromExpr(v_arena, aipl_member_get_idx(v_e, 10, "cond"), v_pool);
+  }
+  v_ci = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_ci, aipl_member_get(aipl_member_get_idx(v_e, 11, "children"), "len")))) {
+    v_pool = aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromExpr(v_arena, aipl_index_get(aipl_member_get_idx(v_e, 11, "children"), v_ci), v_pool);
+    aipl_inc_int(&v_ci, 1LL);
   }
   return v_pool;
 }
 
-/* AIPL Function: emitElf64Arm64Bytes */
-__attribute__((hot)) AiplVal aipl_fn_emitElf64Arm64Bytes(AiplVal v_hir, AiplVal v_bundledSource) {
-  AiplVal v_stringPool = aipl_nil();
-  AiplVal v_fi = aipl_nil();
-  AiplVal v_rawCodeLen = aipl_nil();
-  AiplVal v_totalCodeLen = aipl_nil();
-  AiplVal v_code = aipl_nil();
-  AiplVal v_si = aipl_nil();
-  AiplVal v_s = aipl_nil();
-  AiplVal v_adrPos = aipl_nil();
-  AiplVal v_targetOffset = aipl_nil();
-  AiplVal v_rodataBytes = aipl_nil();
-  AiplVal v_spi = aipl_nil();
-  AiplVal v_item = aipl_nil();
-  AiplVal v_chI = aipl_nil();
-  AiplVal v_totalFileSize = aipl_nil();
-  AiplVal v_ehdr = aipl_nil();
-  AiplVal v_phdr = aipl_nil();
-  AiplVal v_finalBytes = aipl_nil();
-  v_stringPool = aipl_array_new(NULL, 0);
-  v_fi = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_fi, aipl_member_get(aipl_member_get_idx(v_hir, 5, "functions"), "len")))) {
-    v_stringPool = aipl_fn_aipl_mod_compiler_codegen_arm64__scanStringsFromStmts(aipl_member_get_idx(v_hir, 1, "arena"), aipl_member_get_idx(aipl_index_get(aipl_member_get_idx(v_hir, 5, "functions"), v_fi), 9, "bodyStmts"), v_stringPool);
-    aipl_inc_int(&v_fi, 1LL);
-  }
-  v_rawCodeLen = aipl_add(aipl_mul(aipl_member_get(v_stringPool, "len"), aipl_int(20LL)), aipl_int(12LL));
-  v_totalCodeLen = v_rawCodeLen;
-  if (aipl_truthy(aipl_neq(aipl_mod(v_totalCodeLen, aipl_int(8LL)), aipl_int(0LL)))) {
-    aipl_inc_int(&v_totalCodeLen, 4LL);
-  }
-  v_code = aipl_array_new(NULL, 0);
-  v_si = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_si, aipl_member_get(v_stringPool, "len")))) {
-    v_s = aipl_index_get(v_stringPool, v_si);
-    v_adrPos = aipl_add(aipl_member_get(v_code, "len"), aipl_int(4LL));
-    v_targetOffset = aipl_sub(aipl_add(v_totalCodeLen, aipl_member_get_idx(v_s, 1, "offset")), v_adrPos);
-    v_code = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_code, aipl_fn_encodeMovz(aipl_int(0LL), aipl_int(1LL)));
-    v_code = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_code, aipl_fn_encodeAdr(aipl_int(1LL), v_targetOffset));
-    v_code = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_code, aipl_fn_encodeMovz(aipl_int(2LL), aipl_member_get(v_s, "length")));
-    v_code = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_code, aipl_fn_encodeMovz(aipl_int(8LL), aipl_int(64LL)));
-    v_code = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_code, aipl_fn_encodeSvc(aipl_int(0LL)));
-    aipl_inc_int(&v_si, 1LL);
-  }
-  v_code = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_code, aipl_fn_encodeMovz(aipl_int(0LL), aipl_int(0LL)));
-  v_code = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_code, aipl_fn_encodeMovz(aipl_int(8LL), aipl_int(93LL)));
-  v_code = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_code, aipl_fn_encodeSvc(aipl_int(0LL)));
-  while (aipl_truthy(aipl_neq(aipl_mod(aipl_member_get(v_code, "len"), aipl_int(8LL)), aipl_int(0LL)))) {
-    (aipl_array_push(v_code, aipl_int(0x1FLL)), aipl_nil());
-    (aipl_array_push(v_code, aipl_int(0x20LL)), aipl_nil());
-    (aipl_array_push(v_code, aipl_int(0x03LL)), aipl_nil());
-    (aipl_array_push(v_code, aipl_int(0xD5LL)), aipl_nil());
-  }
-  v_rodataBytes = aipl_array_new(NULL, 0);
-  v_spi = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_spi, aipl_member_get(v_stringPool, "len")))) {
-    v_item = aipl_index_get(v_stringPool, v_spi);
-    v_chI = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_chI, aipl_member_get(aipl_member_get_idx(v_item, 0, "text"), "len")))) {
-      (aipl_array_push(v_rodataBytes, aipl_str_char_code_at(aipl_member_get_idx(v_item, 0, "text"), v_chI)), aipl_nil());
-      aipl_inc_int(&v_chI, 1LL);
-    }
-    aipl_inc_int(&v_spi, 1LL);
-  }
-  v_totalFileSize = aipl_add(aipl_add(aipl_int(120LL), aipl_member_get(v_code, "len")), aipl_member_get(v_rodataBytes, "len"));
-  v_ehdr = aipl_fn_aipl_mod_compiler_codegen_arm64__buildElf64Header(aipl_int(183LL), aipl_int(0x400078LL));
-  v_phdr = aipl_fn_aipl_mod_compiler_codegen_arm64__buildElf64ProgramHeader(aipl_int(7LL), v_totalFileSize);
-  v_finalBytes = aipl_array_new(NULL, 0);
-  v_finalBytes = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_finalBytes, v_ehdr);
-  v_finalBytes = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_finalBytes, v_phdr);
-  v_finalBytes = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_finalBytes, v_code);
-  if (aipl_truthy(aipl_gt(aipl_member_get(v_rodataBytes, "len"), aipl_int(0LL)))) {
-    v_finalBytes = aipl_fn_aipl_mod_compiler_codegen_arm64__appendBytes(v_finalBytes, v_rodataBytes);
-  }
-  return aipl_bytes_from_array(v_finalBytes);
+/* AIPL Function: encodeSvc */
+AiplVal aipl_fn_encodeSvc(AiplVal v_imm) {
+  AiplVal v_val = aipl_nil();
+  AiplVal v_bytes = aipl_nil();
+  v_val = aipl_bitor(aipl_bitor(aipl_int(3556769792LL), aipl_shl(aipl_bitand(v_imm, aipl_int(0xFFFFLL)), aipl_int(5LL))), aipl_int(0x01LL));
+  v_bytes = aipl_array_new(NULL, 0);
+  v_bytes = aipl_fn_aipl_mod_compiler_codegen_arm64__pushU32LE(v_bytes, v_val);
+  return v_bytes;
 }
 
-/* AIPL Function: Option_isNone */
-AiplVal aipl_fn_Option_isNone(AiplVal v_self) {
-  return aipl_opt_is_none(v_self);
+/* AIPL Function: Option_isSome */
+AiplVal aipl_fn_Option_isSome(AiplVal v_self) {
+  return aipl_opt_is_some(v_self);
 }
 
-/* AIPL Function: Result_unwrapErr */
-AiplVal aipl_fn_Result_unwrapErr(AiplVal v_self) {
-  return aipl_unwrap_err(v_self);
+/* AIPL Function: Result_unwrap */
+AiplVal aipl_fn_Result_unwrap(AiplVal v_self) {
+  return aipl_unwrap(v_self);
 }
 
-/* AIPL Function: splitQueryTerms */
-__attribute__((hot)) AiplVal aipl_fn_splitQueryTerms(AiplVal v_query) {
-  AiplVal v_rawWords = aipl_nil();
-  AiplVal v_terms = aipl_nil();
+/* AIPL Function: textMatchesAllTerms */
+__attribute__((hot)) AiplVal aipl_fn_textMatchesAllTerms(AiplVal v_text, AiplVal v_terms) {
+  AiplVal v_lower = aipl_nil();
   AiplVal v_i = aipl_nil();
-  AiplVal v_w = aipl_nil();
-  v_rawWords = aipl_str_split(aipl_str_to_lower(v_query), aipl_str_n(" ", 1));
-  v_terms = aipl_array_new(NULL, 0);
+  v_lower = aipl_str_to_lower(v_text);
   v_i = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_rawWords, "len")))) {
-    v_w = aipl_str_trim(aipl_index_get(v_rawWords, v_i));
-    if (aipl_truthy(aipl_gt(aipl_member_get(v_w, "len"), aipl_int(0LL)))) {
-      (aipl_array_push(v_terms, v_w), aipl_nil());
+  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_terms, "len")))) {
+    if (aipl_truthy(aipl_not(aipl_contains(v_lower, aipl_index_get(v_terms, v_i))))) {
+      return aipl_bool(false);
     }
     aipl_inc_int(&v_i, 1LL);
   }
-  return v_terms;
+  return aipl_bool(true);
 }
 
-/* AIPL Function: parseLineColFromError */
-__attribute__((hot)) AiplVal aipl_fn_parseLineColFromError(AiplVal v_errStr) {
-  AiplVal v_pLine = aipl_nil();
-  AiplVal v_pCol = aipl_nil();
-  AiplVal v_colonIdx = aipl_nil();
-  AiplVal v_prefix = aipl_nil();
-  AiplVal v_isNum = aipl_nil();
+/* AIPL Function: verifyDisjointAgentContracts */
+__attribute__((hot)) AiplVal aipl_fn_verifyDisjointAgentContracts(AiplVal v_partitions) {
+  AiplVal v_isDisjoint = aipl_nil();
+  AiplVal v_conflictCount = aipl_nil();
+  AiplVal v_conflictingFile = aipl_nil();
+  AiplVal v_conflictingSymbol = aipl_nil();
+  AiplVal v_mergeOrder = aipl_nil();
+  AiplVal v_i = aipl_nil();
+  AiplVal v_pA = aipl_nil();
+  AiplVal v_j = aipl_nil();
+  AiplVal v_pB = aipl_nil();
+  AiplVal v_fi = aipl_nil();
+  AiplVal v_fA = aipl_nil();
+  AiplVal v_fj = aipl_nil();
+  AiplVal v_fB = aipl_nil();
+  AiplVal v_si = aipl_nil();
+  AiplVal v_sA = aipl_nil();
+  AiplVal v_sj = aipl_nil();
+  AiplVal v_sB = aipl_nil();
+  AiplVal v_indices = aipl_nil();
   AiplVal v_pi = aipl_nil();
-  AiplVal v_c = aipl_nil();
-  AiplVal v_rest = aipl_nil();
-  AiplVal v_nextColon = aipl_nil();
-  AiplVal v_colPart = aipl_nil();
-  AiplVal v_colIsNum = aipl_nil();
-  AiplVal v_ci = aipl_nil();
-  AiplVal v_cc = aipl_nil();
-  AiplVal v_lower = aipl_nil();
-  AiplVal v_lIdx = aipl_nil();
-  AiplVal v_afterLine = aipl_nil();
-  AiplVal v_numStr = aipl_nil();
-  AiplVal v_ni = aipl_nil();
-  v_pLine = aipl_int(1LL);
-  v_pCol = aipl_int(1LL);
-  v_colonIdx = aipl_index_of(v_errStr, aipl_str_n(":", 1));
-  if (aipl_truthy(aipl_gt(v_colonIdx, aipl_int(0LL)))) {
-    v_prefix = aipl_str_trim(aipl_slice(v_errStr, aipl_int(0LL), v_colonIdx));
-    v_isNum = aipl_bool(true);
-    v_pi = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_pi, aipl_member_get(v_prefix, "len")))) {
-      v_c = aipl_slice(v_prefix, v_pi, aipl_add(v_pi, aipl_int(1LL)));
-      if (aipl_truthy((aipl_truthy(aipl_lt(v_c, aipl_str_n("0", 1))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_gt(v_c, aipl_str_n("9", 1))))))) {
-        v_isNum = aipl_bool(false);
-        break;
-      }
-      aipl_inc_int(&v_pi, 1LL);
-    }
-    if (aipl_truthy((aipl_truthy(v_isNum) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(v_prefix, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
-      v_pLine = aipl_fn_parseInt(v_prefix);
-      v_rest = aipl_str_trim(aipl_slice(v_errStr, aipl_add(v_colonIdx, aipl_int(1LL)), aipl_member_get(v_errStr, "len")));
-      v_nextColon = aipl_index_of(v_rest, aipl_str_n(":", 1));
-      if (aipl_truthy(aipl_gt(v_nextColon, aipl_int(0LL)))) {
-        v_colPart = aipl_str_trim(aipl_slice(v_rest, aipl_int(0LL), v_nextColon));
-        v_colIsNum = aipl_bool(true);
-        v_ci = aipl_int(0LL);
-        while (aipl_truthy(aipl_lt(v_ci, aipl_member_get(v_colPart, "len")))) {
-          v_cc = aipl_slice(v_colPart, v_ci, aipl_add(v_ci, aipl_int(1LL)));
-          if (aipl_truthy((aipl_truthy(aipl_lt(v_cc, aipl_str_n("0", 1))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_gt(v_cc, aipl_str_n("9", 1))))))) {
-            v_colIsNum = aipl_bool(false);
-            break;
+  AiplVal v_a = aipl_nil();
+  AiplVal v_b = aipl_nil();
+  AiplVal v_idxA = aipl_nil();
+  AiplVal v_idxB = aipl_nil();
+  AiplVal v_shouldSwap = aipl_nil();
+  AiplVal v_tmp = aipl_nil();
+  AiplVal v_mi = aipl_nil();
+  AiplVal v_idx = aipl_nil();
+  v_isDisjoint = aipl_bool(true);
+  v_conflictCount = aipl_int(0LL);
+  v_conflictingFile = aipl_str("");
+  v_conflictingSymbol = aipl_str("");
+  v_mergeOrder = aipl_array_new(NULL, 0);
+  v_i = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_partitions, "len")))) {
+    v_pA = aipl_index_get(v_partitions, v_i);
+    v_j = aipl_add(v_i, aipl_int(1LL));
+    while (aipl_truthy(aipl_lt(v_j, aipl_member_get(v_partitions, "len")))) {
+      v_pB = aipl_index_get(v_partitions, v_j);
+      v_fi = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_fi, aipl_member_get(aipl_member_get_idx(v_pA, 1, "ownedFiles"), "len")))) {
+        v_fA = aipl_index_get(aipl_member_get_idx(v_pA, 1, "ownedFiles"), v_fi);
+        v_fj = aipl_int(0LL);
+        while (aipl_truthy(aipl_lt(v_fj, aipl_member_get(aipl_member_get_idx(v_pB, 1, "ownedFiles"), "len")))) {
+          v_fB = aipl_index_get(aipl_member_get_idx(v_pB, 1, "ownedFiles"), v_fj);
+          if (aipl_truthy((aipl_truthy(aipl_eq(v_fA, v_fB)) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(v_fA, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
+            aipl_inc_int(&v_conflictCount, 1LL);
+            if (aipl_truthy(aipl_eq(v_conflictingFile, aipl_str("")))) {
+              v_conflictingFile = v_fA;
+            }
           }
-          aipl_inc_int(&v_ci, 1LL);
+          aipl_inc_int(&v_fj, 1LL);
         }
-        if (aipl_truthy((aipl_truthy(v_colIsNum) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(v_colPart, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
-          v_pCol = aipl_fn_parseInt(v_colPart);
+        aipl_inc_int(&v_fi, 1LL);
+      }
+      v_si = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_si, aipl_member_get(aipl_member_get_idx(v_pA, 2, "reservedSymbols"), "len")))) {
+        v_sA = aipl_index_get(aipl_member_get_idx(v_pA, 2, "reservedSymbols"), v_si);
+        v_sj = aipl_int(0LL);
+        while (aipl_truthy(aipl_lt(v_sj, aipl_member_get(aipl_member_get_idx(v_pB, 2, "reservedSymbols"), "len")))) {
+          v_sB = aipl_index_get(aipl_member_get_idx(v_pB, 2, "reservedSymbols"), v_sj);
+          if (aipl_truthy((aipl_truthy(aipl_eq(v_sA, v_sB)) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(v_sA, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
+            aipl_inc_int(&v_conflictCount, 1LL);
+            if (aipl_truthy(aipl_eq(v_conflictingSymbol, aipl_str("")))) {
+              v_conflictingSymbol = v_sA;
+            }
+          }
+          aipl_inc_int(&v_sj, 1LL);
         }
+        aipl_inc_int(&v_si, 1LL);
       }
+      aipl_inc_int(&v_j, 1LL);
     }
+    aipl_inc_int(&v_i, 1LL);
   }
-  if (aipl_truthy((aipl_truthy(aipl_eq(v_pLine, aipl_int(1LL))) ? aipl_bool(aipl_truthy(aipl_contains(aipl_str_to_lower(v_errStr), aipl_str_n("line ", 5)))) : aipl_bool(false)))) {
-    v_lower = aipl_str_to_lower(v_errStr);
-    v_lIdx = aipl_index_of(v_lower, aipl_str_n("line ", 5));
-    v_afterLine = aipl_str_trim(aipl_slice(v_lower, aipl_add(v_lIdx, aipl_int(5LL)), aipl_member_get(v_lower, "len")));
-    v_numStr = aipl_str("");
-    v_ni = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_ni, aipl_member_get(v_afterLine, "len")))) {
-      v_c = aipl_slice(v_afterLine, v_ni, aipl_add(v_ni, aipl_int(1LL)));
-      if (aipl_truthy((aipl_truthy(aipl_ge(v_c, aipl_str_n("0", 1))) ? aipl_bool(aipl_truthy(aipl_le(v_c, aipl_str_n("9", 1)))) : aipl_bool(false)))) {
-        v_numStr = aipl_add(v_numStr, v_c);
-      }
-      else {
-        break;
-      }
-      aipl_inc_int(&v_ni, 1LL);
-    }
-    if (aipl_truthy(aipl_gt(aipl_member_get(v_numStr, "len"), aipl_int(0LL)))) {
-      v_pLine = aipl_fn_parseInt(v_numStr);
-    }
+  if (aipl_truthy(aipl_gt(v_conflictCount, aipl_int(0LL)))) {
+    v_isDisjoint = aipl_bool(false);
   }
-  return aipl_array_new((AiplVal[]){ v_pLine, v_pCol }, 2);
+  v_indices = aipl_array_new(NULL, 0);
+  v_pi = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_pi, aipl_member_get(v_partitions, "len")))) {
+    (aipl_array_push(v_indices, v_pi), aipl_nil());
+    aipl_inc_int(&v_pi, 1LL);
+  }
+  v_a = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_a, aipl_member_get(v_indices, "len")))) {
+    v_b = aipl_add(v_a, aipl_int(1LL));
+    while (aipl_truthy(aipl_lt(v_b, aipl_member_get(v_indices, "len")))) {
+      v_idxA = aipl_index_get(v_indices, v_a);
+      v_idxB = aipl_index_get(v_indices, v_b);
+      v_pA = aipl_index_get(v_partitions, v_idxA);
+      v_pB = aipl_index_get(v_partitions, v_idxB);
+      v_shouldSwap = aipl_bool(false);
+      if (aipl_truthy(aipl_lt(aipl_member_get_idx(v_pB, 3, "priorityOrder"), aipl_member_get_idx(v_pA, 3, "priorityOrder")))) {
+        v_shouldSwap = aipl_bool(true);
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get_idx(v_pB, 3, "priorityOrder"), aipl_member_get_idx(v_pA, 3, "priorityOrder"))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_member_get_idx(v_pB, 0, "agentId"), aipl_member_get_idx(v_pA, 0, "agentId")))) : aipl_bool(false)))) {
+        v_shouldSwap = aipl_bool(true);
+      }
+      if (aipl_truthy(v_shouldSwap)) {
+        v_tmp = aipl_index_get(v_indices, v_a);
+        aipl_index_set(&v_indices, v_a, aipl_index_get(v_indices, v_b));
+        aipl_index_set(&v_indices, v_b, v_tmp);
+      }
+      aipl_inc_int(&v_b, 1LL);
+    }
+    aipl_inc_int(&v_a, 1LL);
+  }
+  v_mi = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_mi, aipl_member_get(v_indices, "len")))) {
+    v_idx = aipl_index_get(v_indices, v_mi);
+    (aipl_array_push(v_mergeOrder, aipl_member_get_idx(aipl_index_get(v_partitions, v_idx), 0, "agentId")), aipl_nil());
+    aipl_inc_int(&v_mi, 1LL);
+  }
+  return aipl_struct_new("ConductorArbitrationReport", 5, (const char*[]){ "isDisjoint", "conflictCount", "conflictingFile", "conflictingSymbol", "mergeOrder" }, (AiplVal[]){ v_isDisjoint, v_conflictCount, v_conflictingFile, v_conflictingSymbol, v_mergeOrder });
 }
 
-/* AIPL Function: isKnownStdIntrinsicSymbol */
-AiplVal aipl_fn_isKnownStdIntrinsicSymbol(AiplVal v_sym) {
-  AiplVal v_intrinsics = aipl_nil();
-  v_intrinsics = aipl_array_new((AiplVal[]){ aipl_str_n("fileExists", 10), aipl_str_n("readFile", 8), aipl_str_n("writeFile", 9), aipl_str_n("readBytes", 9), aipl_str_n("writeBytes", 10), aipl_str_n("realpath", 8), aipl_str_n("listDir", 7), aipl_str_n("readDir", 7), aipl_str_n("walkDir", 7), aipl_str_n("stat", 4), aipl_str_n("isDir", 5), aipl_str_n("mkdir", 5), aipl_str_n("mkdirAll", 8), aipl_str_n("removeFile", 10), aipl_str_n("deleteFile", 10), aipl_str_n("removeDirAll", 12), aipl_str_n("fileSize", 8), aipl_str_n("isFile", 6), aipl_str_n("copyFile", 8), aipl_str_n("renameFile", 10), aipl_str_n("setFileTimes", 12), aipl_str_n("appendFile", 10), aipl_str_n("pathJoin", 8), aipl_str_n("pathNormalize", 13), aipl_str_n("pathDirname", 11), aipl_str_n("pathBasename", 12), aipl_str_n("pathExtname", 11), aipl_str_n("pathExtension", 13), aipl_str_n("pathExt", 7), aipl_str_n("pathStem", 8), aipl_str_n("pathIsAbsolute", 14), aipl_str_n("userArgs", 8), aipl_str_n("args", 4), aipl_str_n("getEnv", 6), aipl_str_n("setEnv", 6), aipl_str_n("env", 3), aipl_str_n("cwd", 3), aipl_str_n("homeDir", 7), aipl_str_n("tempDir", 7), aipl_str_n("execCommand", 11), aipl_str_n("exit", 4), aipl_str_n("panic", 5), aipl_str_n("hardwareConcurrency", 19), aipl_str_n("execParallel", 12), aipl_str_n("aipl_rt_hardware_concurrency", 28), aipl_str_n("aipl_rt_exec_parallel", 21), aipl_str_n("nowMs", 5), aipl_str_n("nowUnixMs", 9), aipl_str_n("nowMonoNs", 9), aipl_str_n("sleepMs", 7), aipl_str_n("sha256", 6), aipl_str_n("sha256Bytes", 11), aipl_str_n("crc32", 5), aipl_str_n("md5", 3), aipl_str_n("sha1", 4), aipl_str_n("hmacSha256", 10), aipl_str_n("hmacSha256Hex", 13), aipl_str_n("constantTimeEq", 14), aipl_str_n("pbkdf2HmacSha256", 16), aipl_str_n("deflateRaw", 10), aipl_str_n("inflateRaw", 10), aipl_str_n("zlibCompress", 12), aipl_str_n("zlibDecompress", 14), aipl_str_n("bytesNew", 8), aipl_str_n("bytesFromArray", 14), aipl_str_n("tcpListen", 9), aipl_str_n("tcpLocalPort", 12), aipl_str_n("tcpConnect", 10), aipl_str_n("tcpAccept", 9), aipl_str_n("tcpRead", 7), aipl_str_n("tcpWrite", 8), aipl_str_n("tcpClose", 8), aipl_str_n("udpBind", 7), aipl_str_n("udpSendTo", 9), aipl_str_n("udpRecvFrom", 11), aipl_str_n("udpClose", 8), aipl_str_n("Ok", 2), aipl_str_n("Err", 3), aipl_str_n("Some", 4), aipl_str_n("None", 4), aipl_str_n("Option", 6), aipl_str_n("Result", 6), aipl_str_n("Map", 3), aipl_str_n("Array", 5), aipl_str_n("print", 5), aipl_str_n("println", 7), aipl_str_n("assert", 6), aipl_str_n("eprint", 6), aipl_str_n("eprintln", 8), aipl_str_n("printInline", 11), aipl_str_n("flushStdout", 11), aipl_str_n("readStdin", 9), aipl_str_n("readLine", 8), aipl_str_n("chr", 3), aipl_str_n("fromCharCode", 12), aipl_str_n("ord", 3), aipl_str_n("charCode", 8), aipl_str_n("parseInt", 8), aipl_str_n("parseFloat", 10), aipl_str_n("toString", 8), aipl_str_n("formatFloat", 11), aipl_str_n("toHex", 5), aipl_str_n("pi", 2), aipl_str_n("sin", 3), aipl_str_n("cos", 3), aipl_str_n("tan", 3), aipl_str_n("asin", 4), aipl_str_n("acos", 4), aipl_str_n("atan", 4), aipl_str_n("atan2", 5), aipl_str_n("sqrt", 4), aipl_str_n("pow", 3), aipl_str_n("floor", 5), aipl_str_n("ceil", 4), aipl_str_n("round", 5), aipl_str_n("abs", 3), aipl_str_n("absInt", 6), aipl_str_n("absFloat", 8), aipl_str_n("min", 3), aipl_str_n("max", 3), aipl_str_n("minInt", 6), aipl_str_n("maxInt", 6), aipl_str_n("minFloat", 8), aipl_str_n("maxFloat", 8), aipl_str_n("clamp", 5), aipl_str_n("clampInt", 8), aipl_str_n("clampFloat", 10), aipl_str_n("lerp", 4), aipl_str_n("limitVal", 8), aipl_str_n("mixVal", 6), aipl_str_n("log", 3), aipl_str_n("log2", 4), aipl_str_n("log10", 5), aipl_str_n("exp", 3), aipl_str_n("randomFloat", 11), aipl_str_n("randFloat", 9), aipl_str_n("randomIntRange", 14), aipl_str_n("randomInt", 9), aipl_str_n("randInt", 7), aipl_str_n("jsonStringify", 13), aipl_str_n("jsonParse", 9), aipl_str_n("initWindow", 10), aipl_str_n("initCanvas", 10), aipl_str_n("closeWindow", 11), aipl_str_n("setTargetFps", 12), aipl_str_n("setMaxFps", 9), aipl_str_n("getMaxFps", 9), aipl_str_n("getCurrentFps", 13), aipl_str_n("getFrameTimeMs", 14), aipl_str_n("setWindowTitle", 14), aipl_str_n("setWindowSize", 13), aipl_str_n("windowShouldClose", 17), aipl_str_n("isWindowResized", 15), aipl_str_n("setWindowMinSize", 16), aipl_str_n("getContentScale", 15), aipl_str_n("saveScreenshot", 14), aipl_str_n("startVideoRecording", 19), aipl_str_n("recordVideoFrame", 16), aipl_str_n("stopVideoRecording", 18), aipl_str_n("isRecordingVideo", 16), aipl_str_n("setSingleInstance", 17), aipl_str_n("isSingleInstance", 16), aipl_str_n("targetWindowScreenshot", 22), aipl_str_n("targetWindowRecord", 18), aipl_str_n("targetWindowAction", 18), aipl_str_n("targetWindowSeatAction", 22), aipl_str_n("publishBotState", 15), aipl_str_n("publishTurnState", 16), aipl_str_n("listRunningWindows", 18), aipl_str_n("setWindowPosition", 17), aipl_str_n("getScreenWidth", 14), aipl_str_n("getScreenHeight", 15), aipl_str_n("getFrameTime", 12), aipl_str_n("getScaleFactor", 14), aipl_str_n("beginDrawing", 12), aipl_str_n("endDrawing", 10), aipl_str_n("clearScreen", 11), aipl_str_n("clearBackground", 15), aipl_str_n("rgb", 3), aipl_str_n("rgba", 4), aipl_str_n("drawRect", 8), aipl_str_n("drawRectOutline", 15), aipl_str_n("drawRectLines", 13), aipl_str_n("drawRoundedRect", 15), aipl_str_n("drawRoundedRectOutline", 22), aipl_str_n("drawCircle", 10), aipl_str_n("drawCircleOutline", 17), aipl_str_n("drawCircleLines", 15), aipl_str_n("drawLine", 8), aipl_str_n("drawTriangle", 12), aipl_str_n("drawTriangleOutline", 19), aipl_str_n("drawTriangleLines", 17), aipl_str_n("drawText", 8), aipl_str_n("drawTextCentered", 16), aipl_str_n("drawTextFont", 12), aipl_str_n("drawLabel", 9), aipl_str_n("measureLabel", 12), aipl_str_n("measureText", 11), aipl_str_n("measureTextFont", 15), aipl_str_n("drawArc", 7), aipl_str_n("drawEllipse", 11), aipl_str_n("drawPolygon", 11), aipl_str_n("drawRegularPolygon", 18), aipl_str_n("drawPixel", 9), aipl_str_n("readCanvasPixel", 15), aipl_str_n("createImageFromPixels", 21), aipl_str_n("createTextureFromRgba", 21), aipl_str_n("createProceduralTexture", 23), aipl_str_n("saveTextureToPpm", 16), aipl_str_n("createIsometricSpriteSheet", 26), aipl_str_n("setBlendMode", 12), aipl_str_n("getBlendMode", 12), aipl_str_n("blendModeAlpha", 14), aipl_str_n("blendModeAdditive", 17), aipl_str_n("blendModeMultiplied", 19), aipl_str_n("blendModeScreen", 15), aipl_str_n("pushMatrix", 10), aipl_str_n("popMatrix", 9), aipl_str_n("pushScissor", 11), aipl_str_n("popScissor", 10), aipl_str_n("translate2D", 11), aipl_str_n("rotate2D", 8), aipl_str_n("scale2D", 7), aipl_str_n("shear2D", 7), aipl_str_n("begin3D", 7), aipl_str_n("end3D", 5), aipl_str_n("drawTriangleDepth", 17), aipl_str_n("setDepthTest", 12), aipl_str_n("clearDepth", 10), aipl_str_n("beginWorldPass", 14), aipl_str_n("endWorldPass", 12), aipl_str_n("setUiTracking", 13), aipl_str_n("drawTriangleGouraud", 19), aipl_str_n("drawTriangle3DGouraud", 21), aipl_str_n("drawQuad3DGouraud", 17), aipl_str_n("drawTriangle3DTextured", 22), aipl_str_n("drawQuad3DTextured", 18), aipl_str_n("cloneStruct", 11), aipl_str_n("drawCubeMesh", 12), aipl_str_n("renderCube", 10), aipl_str_n("isKeyPressed", 12), aipl_str_n("isKeyDown", 9), aipl_str_n("isKeyReleased", 13), aipl_str_n("isKeyHeld", 9), aipl_str_n("getKeyPressed", 13), aipl_str_n("isMouseButtonPressed", 20), aipl_str_n("isMouseButtonDown", 17), aipl_str_n("isMouseButtonReleased", 21), aipl_str_n("isMouseRightClicked", 19), aipl_str_n("isMouseDoubleClicked", 20), aipl_str_n("getMouseX", 9), aipl_str_n("getMouseY", 9), aipl_str_n("getMouseWheelMove", 17), aipl_str_n("mouseWheelX", 11), aipl_str_n("isMouseInRect", 13), aipl_str_n("loadImage", 9), aipl_str_n("decodeImage", 11), aipl_str_n("imageWidth", 10), aipl_str_n("imageHeight", 11), aipl_str_n("drawSubImage", 12), aipl_str_n("drawImage", 9), aipl_str_n("drawImageEx", 11), aipl_str_n("drawImageScaled", 15), aipl_str_n("drawImageSub", 12), aipl_str_n("saveImage", 9), aipl_str_n("getImageWidth", 13), aipl_str_n("getImageHeight", 14), aipl_str_n("loadSound", 9), aipl_str_n("decodeSound", 11), aipl_str_n("getSoundDuration", 16), aipl_str_n("loadFont", 8), aipl_str_n("decodeFont", 10), aipl_str_n("decodePngHeader", 15), aipl_str_n("decodeWavHeader", 15), aipl_str_n("decodeFontMetrics", 17), aipl_str_n("decodeImageHandle", 17), aipl_str_n("decodeSoundHandle", 17), aipl_str_n("decodeFontHandle", 16), aipl_str_n("cacheFont", 9), aipl_str_n("cacheImage", 10), aipl_str_n("cacheSound", 10), aipl_str_n("getCachedFont", 13), aipl_str_n("getCachedImage", 14), aipl_str_n("getCachedSound", 14), aipl_str_n("createAssetManager", 18), aipl_str_n("createSpriteSheet", 17), aipl_str_n("createAnimationClip", 19), aipl_str_n("sampleAnimationFrame", 20), aipl_str_n("drawSpriteFrame", 15), aipl_str_n("drawAnimatedSprite", 18), aipl_str_n("audioTime", 9), aipl_str_n("playPcmBuffer", 13), aipl_str_n("playSound", 9), aipl_str_n("playSoundEx", 11), aipl_str_n("playTone", 8), aipl_str_n("playToneSweep", 13), aipl_str_n("getAudioEnergy", 14), aipl_str_n("getAudioBand", 12), aipl_str_n("stopAllSounds", 13), aipl_str_n("setMasterVolume", 15), aipl_str_n("getVoicePosition", 16), aipl_str_n("FontHandle", 10), aipl_str_n("ImageHandle", 11), aipl_str_n("SoundHandle", 11), aipl_str_n("Vec2", 4), aipl_str_n("colorHex", 8), aipl_str_n("hypot", 5), aipl_str_n("dist", 4), aipl_str_n("modFloat", 8), aipl_str_n("randomRange", 11), aipl_str_n("randomBytes", 11), aipl_str_n("dayOfWeek", 9), aipl_str_n("unixToCivil", 11), aipl_str_n("padLeft", 7), aipl_str_n("padRight", 8), aipl_str_n("drawTextBox", 11), aipl_str_n("drawTextRight", 13), aipl_str_n("getTextInput", 12), aipl_str_n("getCompositionText", 18), aipl_str_n("getCompositionCursor", 20), aipl_str_n("getClipboardText", 16), aipl_str_n("setClipboardText", 16), aipl_str_n("isGpuAccelerated", 16), aipl_str_n("getGraphicsBackendName", 22), aipl_str_n("setSoftwareRasterizer", 21), aipl_str_n("isRectClicked", 13), aipl_str_n("measureTextHeight", 17), aipl_str_n("measureTextWidth", 16), aipl_str_n("truncateText", 12), aipl_str_n("mouseWheelY", 11), aipl_str_n("gridInBounds", 12), aipl_str_n("gridGet", 7), aipl_str_n("gridNeighbors4", 14), aipl_str_n("gridNeighbors8", 14), aipl_str_n("gridFloodFill", 13), aipl_str_n("byteBufferAlloc", 15), aipl_str_n("bytesZeroed", 11), aipl_str_n("bytesConcat", 11), aipl_str_n("bytesFromHex", 12), aipl_str_n("hexEncode", 9), aipl_str_n("hexDecode", 9), aipl_str_n("loadAsset", 9), aipl_str_n("assetExists", 11), aipl_str_n("listAssets", 10), aipl_str_n("Vec3", 4), aipl_str_n("Vec4", 4), aipl_str_n("Mat4", 4), aipl_str_n("Quat", 4), aipl_str_n("Color", 5), aipl_str_n("Rect", 4), aipl_str_n("Window", 6), aipl_str_n("Canvas", 6), aipl_str_n("Key", 3), aipl_str_n("MouseButton", 11), aipl_str_n("TouchPoint", 10), aipl_str_n("AudioStream", 11), aipl_str_n("Sound", 5), aipl_str_n("Font", 4), aipl_str_n("Image", 5), aipl_str_n("Shader", 6), aipl_str_n("Mesh", 4), aipl_str_n("Material", 8), aipl_str_n("Camera3D", 8), aipl_str_n("drawPolyline", 12), aipl_str_n("drawLineLoop", 12), aipl_str_n("drawLineStrip", 13), aipl_str_n("drawRectGradientH", 17), aipl_str_n("drawRectGradientV", 17), aipl_str_n("drawLinearGradient", 18), aipl_str_n("drawGridTiles", 13), aipl_str_n("drawCellGrid", 12), aipl_str_n("drawRectBatch", 13), aipl_str_n("drawCharGrid", 12), aipl_str_n("drawPixelBuffer", 15), aipl_str_n("drawCirclesSoA", 14), aipl_str_n("drawRectsSoA", 12), aipl_str_n("withViewport", 12), aipl_str_n("drawTextMiddle", 14), aipl_str_n("drawTextAligned", 15), aipl_str_n("measureTextSubstr", 17), aipl_str_n("readPixels", 10), aipl_str_n("saveCanvasSnapshot", 18), aipl_str_n("pollKeyEvents", 13), aipl_str_n("isKeyJustPressed", 16), aipl_str_n("getPressedKey", 13), aipl_str_n("isAnyKeyPressed", 15), aipl_str_n("pollFileDropEvents", 18), aipl_str_n("playToneEx", 10), aipl_str_n("intBufferNew", 12), aipl_str_n("intBufferGet", 12), aipl_str_n("intBufferSet", 12), aipl_str_n("intBufferLen", 12), aipl_str_n("floatBufferNew", 14), aipl_str_n("floatBufferGet", 14), aipl_str_n("floatBufferSet", 14), aipl_str_n("floatBufferLen", 14), aipl_str_n("sumIntsFast", 11), aipl_str_n("sumFloatsFast", 13), aipl_str_n("dotProductFloats", 16), aipl_str_n("axpyFloats", 10), aipl_str_n("tensorDot", 9), aipl_str_n("tensorMatmul", 12), aipl_str_n("parallelMatmulInt", 17), aipl_str_n("arenaMark", 9), aipl_str_n("arenaReset", 10), aipl_str_n("arenaAllocatedBytes", 19), aipl_str_n("arenaAlloc", 10), aipl_str_n("arenaActiveDepth", 16), aipl_str_n("arenaPopEvacuate", 16), aipl_str_n("arenaStats", 10), aipl_str_n("withScratchArena", 16), aipl_str_n("gameLoop", 8), aipl_str_n("ffiOpen", 7), aipl_str_n("ffiHasSymbol", 12), aipl_str_n("ffiCallInt", 10), aipl_str_n("ffiCallFloat", 12), aipl_str_n("ffiCallStr", 10), aipl_str_n("ffiClose", 8), aipl_str_n("canvasBackendName", 17), aipl_str_n("isHeadlessMode", 14), aipl_str_n("endFrame", 8), aipl_str_n("beginFrame", 10), aipl_str_n("clearCanvas", 11), aipl_str_n("getPixel", 8), aipl_str_n("setWindowMode", 13), aipl_str_n("getWindowMode", 13), aipl_str_n("regVmExec", 9), aipl_str_n("executeRegBytecode", 18), aipl_str_n("runRegVmComputedGoto", 20), aipl_str_n("reg_vm_exec", 11), aipl_str_n("reg_vm_fib", 10), aipl_str_n("ptrAlloc", 8), aipl_str_n("ptrFree", 7), aipl_str_n("ptrReadU8", 9), aipl_str_n("ptrWriteU8", 10), aipl_str_n("ptrReadI64", 10), aipl_str_n("ptrWriteI64", 11), aipl_str_n("sizeofType", 10), aipl_str_n("bitcastF64ToI64", 15), aipl_str_n("bitcastI64ToF64", 15), aipl_str_n("rawSyscall", 10), aipl_str_n("rawSyscall0", 11), aipl_str_n("rawSyscall1", 11), aipl_str_n("rawSyscall2", 11), aipl_str_n("rawSyscall3", 11), aipl_str_n("rawSyscall4", 11), aipl_str_n("rawSyscall5", 11), aipl_str_n("rawSyscall6", 11) }, 448);
-  return aipl_fn_arrayContainsStr(v_intrinsics, v_sym);
-}
-
-/* AIPL Function: getAiplHomeDir */
-AiplVal aipl_fn_getAiplHomeDir(void) {
-  if (aipl_truthy((aipl_truthy(aipl_fn_fileExists(aipl_str_n("compiler/main.aipl", 18))) ? aipl_bool(aipl_truthy(aipl_fn_isDir(aipl_str_n("std", 3)))) : aipl_bool(false)))) {
-    return aipl_str_n(".", 1);
+/* AIPL Function: findImportSpanInTokens */
+__attribute__((hot)) AiplVal aipl_fn_findImportSpanInTokens(AiplVal v_tokens, AiplVal v_gErr) {
+  AiplVal v_targetImp = aipl_nil();
+  AiplVal v_q1 = aipl_nil();
+  AiplVal v_q2 = aipl_nil();
+  AiplVal v_ti = aipl_nil();
+  AiplVal v_t = aipl_nil();
+  v_targetImp = aipl_str("");
+  v_q1 = aipl_index_of(v_gErr, aipl_str_n("'", 1));
+  if (aipl_truthy(aipl_ge(v_q1, aipl_int(0LL)))) {
+    v_q2 = aipl_str_index_of_from(v_gErr, aipl_str_n("'", 1), aipl_add(v_q1, aipl_int(1LL)));
+    if (aipl_truthy(aipl_gt(v_q2, v_q1))) {
+      v_targetImp = aipl_slice(v_gErr, aipl_add(v_q1, aipl_int(1LL)), v_q2);
+    }
   }
-  return aipl_fn_resolveStdlibRoot();
+  if (aipl_truthy(aipl_gt(aipl_member_get(v_targetImp, "len"), aipl_int(0LL)))) {
+    v_ti = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_ti, aipl_member_get(v_tokens, "len")))) {
+      v_t = aipl_index_get(v_tokens, v_ti);
+      if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_t, "kind"), aipl_str_n("STRING", 6))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_t, "kind"), aipl_str_n("RAW_STRING", 10)))))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_fn_stripQuotes(aipl_member_get_idx(v_t, 1, "lexeme")), v_targetImp))) : aipl_bool(false)))) {
+        return aipl_member_get(v_t, "span");
+      }
+      aipl_inc_int(&v_ti, 1LL);
+    }
+  }
+  return aipl_fn_makeSpan(aipl_int(0LL), aipl_int(0LL), aipl_int(0LL), aipl_int(1LL), aipl_int(1LL));
 }
 
-/* AIPL Function: cmdVersion */
-AiplVal aipl_fn_cmdVersion(void) {
+/* AIPL Function: compileFile */
+__attribute__((hot)) AiplVal aipl_fn_compileFile(AiplVal v_filePath) {
+  AiplVal v_src = aipl_nil();
+  AiplVal v_rootSummary = aipl_nil();
+  AiplVal v_graph = aipl_nil();
+  AiplVal v_rootDiskSrc = aipl_nil();
+  AiplVal v_bundled = aipl_nil();
+  AiplVal v_rootTokens = aipl_nil();
+  AiplVal v_rootArena = aipl_nil();
+  AiplVal v_errDiags = aipl_nil();
+  AiplVal v_gi = aipl_nil();
+  AiplVal v_gErr = aipl_nil();
+  AiplVal v_isStdMissing = aipl_nil();
+  AiplVal v_diagCode = aipl_nil();
+  AiplVal v_diagHint = aipl_nil();
+  AiplVal v_impSpan = aipl_nil();
+  AiplVal v_ri = aipl_nil();
+  AiplVal v_errStr = aipl_nil();
+  AiplVal v_lc = aipl_nil();
+  AiplVal v_emptyHir = aipl_nil();
+  AiplVal v_hir = aipl_nil();
+  AiplVal v_tcRes = aipl_nil();
+  AiplVal v_smtRes = aipl_nil();
+  AiplVal v_singleDiags = aipl_nil();
+  AiplVal v_si = aipl_nil();
+  AiplVal v_sj = aipl_nil();
+  AiplVal v_ei = aipl_nil();
+  AiplVal v_fullArena = aipl_nil();
+  AiplVal v_unifiedHir = aipl_nil();
+  AiplVal v_allDiags = aipl_nil();
+  AiplVal v_stdSymDiags = aipl_nil();
+  AiplVal v_sdi = aipl_nil();
+  AiplVal v_di = aipl_nil();
+  AiplVal v_dj = aipl_nil();
+  AiplVal v_activeErrors = aipl_nil();
+  v_src = aipl_fn_canonicalizeAiplFileOnDisk(v_filePath);
+  v_rootSummary = aipl_fn_extractModuleSummary(v_filePath, v_src, aipl_int(0LL));
+  v_graph = aipl_fn_canonicalizeGraphDepsOnDisk(v_filePath, aipl_member_get(v_rootSummary, "moduleName"), aipl_fn_resolveImports(v_filePath, aipl_fn_arenaNew(aipl_member_get(v_rootSummary, "moduleName"))));
+  v_rootDiskSrc = (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_graph, 1, "modules"), "len"), aipl_int(0LL))) ? aipl_member_get_idx(aipl_index_get(aipl_member_get_idx(v_graph, 1, "modules"), aipl_int(0LL)), 5, "source") : v_src);
+  v_bundled = (aipl_truthy(aipl_le(aipl_member_get(aipl_member_get_idx(v_graph, 1, "modules"), "len"), aipl_int(1LL))) ? v_src : (aipl_truthy(aipl_neq(v_rootDiskSrc, v_src)) ? aipl_fn_formatAiplSource(aipl_member_get(v_graph, "bundledSource")) : aipl_member_get(v_graph, "bundledSource")));
+  if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get(v_graph, "errors"), "len"), aipl_int(0LL)))) {
+    v_rootTokens = aipl_fn_tokenizeAipl(v_src, aipl_int(0LL));
+    v_rootArena = aipl_fn_parseModule(v_rootTokens, v_src);
+    v_errDiags = aipl_array_new(NULL, 0);
+    v_gi = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_gi, aipl_member_get(aipl_member_get(v_graph, "errors"), "len")))) {
+      v_gErr = aipl_index_get(aipl_member_get(v_graph, "errors"), v_gi);
+      v_isStdMissing = aipl_str_starts_with(v_gErr, aipl_str_n("AIPL_E_STD_MODULE_NOT_FOUND:", 28));
+      v_diagCode = (aipl_truthy(v_isStdMissing) ? aipl_str_n("AIPL_E_STD_MODULE_NOT_FOUND", 27) : aipl_str_n("AIPL_E1002_RESOLVE_IMPORT", 25));
+      v_diagHint = (aipl_truthy(v_isStdMissing) ? aipl_str_n("Verify standard library module path under std/ (e.g., std/gfx2d, std/math, std/fs)", 82) : aipl_str_n("Break circular import or check module path", 42));
+      v_impSpan = aipl_fn_findImportSpanInTokens(v_rootTokens, v_gErr);
+      (aipl_array_push(v_errDiags, aipl_struct_new("CompilerDiagnostic", 7, (const char*[]){ "code", "message", "span", "severity", "hint", "autofixAvailable", "autofixReplacement" }, (AiplVal[]){ v_diagCode, v_gErr, v_impSpan, aipl_str_n("error", 5), v_diagHint, aipl_bool(false), aipl_str("") })), aipl_nil());
+      aipl_inc_int(&v_gi, 1LL);
+    }
+    v_ri = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_ri, aipl_member_get(aipl_member_get(v_rootArena, "errors"), "len")))) {
+      v_errStr = aipl_index_get(aipl_member_get(v_rootArena, "errors"), v_ri);
+      v_lc = aipl_fn_parseLineColFromError(v_errStr);
+      (aipl_array_push(v_errDiags, aipl_struct_new("CompilerDiagnostic", 7, (const char*[]){ "code", "message", "span", "severity", "hint", "autofixAvailable", "autofixReplacement" }, (AiplVal[]){ aipl_str_n("AIPL_E1001_PARSE_SYNTAX", 23), v_errStr, aipl_fn_makeSpan(aipl_int(0LL), aipl_int(0LL), aipl_int(0LL), aipl_index_get(v_lc, aipl_int(0LL)), aipl_index_get(v_lc, aipl_int(1LL))), aipl_str_n("error", 5), aipl_str_n("Check syntax near token", 23), aipl_bool(false), aipl_str("") })), aipl_nil());
+      aipl_inc_int(&v_ri, 1LL);
+    }
+    v_emptyHir = aipl_struct_new("HirModule", 11, (const char*[]){ "moduleName", "arena", "symbols", "structs", "enums", "functions", "contracts", "diagnostics", "intrinsicOverrides", "emitLineDirectives", "monomorphizedInstances" }, (AiplVal[]){ aipl_str_n("Error", 5), aipl_fn_arenaNew(aipl_str_n("Error", 5)), aipl_array_new(NULL, 0), aipl_array_new(NULL, 0), aipl_array_new(NULL, 0), aipl_array_new(NULL, 0), aipl_array_new(NULL, 0), aipl_array_new(NULL, 0), aipl_array_new(NULL, 0), aipl_bool(false), aipl_array_new(NULL, 0) });
+    return aipl_struct_new("CompileReport", 11, (const char*[]){ "valid", "tokenCount", "declCount", "functionCount", "structCount", "enumCount", "verifiedContracts", "moduleCount", "bundledSource", "diagnostics", "hir" }, (AiplVal[]){ aipl_bool(false), aipl_member_get(v_rootTokens, "len"), aipl_member_get(aipl_member_get_idx(v_rootArena, 4, "decls"), "len"), aipl_int(0LL), aipl_int(0LL), aipl_int(0LL), aipl_int(0LL), aipl_member_get(aipl_member_get_idx(v_graph, 1, "modules"), "len"), v_bundled, v_errDiags, v_emptyHir });
+  }
+  if (aipl_truthy(aipl_le(aipl_member_get(aipl_member_get_idx(v_graph, 1, "modules"), "len"), aipl_int(1LL)))) {
+    v_rootTokens = aipl_fn_tokenizeAipl(v_src, aipl_int(0LL));
+    v_rootArena = aipl_fn_parseModule(v_rootTokens, v_src);
+    v_hir = aipl_fn_lowerToHir(v_rootArena, aipl_member_get(v_rootArena, "moduleName"));
+    v_tcRes = aipl_fn_typecheckHir(v_hir);
+    v_smtRes = aipl_fn_verifyContracts(v_hir);
+    v_singleDiags = aipl_array_new(NULL, 0);
+    v_si = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_si, aipl_member_get(aipl_member_get(v_tcRes, "diagnostics"), "len")))) {
+      (aipl_array_push(v_singleDiags, aipl_index_get(aipl_member_get(v_tcRes, "diagnostics"), v_si)), aipl_nil());
+      aipl_inc_int(&v_si, 1LL);
+    }
+    v_sj = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_sj, aipl_member_get(aipl_member_get(v_smtRes, "diagnostics"), "len")))) {
+      (aipl_array_push(v_singleDiags, aipl_index_get(aipl_member_get(v_smtRes, "diagnostics"), v_sj)), aipl_nil());
+      aipl_inc_int(&v_sj, 1LL);
+    }
+    if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get(v_rootArena, "errors"), "len"), aipl_int(0LL)))) {
+      v_ei = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_ei, aipl_member_get(aipl_member_get(v_rootArena, "errors"), "len")))) {
+        v_errStr = aipl_index_get(aipl_member_get(v_rootArena, "errors"), v_ei);
+        v_lc = aipl_fn_parseLineColFromError(v_errStr);
+        (aipl_array_push(v_singleDiags, aipl_struct_new("CompilerDiagnostic", 7, (const char*[]){ "code", "message", "span", "severity", "hint", "autofixAvailable", "autofixReplacement" }, (AiplVal[]){ aipl_str_n("AIPL_E1001_PARSE_SYNTAX", 23), v_errStr, aipl_fn_makeSpan(aipl_int(0LL), aipl_int(0LL), aipl_int(0LL), aipl_index_get(v_lc, aipl_int(0LL)), aipl_index_get(v_lc, aipl_int(1LL))), aipl_str_n("error", 5), aipl_str_n("Check syntax near token", 23), aipl_bool(false), aipl_str("") })), aipl_nil());
+        aipl_inc_int(&v_ei, 1LL);
+      }
+    }
+    return aipl_struct_new("CompileReport", 11, (const char*[]){ "valid", "tokenCount", "declCount", "functionCount", "structCount", "enumCount", "verifiedContracts", "moduleCount", "bundledSource", "diagnostics", "hir" }, (AiplVal[]){ (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_singleDiags, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get(v_graph, "errors"), "len"), aipl_int(0LL)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get(v_rootArena, "errors"), "len"), aipl_int(0LL)))) : aipl_bool(false)), aipl_member_get(v_rootTokens, "len"), aipl_member_get(aipl_member_get_idx(v_rootArena, 4, "decls"), "len"), aipl_member_get(aipl_member_get_idx(v_hir, 5, "functions"), "len"), aipl_member_get(aipl_member_get_idx(v_hir, 3, "structs"), "len"), aipl_member_get(aipl_member_get_idx(v_hir, 4, "enums"), "len"), aipl_member_get(v_smtRes, "verifiedContracts"), aipl_member_get(aipl_member_get_idx(v_graph, 1, "modules"), "len"), v_bundled, v_singleDiags, v_hir });
+  }
+  v_fullArena = ({ AiplVal _bif_145601 = aipl_nil(); if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_graph, 5, "moduleChunks"), "len"), aipl_int(0LL)))) {
+  _bif_145601 = aipl_fn_compileFrontendParallel(aipl_member_get_idx(v_graph, 5, "moduleChunks"), aipl_member_get_idx(v_graph, 6, "chunkLineOffsets"), aipl_member_get(v_rootSummary, "moduleName"));
+} else {
+  _bif_145601 = ({ AiplVal _db_res_145600 = aipl_nil();   _db_res_145600 = aipl_fn_parseModule(aipl_fn_tokenizeAipl(v_bundled, aipl_int(0LL)), v_bundled);   _db_res_145600; });
+} _bif_145601; });
+  v_unifiedHir = aipl_fn_lowerToHir(v_fullArena, aipl_member_get(v_rootSummary, "moduleName"));
+  v_tcRes = aipl_fn_typecheckHir(v_unifiedHir);
+  v_smtRes = aipl_fn_verifyContracts(v_unifiedHir);
+  v_allDiags = aipl_array_new(NULL, 0);
+  v_stdSymDiags = aipl_fn_checkStdImportedSymbolsInSource(v_filePath, v_src, v_graph, v_unifiedHir, v_fullArena);
+  v_sdi = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_sdi, aipl_member_get(v_stdSymDiags, "len")))) {
+    (aipl_array_push(v_allDiags, aipl_index_get(v_stdSymDiags, v_sdi)), aipl_nil());
+    aipl_inc_int(&v_sdi, 1LL);
+  }
+  v_di = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_di, aipl_member_get(aipl_member_get(v_tcRes, "diagnostics"), "len")))) {
+    (aipl_array_push(v_allDiags, aipl_index_get(aipl_member_get(v_tcRes, "diagnostics"), v_di)), aipl_nil());
+    aipl_inc_int(&v_di, 1LL);
+  }
+  v_dj = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_dj, aipl_member_get(aipl_member_get(v_smtRes, "diagnostics"), "len")))) {
+    (aipl_array_push(v_allDiags, aipl_index_get(aipl_member_get(v_smtRes, "diagnostics"), v_dj)), aipl_nil());
+    aipl_inc_int(&v_dj, 1LL);
+  }
+  v_activeErrors = aipl_member_get(v_fullArena, "errors");
+  if (aipl_truthy(aipl_gt(aipl_member_get(v_activeErrors, "len"), aipl_int(0LL)))) {
+    v_ei = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_ei, aipl_member_get(v_activeErrors, "len")))) {
+      v_errStr = aipl_index_get(v_activeErrors, v_ei);
+      v_lc = aipl_fn_parseLineColFromError(v_errStr);
+      (aipl_array_push(v_allDiags, aipl_struct_new("CompilerDiagnostic", 7, (const char*[]){ "code", "message", "span", "severity", "hint", "autofixAvailable", "autofixReplacement" }, (AiplVal[]){ aipl_str_n("AIPL_E1001_PARSE_SYNTAX", 23), v_errStr, aipl_fn_makeSpan(aipl_int(0LL), aipl_int(0LL), aipl_int(0LL), aipl_index_get(v_lc, aipl_int(0LL)), aipl_index_get(v_lc, aipl_int(1LL))), aipl_str_n("error", 5), aipl_str_n("Check syntax near token", 23), aipl_bool(false), aipl_str("") })), aipl_nil());
+      aipl_inc_int(&v_ei, 1LL);
+    }
+  }
+  return aipl_struct_new("CompileReport", 11, (const char*[]){ "valid", "tokenCount", "declCount", "functionCount", "structCount", "enumCount", "verifiedContracts", "moduleCount", "bundledSource", "diagnostics", "hir" }, (AiplVal[]){ (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_allDiags, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get(v_graph, "errors"), "len"), aipl_int(0LL)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_activeErrors, "len"), aipl_int(0LL)))) : aipl_bool(false)), aipl_add(aipl_add(aipl_member_get(aipl_member_get_idx(v_fullArena, 2, "exprs"), "len"), aipl_member_get(aipl_member_get_idx(v_fullArena, 3, "stmts"), "len")), aipl_member_get(aipl_member_get_idx(v_fullArena, 4, "decls"), "len")), aipl_member_get(aipl_member_get_idx(v_fullArena, 4, "decls"), "len"), aipl_member_get(aipl_member_get_idx(v_unifiedHir, 5, "functions"), "len"), aipl_member_get(aipl_member_get_idx(v_unifiedHir, 3, "structs"), "len"), aipl_member_get(aipl_member_get_idx(v_unifiedHir, 4, "enums"), "len"), aipl_member_get(v_smtRes, "verifiedContracts"), aipl_member_get(aipl_member_get_idx(v_graph, 1, "modules"), "len"), v_bundled, v_allDiags, v_unifiedHir });
+}
+
+/* AIPL Function: printUsage */
+AiplVal aipl_fn_printUsage(void) {
   AiplVal v_ver = aipl_nil();
   v_ver = aipl_fn_aiplVersion();
-  aipl_println(aipl_add(aipl_str_n("aipl ", 5), v_ver));
   aipl_println(aipl_add(aipl_add(aipl_str_n("AIPL - AI-Programming Language Toolchain (Version ", 50), v_ver), aipl_str_n(", compat: 0.9.0)", 16)));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("Usage: aipl <command> [options] [arguments]", 43));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("CORE COMMANDS:", 14));
+  aipl_println(aipl_str_n("  aipl verify <file.aipl> [--json] [--check-budget=<size>]  # Static type checking & SMT refinement verification", 112));
+  aipl_println(aipl_str_n("  aipl check <file.aipl> [--json] [--check-budget=<size>]   # Alias for 'aipl verify' (static & SMT verification)", 113));
+  aipl_println(aipl_str_n("  aipl build <file.aipl> [-o <out>] [-g] [--target <native|c|html|ts|wasm|llvm|x86_64-linux|arm64-linux>] [--native|--c|--html|--ts|--wasm|--elf64|--pure-aipl] [-j <N>] # Compiles AIPL into native binary, C99, TypeScript, WASM, or HTML5", 236));
+  aipl_println(aipl_str_n("  aipl bundle <file.aipl> [-o <out.html>]             # Bundles AIPL into self-contained single-file HTML5 app", 110));
+  aipl_println(aipl_str_n("  aipl run <file.aipl|file.wasm> [-v|--verbose] [--quiet] [--timeout <sec>] [--profile] [-- <args...>] # Runs AIPL source or .wasm (returns console by default; -v/--verbose shows logs & errors)", 193));
+  aipl_println(aipl_str_n("  aipl transpile <file.aipl> [--target <ts|html|html5|c>] [-o <out>] # Transpiles AIPL to TypeScript, HTML5, or C99", 115));
+  aipl_println(aipl_str_n("  aipl test [path] [--json] [--filter <pat>] [--timeout <sec>] [--profile] [-j <N>] # Executes unit tests and test suites", 121));
+  aipl_println(aipl_str_n("  aipl repl                                           # Interactive read-eval-print loop", 88));
+  aipl_println(aipl_str_n("  aipl bench [target]                                 # Benchmarks execution performance and throughput", 103));
+  aipl_println(aipl_str_n("  aipl fuzz <file.aipl>                               # Generates coverage-guided fuzz mutations", 96));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("DOCUMENTATION & INTERACTIVE EXAMPLES EXPLORER:", 46));
+  aipl_println(aipl_str_n("  aipl docs [list|<topic>|std/<module>] [--json]      # Browse system manuals, architecture, and stdlib docs", 108));
+  aipl_println(aipl_str_n("  aipl doc <file_or_dir> [-o <outDir>] [--json]       # Extracts Markdown API documentation from source", 103));
+  aipl_println(aipl_str_n("  aipl examples [list|show <name>|run <name>]         # Interactive explorer for all 263 curated example programs", 113));
+  aipl_println(aipl_str_n("  aipl help [command]                                 # Detailed manual page and usage for any command", 102));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("AI AGENT QUICK-START & KNOWLEDGE LIBRARY:", 41));
+  aipl_println(aipl_str_n("  aipl help quickstart                                # 60-second grammar, 2-space indentation, let/mut, Option/Result & req:/ens:", 130));
+  aipl_println(aipl_str_n("  aipl help syntax                                    # Complete lexical & AST grammar reference (structs, enums, receiver methods, match)", 138));
+  aipl_println(aipl_str_n("  aipl help builtins                                  # All 32 core language built-in functions with exact signatures and examples", 130));
+  aipl_println(aipl_str_n("  aipl help std [domain|module|fn]                    # Browse 36 std/ domains, 290 modules, or search 4,292 stdlib functions", 125));
+  aipl_println(aipl_str_n("  aipl help tutorials [1..12]                         # Read 12 progressive step-by-step tutorials directly in terminal", 119));
+  aipl_println(aipl_str_n("  aipl help cookbook [query]                          # Browse or search 50 copy-pasteable production recipes", 109));
+  aipl_println(aipl_str_n("  aipl help examples [domain|cli|window|001..263]     # Explore 263 verified examples and twin tests", 100));
+  aipl_println(aipl_str_n("  aipl help errors [E1xx|E2xx|E3xx]                   # Compiler diagnostic codes with before/after self-repair patterns", 120));
+  aipl_println(aipl_str_n("  aipl help <command>                                 # Full manual page for any CLI command (verify, build, run, test, etc.)", 125));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("AI AGENT & SURGICAL SELF-HEALING TOOLING:", 41));
+  aipl_println(aipl_str_n("  aipl inspect <binary_or_file> [--tokens|--ast]      # Inspects binary trailers, tokens, or AST structures", 107));
+  aipl_println(aipl_str_n("  aipl patch <file.aipl> --diff=<diff>                # Applies verified AST-preserving atomic patches", 102));
+  aipl_println(aipl_str_n("  aipl splice <file.aipl> <symbol> <replacement>      # Replaces a symbol definition with new source", 100));
+  aipl_println(aipl_str_n("  aipl outline <file.aipl> [--json]                   # Emits structural outline (module, structs, enums, fns)", 110));
+  aipl_println(aipl_str_n("  aipl tokens <file.aipl> [--json]                    # Lexical token stream inspection", 87));
+  aipl_println(aipl_str_n("  aipl schema [target]                                # Emits JSON schemas for diagnostics and AST", 98));
+  aipl_println(aipl_str_n("  aipl fmt <file.aipl> [--check] [--stdin]            # Formats AIPL source code (strict 2-space indentation)", 109));
+  aipl_println(aipl_str_n("  aipl lint <file.aipl> [--json]                      # Runs static verification & linter rules", 95));
+  aipl_println(aipl_str_n("  aipl fix <file.aipl>                                # Autonomous self-repair / formatting / unused imports", 108));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("PROJECT SCAFFOLDING, PACKAGE MANAGEMENT & BOOTSTRAP:", 52));
+  aipl_println(aipl_str_n("  aipl new <name> [--template=<tpl>]                  # Creates a new AIPL application project", 94));
+  aipl_println(aipl_str_n("  aipl init                                           # Initializes an AIPL project in current directory", 104));
+  aipl_println(aipl_str_n("  aipl scaffold <spec>                                # Generates boilerplate models and modules from spec", 106));
+  aipl_println(aipl_str_n("  aipl pkg [install|add|update|lock]                  # Manages dependencies and lockfiles", 90));
+  aipl_println(aipl_str_n("  aipl bootstrap                                      # 3-stage self-hosting fixed-point compiler bootstrap", 107));
+  aipl_println(aipl_str_n("  aipl install-global                                 # Installs aipl CLI to ~/.local/bin and ~/.cargo/bin", 106));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("INTEGRITY SHIELD & IDE SERVERS:", 31));
+  aipl_println(aipl_str_n("  aipl shield <lock|unlock|verify|rehash|status>      # 4-Layer Filesystem Shield for SSOT protection", 101));
+  aipl_println(aipl_str_n("  aipl conductor [options]                            # Validates multi-agent scope disjointness and worktree arbitration", 121));
+  aipl_println(aipl_str_n("  aipl lsp                                            # Starts Language Server Protocol daemon", 94));
+  aipl_println(aipl_str_n("  aipl dap                                            # Starts Debug Adapter Protocol daemon", 92));
+  aipl_println(aipl_str_n("  aipl version (or --version)                         # Prints AIPL toolchain version", 85));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("WINDOW TARGETING & MULTI-INSTANCE CONTROL:", 42));
+  aipl_println(aipl_str_n("  aipl window list                                    # List all active AIPL windows and process IDs", 100));
+  aipl_println(aipl_str_n("  aipl window screenshot <target> <out_path>          # Synchronously captures window framebuffer", 97));
+  aipl_println(aipl_str_n("  aipl window record <target> <out_path> [options]    # Records targeted window video", 85));
+  aipl_println(aipl_str_n("  aipl window action <target> <bot_script>            # Injects simulated inputs/resize into window", 99));
+  aipl_println(aipl_str_n("  aipl screenshot <target> <out_path>                 # Alias for 'aipl window screenshot'", 90));
+  aipl_println(aipl_str_n("  aipl record <target> <out_path> [options]           # Alias for 'aipl window record'", 86));
   return aipl_int(0LL);
 }
 
-/* AIPL Function: cmdHelpStd */
-__attribute__((hot)) AiplVal aipl_fn_cmdHelpStd(AiplVal v_subArgs) {
-  AiplVal v_home = aipl_nil();
-  AiplVal v_stdDir = aipl_nil();
-  AiplVal v_target = aipl_nil();
-  AiplVal v_dPath = aipl_nil();
-  AiplVal v_ents = aipl_nil();
-  AiplVal v_ei = aipl_nil();
-  AiplVal v_ent = aipl_nil();
-  AiplVal v_stem = aipl_nil();
-  AiplVal v_modPath = aipl_nil();
-  v_home = aipl_fn_getAiplHomeDir();
-  v_stdDir = (aipl_truthy(aipl_fn_isDir(aipl_str_n("std", 3))) ? aipl_str_n("std", 3) : aipl_add(v_home, aipl_str_n("/std", 4)));
-  if (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_subArgs, "len"), aipl_int(0LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_index_get(v_subArgs, aipl_int(0LL)), aipl_str(""))))))) {
-    aipl_println(aipl_str_n("================================================================================", 80));
-    aipl_println(aipl_str_n("               AIPL Standard Library: 36 Domain Groups (290 Modules)            ", 80));
-    aipl_println(aipl_str_n("================================================================================", 80));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("LAYER 0: FOUNDATION & HOST SYSTEM", 33));
-    aipl_println(aipl_str_n("  - sys (8 mods)          System calls, environment probes, hardware & OS info", 78));
-    aipl_println(aipl_str_n("  - rt (4 mods)           Runtime string interning, UTF-8 decoders, memory hooks", 80));
-    aipl_println(aipl_str_n("  - alloc (5 mods)        Bump arena allocators, slab pools, high-water profilers", 81));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("LAYER 1: DATA STRUCTURES & COMPUTATION", 38));
-    aipl_println(aipl_str_n("  - math (16 mods)        Vectors (Vec2/3/4), Mat4, Quaternions, FFT, Bezier curves", 83));
-    aipl_println(aipl_str_n("  - collections (13 mods) Dynamic vectors, Deques, RingBuffers, PriorityQueues, Graphs", 86));
-    aipl_println(aipl_str_n("  - fmt (4 mods)          Radix formatters, scientific notation, Unicode inspectors", 83));
-    aipl_println(aipl_str_n("  - regex (4 mods)        NFA/DFA regular expressions, fuzzy matching, glob syntax", 82));
-    aipl_println(aipl_str_n("  - time (6 mods)         Monotonic timers, ISO-8601 timestamps, frame pacers", 77));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("LAYER 2: SYSTEMS, PROTOCOLS & ENCODING", 38));
-    aipl_println(aipl_str_n("  - encoding (13 mods)    JSON (RFC 8259), Base64, Hex, CSV, XML, QR-Code matrix", 80));
-    aipl_println(aipl_str_n("  - compress (6 mods)     Deflate, Gzip, Zlib, Huffman coding, Tar archives", 75));
-    aipl_println(aipl_str_n("  - crypto (7 mods)       ChaCha20-Poly1305, AES-GCM, SHA-256, BLAKE3, Ed25519", 78));
-    aipl_println(aipl_str_n("  - db (2 mods)           Embedded SQLite engine, append-only WAL ACID KV store", 79));
-    aipl_println(aipl_str_n("  - io (4 mods)           Standard I/O streams, buffered readers, streaming pipes", 81));
-    aipl_println(aipl_str_n("  - fs (7 mods)           Path normalization, directory trees, file watchers", 76));
-    aipl_println(aipl_str_n("  - os (6 mods)           Declarative CliApp argument parser, processes, signals", 80));
-    aipl_println(aipl_str_n("  - sync (5 mods)         Atomic operations, spinlocks, condition variables", 75));
-    aipl_println(aipl_str_n("  - thread (3 mods)       Chase-Lev work-stealing job deque, thread-local contexts", 82));
-    aipl_println(aipl_str_n("  - net (10 mods)         TCP/UDP sockets, IPv4/IPv6 CIDR, JSON-RPC 2.0, HTTP/1.1", 81));
-    aipl_println(aipl_str_n("  - test (4 mods)         Unit test assertions, property fuzzing, test runners", 78));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("LAYER 3: MULTIMEDIA, AUDIO & DISPLAY", 36));
-    aipl_println(aipl_str_n("  - window (5 mods)       Native window management, frame timing, clipboard", 75));
-    aipl_println(aipl_str_n("  - input (6 mods)        Keyboard piano, mouse gestures, gamepad mappings", 74));
-    aipl_println(aipl_str_n("  - asset (7 mods)        QOI/BMP/PPM image decoders, asset bundle packagers", 76));
-    aipl_println(aipl_str_n("  - audio (6 mods)        Wave synthesizers (sine/saw/square), ADSR, mixers", 75));
-    aipl_println(aipl_str_n("  - gfx (8 mods)          Color spaces (OKLab, HSL), palettes, post-processing FX", 81));
-    aipl_println(aipl_str_n("  - gfx2d (11 mods)       2D vector shapes, bezier paths, CCD-IK bone skeletal rigs", 83));
-    aipl_println(aipl_str_n("  - gfx3d (10 mods)       3D platonic solids, OBJ loader, frustum culling, decals", 81));
-    aipl_println(aipl_str_n("  - particle (7 mods)     2D/3D particle emitters, gravitational fountains, VFX", 79));
-    aipl_println(aipl_str_n("  - ui (13 mods)          Flexbox & Grid layout solver, buttons, sliders, A11y HUD", 82));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("LAYER 4: SIMULATION, WORLD & PHYSICS", 36));
-    aipl_println(aipl_str_n("  - ecs (6 mods)          Generational 64-bit entity arena, sparse sets, systems", 80));
-    aipl_println(aipl_str_n("  - spatial (8 mods)      Orthogonal & isometric tilemaps, Octrees, waypoints", 77));
-    aipl_println(aipl_str_n("  - phys2d (8 mods)       Symplectic Euler rigid bodies, gravity, restitution", 77));
-    aipl_println(aipl_str_n("  - phys3d (7 mods)       Inertia tensors, raycasts, broadphase bounding volumes", 80));
-    aipl_println(aipl_str_n("  - procgen (7 mods)      Perlin/Simplex/Worley noise, Poisson disc, cellular maps", 82));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("LAYER 5: AUTONOMOUS AI & GAME MECHANICS", 39));
-    aipl_println(aipl_str_n("  - ai (8 mods)           Hierarchical FSM, Behavior Trees, Boids flocking, HEBAR", 81));
-    aipl_println(aipl_str_n("  - mechanics (5 mods)    RPG stat modifiers, alias loot tables, pity timers", 76));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("USAGE:", 6));
-    aipl_println(aipl_str_n("  aipl help std <domain>                  # Inspect modules in domain (e.g. aipl help std math)", 95));
-    aipl_println(aipl_str_n("  aipl docs std/<module>                  # Full API & function signatures for module", 85));
-    aipl_println(aipl_str_n("  aipl docs search <query>                # Instant full-text search across all 4,292 functions", 95));
-    return aipl_int(0LL);
-  }
-  v_target = aipl_str_replace(aipl_str_trim(aipl_index_get(v_subArgs, aipl_int(0LL))), aipl_str_n("std/", 4), aipl_str(""));
-  v_dPath = aipl_add(aipl_add(v_stdDir, aipl_str_n("/", 1)), v_target);
-  if (aipl_truthy(aipl_fn_isDir(v_dPath))) {
-    v_ents = aipl_fn_listDir(v_dPath);
-    aipl_println(aipl_str_n("================================================================================", 80));
-    aipl_println(aipl_add(aipl_str_n("Standard Library Domain: std/", 29), v_target));
-    aipl_println(aipl_str_n("================================================================================", 80));
-    aipl_println(aipl_str_n("Modules:", 8));
-    v_ei = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_ei, aipl_member_get(v_ents, "len")))) {
-      v_ent = aipl_index_get(v_ents, v_ei);
-      if (aipl_truthy((aipl_truthy(aipl_str_ends_with(v_ent, aipl_str_n(".aipl", 5))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_starts_with(v_ent, aipl_str_n(".", 1))))) : aipl_bool(false)))) {
-        v_stem = aipl_str_replace(v_ent, aipl_str_n(".aipl", 5), aipl_str(""));
-        v_modPath = aipl_add(aipl_add(aipl_add(aipl_str_n("std/", 4), v_target), aipl_str_n("/", 1)), v_stem);
-        aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("  - ", 4), v_modPath), aipl_str_n(" (`", 3)), v_dPath), aipl_str_n("/", 1)), v_ent), aipl_str_n("`)", 2)));
-      }
-      aipl_inc_int(&v_ei, 1LL);
-    }
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_add(aipl_add(aipl_str_n("View signatures with: aipl docs std/", 36), v_target), aipl_str_n("/<module>", 9)));
-    return aipl_int(0LL);
-  }
-  return aipl_fn_cmdDocs(aipl_array_new((AiplVal[]){ aipl_str_n("docs", 4), aipl_add(aipl_str_n("std/", 4), v_target) }, 2));
+/* AIPL Function: cmdHelpBuiltins */
+AiplVal aipl_fn_cmdHelpBuiltins(void) {
+  aipl_println(aipl_str_n("================================================================================", 80));
+  aipl_println(aipl_str_n("                     AIPL Core Built-in Functions (32)                          ", 80));
+  aipl_println(aipl_str_n("================================================================================", 80));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("1. TYPE CONVERSION & CONSTRUCTORS:", 34));
+  aipl_println(aipl_str_n("   - int(x: any): int               Truncate float, parse string, or convert bool (int(3.9) -> 3)", 97));
+  aipl_println(aipl_str_n("   - float(x: any): float           Promote int or parse float string (float(42) -> 42.0)", 89));
+  aipl_println(aipl_str_n("   - str(x: any): str               Canonical string serialization (str(123) -> \"123\")", 86));
+  aipl_println(aipl_str_n("   - bool(x: any): bool             Convert non-zero integer or parse bool (bool(1) -> true)", 92));
+  aipl_println(aipl_str_n("   - Map(): Map[K, V]               Construct empty generic hash map (m = Map())", 80));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("2. STRING & ARRAY PRIMITIVES:", 29));
+  aipl_println(aipl_str_n("   - .len(): int                    Length of string or array (\"aipl\".len() -> 4)", 81));
+  aipl_println(aipl_str_n("   - .push(val: T): void            Append element to mutable array (arr.push(10))", 82));
+  aipl_println(aipl_str_n("   - .pop(): T                      Remove and return last element (arr.pop() -> 10)", 84));
+  aipl_println(aipl_str_n("   - .slice(start: int, end: int)   Half-open slice [start, end) (\"hello\".slice(0, 2) -> \"he\")", 94));
+  aipl_println(aipl_str_n("   - .contains(sub: str): bool      Check substring existence (\"abc\".contains(\"b\") -> true)", 91));
+  aipl_println(aipl_str_n("   - .split(delim: str): [str]      Split string into array (\"a,b\".split(\",\") -> [\"a\", \"b\"])", 92));
+  aipl_println(aipl_str_n("   - .trim(): str                   Strip leading and trailing whitespace (\"  hi  \".trim() -> \"hi\")", 99));
+  aipl_println(aipl_str_n("   - .replace(from: str, to: str)   Replace all occurrences (\"foo\".replace(\"o\", \"a\") -> \"faa\")", 94));
+  aipl_println(aipl_str_n("   - .startsWith(prefix: str): bool Check prefix match (\"std/math\".startsWith(\"std/\") -> true)", 94));
+  aipl_println(aipl_str_n("   - .endsWith(suffix: str): bool   Check suffix match (\"file.aipl\".endsWith(\".aipl\") -> true)", 94));
+  aipl_println(aipl_str_n("   - .toUpper(): str                Uppercase string transform (\"aipl\".toUpper() -> \"AIPL\")", 91));
+  aipl_println(aipl_str_n("   - .toLower(): str                Lowercase string transform (\"AIPL\".toLower() -> \"aipl\")", 91));
+  aipl_println(aipl_str_n("   - .charAt(index: int): str       Single character at byte index (\"cat\".charAt(1) -> \"a\")", 91));
+  aipl_println(aipl_str_n("   - .indexOf(sub: str): int        Index of first substring match or -1 (\"hello\".indexOf(\"ll\") -> 2)", 101));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("3. MAP PRIMITIVES:", 18));
+  aipl_println(aipl_str_n("   - .keys(): [K]                   Array of all keys in map (m.keys())", 71));
+  aipl_println(aipl_str_n("   - .has(key: K): bool             Check key existence in map (m.has(\"id\") -> true)", 84));
+  aipl_println(aipl_str_n("   - .get(key: K): Option[V]        Safe lookup returning Option (m.get(\"id\").unwrap())", 87));
+  aipl_println(aipl_str_n("   - .set(key: K, val: V): void     Insert or overwrite key-value binding (m.set(\"id\", 42))", 91));
+  aipl_println(aipl_str_n("   - .delete(key: K): void          Remove key from map (m.delete(\"id\"))", 72));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("4. MATH PRIMITIVES:", 19));
+  aipl_println(aipl_str_n("   - abs(x: num): num               Absolute value (abs(-5) -> 5, abs(-2.5) -> 2.5)", 83));
+  aipl_println(aipl_str_n("   - sqrt(x: float): float          Square root (sqrt(144.0) -> 12.0)", 69));
+  aipl_println(aipl_str_n("   - sin(x: float): float           Sine of radians (sin(0.0) -> 0.0)", 69));
+  aipl_println(aipl_str_n("   - cos(x: float): float           Cosine of radians (cos(0.0) -> 1.0)", 71));
+  aipl_println(aipl_str_n("   - floor(x: float): float         Round down to nearest integer (floor(2.9) -> 2.0)", 85));
+  aipl_println(aipl_str_n("   - ceil(x: float): float          Round up to nearest integer (ceil(2.1) -> 3.0)", 82));
+  aipl_println(aipl_str_n("   - pow(base: float, exp: float)   Exponentiation (pow(2.0, 8.0) -> 256.0)", 75));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("5. GRAPHICS & COLOR PRIMITIVES:", 31));
+  aipl_println(aipl_str_n("   - rgb(r: int, g: int, b: int)    Pack 24-bit RGB into 0xFFBBGGRR integer (rgb(255, 0, 0))", 92));
+  aipl_println(aipl_str(""));
+  aipl_println(aipl_str_n("6. CONTROL FLOW & ASSERTION PRIMITIVES:", 39));
+  aipl_println(aipl_str_n("   - print(msg: str): void          Write unbuffered string to standard output", 78));
+  aipl_println(aipl_str_n("   - println(msg: str): void        Write string with trailing newline to standard output", 89));
+  aipl_println(aipl_str_n("   - assert(cond: bool, msg: str)   Runtime invariant verification guard", 72));
+  aipl_println(aipl_str_n("   - panic(msg: str): void          Abort execution with fatal diagnostic stack trace", 85));
+  aipl_println(aipl_str_n("   - todo(msg: str): void           Temporary stub marker that halts if reached", 79));
+  return aipl_int(0LL);
 }
 
-/* AIPL Function: cmdHelpErrors */
-AiplVal aipl_fn_cmdHelpErrors(AiplVal v_subArgs) {
-  AiplVal v_code = aipl_nil();
-  if (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_subArgs, "len"), aipl_int(0LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_index_get(v_subArgs, aipl_int(0LL)), aipl_str(""))))))) {
-    aipl_println(aipl_str_n("================================================================================", 80));
-    aipl_println(aipl_str_n("               AIPL Compiler Diagnostics & Self-Repair Catalog                  ", 80));
-    aipl_println(aipl_str_n("================================================================================", 80));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("AIPL implements machine-readable single-root ADR-0023 JSON diagnostics with exact", 81));
-    aipl_println(aipl_str_n("byte locator spans, AST breadcrumb paths, cascade suppression, and candidate fixes.", 83));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("ERROR CATEGORIES & COMMON CODES (Inspect with `aipl help errors <code>`):", 73));
-    aipl_println(aipl_str_n("  - E1xx: Lexer & Parser Syntax Errors", 38));
-    aipl_println(aipl_str_n("      AIPL_E1002_UNRESOLVED_TYPE    Unresolved or undeclared type name in scope", 79));
-    aipl_println(aipl_str_n("      AIPL_E1015_SINGLE_QUOTES      Single-quoted strings forbidden (use double quotes)", 87));
-    aipl_println(aipl_str_n("      AIPL_W0045_BRACE_BLOCK        Curly braces '{ }' forbidden (use canonical 2-space offside)", 96));
-    aipl_println(aipl_str_n("      AIPL_W0041_SNAKE_CASE         Identifier violates camelCase tokenomics invariant", 86));
-    aipl_println(aipl_str_n("  - E2xx: Type & Semantic Verification", 38));
-    aipl_println(aipl_str_n("      AIPL_E2002_TYPE_MISMATCH      Type mismatch in expression, return, or match scrutinee", 91));
-    aipl_println(aipl_str_n("      AIPL_E2014_UNKNOWN_FIELD      Unknown struct field with Levenshtein typo suggestion", 89));
-    aipl_println(aipl_str_n("      AIPL_W1001_UNPARAMETRIZED_MAP Unparameterized Map/Set loses compile-time safety", 85));
-    aipl_println(aipl_str_n("      AIPL_W0201_COMPLEX_INTERP     Complex expression inside string interpolation", 82));
-    aipl_println(aipl_str_n("  - E3xx: Refinement & Invariant Checks", 39));
-    aipl_println(aipl_str_n("      AIPL_E3001_PRECONDITION       SMT precondition 'req:' violated at callsite", 80));
-    aipl_println(aipl_str_n("      AIPL_E3002_POSTCONDITION      Function return value violates postcondition 'ens:'", 87));
-    aipl_println(aipl_str_n("      AIPL_E_INFINITE_LOOP_RISK     Loop variable not mutated on unconditional control path", 91));
-    aipl_println(aipl_str_n("  - E4xx: Runtime & Watchdog Errors", 35));
-    aipl_println(aipl_str_n("      AIPL_E_TIMEOUT                Execution watchdog exceeded --timeout limit", 79));
-    aipl_println(aipl_str_n("      AIPL_E_PANIC                  Explicit panic() assertion failure with stack trace", 87));
-    aipl_println(aipl_str_n("  - Linter & Self-Repair Rules", 30));
-    aipl_println(aipl_str_n("      LINT010                       Unused import symbol (auto-repaired by `aipl fix`)", 86));
-    aipl_println(aipl_str(""));
-    aipl_println(aipl_str_n("RUNNING SELF-REPAIR:", 20));
-    aipl_println(aipl_str_n("  aipl fix <file.aipl>              # Automatically fixes formatting and strips unused imports", 94));
-    aipl_println(aipl_str_n("  aipl verify <file.aipl> --json    # Emits machine-readable ADR-0023 single-root JSON diagnostics", 98));
-    return aipl_int(0LL);
+/* AIPL Function: cmdHelpExamples */
+__attribute__((hot)) AiplVal aipl_fn_cmdHelpExamples(AiplVal v_subArgs) {
+  AiplVal v_fwdArgs = aipl_nil();
+  AiplVal v_i = aipl_nil();
+  if (aipl_truthy(aipl_eq(aipl_member_get(v_subArgs, "len"), aipl_int(0LL)))) {
+    return aipl_fn_cmdExamples(aipl_array_new((AiplVal[]){ aipl_str_n("examples", 8), aipl_str_n("list", 4) }, 2));
   }
-  v_code = aipl_str_to_upper(aipl_str_trim(aipl_index_get(v_subArgs, aipl_int(0LL))));
-  if (aipl_truthy((aipl_truthy(aipl_contains(v_code, aipl_str_n("1015", 4))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_contains(v_code, aipl_str_n("QUOTE", 5))))))) {
-    aipl_println(aipl_str_n("DIAGNOSTIC: AIPL_E1015 - Single-Quoted Strings Forbidden", 56));
-    aipl_println(aipl_str_n("SEVERITY: error", 15));
-    aipl_println(aipl_str_n("CAUSE:", 6));
-    aipl_println(aipl_str_n("  Single-quoted string literals ('...') are forbidden in AIPL to preserve", 73));
-    aipl_println(aipl_str_n("  tokenomic density and prevent ambiguity with lifetime annotations and apostrophes.", 84));
-    aipl_println(aipl_str_n("BEFORE (Invalid):", 17));
-    aipl_println(aipl_str_n("  let name = 'aipl'", 19));
-    aipl_println(aipl_str_n("AFTER (Compliant):", 18));
-    aipl_println(aipl_str_n("  let name = \"aipl\"", 19));
-    return aipl_int(0LL);
+  v_fwdArgs = aipl_array_new((AiplVal[]){ aipl_str_n("examples", 8) }, 1);
+  v_i = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_subArgs, "len")))) {
+    (aipl_array_push(v_fwdArgs, aipl_index_get(v_subArgs, v_i)), aipl_nil());
+    aipl_inc_int(&v_i, 1LL);
   }
-  else if (aipl_truthy((aipl_truthy(aipl_contains(v_code, aipl_str_n("2002", 4))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_contains(v_code, aipl_str_n("MISMATCH", 8))))))) {
-    aipl_println(aipl_str_n("DIAGNOSTIC: AIPL_E2002 - Type Mismatch in Scrutinee or Binding", 62));
-    aipl_println(aipl_str_n("SEVERITY: error", 15));
-    aipl_println(aipl_str_n("CAUSE:", 6));
-    aipl_println(aipl_str_n("  A match pattern (e.g. Ok(v), Some(x)) does not match the scrutinee type,", 74));
-    aipl_println(aipl_str_n("  or a variable assignment/return type differs from its static declaration.", 75));
-    aipl_println(aipl_str_n("BEFORE (Invalid):", 17));
-    aipl_println(aipl_str_n("  let flag: bool = true", 23));
-    aipl_println(aipl_str_n("  match flag:", 13));
-    aipl_println(aipl_str_n("    Some(v): println(\"got some\")", 32));
-    aipl_println(aipl_str_n("AFTER (Compliant):", 18));
-    aipl_println(aipl_str_n("  let flag: Option[bool] = Some(true)", 37));
-    aipl_println(aipl_str_n("  match flag:", 13));
-    aipl_println(aipl_str_n("    Some(v): println(\"got: \" + str(v))", 38));
-    aipl_println(aipl_str_n("    None:    println(\"empty\")", 29));
-    return aipl_int(0LL);
+  return aipl_fn_cmdExamples(v_fwdArgs);
+}
+
+/* AIPL Function: cmdVerify */
+__attribute__((hot)) AiplVal aipl_fn_cmdVerify(AiplVal v_cliArgs) {
+  AiplVal v_file = aipl_nil();
+  AiplVal v_jsonMode = aipl_nil();
+  AiplVal v_streamPrefixMode = aipl_nil();
+  AiplVal v_checkBudgetStr = aipl_nil();
+  AiplVal v_i = aipl_nil();
+  AiplVal v_arg = aipl_nil();
+  AiplVal v_report = aipl_nil();
+  AiplVal v_budgetOk = aipl_nil();
+  AiplVal v_budgetActual = aipl_nil();
+  AiplVal v_budgetMax = aipl_nil();
+  AiplVal v_cleanBudget = aipl_nil();
+  AiplVal v_mult = aipl_nil();
+  AiplVal v_hash = aipl_nil();
+  AiplVal v_cachedBin = aipl_nil();
+  AiplVal v_hir = aipl_nil();
+  AiplVal v_cCode = aipl_nil();
+  AiplVal v__ = aipl_nil();
+  AiplVal v_diagItems = aipl_nil();
+  AiplVal v_di = aipl_nil();
+  AiplVal v_d = aipl_nil();
+  AiplVal v_cleanMsg = aipl_nil();
+  AiplVal v_item = aipl_nil();
+  AiplVal v_budgetItem = aipl_nil();
+  AiplVal v_validStr = aipl_nil();
+  AiplVal v_escVerFile = aipl_nil();
+  AiplVal v_jsonOut = aipl_nil();
+  AiplVal v_dj = aipl_nil();
+  v_file = aipl_str("");
+  v_jsonMode = aipl_bool(false);
+  v_streamPrefixMode = aipl_bool(false);
+  v_checkBudgetStr = aipl_str("");
+  v_i = aipl_int(1LL);
+  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_cliArgs, "len")))) {
+    v_arg = aipl_index_get(v_cliArgs, v_i);
+    if (aipl_truthy(aipl_eq(v_arg, aipl_str_n("--json", 6)))) {
+      v_jsonMode = aipl_bool(true);
+    }
+    else if (aipl_truthy(aipl_eq(v_arg, aipl_str_n("--stream-prefix", 15)))) {
+      v_streamPrefixMode = aipl_bool(true);
+    }
+    else if (aipl_truthy(aipl_str_starts_with(v_arg, aipl_str_n("--check-budget=", 15)))) {
+      v_checkBudgetStr = aipl_slice(v_arg, aipl_int(15LL), aipl_member_get(v_arg, "len"));
+    }
+    else if (aipl_truthy((aipl_truthy(aipl_eq(v_arg, aipl_str_n("--check-budget", 14))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_cliArgs, "len")))) : aipl_bool(false)))) {
+      v_checkBudgetStr = aipl_index_get(v_cliArgs, aipl_add(v_i, aipl_int(1LL)));
+      aipl_inc_int(&v_i, 1LL);
+    }
+    else if (aipl_truthy((aipl_truthy(aipl_not(aipl_str_starts_with(v_arg, aipl_str_n("-", 1)))) ? aipl_bool(aipl_truthy(aipl_eq(v_file, aipl_str("")))) : aipl_bool(false)))) {
+      v_file = v_arg;
+    }
+    aipl_inc_int(&v_i, 1LL);
   }
-  else if (aipl_truthy((aipl_truthy(aipl_contains(v_code, aipl_str_n("2014", 4))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_contains(v_code, aipl_str_n("FIELD", 5))))))) {
-    aipl_println(aipl_str_n("DIAGNOSTIC: AIPL_E2014 - Unknown Struct Field", 45));
-    aipl_println(aipl_str_n("SEVERITY: error", 15));
-    aipl_println(aipl_str_n("CAUSE:", 6));
-    aipl_println(aipl_str_n("  Accessing a field not declared in the target nominal struct definition.", 73));
-    aipl_println(aipl_str_n("  The compiler computes Levenshtein distance <= 2 to suggest typos.", 67));
-    aipl_println(aipl_str_n("BEFORE (Invalid):", 17));
-    aipl_println(aipl_str_n("  let p = Point(x = 1.0, y = 2.0)", 33));
-    aipl_println(aipl_str_n("  println(str(p.capaciti))", 26));
-    aipl_println(aipl_str_n("AFTER (Compliant):", 18));
-    aipl_println(aipl_str_n("  println(str(p.x))", 19));
-    return aipl_int(0LL);
+  if (aipl_truthy(aipl_eq(v_file, aipl_str("")))) {
+    aipl_println(aipl_str_n("Usage: aipl verify <file.aipl> [--json] [--stream-prefix] [--check-budget=<size>]", 81));
+    return aipl_int(1LL);
   }
-  else if (aipl_truthy((aipl_truthy(aipl_contains(v_code, aipl_str_n("LOOP", 4))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_contains(v_code, aipl_str_n("INFINITE", 8))))))) {
-    aipl_println(aipl_str_n("DIAGNOSTIC: AIPL_E_INFINITE_LOOP_RISK - Indentation-Induced Infinite Loop Guard", 79));
-    aipl_println(aipl_str_n("SEVERITY: error", 15));
-    aipl_println(aipl_str_n("CAUSE:", 6));
-    aipl_println(aipl_str_n("  A while loop termination variable is not mutated unconditionally along the loop body", 86));
-    aipl_println(aipl_str_n("  (e.g., when the loop increment i += 1 is indented inside a conditional if branch).", 84));
-    aipl_println(aipl_str_n("BEFORE (Invalid):", 17));
-    aipl_println(aipl_str_n("  while i < 10:", 15));
-    aipl_println(aipl_str_n("    if cond:", 12));
-    aipl_println(aipl_str_n("      i += 1   // BUG: only increments when cond is true -> infinite hang!", 74));
-    aipl_println(aipl_str_n("AFTER (Compliant):", 18));
-    aipl_println(aipl_str_n("  while i < 10:", 15));
-    aipl_println(aipl_str_n("    if cond:", 12));
-    aipl_println(aipl_str_n("      doWork()", 14));
-    aipl_println(aipl_str_n("    i += 1     // Mutated unconditionally at main loop body level", 65));
-    return aipl_int(0LL);
+  v_report = aipl_fn_compileFile(v_file);
+  if (aipl_truthy((aipl_truthy(v_streamPrefixMode) ? aipl_bool(aipl_truthy(aipl_not(v_jsonMode))) : aipl_bool(false)))) {
+    aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Stream-Prefix] file=", 26), v_file), aipl_str_n(" valid=", 7)), (aipl_truthy(aipl_member_get_idx(v_report, 0, "valid")) ? aipl_str_n("true", 4) : aipl_str_n("false", 5))), aipl_str_n(" diagnostics=", 13)), aipl_to_str(aipl_member_get(aipl_member_get(v_report, "diagnostics"), "len"))));
   }
-  else if (aipl_truthy(aipl_contains(v_code, aipl_str_n("TIMEOUT", 7)))) {
-    aipl_println(aipl_str_n("DIAGNOSTIC: AIPL_E_TIMEOUT - Execution Watchdog Timeout", 55));
-    aipl_println(aipl_str_n("SEVERITY: error", 15));
-    aipl_println(aipl_str_n("CAUSE:", 6));
-    aipl_println(aipl_str_n("  The process execution exceeded the configured --timeout <seconds> limit.", 74));
-    aipl_println(aipl_str_n("  The runtime intercepted the thread and terminated with exit code 124.", 71));
-    aipl_println(aipl_str_n("REMEDY:", 7));
-    aipl_println(aipl_str_n("  - Increase watchdog budget: aipl run file.aipl --timeout 30", 61));
-    aipl_println(aipl_str_n("  - Profile execution hot paths: aipl run file.aipl --profile", 61));
-    aipl_println(aipl_str_n("  - Check for unbounded loops or blocking I/O syscalls", 54));
-    return aipl_int(0LL);
+  v_budgetOk = aipl_bool(true);
+  v_budgetActual = aipl_int(0LL);
+  v_budgetMax = aipl_int(0LL);
+  if (aipl_truthy(aipl_gt(aipl_member_get(v_checkBudgetStr, "len"), aipl_int(0LL)))) {
+    v_cleanBudget = aipl_str_trim(v_checkBudgetStr);
+    v_mult = aipl_int(1LL);
+    if (aipl_truthy((aipl_truthy(aipl_str_ends_with(v_cleanBudget, aipl_str_n("MB", 2))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_ends_with(v_cleanBudget, aipl_str_n("mb", 2))))))) {
+      v_mult = aipl_int(1048576LL);
+      v_cleanBudget = aipl_str_trim(aipl_slice(v_cleanBudget, aipl_int(0LL), aipl_sub(aipl_member_get(v_cleanBudget, "len"), aipl_int(2LL))));
+    }
+    else if (aipl_truthy((aipl_truthy(aipl_str_ends_with(v_cleanBudget, aipl_str_n("KB", 2))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_ends_with(v_cleanBudget, aipl_str_n("kb", 2))))))) {
+      v_mult = aipl_int(1024LL);
+      v_cleanBudget = aipl_str_trim(aipl_slice(v_cleanBudget, aipl_int(0LL), aipl_sub(aipl_member_get(v_cleanBudget, "len"), aipl_int(2LL))));
+    }
+    else if (aipl_truthy((aipl_truthy(aipl_str_ends_with(v_cleanBudget, aipl_str_n("B", 1))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_ends_with(v_cleanBudget, aipl_str_n("b", 1))))))) {
+      v_cleanBudget = aipl_str_trim(aipl_slice(v_cleanBudget, aipl_int(0LL), aipl_sub(aipl_member_get(v_cleanBudget, "len"), aipl_int(1LL))));
+    }
+    v_budgetMax = aipl_mul(aipl_fn_parseInt(v_cleanBudget), v_mult);
+    v_budgetActual = aipl_fn_fileSize(v_file);
+    if (aipl_truthy((aipl_truthy(aipl_str_ends_with(v_file, aipl_str_n(".aipl", 5))) ? aipl_bool(aipl_truthy(aipl_member_get_idx(v_report, 0, "valid"))) : aipl_bool(false)))) {
+      v_hash = aipl_fn_sha256(aipl_add(aipl_add(aipl_member_get(v_report, "bundledSource"), aipl_str_n("|compiler=", 10)), aipl_fn_compilerCacheFingerprint()));
+      v_cachedBin = aipl_add(aipl_str_n("/tmp/aipl-run-", 14), v_hash);
+      if (aipl_truthy(aipl_not(aipl_fn_fileExists(v_cachedBin)))) {
+        v_hir = aipl_member_get_idx(v_report, 10, "hir");
+        v_cCode = aipl_fn_emitCSource(v_hir, aipl_member_get(v_report, "bundledSource"));
+        v__ = aipl_fn_compileCSourceWithHostCc(v_cCode, v_cachedBin);
+      }
+      if (aipl_truthy(aipl_fn_fileExists(v_cachedBin))) {
+        v_budgetActual = aipl_fn_fileSize(v_cachedBin);
+      }
+    }
+    if (aipl_truthy(aipl_gt(v_budgetActual, v_budgetMax))) {
+      v_budgetOk = aipl_bool(false);
+    }
   }
-  else if (aipl_truthy((aipl_truthy(aipl_contains(v_code, aipl_str_n("LINT010", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_contains(v_code, aipl_str_n("UNUSED", 6))))))) {
-    aipl_println(aipl_str_n("DIAGNOSTIC: LINT010 - Unused Import Symbol", 42));
-    aipl_println(aipl_str_n("SEVERITY: warning / error", 25));
-    aipl_println(aipl_str_n("CAUSE:", 6));
-    aipl_println(aipl_str_n("  An imported identifier in `import { ... } from \"...\"` is never referenced in the file.", 88));
-    aipl_println(aipl_str_n("AUTONOMOUS SELF-REPAIR:", 23));
-    aipl_println(aipl_str_n("  Run `aipl fix <file.aipl>` to strip unused imports and format code in-place.", 78));
-    return aipl_int(0LL);
+  if (aipl_truthy(v_jsonMode)) {
+    v_diagItems = aipl_array_new(NULL, 0);
+    v_di = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_di, aipl_member_get(aipl_member_get(v_report, "diagnostics"), "len")))) {
+      v_d = aipl_index_get(aipl_member_get(v_report, "diagnostics"), v_di);
+      v_cleanMsg = aipl_str_replace(aipl_str_replace(aipl_str_replace(aipl_str_replace(aipl_str_replace(aipl_member_get_idx(v_d, 1, "message"), aipl_str_n("\\", 1), aipl_str_n("\\\\", 2)), aipl_str_n("\"", 1), aipl_str_n("\\\"", 2)), aipl_str_n("\n", 1), aipl_str_n("\\n", 2)), aipl_str_n("\r", 1), aipl_str_n("\\r", 2)), aipl_str_n("\t", 1), aipl_str_n("\\t", 2));
+      v_item = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"code\":\"", 9), aipl_member_get_idx(v_d, 0, "code")), aipl_str_n("\",\"message\":\"", 13)), v_cleanMsg), aipl_str_n("\",\"line\":", 9)), aipl_to_str(aipl_member_get(aipl_member_get(v_d, "span"), "line"))), aipl_str_n(",\"column\":", 10)), aipl_to_str(aipl_member_get_idx(aipl_member_get(v_d, "span"), 4, "column"))), aipl_str_n("}", 1));
+      (aipl_array_push(v_diagItems, v_item), aipl_nil());
+      aipl_inc_int(&v_di, 1LL);
+    }
+    if (aipl_truthy(aipl_not(v_budgetOk))) {
+      v_budgetItem = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"code\":\"AIPL_BUDGET_EXCEEDED\",\"message\":\"Binary size ", 54), aipl_to_str(v_budgetActual)), aipl_str_n(" bytes exceeds budget of ", 25)), aipl_to_str(v_budgetMax)), aipl_str_n(" bytes (", 8)), v_checkBudgetStr), aipl_str_n(")\",\"line\":1,\"column\":1}", 23));
+      (aipl_array_push(v_diagItems, v_budgetItem), aipl_nil());
+    }
+    v_validStr = (aipl_truthy((aipl_truthy(aipl_member_get_idx(v_report, 0, "valid")) ? aipl_bool(aipl_truthy(v_budgetOk)) : aipl_bool(false))) ? aipl_str_n("true", 4) : aipl_str_n("false", 5));
+    v_escVerFile = aipl_str_replace(aipl_str_replace(v_file, aipl_str_n("\\", 1), aipl_str_n("\\\\", 2)), aipl_str_n("\"", 1), aipl_str_n("\\\"", 2));
+    v_jsonOut = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"file\":\"", 9), v_escVerFile), aipl_str_n("\",\"valid\":", 10)), v_validStr), aipl_str_n(",\"moduleCount\":", 15)), aipl_to_str(aipl_member_get_idx(v_report, 7, "moduleCount"))), aipl_str_n(",\"functionCount\":", 17)), aipl_to_str(aipl_member_get_idx(v_report, 3, "functionCount"))), aipl_str_n(",\"structCount\":", 15)), aipl_to_str(aipl_member_get_idx(v_report, 4, "structCount"))), aipl_str_n(",\"enumCount\":", 13)), aipl_to_str(aipl_member_get_idx(v_report, 5, "enumCount"))), aipl_str_n(",\"diagnostics\":[", 16)), aipl_array_join(v_diagItems, aipl_str_n(",", 1))), aipl_str_n("]}", 2));
+    aipl_println(v_jsonOut);
   }
   else {
-    aipl_println(aipl_add(aipl_str_n("DIAGNOSTIC CODE: ", 17), v_code));
-    aipl_println(aipl_str_n("For details on diagnostic codes and ADR-0023 schemas, run `aipl docs diagnostics`.", 82));
+    if (aipl_truthy((aipl_truthy(aipl_member_get_idx(v_report, 0, "valid")) ? aipl_bool(aipl_truthy(v_budgetOk)) : aipl_bool(false)))) {
+      if (aipl_truthy(aipl_gt(aipl_member_get(v_checkBudgetStr, "len"), aipl_int(0LL)))) {
+        aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("Verification succeeded: 0 errors in '", 37), v_file), aipl_str_n("' (budget ", 10)), v_checkBudgetStr), aipl_str_n(" passed: ", 9)), aipl_to_str(v_budgetActual)), aipl_str_n(" <= ", 4)), aipl_to_str(v_budgetMax)), aipl_str_n(" bytes).", 8)));
+      }
+      else {
+        aipl_println(aipl_add(aipl_add(aipl_str_n("Verification succeeded: 0 errors in '", 37), v_file), aipl_str_n("'.", 2)));
+      }
+    }
+    else {
+      if (aipl_truthy(aipl_not(aipl_member_get_idx(v_report, 0, "valid")))) {
+        aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("Verification failed: ", 21), aipl_to_str(aipl_member_get(aipl_member_get(v_report, "diagnostics"), "len"))), aipl_str_n(" diagnostic(s) in '", 19)), v_file), aipl_str_n("':", 2)));
+        v_dj = aipl_int(0LL);
+        while (aipl_truthy(aipl_lt(v_dj, aipl_member_get(aipl_member_get(v_report, "diagnostics"), "len")))) {
+          v_d = aipl_index_get(aipl_member_get(v_report, "diagnostics"), v_dj);
+          aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("  [", 3), aipl_member_get_idx(v_d, 0, "code")), aipl_str_n("] ", 2)), aipl_to_str(aipl_member_get(aipl_member_get(v_d, "span"), "line"))), aipl_str_n(":", 1)), aipl_to_str(aipl_member_get_idx(aipl_member_get(v_d, "span"), 4, "column"))), aipl_str_n(": ", 2)), aipl_member_get_idx(v_d, 1, "message")));
+          aipl_inc_int(&v_dj, 1LL);
+        }
+      }
+      if (aipl_truthy(aipl_not(v_budgetOk))) {
+        aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("Verification failed: Binary size ", 33), aipl_to_str(v_budgetActual)), aipl_str_n(" bytes exceeds budget ", 22)), v_checkBudgetStr), aipl_str_n(" (", 2)), aipl_to_str(v_budgetMax)), aipl_str_n(" bytes) in '", 12)), v_file), aipl_str_n("'.", 2)));
+      }
+    }
+  }
+  if (aipl_truthy((aipl_truthy(aipl_member_get_idx(v_report, 0, "valid")) ? aipl_bool(aipl_truthy(v_budgetOk)) : aipl_bool(false)))) {
     return aipl_int(0LL);
   }
+  return aipl_int(1LL);
 }
 
-/* AIPL Function: compileCSourceWithHostCcDebug */
-AiplVal aipl_fn_compileCSourceWithHostCcDebug(AiplVal v_cSource, AiplVal v_outputPath, AiplVal v_debugInfo) {
-  if (aipl_truthy(v_debugInfo)) {
-    return aipl_fn_compileCWithRuntime(v_cSource, v_outputPath, aipl_str_n("-O0", 3), aipl_bool(true));
-  }
-  return aipl_fn_compileCWithRuntime(v_cSource, v_outputPath, aipl_str_n("-O2", 3), aipl_bool(false));
-}
-
-/* AIPL Function: runtimeCacheFingerprint */
-__attribute__((hot)) AiplVal aipl_fn_runtimeCacheFingerprint(void) {
-  AiplVal v_rtDir = aipl_nil();
-  AiplVal v_names = aipl_nil();
-  AiplVal v_srcs = aipl_nil();
-  AiplVal v_si = aipl_nil();
-  AiplVal v_parts = aipl_nil();
-  AiplVal v_ni = aipl_nil();
+/* AIPL Function: compilerCacheFingerprint */
+AiplVal aipl_fn_compilerCacheFingerprint(void) {
+  AiplVal v_fp = aipl_nil();
   AiplVal v_r = aipl_nil();
   AiplVal v_st = aipl_nil();
-  v_rtDir = aipl_fn_resolveRuntimeDir();
-  if (aipl_truthy(aipl_eq(aipl_member_get(v_rtDir, "len"), aipl_int(0LL)))) {
-    return aipl_str_n("none", 4);
+  v_fp = aipl_str_n("unknown", 7);
+  v_r = aipl_fn_stat(aipl_str_n("/proc/self/exe", 14));
+  if (aipl_truthy(aipl_res_is_ok(v_r))) {
+    v_st = aipl_unwrap(v_r);
+    v_fp = aipl_add(aipl_add(aipl_to_str(aipl_member_get_idx(v_st, 1, "size")), aipl_str_n(":", 1)), aipl_to_str(aipl_member_get_idx(v_st, 6, "mtimeMs")));
   }
-  v_names = aipl_array_new((AiplVal[]){ aipl_str_n("aipl_runtime.h", 14) }, 1);
-  v_srcs = aipl_fn_runtimeSourceNames(aipl_bool(true));
-  v_si = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_si, aipl_member_get(v_srcs, "len")))) {
-    (aipl_array_push(v_names, aipl_index_get(v_srcs, v_si)), aipl_nil());
-    aipl_inc_int(&v_si, 1LL);
-  }
-  v_parts = aipl_array_new(NULL, 0);
-  v_ni = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_ni, aipl_member_get(v_names, "len")))) {
-    v_r = aipl_fn_stat(aipl_fn_pathJoin(v_rtDir, aipl_index_get(v_names, v_ni)));
-    if (aipl_truthy(aipl_res_is_ok(v_r))) {
-      v_st = aipl_unwrap(v_r);
-      (aipl_array_push(v_parts, aipl_add(aipl_add(aipl_add(aipl_add(aipl_index_get(v_names, v_ni), aipl_str_n(":", 1)), aipl_to_str(aipl_member_get_idx(v_st, 1, "size"))), aipl_str_n(":", 1)), aipl_to_str(aipl_member_get_idx(v_st, 6, "mtimeMs")))), aipl_nil());
-    }
-    aipl_inc_int(&v_ni, 1LL);
-  }
-  return aipl_array_join(v_parts, aipl_str_n(",", 1));
+  return aipl_add(aipl_add(v_fp, aipl_str_n("|rt=", 4)), aipl_fn_runtimeCacheFingerprint());
 }
 
-/* AIPL Function: verifyContainerSingleAppLock */
-AiplVal aipl_fn_verifyContainerSingleAppLock(AiplVal v_bootMode, AiplVal v_requestedEntryUri) {
-  AiplVal v_blocked = aipl_nil();
-  AiplVal v_devEntry = aipl_nil();
-  aipl_rt_assert(aipl_ge(aipl_member_len(v_requestedEntryUri), aipl_int(0LL)), "requires contract failed");
-  if (aipl_truthy(aipl_eq(v_bootMode, aipl_int(1LL)))) {
-    v_blocked = (aipl_truthy(aipl_gt(aipl_member_len(v_requestedEntryUri), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_neq(v_requestedEntryUri, aipl_str_n("assets/main.aiplb", 17)))) : aipl_bool(false));
-    AiplVal _ret_val = aipl_struct_new("ContainerBootDecision", 5, (const char*[]){ "lockedMode", "filePickerEnabled", "watcherDrawerEnabled", "allowedEntryPath", "externalOverrideBlocked" }, (AiplVal[]){ aipl_bool(true), aipl_bool(false), aipl_bool(false), aipl_str_n("assets/main.aiplb", 17), v_blocked });
+/* AIPL Function: parseCliBuildApkArgs */
+AiplVal aipl_fn_parseCliBuildApkArgs(AiplVal v_inputAiplPath, AiplVal v_outApkPath, AiplVal v_appId, AiplVal v_appName) {
+  AiplVal v_src = aipl_nil();
+  AiplVal v_out = aipl_nil();
+  AiplVal v_cleanId = aipl_nil();
+  AiplVal v_id = aipl_nil();
+  AiplVal v_name = aipl_nil();
+  aipl_rt_assert((aipl_truthy(aipl_ge(aipl_member_len(v_inputAiplPath), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_ge(aipl_member_len(v_outApkPath), aipl_int(0LL)))) : aipl_bool(false)), "requires contract failed");
+  v_src = aipl_str_trim(v_inputAiplPath);
+  if (aipl_truthy(aipl_not(aipl_str_ends_with(v_src, aipl_str_n(".aipl", 5))))) {
+    AiplVal _ret_val = aipl_struct_new("CliApkBuildConfig", 5, (const char*[]){ "inputAiplPath", "outApkPath", "appId", "appName", "isValid" }, (AiplVal[]){ aipl_str(""), aipl_str(""), aipl_str(""), aipl_str(""), aipl_bool(false) });
     { AiplVal v_ret = _ret_val; AiplVal v_result = _ret_val; (void)v_ret; (void)v_result;
-      aipl_rt_assert((aipl_truthy(aipl_not(aipl_member_get_idx(v_result, 0, "lockedMode"))) ? aipl_bool(true) : aipl_bool(aipl_truthy((aipl_truthy(aipl_not(aipl_member_get_idx(v_result, 1, "filePickerEnabled"))) ? aipl_bool(aipl_truthy(aipl_not(aipl_member_get_idx(v_result, 2, "watcherDrawerEnabled")))) : aipl_bool(false))))), "ensures contract failed");
+      aipl_rt_assert((aipl_truthy(aipl_not(aipl_member_get_idx(v_result, 4, "isValid"))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_contains(aipl_member_get_idx(v_result, 2, "appId"), aipl_str_n(".", 1))))), "ensures contract failed");
     }
     return _ret_val;
   }
-  v_devEntry = (aipl_truthy(aipl_gt(aipl_member_len(v_requestedEntryUri), aipl_int(0LL))) ? v_requestedEntryUri : aipl_str_n("sdcard/main.aipl", 16));
-  AiplVal _ret_val = aipl_struct_new("ContainerBootDecision", 5, (const char*[]){ "lockedMode", "filePickerEnabled", "watcherDrawerEnabled", "allowedEntryPath", "externalOverrideBlocked" }, (AiplVal[]){ aipl_bool(false), aipl_bool(true), aipl_bool(true), v_devEntry, aipl_bool(false) });
+  v_out = (aipl_truthy(aipl_gt(aipl_member_len(aipl_str_trim(v_outApkPath)), aipl_int(0LL))) ? aipl_str_trim(v_outApkPath) : aipl_str_n("build/app.apk", 13));
+  v_cleanId = aipl_str_trim(v_appId);
+  v_id = (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_contains(v_cleanId, aipl_str_n(".", 1))) ? aipl_bool(aipl_truthy(aipl_not(aipl_contains(v_cleanId, aipl_str_n(" ", 1))))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_not(aipl_contains(v_cleanId, aipl_str_n("..", 2))))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_starts_with(v_cleanId, aipl_str_n(".", 1))))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_ends_with(v_cleanId, aipl_str_n(".", 1))))) : aipl_bool(false))) ? v_cleanId : aipl_str_n("com.aipl.app.main", 17));
+  v_name = (aipl_truthy(aipl_gt(aipl_member_len(aipl_str_trim(v_appName)), aipl_int(0LL))) ? aipl_str_trim(v_appName) : aipl_str_n("AIPL Container App", 18));
+  AiplVal _ret_val = aipl_struct_new("CliApkBuildConfig", 5, (const char*[]){ "inputAiplPath", "outApkPath", "appId", "appName", "isValid" }, (AiplVal[]){ v_src, v_out, v_id, v_name, aipl_bool(true) });
   { AiplVal v_ret = _ret_val; AiplVal v_result = _ret_val; (void)v_ret; (void)v_result;
-    aipl_rt_assert((aipl_truthy(aipl_not(aipl_member_get_idx(v_result, 0, "lockedMode"))) ? aipl_bool(true) : aipl_bool(aipl_truthy((aipl_truthy(aipl_not(aipl_member_get_idx(v_result, 1, "filePickerEnabled"))) ? aipl_bool(aipl_truthy(aipl_not(aipl_member_get_idx(v_result, 2, "watcherDrawerEnabled")))) : aipl_bool(false))))), "ensures contract failed");
+    aipl_rt_assert((aipl_truthy(aipl_not(aipl_member_get_idx(v_result, 4, "isValid"))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_contains(aipl_member_get_idx(v_result, 2, "appId"), aipl_str_n(".", 1))))), "ensures contract failed");
   }
   return _ret_val;
 }
 
-/* AIPL Function: prepareSingleTestFileC */
-__attribute__((hot)) AiplVal aipl_fn_prepareSingleTestFileC(AiplVal v_testFile, AiplVal v_tmpC) {
-  AiplVal v_fileArenaMark = aipl_nil();
-  AiplVal v_report = aipl_nil();
-  AiplVal v_rootTestSrc = aipl_nil();
+/* AIPL Function: cmdRun */
+__attribute__((hot)) AiplVal aipl_fn_cmdRun(AiplVal v_cliArgs) {
+  AiplVal v_inputFile = aipl_nil();
+  AiplVal v_runArgs = aipl_nil();
+  AiplVal v_foundInput = aipl_nil();
+  AiplVal v_passThrough = aipl_nil();
+  AiplVal v_quiet = aipl_nil();
+  AiplVal v_verboseMode = aipl_nil();
+  AiplVal v_forceDetach = aipl_nil();
+  AiplVal v_forceWait = aipl_nil();
+  AiplVal v_batchOrHeadless = aipl_nil();
+  AiplVal v_timeoutSec = aipl_nil();
+  AiplVal v_profileMode = aipl_nil();
+  AiplVal v_envVerb = aipl_nil();
+  AiplVal v_ev = aipl_nil();
+  AiplVal v_batchEnvs = aipl_nil();
+  AiplVal v_bei = aipl_nil();
+  AiplVal v_evOpt = aipl_nil();
+  AiplVal v_evVal = aipl_nil();
+  AiplVal v_i = aipl_nil();
+  AiplVal v_a = aipl_nil();
+  AiplVal v_envWait = aipl_nil();
+  AiplVal v_ewv = aipl_nil();
+  AiplVal v_envDetach = aipl_nil();
+  AiplVal v_edv = aipl_nil();
+  AiplVal v_stayAttached = aipl_nil();
+  AiplVal v__ad0 = aipl_nil();
+  AiplVal v_hostScriptPath = aipl_nil();
+  AiplVal v_jsHost = aipl_nil();
   AiplVal v__ = aipl_nil();
+  AiplVal v_siblingAipl = aipl_nil();
+  AiplVal v_wantsNativeBridge = aipl_nil();
+  AiplVal v_rwi = aipl_nil();
+  AiplVal v_ra = aipl_nil();
+  AiplVal v__wd = aipl_nil();
+  AiplVal v__wd0 = aipl_nil();
+  AiplVal v_tWasmStart = aipl_nil();
+  AiplVal v__wv1 = aipl_nil();
+  AiplVal v__wes1 = aipl_nil();
+  AiplVal v__wed1 = aipl_nil();
+  AiplVal v_wRes = aipl_nil();
+  AiplVal v__wv0 = aipl_nil();
+  AiplVal v__wes0 = aipl_nil();
+  AiplVal v__wed0 = aipl_nil();
+  AiplVal v_wExecMicros = aipl_nil();
+  AiplVal v_wOut = aipl_nil();
+  AiplVal v_tTotalStart = aipl_nil();
+  AiplVal v_tCompileStart = aipl_nil();
+  AiplVal v_runArenaMark = aipl_nil();
+  AiplVal v_fastRunSrc = aipl_nil();
+  AiplVal v_fastRunSummary = aipl_nil();
+  AiplVal v_fastRunGraph = aipl_nil();
+  AiplVal v_fastRunHash = aipl_nil();
+  AiplVal v_fastRunBin = aipl_nil();
+  AiplVal v_fastRunHit = aipl_nil();
+  AiplVal v_cachedBin = aipl_nil();
+  AiplVal v_cacheHit = aipl_nil();
+  AiplVal v_repModCount = aipl_nil();
+  AiplVal v_repFnCount = aipl_nil();
+  AiplVal v_repStructCount = aipl_nil();
+  AiplVal v_repEnumCount = aipl_nil();
+  AiplVal v_report = aipl_nil();
+  AiplVal v_vPrefix = aipl_nil();
+  AiplVal v_di = aipl_nil();
+  AiplVal v_d = aipl_nil();
+  AiplVal v_hash = aipl_nil();
   AiplVal v_hir = aipl_nil();
-  AiplVal v_testFns = aipl_nil();
-  AiplVal v_hasMain = aipl_nil();
-  AiplVal v_fni = aipl_nil();
-  AiplVal v_f = aipl_nil();
-  AiplVal v_testSrc = aipl_nil();
-  AiplVal v_tHir = aipl_nil();
-  AiplVal v_calls = aipl_nil();
-  AiplVal v_tfi = aipl_nil();
-  AiplVal v_tf = aipl_nil();
-  AiplVal v_tToks = aipl_nil();
-  AiplVal v_tArena = aipl_nil();
   AiplVal v_cCode = aipl_nil();
-  AiplVal v_mainDefPos = aipl_nil();
-  AiplVal v_mainTail = aipl_nil();
-  AiplVal v_extraCalls = aipl_nil();
-  AiplVal v_cCall = aipl_nil();
-  AiplVal v_anchor = aipl_nil();
-  v_fileArenaMark = aipl_rt_arenaMark();
-  v_report = aipl_fn_compileFile(v_testFile);
-  v_rootTestSrc = aipl_fn_readFile(v_testFile);
-  if (aipl_truthy(aipl_not(aipl_member_get_idx(v_report, 0, "valid")))) {
-    v__ = aipl_rt_arenaReset(v_fileArenaMark);
-    return aipl_bool(false);
-  }
-  v_hir = aipl_member_get_idx(v_report, 10, "hir");
-  v_testFns = aipl_array_new(NULL, 0);
-  v_hasMain = aipl_bool(false);
-  v_fni = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_fni, aipl_member_get(aipl_member_get_idx(v_hir, 5, "functions"), "len")))) {
-    v_f = aipl_index_get(aipl_member_get_idx(v_hir, 5, "functions"), v_fni);
-    if (aipl_truthy(aipl_eq(aipl_member_get(v_f, "name"), aipl_str_n("main", 4)))) {
-      v_hasMain = aipl_bool(true);
+  AiplVal v_ccRes = aipl_nil();
+  AiplVal v_tCompileEnd = aipl_nil();
+  AiplVal v_compileMicros = aipl_nil();
+  AiplVal v_tExecStart = aipl_nil();
+  AiplVal v_execCmd = aipl_nil();
+  AiplVal v_execCmdArgs = aipl_nil();
+  AiplVal v_ri = aipl_nil();
+  AiplVal v__tt = aipl_nil();
+  AiplVal v__ed = aipl_nil();
+  AiplVal v_detachRes = aipl_nil();
+  AiplVal v__ed0 = aipl_nil();
+  AiplVal v_cacheTag = aipl_nil();
+  AiplVal v_binBytes = aipl_nil();
+  AiplVal v_argsDisplay = aipl_nil();
+  AiplVal v__v1 = aipl_nil();
+  AiplVal v__bv1 = aipl_nil();
+  AiplVal v__es1 = aipl_nil();
+  AiplVal v__er1 = aipl_nil();
+  AiplVal v__ed1 = aipl_nil();
+  AiplVal v__sp = aipl_nil();
+  AiplVal v_execRes = aipl_nil();
+  AiplVal v__rp = aipl_nil();
+  AiplVal v__v0 = aipl_nil();
+  AiplVal v__bv0 = aipl_nil();
+  AiplVal v__es0 = aipl_nil();
+  AiplVal v__er0 = aipl_nil();
+  AiplVal v__ed2 = aipl_nil();
+  AiplVal v_tExecEnd = aipl_nil();
+  AiplVal v_execMicros = aipl_nil();
+  AiplVal v_totalMicros = aipl_nil();
+  AiplVal v_pOut = aipl_nil();
+  AiplVal v_sigNum = aipl_nil();
+  AiplVal v_sigName = aipl_nil();
+  v_inputFile = aipl_str("");
+  v_runArgs = aipl_array_new(NULL, 0);
+  v_foundInput = aipl_bool(false);
+  v_passThrough = aipl_bool(false);
+  v_quiet = aipl_bool(false);
+  v_verboseMode = aipl_bool(false);
+  v_forceDetach = aipl_bool(false);
+  v_forceWait = aipl_bool(false);
+  v_batchOrHeadless = aipl_bool(false);
+  v_timeoutSec = aipl_int(0LL);
+  v_profileMode = aipl_bool(false);
+  v_envVerb = aipl_fn_getEnv(aipl_str_n("AIPL_VERBOSE", 12));
+  if (aipl_truthy(aipl_opt_is_some(v_envVerb))) {
+    v_ev = aipl_unwrap(v_envVerb);
+    if (aipl_truthy((aipl_truthy(aipl_eq(v_ev, aipl_str_n("1", 1))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_ev, aipl_str_n("true", 4))))))) {
+      v_verboseMode = aipl_bool(true);
     }
-    if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_neq(aipl_member_get(v_f, "name"), aipl_str_n("main", 4))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get(v_f, "paramNames"), "len"), aipl_int(0LL)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy((aipl_truthy((aipl_truthy(aipl_str_starts_with(aipl_member_get(v_f, "name"), aipl_str_n("test", 4))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_fn_strArrayContains(aipl_member_get(v_f, "capabilities"), aipl_str_n("@test", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_fn_strArrayContains(aipl_member_get(v_f, "capabilities"), aipl_str_n("test", 4))))))) : aipl_bool(false)))) {
-      if (aipl_truthy(aipl_contains(v_rootTestSrc, aipl_add(aipl_add(aipl_str_n("fn ", 3), aipl_member_get(v_f, "name")), aipl_str_n("(", 1))))) {
-        (aipl_array_push(v_testFns, aipl_member_get(v_f, "name")), aipl_nil());
+  }
+  v_batchEnvs = aipl_array_new((AiplVal[]){ aipl_str_n("AIPL_HEADLESS", 13), aipl_str_n("AIPL_MAX_FRAMES", 15), aipl_str_n("AIPL_SCREENSHOT_PATH", 20), aipl_str_n("AIPL_VIDEO_PATH", 15), aipl_str_n("AIPL_BOT_SCRIPT", 15), aipl_str_n("AIPL_BENCHMARK_WINDOW_FPS", 25) }, 6);
+  v_bei = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_bei, aipl_member_get(v_batchEnvs, "len")))) {
+    v_evOpt = aipl_fn_getEnv(aipl_index_get(v_batchEnvs, v_bei));
+    if (aipl_truthy(aipl_opt_is_some(v_evOpt))) {
+      v_evVal = aipl_unwrap(v_evOpt);
+      if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_gt(aipl_member_get(v_evVal, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_neq(v_evVal, aipl_str_n("0", 1)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_neq(v_evVal, aipl_str_n("false", 5)))) : aipl_bool(false)))) {
+        v_batchOrHeadless = aipl_bool(true);
       }
     }
-    aipl_inc_int(&v_fni, 1LL);
+    aipl_inc_int(&v_bei, 1LL);
   }
-  v_testSrc = aipl_member_get(v_report, "bundledSource");
-  v_tHir = v_hir;
-  if (aipl_truthy((aipl_truthy(aipl_not(v_hasMain)) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(v_testFns, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
-    v_calls = aipl_array_new(NULL, 0);
-    v_tfi = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_tfi, aipl_member_get(v_testFns, "len")))) {
-      v_tf = aipl_index_get(v_testFns, v_tfi);
-      (aipl_array_push(v_calls, aipl_add(aipl_add(aipl_str_n("  println(\"test ", 16), v_tf), aipl_str_n(" ... ok\")", 9))), aipl_nil());
-      (aipl_array_push(v_calls, aipl_add(aipl_add(aipl_str_n("  ", 2), v_tf), aipl_str_n("()", 2))), aipl_nil());
-      aipl_inc_int(&v_tfi, 1LL);
+  v_i = aipl_int(1LL);
+  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_cliArgs, "len")))) {
+    v_a = aipl_index_get(v_cliArgs, v_i);
+    if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--headless", 10))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--mode=headless-fast", 20)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--frames", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--frames=", 9)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--screenshot", 12)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--screenshot=", 13)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--snapshot-frame", 16)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--snapshot-frame=", 17)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--record", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--record=", 9)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--record-replay=", 16)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--replay", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--replay=", 9)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--inject-events", 15)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--inject-events=", 16)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--BenchmarkWindowFps", 20)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--benchmark-window-fps", 22)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--referee", 9)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--single-run", 12))))))) {
+      v_batchOrHeadless = aipl_bool(true);
     }
-    (aipl_array_push(v_calls, aipl_str_n("  ret 0", 7)), aipl_nil());
-    v_testSrc = aipl_add(aipl_add(aipl_add(v_testSrc, aipl_str_n("\n\npub fn main(): int:\n", 22)), aipl_array_join(v_calls, aipl_str_n("\n", 1))), aipl_str_n("\n", 1));
-    v_tToks = aipl_fn_tokenizeAipl(v_testSrc, aipl_int(0LL));
-    v_tArena = aipl_fn_parseModule(v_tToks, v_testSrc);
-    v_tHir = aipl_fn_lowerToHir(v_tArena, aipl_member_get(v_tArena, "moduleName"));
-  }
-  v_cCode = aipl_fn_emitCSource(v_tHir, v_testSrc);
-  if (aipl_truthy((aipl_truthy(v_hasMain) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(v_testFns, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
-    v_mainDefPos = aipl_index_of(v_cCode, aipl_str_n("AiplVal aipl_fn_main(", 21));
-    v_mainTail = (aipl_truthy(aipl_ge(v_mainDefPos, aipl_int(0LL))) ? aipl_slice(v_cCode, v_mainDefPos, aipl_member_get(v_cCode, "len")) : aipl_str(""));
-    v_extraCalls = aipl_array_new(NULL, 0);
-    v_tfi = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_tfi, aipl_member_get(v_testFns, "len")))) {
-      v_tf = aipl_index_get(v_testFns, v_tfi);
-      v_cCall = aipl_add(aipl_add(aipl_str_n("aipl_fn_", 8), v_tf), aipl_str_n("()", 2));
-      if (aipl_truthy(aipl_not(aipl_contains(v_mainTail, v_cCall)))) {
-        (aipl_array_push(v_extraCalls, aipl_add(aipl_add(aipl_str_n("  (void)", 8), v_cCall), aipl_str_n(";", 1))), aipl_nil());
+    if (aipl_truthy(aipl_not(v_foundInput))) {
+      if (aipl_truthy(v_passThrough)) {
+        v_inputFile = v_a;
+        v_foundInput = aipl_bool(true);
       }
-      aipl_inc_int(&v_tfi, 1LL);
-    }
-    if (aipl_truthy(aipl_gt(aipl_member_get(v_extraCalls, "len"), aipl_int(0LL)))) {
-      v_anchor = aipl_str_n("\n  AiplVal mainRes = aipl_fn_main();\n", 37);
-      v_cCode = aipl_str_replace(v_cCode, v_anchor, aipl_add(aipl_add(v_anchor, aipl_array_join(v_extraCalls, aipl_str_n("\n", 1))), aipl_str_n("\n", 1)));
-    }
-  }
-  aipl_fn_writeFile(v_tmpC, v_cCode);
-  v__ = aipl_rt_arenaReset(v_fileArenaMark);
-  return aipl_bool(true);
-}
-
-/* AIPL Function: countSubstr */
-__attribute__((hot)) AiplVal aipl_fn_countSubstr(AiplVal v_s, AiplVal v_sub) {
-  AiplVal v_count = aipl_nil();
-  AiplVal v_pos = aipl_nil();
-  v_count = aipl_int(0LL);
-  v_pos = aipl_int(0LL);
-  while (aipl_truthy(aipl_le(aipl_add(v_pos, aipl_member_get(v_sub, "len")), aipl_member_get(v_s, "len")))) {
-    if (aipl_truthy(aipl_eq(aipl_slice(v_s, v_pos, aipl_add(v_pos, aipl_member_get(v_sub, "len"))), v_sub))) {
-      aipl_inc_int(&v_count, 1LL);
-      v_pos = aipl_add(v_pos, aipl_member_get(v_sub, "len"));
+      else if (aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--verbose", 9))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("-v", 2))))))) {
+        v_verboseMode = aipl_bool(true);
+      }
+      else if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--detach", 8))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--background", 12)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("-d", 2))))))) {
+        v_forceDetach = aipl_bool(true);
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--wait", 6))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--foreground", 12))))))) {
+        v_forceWait = aipl_bool(true);
+      }
+      else if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--quiet", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--silent", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("-q", 2))))))) {
+        v_quiet = aipl_bool(true);
+      }
+      else if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--profile", 9)))) {
+        v_profileMode = aipl_bool(true);
+        (aipl_array_push(v_runArgs, v_a), aipl_nil());
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--timeout", 9))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_cliArgs, "len")))) : aipl_bool(false)))) {
+        v_timeoutSec = aipl_fn_parseInt(aipl_index_get(v_cliArgs, aipl_add(v_i, aipl_int(1LL))));
+        aipl_inc_int(&v_i, 1LL);
+      }
+      else if (aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--timeout=", 10)))) {
+        v_timeoutSec = aipl_fn_parseInt(aipl_slice(v_a, aipl_int(10LL), aipl_member_get(v_a, "len")));
+      }
+      else if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--", 2)))) {
+        v_passThrough = aipl_bool(true);
+      }
+      else if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--headless", 10))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--no-vsync-sla", 14)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--record", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--replay", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--BenchmarkWindowFps", 20)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--benchmark-window-fps", 22))))))) {
+        (aipl_array_push(v_runArgs, v_a), aipl_nil());
+      }
+      else if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--frames", 8))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--screenshot", 12)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--snapshot-frame", 16)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--inject-events", 15)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("-o", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--assets", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--max-fps", 9)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--MaxFps", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--target", 8))))))) {
+        (aipl_array_push(v_runArgs, v_a), aipl_nil());
+        if (aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_cliArgs, "len")))) {
+          (aipl_array_push(v_runArgs, aipl_index_get(v_cliArgs, aipl_add(v_i, aipl_int(1LL)))), aipl_nil());
+          aipl_inc_int(&v_i, 1LL);
+        }
+      }
+      else if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--frames=", 9))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--screenshot=", 13)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--snapshot-frame=", 17)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--inject-events=", 16)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("-o=", 3))))))) {
+        (aipl_array_push(v_runArgs, v_a), aipl_nil());
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_not(aipl_str_starts_with(v_a, aipl_str_n("-", 1)))) ? aipl_bool(aipl_truthy(aipl_eq(v_inputFile, aipl_str("")))) : aipl_bool(false)))) {
+        v_inputFile = v_a;
+        v_foundInput = aipl_bool(true);
+      }
+      else {
+        (aipl_array_push(v_runArgs, v_a), aipl_nil());
+      }
     }
     else {
-      aipl_inc_int(&v_pos, 1LL);
-    }
-  }
-  return v_count;
-}
-
-/* AIPL Function: skipStringLiteralAt */
-__attribute__((hot)) AiplVal aipl_fn_skipStringLiteralAt(AiplVal v_s, AiplVal v_col) {
-  AiplVal v_n = aipl_nil();
-  AiplVal v_closeIdx = aipl_nil();
-  AiplVal v_c = aipl_nil();
-  AiplVal v_k = aipl_nil();
-  v_n = aipl_member_get(v_s, "len");
-  if (aipl_truthy(aipl_ge(v_col, v_n))) {
-    return aipl_int(-1LL);
-  }
-  if (aipl_truthy((aipl_truthy(aipl_le(aipl_add(v_col, aipl_int(3LL)), v_n)) ? aipl_bool(aipl_truthy(aipl_eq(aipl_slice(v_s, v_col, aipl_add(v_col, aipl_int(3LL))), aipl_str_n("\"\"\"", 3)))) : aipl_bool(false)))) {
-    v_closeIdx = aipl_index_of(aipl_slice(v_s, aipl_add(v_col, aipl_int(3LL)), v_n), aipl_str_n("\"\"\"", 3));
-    if (aipl_truthy(aipl_ge(v_closeIdx, aipl_int(0LL)))) {
-      return aipl_add(aipl_add(aipl_add(v_col, aipl_int(3LL)), v_closeIdx), aipl_int(3LL));
-    }
-    return v_n;
-  }
-  v_c = aipl_str_char_code_at(v_s, v_col);
-  if (aipl_truthy((aipl_truthy(aipl_eq(v_c, aipl_int(114LL))) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(v_col, aipl_int(0LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_not(aipl_fn_isCanonIdentChar(aipl_slice(v_s, aipl_sub(v_col, aipl_int(1LL)), v_col)))))))) : aipl_bool(false)))) {
-    if (aipl_truthy((aipl_truthy(aipl_le(aipl_add(v_col, aipl_int(4LL)), v_n)) ? aipl_bool(aipl_truthy(aipl_eq(aipl_slice(v_s, v_col, aipl_add(v_col, aipl_int(4LL))), aipl_str_n("r##\"", 4)))) : aipl_bool(false)))) {
-      v_closeIdx = aipl_index_of(aipl_slice(v_s, aipl_add(v_col, aipl_int(4LL)), v_n), aipl_str_n("\"##", 3));
-      if (aipl_truthy(aipl_ge(v_closeIdx, aipl_int(0LL)))) {
-        return aipl_add(aipl_add(aipl_add(v_col, aipl_int(4LL)), v_closeIdx), aipl_int(3LL));
+      if (aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--", 2))) ? aipl_bool(aipl_truthy(aipl_not(v_passThrough))) : aipl_bool(false)))) {
+        v_passThrough = aipl_bool(true);
       }
-      return v_n;
-    }
-    if (aipl_truthy((aipl_truthy(aipl_le(aipl_add(v_col, aipl_int(3LL)), v_n)) ? aipl_bool(aipl_truthy(aipl_eq(aipl_slice(v_s, v_col, aipl_add(v_col, aipl_int(3LL))), aipl_str_n("r#\"", 3)))) : aipl_bool(false)))) {
-      v_closeIdx = aipl_index_of(aipl_slice(v_s, aipl_add(v_col, aipl_int(3LL)), v_n), aipl_str_n("\"#", 2));
-      if (aipl_truthy(aipl_ge(v_closeIdx, aipl_int(0LL)))) {
-        return aipl_add(aipl_add(aipl_add(v_col, aipl_int(3LL)), v_closeIdx), aipl_int(2LL));
+      else if (aipl_truthy((aipl_truthy(aipl_not(v_passThrough)) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--verbose", 9))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("-v", 2))))))) : aipl_bool(false)))) {
+        v_verboseMode = aipl_bool(true);
       }
-      return v_n;
+      else if (aipl_truthy((aipl_truthy(aipl_not(v_passThrough)) ? aipl_bool(aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--detach", 8))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--background", 12)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("-d", 2))))))) : aipl_bool(false)))) {
+        v_forceDetach = aipl_bool(true);
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_not(v_passThrough)) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--wait", 6))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--foreground", 12))))))) : aipl_bool(false)))) {
+        v_forceWait = aipl_bool(true);
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_not(v_passThrough)) ? aipl_bool(aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--quiet", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--silent", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("-q", 2))))))) : aipl_bool(false)))) {
+        v_quiet = aipl_bool(true);
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_not(v_passThrough)) ? aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--profile", 9)))) : aipl_bool(false)))) {
+        v_profileMode = aipl_bool(true);
+        (aipl_array_push(v_runArgs, v_a), aipl_nil());
+      }
+      else if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_not(v_passThrough)) ? aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("--timeout", 9)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_cliArgs, "len")))) : aipl_bool(false)))) {
+        v_timeoutSec = aipl_fn_parseInt(aipl_index_get(v_cliArgs, aipl_add(v_i, aipl_int(1LL))));
+        aipl_inc_int(&v_i, 1LL);
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_not(v_passThrough)) ? aipl_bool(aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--timeout=", 10)))) : aipl_bool(false)))) {
+        v_timeoutSec = aipl_fn_parseInt(aipl_slice(v_a, aipl_int(10LL), aipl_member_get(v_a, "len")));
+      }
+      else {
+        if (aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--verbose", 9))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("-v", 2))))))) {
+          v_verboseMode = aipl_bool(true);
+        }
+        (aipl_array_push(v_runArgs, v_a), aipl_nil());
+      }
     }
-    if (aipl_truthy((aipl_truthy(aipl_le(aipl_add(v_col, aipl_int(2LL)), v_n)) ? aipl_bool(aipl_truthy(aipl_eq(aipl_str_char_code_at(v_s, aipl_add(v_col, aipl_int(1LL))), aipl_int(34LL)))) : aipl_bool(false)))) {
-      v_k = aipl_add(v_col, aipl_int(2LL));
-      while (aipl_truthy((aipl_truthy(aipl_lt(v_k, v_n)) ? aipl_bool(aipl_truthy(aipl_neq(aipl_str_char_code_at(v_s, v_k), aipl_int(34LL)))) : aipl_bool(false)))) {
-        if (aipl_truthy((aipl_truthy(aipl_eq(aipl_str_char_code_at(v_s, v_k), aipl_int(92LL))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_k, aipl_int(1LL)), v_n))) : aipl_bool(false)))) {
-          aipl_inc_int(&v_k, 2LL);
+    aipl_inc_int(&v_i, 1LL);
+  }
+  if (aipl_truthy(aipl_eq(v_inputFile, aipl_str("")))) {
+    aipl_println(aipl_str_n("Usage: aipl run <file.aipl> [-v|--verbose] [--quiet] [--timeout <sec>] [--profile] [-- <args...>]", 97));
+    return aipl_int(1LL);
+  }
+  if (aipl_truthy(aipl_not(aipl_fn_fileExists(v_inputFile)))) {
+    if (aipl_truthy(v_verboseMode)) {
+      aipl_println(aipl_add(aipl_add(aipl_str_n("[AIPL Run:Verbose] Error: file '", 32), v_inputFile), aipl_str_n("' does not exist.", 17)));
+    }
+    else {
+      aipl_println(aipl_add(aipl_add(aipl_str_n("Error: file '", 13), v_inputFile), aipl_str_n("' does not exist.", 17)));
+    }
+    return aipl_int(1LL);
+  }
+  v_envWait = aipl_fn_getEnv(aipl_str_n("AIPL_RUN_WAIT", 13));
+  if (aipl_truthy(aipl_opt_is_some(v_envWait))) {
+    v_ewv = aipl_unwrap(v_envWait);
+    if (aipl_truthy((aipl_truthy(aipl_eq(v_ewv, aipl_str_n("0", 1))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_ewv, aipl_str_n("false", 5))))))) {
+      v_forceDetach = aipl_bool(true);
+    }
+    else if (aipl_truthy(aipl_gt(aipl_member_get(v_ewv, "len"), aipl_int(0LL)))) {
+      v_forceWait = aipl_bool(true);
+    }
+  }
+  v_envDetach = aipl_fn_getEnv(aipl_str_n("AIPL_RUN_DETACH", 15));
+  if (aipl_truthy(aipl_opt_is_some(v_envDetach))) {
+    v_edv = aipl_unwrap(v_envDetach);
+    if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_gt(aipl_member_get(v_edv, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_neq(v_edv, aipl_str_n("0", 1)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_neq(v_edv, aipl_str_n("false", 5)))) : aipl_bool(false)))) {
+      v_forceDetach = aipl_bool(true);
+    }
+  }
+  v_stayAttached = aipl_not(v_forceDetach);
+  if (aipl_truthy(v_stayAttached)) {
+    v__ad0 = aipl_fn_setEnv(aipl_str_n("AIPL_ALREADY_DETACHED", 21), aipl_str_n("0", 1));
+  }
+  if (aipl_truthy(aipl_str_ends_with(v_inputFile, aipl_str_n(".wasm", 5)))) {
+    v_hostScriptPath = aipl_str_n("/tmp/_aipl_wasm_host.js", 23);
+    v_jsHost = aipl_str_n("const fs=require('fs');const buf=fs.readFileSync(process.argv[2]);let closes=0,calls=0,memRef=null;const env=new Proxy({memory:new WebAssembly.Memory({initial:256}),fd_write(fd,iovs,iovsLen,nwritten){calls++;if(!memRef)return 0;const v=new DataView(memRef.buffer),u8=new Uint8Array(memRef.buffer);let tot=0,s='';for(let i=0;i<iovsLen;i++){const ptr=v.getUint32(iovs+i*8,true),len=v.getUint32(iovs+i*8+4,true);tot+=len;for(let j=0;j<len&&(ptr+j)<u8.length;j++)s+=String.fromCharCode(u8[ptr+j]);}if(nwritten>0&&(nwritten+4)<=u8.length)v.setUint32(nwritten,tot,true);if(s.length>0)process.stdout.write(s);return 0;}},{get(t,p){if(p in t)return t[p];return(...a)=>{calls++;if(p.includes('ShouldClose')||p.includes('should_close')){closes++;if(closes>2)throw new Error('__WASM_DONE__');return 0;}return 0;};}});WebAssembly.instantiate(buf,{env,wasi_snapshot_preview1:env}).then(({instance})=>{const ex=instance.exports;memRef=ex.memory||null;const fn=ex._start||ex.main||Object.values(ex).find(v=>typeof v==='function');if(fn){try{fn();}catch(e){if(!String(e).includes('__WASM_DONE__'))throw e;}}console.log('[AIPL WASM Host] Executed '+process.argv[2]+' (exports='+Object.keys(ex).length+', host_calls='+calls+')');}).catch(e=>{console.error(e);process.exit(1);});", 1260);
+    v__ = aipl_fn_writeFile(v_hostScriptPath, v_jsHost);
+    v_siblingAipl = aipl_add(aipl_slice(v_inputFile, aipl_int(0LL), aipl_sub(aipl_member_get(v_inputFile, "len"), aipl_int(5LL))), aipl_str_n(".aipl", 5));
+    v_wantsNativeBridge = aipl_bool(false);
+    v_rwi = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_rwi, aipl_member_get(v_runArgs, "len")))) {
+      v_ra = aipl_index_get(v_runArgs, v_rwi);
+      if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_ra, aipl_str_n("--window", 8))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_ra, aipl_str_n("--screenshot", 12)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_ra, aipl_str_n("--record", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_ra, aipl_str_n("--screenshot=", 13)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_ra, aipl_str_n("--frames", 8))))))) {
+        v_wantsNativeBridge = aipl_bool(true);
+      }
+      aipl_inc_int(&v_rwi, 1LL);
+    }
+    if (aipl_truthy((aipl_truthy(aipl_not(v_stayAttached)) ? aipl_bool(aipl_truthy(aipl_not(v_wantsNativeBridge))) : aipl_bool(false)))) {
+      v__wd = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_DETACH", 16), aipl_str_n("1", 1));
+      v__ = aipl_fn_execCommand(aipl_str_n("node", 4), aipl_array_new((AiplVal[]){ v_hostScriptPath, v_inputFile }, 2));
+      v__wd0 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_DETACH", 16), aipl_str_n("0", 1));
+      return aipl_int(0LL);
+    }
+    v_tWasmStart = aipl_fn_nowMicros();
+    if (aipl_truthy(v_verboseMode)) {
+      aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Run:Verbose] target=", 26), v_inputFile), aipl_str_n(" runtime=node-wasm32-wasi size=", 31)), aipl_to_str(aipl_fn_fileSize(v_inputFile))), aipl_str_n("B", 1)));
+      v__wv1 = aipl_fn_setEnv(aipl_str_n("AIPL_VERBOSE", 12), aipl_str_n("1", 1));
+      v__wes1 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_STREAM", 16), aipl_str_n("1", 1));
+    }
+    else {
+      v__wed1 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_DIRECT", 16), aipl_str_n("1", 1));
+    }
+    v_wRes = aipl_fn_execCommand(aipl_str_n("node", 4), aipl_array_new((AiplVal[]){ v_hostScriptPath, v_inputFile }, 2));
+    if (aipl_truthy(v_verboseMode)) {
+      v__wv0 = aipl_fn_setEnv(aipl_str_n("AIPL_VERBOSE", 12), aipl_str_n("0", 1));
+      v__wes0 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_STREAM", 16), aipl_str_n("0", 1));
+    }
+    else {
+      v__wed0 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_DIRECT", 16), aipl_str_n("0", 1));
+    }
+    v_wExecMicros = aipl_sub(aipl_fn_nowMicros(), v_tWasmStart);
+    if (aipl_truthy(aipl_res_is_err(v_wRes))) {
+      if (aipl_truthy(v_verboseMode)) {
+        aipl_println(aipl_add(aipl_str_n("[AIPL Run:Verbose] WASM execution failed: ", 42), aipl_unwrap_err(v_wRes)));
+      }
+      else {
+        aipl_println(aipl_add(aipl_str_n("WASM execution failed: ", 23), aipl_unwrap_err(v_wRes)));
+      }
+      return aipl_int(1LL);
+    }
+    v_wOut = aipl_unwrap(v_wRes);
+    if (aipl_truthy(v_verboseMode)) {
+      aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Run:Verbose] result: status=", 34), aipl_to_str(aipl_member_get_idx(v_wOut, 2, "status"))), aipl_str_n(" stdout_bytes=", 14)), aipl_to_str(aipl_member_get(aipl_member_get_idx(v_wOut, 1, "stdout"), "len"))), aipl_str_n(" stderr_bytes=", 14)), aipl_to_str(aipl_member_get(aipl_member_get_idx(v_wOut, 2, "stderr"), "len"))), aipl_str_n(" exec_ms=", 9)), aipl_to_str(aipl_div(v_wExecMicros, aipl_int(1000LL)))));
+      if (aipl_truthy(aipl_neq(aipl_member_get_idx(v_wOut, 2, "status"), aipl_int(0LL)))) {
+        aipl_println(aipl_add(aipl_str_n("[AIPL Run:Verbose] error: process exited with non-zero status ", 62), aipl_to_str(aipl_member_get_idx(v_wOut, 2, "status"))));
+      }
+    }
+    else if (aipl_truthy((aipl_truthy(v_stayAttached) ? aipl_bool(aipl_truthy(aipl_not(v_quiet))) : aipl_bool(false)))) {
+      if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_wOut, 1, "stdout"), "len"), aipl_int(0LL)))) {
+        aipl_print(aipl_member_get_idx(v_wOut, 1, "stdout"));
+      }
+      if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_wOut, 2, "stderr"), "len"), aipl_int(0LL)))) {
+        aipl_print(aipl_member_get_idx(v_wOut, 2, "stderr"));
+      }
+    }
+    if (aipl_truthy(aipl_neq(aipl_member_get_idx(v_wOut, 2, "status"), aipl_int(0LL)))) {
+      return aipl_member_get_idx(v_wOut, 2, "status");
+    }
+    if (aipl_truthy((aipl_truthy(aipl_not(v_wantsNativeBridge)) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_not(aipl_fn_fileExists(v_siblingAipl))))))) {
+      return aipl_int(0LL);
+    }
+    v_inputFile = v_siblingAipl;
+  }
+  v_tTotalStart = aipl_fn_nowMicros();
+  v_tCompileStart = v_tTotalStart;
+  v_runArenaMark = aipl_rt_arenaMark();
+  v_fastRunSrc = aipl_fn_canonicalizeAiplFileOnDisk(v_inputFile);
+  v_fastRunSummary = aipl_fn_extractModuleSummary(v_inputFile, v_fastRunSrc, aipl_int(0LL));
+  v_fastRunGraph = aipl_fn_canonicalizeGraphDepsOnDisk(v_inputFile, aipl_member_get(v_fastRunSummary, "moduleName"), aipl_fn_resolveImports(v_inputFile, aipl_fn_arenaNew(aipl_member_get(v_fastRunSummary, "moduleName"))));
+  v_fastRunHash = aipl_fn_sha256(aipl_add(aipl_add(aipl_member_get(v_fastRunGraph, "bundledSource"), aipl_str_n("|compiler=", 10)), aipl_fn_compilerCacheFingerprint()));
+  v_fastRunBin = aipl_add(aipl_str_n("/tmp/aipl-run-", 14), v_fastRunHash);
+  v_fastRunHit = (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get(v_fastRunGraph, "errors"), "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_not(v_verboseMode))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_fn_fileExists(v_fastRunBin))) : aipl_bool(false));
+  v_cachedBin = v_fastRunBin;
+  v_cacheHit = v_fastRunHit;
+  v_repModCount = aipl_member_get(aipl_member_get_idx(v_fastRunGraph, 1, "modules"), "len");
+  v_repFnCount = aipl_int(0LL);
+  v_repStructCount = aipl_int(0LL);
+  v_repEnumCount = aipl_int(0LL);
+  if (aipl_truthy(aipl_not(v_fastRunHit))) {
+    v_report = aipl_fn_compileFile(v_inputFile);
+    if (aipl_truthy(aipl_not(aipl_member_get_idx(v_report, 0, "valid")))) {
+      v_vPrefix = (aipl_truthy(v_verboseMode) ? aipl_str_n("[AIPL Run:Verbose] ", 19) : aipl_str(""));
+      aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(v_vPrefix, aipl_str_n("Verification failed: ", 21)), aipl_to_str(aipl_member_get(aipl_member_get(v_report, "diagnostics"), "len"))), aipl_str_n(" diagnostic(s) in '", 19)), v_inputFile), aipl_str_n("':", 2)));
+      v_di = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_di, aipl_member_get(aipl_member_get(v_report, "diagnostics"), "len")))) {
+        v_d = aipl_index_get(aipl_member_get(v_report, "diagnostics"), v_di);
+        aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("  [", 3), aipl_member_get_idx(v_d, 0, "code")), aipl_str_n("] ", 2)), aipl_to_str(aipl_member_get(aipl_member_get(v_d, "span"), "line"))), aipl_str_n(":", 1)), aipl_to_str(aipl_member_get_idx(aipl_member_get(v_d, "span"), 4, "column"))), aipl_str_n(": ", 2)), aipl_member_get_idx(v_d, 1, "message")));
+        aipl_inc_int(&v_di, 1LL);
+      }
+      v__ = aipl_rt_arenaReset(v_runArenaMark);
+      return aipl_int(1LL);
+    }
+    v_repModCount = aipl_member_get_idx(v_report, 7, "moduleCount");
+    v_repFnCount = aipl_member_get_idx(v_report, 3, "functionCount");
+    v_repStructCount = aipl_member_get_idx(v_report, 4, "structCount");
+    v_repEnumCount = aipl_member_get_idx(v_report, 5, "enumCount");
+    v_hash = aipl_fn_sha256(aipl_add(aipl_add(aipl_member_get(v_report, "bundledSource"), aipl_str_n("|compiler=", 10)), aipl_fn_compilerCacheFingerprint()));
+    v_cachedBin = aipl_add(aipl_str_n("/tmp/aipl-run-", 14), v_hash);
+    v_cacheHit = aipl_fn_fileExists(v_cachedBin);
+    if (aipl_truthy(aipl_not(v_cacheHit))) {
+      v_hir = aipl_member_get_idx(v_report, 10, "hir");
+      v_cCode = aipl_fn_emitCSource(v_hir, aipl_member_get(v_report, "bundledSource"));
+      v_ccRes = aipl_fn_compileCSourceWithHostCc(v_cCode, v_cachedBin);
+      if (aipl_truthy(aipl_res_is_err(v_ccRes))) {
+        if (aipl_truthy(v_verboseMode)) {
+          aipl_println(aipl_add(aipl_str_n("[AIPL Run:Verbose] Compilation failed: ", 39), aipl_unwrap_err(v_ccRes)));
         }
         else {
-          aipl_inc_int(&v_k, 1LL);
+          aipl_println(aipl_add(aipl_str_n("Compilation failed: ", 20), aipl_unwrap_err(v_ccRes)));
         }
+        v__ = aipl_rt_arenaReset(v_runArenaMark);
+        return aipl_int(1LL);
       }
-      return (aipl_truthy(aipl_lt(v_k, v_n)) ? aipl_add(v_k, aipl_int(1LL)) : v_n);
     }
   }
-  if (aipl_truthy(aipl_eq(v_c, aipl_int(34LL)))) {
-    v_k = aipl_add(v_col, aipl_int(1LL));
-    while (aipl_truthy((aipl_truthy(aipl_lt(v_k, v_n)) ? aipl_bool(aipl_truthy(aipl_neq(aipl_str_char_code_at(v_s, v_k), aipl_int(34LL)))) : aipl_bool(false)))) {
-      if (aipl_truthy((aipl_truthy(aipl_eq(aipl_str_char_code_at(v_s, v_k), aipl_int(92LL))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_k, aipl_int(1LL)), v_n))) : aipl_bool(false)))) {
-        aipl_inc_int(&v_k, 2LL);
+  v__ = aipl_rt_arenaReset(v_runArenaMark);
+  v_tCompileEnd = aipl_fn_nowMicros();
+  v_compileMicros = aipl_sub(v_tCompileEnd, v_tCompileStart);
+  v_tExecStart = aipl_fn_nowMicros();
+  v_execCmd = v_cachedBin;
+  v_execCmdArgs = aipl_array_new(NULL, 0);
+  if (aipl_truthy(aipl_gt(v_timeoutSec, aipl_int(0LL)))) {
+    v_execCmd = aipl_str_n("timeout", 7);
+    (aipl_array_push(v_execCmdArgs, aipl_add(aipl_to_str(v_timeoutSec), aipl_str_n("s", 1))), aipl_nil());
+    (aipl_array_push(v_execCmdArgs, v_cachedBin), aipl_nil());
+    v_ri = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_ri, aipl_member_get(v_runArgs, "len")))) {
+      (aipl_array_push(v_execCmdArgs, aipl_index_get(v_runArgs, v_ri)), aipl_nil());
+      aipl_inc_int(&v_ri, 1LL);
+    }
+  }
+  else {
+    v_execCmdArgs = v_runArgs;
+  }
+  v__tt = aipl_fn_setEnv(aipl_str_n("AIPL_TARGET_TYPE", 16), aipl_str_n("aipl", 4));
+  if (aipl_truthy(aipl_not(v_stayAttached))) {
+    v__ed = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_DETACH", 16), aipl_str_n("1", 1));
+    v_detachRes = aipl_fn_execCommand(v_execCmd, v_execCmdArgs);
+    v__ed0 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_DETACH", 16), aipl_str_n("0", 1));
+    if (aipl_truthy(aipl_res_is_err(v_detachRes))) {
+      aipl_println(aipl_add(aipl_str_n("Execution failed: ", 18), aipl_unwrap_err(v_detachRes)));
+      return aipl_int(1LL);
+    }
+    return aipl_int(0LL);
+  }
+  if (aipl_truthy(v_verboseMode)) {
+    v_cacheTag = (aipl_truthy(v_cacheHit) ? aipl_str_n("HIT", 3) : aipl_str_n("MISS", 4));
+    v_binBytes = aipl_fn_fileSize(v_cachedBin);
+    v_argsDisplay = (aipl_truthy(aipl_gt(aipl_member_get(v_execCmdArgs, "len"), aipl_int(0LL))) ? aipl_add(aipl_str_n(" ", 1), aipl_array_join(v_execCmdArgs, aipl_str_n(" ", 1))) : aipl_str(""));
+    aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Run:Verbose] target=", 26), v_inputFile), aipl_str_n(" modules=", 9)), aipl_to_str(v_repModCount)), aipl_str_n(" functions=", 11)), aipl_to_str(v_repFnCount)), aipl_str_n(" structs=", 9)), aipl_to_str(v_repStructCount)), aipl_str_n(" enums=", 7)), aipl_to_str(v_repEnumCount)));
+    aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Run:Verbose] binary=", 26), v_cachedBin), aipl_str_n(" size=", 6)), aipl_to_str(v_binBytes)), aipl_str_n("B cache=", 8)), v_cacheTag), aipl_str_n(" compile_ms=", 12)), aipl_to_str(aipl_div(v_compileMicros, aipl_int(1000LL)))));
+    aipl_println(aipl_add(aipl_add(aipl_str_n("[AIPL Run:Verbose] exec=", 24), v_execCmd), v_argsDisplay));
+    v__v1 = aipl_fn_setEnv(aipl_str_n("AIPL_VERBOSE", 12), aipl_str_n("1", 1));
+    v__bv1 = aipl_fn_setEnv(aipl_str_n("AIPL_BOT_VERBOSE", 16), aipl_str_n("1", 1));
+    v__es1 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_STREAM", 16), aipl_str_n("1", 1));
+  }
+  else {
+    if (aipl_truthy((aipl_truthy(aipl_not(v_profileMode)) ? aipl_bool(aipl_truthy(aipl_eq(v_timeoutSec, aipl_int(0LL)))) : aipl_bool(false)))) {
+      v__er1 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_REPLACE", 17), aipl_str_n("1", 1));
+    }
+    else {
+      v__ed1 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_DIRECT", 16), aipl_str_n("1", 1));
+    }
+  }
+  if (aipl_truthy(v_profileMode)) {
+    v__sp = aipl_fn_setEnv(aipl_str_n("AIPL_PROFILE", 12), aipl_str_n("1", 1));
+  }
+  v_execRes = aipl_fn_execCommand(v_execCmd, v_execCmdArgs);
+  if (aipl_truthy(v_profileMode)) {
+    v__rp = aipl_fn_setEnv(aipl_str_n("AIPL_PROFILE", 12), aipl_str_n("0", 1));
+  }
+  if (aipl_truthy(v_verboseMode)) {
+    v__v0 = aipl_fn_setEnv(aipl_str_n("AIPL_VERBOSE", 12), aipl_str_n("0", 1));
+    v__bv0 = aipl_fn_setEnv(aipl_str_n("AIPL_BOT_VERBOSE", 16), aipl_str_n("0", 1));
+    v__es0 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_STREAM", 16), aipl_str_n("0", 1));
+  }
+  else {
+    v__er0 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_REPLACE", 17), aipl_str_n("0", 1));
+    v__ed2 = aipl_fn_setEnv(aipl_str_n("AIPL_EXEC_DIRECT", 16), aipl_str_n("0", 1));
+  }
+  v_tExecEnd = aipl_fn_nowMicros();
+  v_execMicros = aipl_sub(v_tExecEnd, v_tExecStart);
+  v_totalMicros = aipl_sub(v_tExecEnd, v_tTotalStart);
+  if (aipl_truthy(aipl_res_is_err(v_execRes))) {
+    if (aipl_truthy((aipl_truthy(aipl_gt(v_timeoutSec, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_ge(v_execMicros, aipl_mul(v_timeoutSec, aipl_int(1000000LL))))) : aipl_bool(false)))) {
+      if (aipl_truthy((aipl_truthy(v_verboseMode) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_gt(v_timeoutSec, aipl_int(0LL))))))) {
+        aipl_println(aipl_add(aipl_add(aipl_str_n("[AIPL Watchdog] Execution timed out after ", 42), aipl_to_str(v_timeoutSec)), aipl_str_n("s (AIPL_E_TIMEOUT)", 18)));
+      }
+      if (aipl_truthy(v_profileMode)) {
+        aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Profiler] compile_ms=", 27), aipl_to_str(aipl_div(v_compileMicros, aipl_int(1000LL)))), aipl_str_n(" exec_ms=", 9)), aipl_to_str(aipl_div(v_execMicros, aipl_int(1000LL)))), aipl_str_n(" total_ms=", 10)), aipl_to_str(aipl_div(v_totalMicros, aipl_int(1000LL)))), aipl_str_n(" cpu_cores=", 11)), aipl_to_str(aipl_fn_getCpuCount())));
+      }
+      return aipl_int(124LL);
+    }
+    if (aipl_truthy(v_verboseMode)) {
+      aipl_println(aipl_add(aipl_str_n("[AIPL Run:Verbose] Execution failed: ", 37), aipl_unwrap_err(v_execRes)));
+    }
+    else {
+      aipl_println(aipl_add(aipl_str_n("Execution failed: ", 18), aipl_unwrap_err(v_execRes)));
+    }
+    return aipl_int(1LL);
+  }
+  v_pOut = aipl_unwrap(v_execRes);
+  if (aipl_truthy((aipl_truthy(aipl_gt(v_timeoutSec, aipl_int(0LL))) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get_idx(v_pOut, 2, "status"), aipl_int(124LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_ge(v_execMicros, aipl_mul(v_timeoutSec, aipl_int(1000000LL)))))))) : aipl_bool(false)))) {
+    if (aipl_truthy(aipl_not(v_verboseMode))) {
+      if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_pOut, 1, "stdout"), "len"), aipl_int(0LL)))) {
+        aipl_print(aipl_member_get_idx(v_pOut, 1, "stdout"));
+      }
+      if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_pOut, 2, "stderr"), "len"), aipl_int(0LL)))) {
+        aipl_print(aipl_member_get_idx(v_pOut, 2, "stderr"));
+      }
+    }
+    aipl_println(aipl_add(aipl_add(aipl_str_n("[AIPL Watchdog] Execution timed out after ", 42), aipl_to_str(v_timeoutSec)), aipl_str_n("s (AIPL_E_TIMEOUT)", 18)));
+    if (aipl_truthy((aipl_truthy(v_profileMode) ? aipl_bool(true) : aipl_bool(aipl_truthy(v_verboseMode))))) {
+      aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Profiler] compile_ms=", 27), aipl_to_str(aipl_div(v_compileMicros, aipl_int(1000LL)))), aipl_str_n(" exec_ms=", 9)), aipl_to_str(aipl_div(v_execMicros, aipl_int(1000LL)))), aipl_str_n(" total_ms=", 10)), aipl_to_str(aipl_div(v_totalMicros, aipl_int(1000LL)))), aipl_str_n(" cpu_cores=", 11)), aipl_to_str(aipl_fn_getCpuCount())));
+    }
+    return aipl_int(124LL);
+  }
+  if (aipl_truthy(aipl_not(v_verboseMode))) {
+    if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_pOut, 1, "stdout"), "len"), aipl_int(0LL)))) {
+      aipl_print(aipl_member_get_idx(v_pOut, 1, "stdout"));
+    }
+    if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_pOut, 2, "stderr"), "len"), aipl_int(0LL)))) {
+      aipl_print(aipl_member_get_idx(v_pOut, 2, "stderr"));
+    }
+  }
+  else {
+    aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Run:Verbose] result: status=", 34), aipl_to_str(aipl_member_get_idx(v_pOut, 2, "status"))), aipl_str_n(" stdout_bytes=", 14)), aipl_to_str(aipl_member_get(aipl_member_get_idx(v_pOut, 1, "stdout"), "len"))), aipl_str_n(" stderr_bytes=", 14)), aipl_to_str(aipl_member_get(aipl_member_get_idx(v_pOut, 2, "stderr"), "len"))), aipl_str_n(" compile_ms=", 12)), aipl_to_str(aipl_div(v_compileMicros, aipl_int(1000LL)))), aipl_str_n(" exec_ms=", 9)), aipl_to_str(aipl_div(v_execMicros, aipl_int(1000LL)))), aipl_str_n(" total_ms=", 10)), aipl_to_str(aipl_div(v_totalMicros, aipl_int(1000LL)))), aipl_str_n(" cpu_cores=", 11)), aipl_to_str(aipl_fn_getCpuCount())));
+    if (aipl_truthy(aipl_neq(aipl_member_get_idx(v_pOut, 2, "status"), aipl_int(0LL)))) {
+      if (aipl_truthy((aipl_truthy(aipl_gt(aipl_member_get_idx(v_pOut, 2, "status"), aipl_int(128LL))) ? aipl_bool(aipl_truthy(aipl_le(aipl_member_get_idx(v_pOut, 2, "status"), aipl_int(192LL)))) : aipl_bool(false)))) {
+        v_sigNum = aipl_sub(aipl_member_get_idx(v_pOut, 2, "status"), aipl_int(128LL));
+        v_sigName = (aipl_truthy(aipl_eq(v_sigNum, aipl_int(11LL))) ? aipl_str_n(" (SIGSEGV)", 10) : (aipl_truthy(aipl_eq(v_sigNum, aipl_int(9LL))) ? aipl_str_n(" (SIGKILL)", 10) : (aipl_truthy(aipl_eq(v_sigNum, aipl_int(6LL))) ? aipl_str_n(" (SIGABRT)", 10) : (aipl_truthy(aipl_eq(v_sigNum, aipl_int(15LL))) ? aipl_str_n(" (SIGTERM)", 10) : (aipl_truthy(aipl_eq(v_sigNum, aipl_int(2LL))) ? aipl_str_n(" (SIGINT)", 9) : (aipl_truthy(aipl_eq(v_sigNum, aipl_int(7LL))) ? aipl_str_n(" (SIGBUS)", 9) : (aipl_truthy(aipl_eq(v_sigNum, aipl_int(8LL))) ? aipl_str_n(" (SIGFPE)", 9) : (aipl_truthy(aipl_eq(v_sigNum, aipl_int(4LL))) ? aipl_str_n(" (SIGILL)", 9) : aipl_str("")))))))));
+        aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Run:Verbose] error: process exited with non-zero status ", 62), aipl_to_str(aipl_member_get_idx(v_pOut, 2, "status"))), aipl_str_n(" — terminated by signal ", 26)), aipl_to_str(v_sigNum)), v_sigName));
       }
       else {
-        aipl_inc_int(&v_k, 1LL);
+        aipl_println(aipl_add(aipl_str_n("[AIPL Run:Verbose] error: process exited with non-zero status ", 62), aipl_to_str(aipl_member_get_idx(v_pOut, 2, "status"))));
       }
     }
-    return (aipl_truthy(aipl_lt(v_k, v_n)) ? aipl_add(v_k, aipl_int(1LL)) : v_n);
   }
-  if (aipl_truthy(aipl_eq(v_c, aipl_int(39LL)))) {
-    v_k = aipl_add(v_col, aipl_int(1LL));
-    while (aipl_truthy((aipl_truthy(aipl_lt(v_k, v_n)) ? aipl_bool(aipl_truthy(aipl_neq(aipl_str_char_code_at(v_s, v_k), aipl_int(39LL)))) : aipl_bool(false)))) {
-      if (aipl_truthy((aipl_truthy(aipl_eq(aipl_str_char_code_at(v_s, v_k), aipl_int(92LL))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_k, aipl_int(1LL)), v_n))) : aipl_bool(false)))) {
-        aipl_inc_int(&v_k, 2LL);
-      }
-      else {
-        aipl_inc_int(&v_k, 1LL);
-      }
-    }
-    return (aipl_truthy(aipl_lt(v_k, v_n)) ? aipl_add(v_k, aipl_int(1LL)) : v_n);
+  if (aipl_truthy(v_profileMode)) {
+    aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[AIPL Profiler] compile_ms=", 27), aipl_to_str(aipl_div(v_compileMicros, aipl_int(1000LL)))), aipl_str_n(" exec_ms=", 9)), aipl_to_str(aipl_div(v_execMicros, aipl_int(1000LL)))), aipl_str_n(" total_ms=", 10)), aipl_to_str(aipl_div(v_totalMicros, aipl_int(1000LL)))), aipl_str_n(" cpu_cores=", 11)), aipl_to_str(aipl_fn_getCpuCount())));
   }
-  return aipl_int(-1LL);
+  return aipl_member_get_idx(v_pOut, 2, "status");
 }
 
-/* AIPL Function: splitTopLevelItems */
-__attribute__((hot)) AiplVal aipl_fn_splitTopLevelItems(AiplVal v_s, AiplVal v_splitOnComma) {
-  AiplVal v_items = aipl_nil();
-  AiplVal v_parenDepth = aipl_nil();
-  AiplVal v_bracketDepth = aipl_nil();
-  AiplVal v_braceDepth = aipl_nil();
-  AiplVal v_startIdx = aipl_nil();
-  AiplVal v_col = aipl_nil();
+/* AIPL Function: cmdTranspile */
+__attribute__((hot)) AiplVal aipl_fn_cmdTranspile(AiplVal v_cliArgs) {
+  AiplVal v_targetFormat = aipl_nil();
+  AiplVal v_inputFile = aipl_nil();
+  AiplVal v_outputFile = aipl_nil();
+  AiplVal v_i = aipl_nil();
+  AiplVal v_a = aipl_nil();
+  AiplVal v_t = aipl_nil();
+  AiplVal v_report = aipl_nil();
+  AiplVal v_hir = aipl_nil();
+  AiplVal v_html = aipl_nil();
+  AiplVal v_cCode = aipl_nil();
+  AiplVal v_tsCode = aipl_nil();
+  v_targetFormat = aipl_str_n("ts", 2);
+  v_inputFile = aipl_str("");
+  v_outputFile = aipl_str("");
+  v_i = aipl_int(1LL);
+  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_cliArgs, "len")))) {
+    v_a = aipl_index_get(v_cliArgs, v_i);
+    if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--html", 6)))) {
+      v_targetFormat = aipl_str_n("html", 4);
+    }
+    else if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--ts", 4)))) {
+      v_targetFormat = aipl_str_n("ts", 2);
+    }
+    else if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--c", 3)))) {
+      v_targetFormat = aipl_str_n("c", 1);
+    }
+    else if (aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--target", 8))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_cliArgs, "len")))) : aipl_bool(false)))) {
+      v_t = aipl_index_get(v_cliArgs, aipl_add(v_i, aipl_int(1LL)));
+      if (aipl_truthy((aipl_truthy(aipl_eq(v_t, aipl_str_n("ts", 2))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_t, aipl_str_n("typescript", 10))))))) {
+        v_targetFormat = aipl_str_n("ts", 2);
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_eq(v_t, aipl_str_n("html", 4))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_t, aipl_str_n("html5", 5))))))) {
+        v_targetFormat = aipl_str_n("html", 4);
+      }
+      else if (aipl_truthy(aipl_eq(v_t, aipl_str_n("c", 1)))) {
+        v_targetFormat = aipl_str_n("c", 1);
+      }
+      aipl_inc_int(&v_i, 1LL);
+    }
+    else if (aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("-o", 2))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_cliArgs, "len")))) : aipl_bool(false)))) {
+      v_outputFile = aipl_index_get(v_cliArgs, aipl_add(v_i, aipl_int(1LL)));
+      aipl_inc_int(&v_i, 1LL);
+    }
+    else if (aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("-o=", 3)))) {
+      v_outputFile = aipl_slice(v_a, aipl_int(3LL), aipl_member_get(v_a, "len"));
+    }
+    else if (aipl_truthy((aipl_truthy(aipl_not(aipl_str_starts_with(v_a, aipl_str_n("-", 1)))) ? aipl_bool(aipl_truthy(aipl_eq(v_inputFile, aipl_str("")))) : aipl_bool(false)))) {
+      v_inputFile = v_a;
+    }
+    aipl_inc_int(&v_i, 1LL);
+  }
+  if (aipl_truthy(aipl_eq(v_inputFile, aipl_str("")))) {
+    aipl_println(aipl_str_n("Error: transpile requires an input .aipl file", 45));
+    return aipl_int(1LL);
+  }
+  v_report = aipl_fn_compileFile(v_inputFile);
+  if (aipl_truthy(aipl_not(aipl_member_get_idx(v_report, 0, "valid")))) {
+    aipl_println(aipl_add(aipl_add(aipl_str_n("Verification failed in '", 24), v_inputFile), aipl_str_n("'", 1)));
+    return aipl_int(1LL);
+  }
+  v_hir = aipl_member_get_idx(v_report, 10, "hir");
+  if (aipl_truthy(aipl_eq(v_targetFormat, aipl_str_n("html", 4)))) {
+    v_html = aipl_fn_emitHtml5Bundle(aipl_member_get(v_hir, "moduleName"), v_hir, aipl_member_get(v_report, "bundledSource"));
+    if (aipl_truthy(aipl_eq(v_outputFile, aipl_str("")))) {
+      aipl_print(v_html);
+    }
+    else {
+      aipl_fn_writeFile(v_outputFile, v_html);
+      aipl_println(aipl_add(aipl_add(aipl_add(aipl_str_n("Transpiled ", 11), v_inputFile), aipl_str_n(" -> ", 4)), v_outputFile));
+    }
+    return aipl_int(0LL);
+  }
+  if (aipl_truthy(aipl_eq(v_targetFormat, aipl_str_n("c", 1)))) {
+    v_cCode = aipl_fn_emitCSourceStandalone(v_hir, aipl_member_get(v_report, "bundledSource"));
+    if (aipl_truthy(aipl_eq(v_outputFile, aipl_str("")))) {
+      aipl_print(v_cCode);
+    }
+    else {
+      aipl_fn_writeFile(v_outputFile, v_cCode);
+      aipl_println(aipl_add(aipl_add(aipl_add(aipl_str_n("Transpiled ", 11), v_inputFile), aipl_str_n(" -> ", 4)), v_outputFile));
+    }
+    return aipl_int(0LL);
+  }
+  v_tsCode = aipl_fn_emitTypeScriptModule(v_hir, aipl_member_get(v_report, "bundledSource"));
+  if (aipl_truthy(aipl_eq(v_outputFile, aipl_str("")))) {
+    aipl_print(v_tsCode);
+  }
+  else {
+    aipl_fn_writeFile(v_outputFile, v_tsCode);
+    aipl_println(aipl_add(aipl_add(aipl_add(aipl_str_n("Transpiled ", 11), v_inputFile), aipl_str_n(" -> ", 4)), v_outputFile));
+  }
+  return aipl_int(0LL);
+}
+
+/* AIPL Function: makeCanonIndent */
+__attribute__((hot)) AiplVal aipl_fn_makeCanonIndent(AiplVal v_level) {
+  AiplVal v_out = aipl_nil();
+  AiplVal v_i = aipl_nil();
+  v_out = aipl_str("");
+  v_i = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_i, v_level))) {
+    v_out = aipl_add(v_out, aipl_str_n("  ", 2));
+    aipl_inc_int(&v_i, 1LL);
+  }
+  return v_out;
+}
+
+/* AIPL Function: findMatchingBrace */
+__attribute__((hot)) AiplVal aipl_fn_findMatchingBrace(AiplVal v_code, AiplVal v_openBracePos) {
   AiplVal v_n = aipl_nil();
+  AiplVal v_depth = aipl_nil();
+  AiplVal v_col = aipl_nil();
   AiplVal v_nextCol = aipl_nil();
   AiplVal v_c = aipl_nil();
-  AiplVal v_seg = aipl_nil();
-  AiplVal v_tail = aipl_nil();
-  v_items = aipl_array_new(NULL, 0);
-  v_parenDepth = aipl_int(0LL);
-  v_bracketDepth = aipl_int(0LL);
-  v_braceDepth = aipl_int(0LL);
-  v_startIdx = aipl_int(0LL);
-  v_col = aipl_int(0LL);
-  v_n = aipl_member_get(v_s, "len");
+  v_n = aipl_member_get(v_code, "len");
+  if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_lt(v_openBracePos, aipl_int(0LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_ge(v_openBracePos, v_n))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_neq(aipl_str_char_code_at(v_code, v_openBracePos), aipl_int(123LL))))))) {
+    return aipl_int(-1LL);
+  }
+  v_depth = aipl_int(0LL);
+  v_col = v_openBracePos;
   while (aipl_truthy(aipl_lt(v_col, v_n))) {
-    v_nextCol = aipl_fn_skipStringLiteralAt(v_s, v_col);
+    v_nextCol = aipl_fn_skipStringLiteralAt(v_code, v_col);
     if (aipl_truthy(aipl_gt(v_nextCol, v_col))) {
       v_col = v_nextCol;
       continue;
     }
-    v_c = aipl_str_char_code_at(v_s, v_col);
-    if (aipl_truthy(aipl_eq(v_c, aipl_int(40LL)))) {
-      aipl_inc_int(&v_parenDepth, 1LL);
-    }
-    else if (aipl_truthy(aipl_eq(v_c, aipl_int(41LL)))) {
-      aipl_inc_int(&v_parenDepth, -1LL);
-    }
-    else if (aipl_truthy(aipl_eq(v_c, aipl_int(91LL)))) {
-      aipl_inc_int(&v_bracketDepth, 1LL);
-    }
-    else if (aipl_truthy(aipl_eq(v_c, aipl_int(93LL)))) {
-      aipl_inc_int(&v_bracketDepth, -1LL);
-    }
-    else if (aipl_truthy(aipl_eq(v_c, aipl_int(123LL)))) {
-      aipl_inc_int(&v_braceDepth, 1LL);
+    v_c = aipl_str_char_code_at(v_code, v_col);
+    if (aipl_truthy(aipl_eq(v_c, aipl_int(123LL)))) {
+      aipl_inc_int(&v_depth, 1LL);
     }
     else if (aipl_truthy(aipl_eq(v_c, aipl_int(125LL)))) {
-      aipl_inc_int(&v_braceDepth, -1LL);
-    }
-    else if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_parenDepth, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_eq(v_bracketDepth, aipl_int(0LL)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_eq(v_braceDepth, aipl_int(0LL)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(v_c, aipl_int(59LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy((aipl_truthy(v_splitOnComma) ? aipl_bool(aipl_truthy(aipl_eq(v_c, aipl_int(44LL)))) : aipl_bool(false))))))) : aipl_bool(false)))) {
-      v_seg = aipl_str_trim(aipl_slice(v_s, v_startIdx, v_col));
-      if (aipl_truthy(aipl_gt(aipl_member_get(v_seg, "len"), aipl_int(0LL)))) {
-        (aipl_array_push(v_items, v_seg), aipl_nil());
+      aipl_inc_int(&v_depth, -1LL);
+      if (aipl_truthy(aipl_eq(v_depth, aipl_int(0LL)))) {
+        return v_col;
       }
-      v_startIdx = aipl_add(v_col, aipl_int(1LL));
     }
     aipl_inc_int(&v_col, 1LL);
   }
-  v_tail = aipl_str_trim(aipl_slice(v_s, v_startIdx, v_n));
-  if (aipl_truthy(aipl_gt(aipl_member_get(v_tail, "len"), aipl_int(0LL)))) {
-    (aipl_array_push(v_items, v_tail), aipl_nil());
-  }
-  return v_items;
-}
-
-/* AIPL Function: canonicalizeImportInLine */
-AiplVal aipl_fn_canonicalizeImportInLine(AiplVal v_rawCode) {
-  AiplVal v_code = aipl_nil();
-  AiplVal v_openB = aipl_nil();
-  AiplVal v_closeB = aipl_nil();
-  AiplVal v_prefix = aipl_nil();
-  AiplVal v_syms = aipl_nil();
-  AiplVal v_suffix = aipl_nil();
-  AiplVal v_closeBraceIdx = aipl_nil();
-  AiplVal v_firstQuoteIdx = aipl_nil();
-  AiplVal v_between = aipl_nil();
-  AiplVal v_qStart = aipl_nil();
-  AiplVal v_qEnd = aipl_nil();
-  AiplVal v_modPath = aipl_nil();
-  AiplVal v_stem = aipl_nil();
-  v_code = aipl_str_trim(v_rawCode);
-  if (aipl_truthy((aipl_truthy(aipl_str_starts_with(v_code, aipl_str_n("import ", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_code, aipl_str_n("pub import ", 11))))))) {
-    v_openB = aipl_index_of(v_code, aipl_str_n("{", 1));
-    v_closeB = aipl_index_of(v_code, aipl_str_n("}", 1));
-    if (aipl_truthy((aipl_truthy(aipl_ge(v_openB, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_gt(v_closeB, v_openB))) : aipl_bool(false)))) {
-      v_prefix = aipl_str_trim_end(aipl_slice(v_code, aipl_int(0LL), v_openB));
-      v_syms = aipl_fn_splitTopLevelItems(aipl_slice(v_code, aipl_add(v_openB, aipl_int(1LL)), v_closeB), aipl_bool(true));
-      v_suffix = aipl_str_trim(aipl_slice(v_code, aipl_add(v_closeB, aipl_int(1LL)), aipl_member_get(v_code, "len")));
-      v_code = aipl_add(aipl_add(aipl_add(aipl_add(v_prefix, aipl_str_n(" { ", 3)), aipl_array_join(v_syms, aipl_str_n(", ", 2))), aipl_str_n(" }", 2)), (aipl_truthy(aipl_gt(aipl_member_get(v_suffix, "len"), aipl_int(0LL))) ? aipl_add(aipl_str_n(" ", 1), v_suffix) : aipl_str("")));
-    }
-  }
-  v_closeBraceIdx = aipl_index_of(v_code, aipl_str_n("}", 1));
-  v_firstQuoteIdx = aipl_index_of(v_code, aipl_str_n("\"", 1));
-  if (aipl_truthy((aipl_truthy(aipl_ge(v_closeBraceIdx, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_gt(v_firstQuoteIdx, v_closeBraceIdx))) : aipl_bool(false)))) {
-    v_between = aipl_str_trim(aipl_slice(v_code, aipl_add(v_closeBraceIdx, aipl_int(1LL)), v_firstQuoteIdx));
-    if (aipl_truthy(aipl_eq(v_between, aipl_str("")))) {
-      v_code = aipl_add(aipl_add(aipl_slice(v_code, aipl_int(0LL), aipl_add(v_closeBraceIdx, aipl_int(1LL))), aipl_str_n(" from ", 6)), aipl_slice(v_code, v_firstQuoteIdx, aipl_member_get(v_code, "len")));
-    }
-  }
-  v_qStart = aipl_index_of(v_code, aipl_str_n("\"", 1));
-  v_qEnd = aipl_str_last_index_of(v_code, aipl_str_n("\"", 1));
-  if (aipl_truthy((aipl_truthy(aipl_ge(v_qStart, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_gt(v_qEnd, v_qStart))) : aipl_bool(false)))) {
-    v_modPath = aipl_slice(v_code, aipl_add(v_qStart, aipl_int(1LL)), v_qEnd);
-    if (aipl_truthy((aipl_truthy(aipl_str_starts_with(v_modPath, aipl_str_n("std.", 4))) ? aipl_bool(aipl_truthy(aipl_not(aipl_contains(v_modPath, aipl_str_n("/", 1))))) : aipl_bool(false)))) {
-      if (aipl_truthy(aipl_str_ends_with(v_modPath, aipl_str_n(".aipl", 5)))) {
-        v_stem = aipl_str_replace(aipl_slice(v_modPath, aipl_int(0LL), aipl_sub(aipl_member_get(v_modPath, "len"), aipl_int(5LL))), aipl_str_n(".", 1), aipl_str_n("/", 1));
-        v_code = aipl_add(aipl_add(aipl_add(aipl_slice(v_code, aipl_int(0LL), aipl_add(v_qStart, aipl_int(1LL))), v_stem), aipl_str_n(".aipl", 5)), aipl_slice(v_code, v_qEnd, aipl_member_get(v_code, "len")));
-      }
-      else {
-        v_code = aipl_add(aipl_add(aipl_slice(v_code, aipl_int(0LL), aipl_add(v_qStart, aipl_int(1LL))), aipl_str_replace(v_modPath, aipl_str_n(".", 1), aipl_str_n("/", 1))), aipl_slice(v_code, v_qEnd, aipl_member_get(v_code, "len")));
-      }
-    }
-  }
-  return v_code;
-}
-
-/* AIPL Function: lastActiveBlockIndent */
-__attribute__((hot)) AiplVal aipl_fn_lastActiveBlockIndent(AiplVal v_braceIndentStack) {
-  AiplVal v_i = aipl_nil();
-  v_i = aipl_sub(aipl_member_get(v_braceIndentStack, "len"), aipl_int(1LL));
-  while (aipl_truthy(aipl_ge(v_i, aipl_int(0LL)))) {
-    if (aipl_truthy(aipl_ge(aipl_index_get(v_braceIndentStack, v_i), aipl_int(0LL)))) {
-      return aipl_index_get(v_braceIndentStack, v_i);
-    }
-    aipl_inc_int(&v_i, -1LL);
-  }
   return aipl_int(-1LL);
 }
 
-/* AIPL Function: cmdFmt */
-__attribute__((hot)) AiplVal aipl_fn_cmdFmt(AiplVal v_cliArgs) {
-  AiplVal v_checkOnly = aipl_nil();
-  AiplVal v_fromStdin = aipl_nil();
-  AiplVal v_file = aipl_nil();
+/* AIPL Function: collapseMultilineDecls */
+__attribute__((hot)) AiplVal aipl_fn_collapseMultilineDecls(AiplVal v_lines) {
+  AiplVal v_out = aipl_nil();
+  AiplVal v_inMultiline = aipl_nil();
+  AiplVal v_multilineClose = aipl_nil();
   AiplVal v_i = aipl_nil();
-  AiplVal v_a = aipl_nil();
-  AiplVal v_stdinContent = aipl_nil();
-  AiplVal v_formatted = aipl_nil();
-  AiplVal v_src = aipl_nil();
-  v_checkOnly = aipl_bool(false);
-  v_fromStdin = aipl_bool(false);
-  v_file = aipl_str("");
-  v_i = aipl_int(1LL);
-  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_cliArgs, "len")))) {
-    v_a = aipl_index_get(v_cliArgs, v_i);
-    if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--check", 7)))) {
-      v_checkOnly = aipl_bool(true);
-    }
-    else if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--stdin", 7)))) {
-      v_fromStdin = aipl_bool(true);
-    }
-    else if (aipl_truthy((aipl_truthy(aipl_not(aipl_str_starts_with(v_a, aipl_str_n("-", 1)))) ? aipl_bool(aipl_truthy(aipl_eq(v_file, aipl_str("")))) : aipl_bool(false)))) {
-      v_file = v_a;
-    }
-    aipl_inc_int(&v_i, 1LL);
-  }
-  if (aipl_truthy(v_fromStdin)) {
-    v_stdinContent = aipl_fn_readFile(aipl_str_n("/dev/stdin", 10));
-    v_formatted = aipl_fn_formatAiplSource(v_stdinContent);
-    if (aipl_truthy(v_checkOnly)) {
-      if (aipl_truthy(aipl_neq(v_formatted, v_stdinContent))) {
-        return aipl_int(1LL);
-      }
-      return aipl_int(0LL);
-    }
-    aipl_print(v_formatted);
-    return aipl_int(0LL);
-  }
-  if (aipl_truthy(aipl_eq(v_file, aipl_str("")))) {
-    aipl_println(aipl_str_n("Usage: aipl fmt <file.aipl> [--check] [--stdin]", 47));
-    return aipl_int(1LL);
-  }
-  if (aipl_truthy(aipl_not(aipl_fn_fileExists(v_file)))) {
-    aipl_println(aipl_add(aipl_add(aipl_str_n("Error: file '", 13), v_file), aipl_str_n("' does not exist.", 17)));
-    return aipl_int(1LL);
-  }
-  if (aipl_truthy(v_checkOnly)) {
-    v_src = aipl_fn_readFile(v_file);
-    v_formatted = aipl_fn_formatAiplSource(v_src);
-    if (aipl_truthy(aipl_neq(v_formatted, v_src))) {
-      aipl_println(aipl_add(aipl_add(aipl_str_n("File '", 6), v_file), aipl_str_n("' requires formatting.", 22)));
-      return aipl_int(1LL);
-    }
-    else {
-      aipl_println(aipl_add(aipl_add(aipl_str_n("File '", 6), v_file), aipl_str_n("' is properly formatted.", 24)));
-      return aipl_int(0LL);
-    }
-  }
-  v_src = aipl_fn_readFile(v_file);
-  v_formatted = aipl_fn_canonicalizeAiplFileOnDisk(v_file);
-  if (aipl_truthy(aipl_neq(v_formatted, v_src))) {
-    aipl_fn_writeFile(v_file, v_formatted);
-  }
-  aipl_println(aipl_add(aipl_add(aipl_str_n("Formatted '", 11), v_file), aipl_str_n("'.", 2)));
-  return aipl_int(0LL);
-}
-
-/* AIPL Function: extractDocComment */
-__attribute__((hot)) AiplVal aipl_fn_extractDocComment(AiplVal v_lines, AiplVal v_lineNum) {
-  AiplVal v_curIdx = aipl_nil();
-  AiplVal v_docLines = aipl_nil();
-  AiplVal v_l = aipl_nil();
+  AiplVal v_line = aipl_nil();
+  AiplVal v_trimmed = aipl_nil();
   AiplVal v_c = aipl_nil();
-  AiplVal v_resLines = aipl_nil();
-  AiplVal v_r = aipl_nil();
-  if (aipl_truthy((aipl_truthy(aipl_le(v_lineNum, aipl_int(1LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_ge(aipl_sub(v_lineNum, aipl_int(2LL)), aipl_member_get(v_lines, "len"))))))) {
-    return aipl_str("");
-  }
-  v_curIdx = aipl_sub(v_lineNum, aipl_int(2LL));
-  v_docLines = aipl_array_new(NULL, 0);
-  while (aipl_truthy(aipl_ge(v_curIdx, aipl_int(0LL)))) {
-    v_l = aipl_str_trim(aipl_index_get(v_lines, v_curIdx));
-    if (aipl_truthy(aipl_str_starts_with(v_l, aipl_str_n("///", 3)))) {
-      v_c = aipl_str_trim(aipl_slice(v_l, aipl_int(3LL), aipl_member_get(v_l, "len")));
-      (aipl_array_push(v_docLines, v_c), aipl_nil());
-      aipl_inc_int(&v_curIdx, -1LL);
+  AiplVal v_openPat = aipl_nil();
+  AiplVal v_closePat = aipl_nil();
+  AiplVal v_cOpen = aipl_nil();
+  AiplVal v_cClose = aipl_nil();
+  AiplVal v_startIdx = aipl_nil();
+  AiplVal v_indentStr = aipl_nil();
+  AiplVal v_parts = aipl_nil();
+  AiplVal v_codePart = aipl_nil();
+  AiplVal v_commentPart = aipl_nil();
+  AiplVal v_d = aipl_nil();
+  AiplVal v_parenDepth = aipl_nil();
+  AiplVal v_acc = aipl_nil();
+  AiplVal v_np = aipl_nil();
+  AiplVal v_nt = aipl_nil();
+  AiplVal v_nd = aipl_nil();
+  AiplVal v_pp = aipl_nil();
+  AiplVal v_pt = aipl_nil();
+  AiplVal v_braceDepth = aipl_nil();
+  AiplVal v_canonSt = aipl_nil();
+  v_out = aipl_array_new(NULL, 0);
+  v_inMultiline = aipl_bool(false);
+  v_multilineClose = aipl_str("");
+  v_i = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_lines, "len")))) {
+    v_line = aipl_index_get(v_lines, v_i);
+    if (aipl_truthy(v_inMultiline)) {
+      (aipl_array_push(v_out, v_line), aipl_nil());
+      if (aipl_truthy((aipl_truthy(aipl_gt(aipl_member_get(v_multilineClose, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_contains(v_line, v_multilineClose))) : aipl_bool(false)))) {
+        v_inMultiline = aipl_bool(false);
+        v_multilineClose = aipl_str("");
+      }
+      aipl_inc_int(&v_i, 1LL);
+      continue;
     }
-    else {
-      break;
-    }
-  }
-  if (aipl_truthy(aipl_eq(aipl_member_get(v_docLines, "len"), aipl_int(0LL)))) {
-    return aipl_str("");
-  }
-  v_resLines = aipl_array_new(NULL, 0);
-  v_r = aipl_sub(aipl_member_get(v_docLines, "len"), aipl_int(1LL));
-  while (aipl_truthy(aipl_ge(v_r, aipl_int(0LL)))) {
-    (aipl_array_push(v_resLines, aipl_index_get(v_docLines, v_r)), aipl_nil());
-    aipl_inc_int(&v_r, -1LL);
-  }
-  return aipl_array_join(v_resLines, aipl_str_n("\n", 1));
-}
-
-/* AIPL Function: resolveExampleName */
-__attribute__((hot)) AiplVal aipl_fn_resolveExampleName(AiplVal v_name) {
-  AiplVal v_clean = aipl_nil();
-  AiplVal v_isAllDigits = aipl_nil();
-  AiplVal v_cIdx = aipl_nil();
-  AiplVal v_ch = aipl_nil();
-  AiplVal v_home = aipl_nil();
-  AiplVal v_exDir = aipl_nil();
-  AiplVal v_padded = aipl_nil();
-  AiplVal v_pfx = aipl_nil();
-  AiplVal v_ents = aipl_nil();
-  AiplVal v_ei = aipl_nil();
-  AiplVal v_ent = aipl_nil();
-  v_clean = aipl_str_trim(v_name);
-  if (aipl_truthy(aipl_str_ends_with(v_clean, aipl_str_n(".aipl", 5)))) {
-    v_clean = aipl_slice(v_clean, aipl_int(0LL), aipl_sub(aipl_member_get(v_clean, "len"), aipl_int(5LL)));
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("001", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("01", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_01", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_001", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("core_types", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("basics", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("hello", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("01_basics_and_control_flow", 26))))))) {
-    return aipl_str_n("ex_001_hello_world_and_io_cli", 29);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("022", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("02", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_02", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_022", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("memory_arenas", 13)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("structs", 7)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("02_structs_enums_and_generics", 29))))))) {
-    return aipl_str_n("ex_022_alloc_arena_bump_profiler_cli", 36);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("041", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("03", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_03", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_041", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("math_dsp", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("refinements", 11)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("03_error_handling_and_refinements", 33))))))) {
-    return aipl_str_n("ex_041_math_complex_and_fft_spectrum_cli", 40);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("051", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("04", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_04", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_051", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("collections", 11)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("io", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("04_modules_io_and_json", 22))))))) {
-    return aipl_str_n("ex_051_collections_graph_dijkstra_mst_cli", 41);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("062", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("05", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_05", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_062", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("text_time", 9)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("shapes2d", 8)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("05_2d_shapes_and_forms", 22))))))) {
-    return aipl_str_n("ex_062_regex_text_diff_myers_patch_cli", 38);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("070", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("06", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_06", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_070", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("serialization", 13)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("objects3d", 9)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("06_3d_objects_and_lighting", 26))))))) {
-    return aipl_str_n("ex_070_encoding_json_jq_query_cli", 33);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("090", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("07", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_07", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_090", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("crypto_db", 9)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("transforms", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("07_2d_3d_transforms_and_matrix_stack", 36))))))) {
-    return aipl_str_n("ex_090_crypto_aead_chacha20_poly1305_cli", 40);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("115", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("08", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_08", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_115", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("io_os_sync", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("animations", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("08_animations_transitions_and_physics", 37))))))) {
-    return aipl_str_n("ex_115_thread_job_system_work_stealing_cli", 42);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("126", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("09", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_09", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_126", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("net_rpc_test", 12)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("assets", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("09_assets_and_multimedia", 24))))))) {
-    return aipl_str_n("ex_126_net_rpc_jsonrpc2_dispatcher_cli", 38);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("131", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("10", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_10", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_131", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("window_audio", 12)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("multimedia", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("10_complete_game_and_media_showcase", 35))))))) {
-    return aipl_str_n("ex_131_window_app_loop_fixed_timestep_window", 44);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("176", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("11", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_11", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_176", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("gpu_gfx", 7)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("rpg_dungeon", 11)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("benchmark_sprites", 17)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("11_rpg_dungeon_crawler_showcase", 31))))))) {
-    return aipl_str_n("ex_176_gfx3d_cull3d_frustum_and_occlusion_window", 48);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("190", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("12", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_12", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_190", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ui_a11y", 7)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("cyber_platformer", 16)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("12_neon_platformer_physics_showcase", 35))))))) {
-    return aipl_str_n("ex_190_ui_layout_flexbox_and_grid_solver_window", 47);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("202", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("13", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_13", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_202", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ecs_spatial", 11)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("isometric_tactics", 17)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("13_isometric_tactics_and_hex_showcase", 37)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("17", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ecs_spatial_arena", 17)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("17_ecs_spatial_broadphase_and_arena_showcase", 44))))))) {
-    return aipl_str_n("ex_202_ecs_entity_generational_arena_window", 43);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("216", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("14", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_14", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_216", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("physics_procgen", 15)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("studio_workstation", 18)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("14_universal_studio_workstation_showcase", 40)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("15_verlet_rope_and_raycast_arena_showcase", 41))))))) {
-    return aipl_str_n("ex_216_phys2d_rigid_body_gravity_stacks_window", 46);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("245", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("15", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_15", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_245", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ai_rag_hebar", 12)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_name, aipl_str_n("verlet_raycast_arena", 20)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("16_autonomous_boids_and_behavior_tree_showcase", 46))))))) {
-    return aipl_str_n("ex_245_ai_hebar_referee_flow_corridor_window", 44);
-  }
-  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_clean, aipl_str_n("250", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("16", 2)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_16", 5)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("ex_250", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("mechanics_capstone", 18)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_clean, aipl_str_n("boids_behavior_tree", 19))))))) {
-    return aipl_str_n("ex_250_mechanics_full_capstone_application_window", 49);
-  }
-  v_isAllDigits = aipl_bool(true);
-  v_cIdx = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_cIdx, aipl_member_get(v_clean, "len")))) {
-    v_ch = aipl_str_char_at(v_clean, v_cIdx);
-    if (aipl_truthy((aipl_truthy(aipl_lt(v_ch, aipl_str_n("0", 1))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_gt(v_ch, aipl_str_n("9", 1))))))) {
-      v_isAllDigits = aipl_bool(false);
-      break;
-    }
-    aipl_inc_int(&v_cIdx, 1LL);
-  }
-  v_home = aipl_fn_getAiplHomeDir();
-  v_exDir = (aipl_truthy(aipl_fn_isDir(aipl_str_n("examples", 8))) ? aipl_str_n("examples", 8) : aipl_add(v_home, aipl_str_n("/examples", 9)));
-  if (aipl_truthy((aipl_truthy(v_isAllDigits) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(v_clean, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
-    v_padded = (aipl_truthy(aipl_eq(aipl_member_get(v_clean, "len"), aipl_int(1LL))) ? aipl_add(aipl_str_n("00", 2), v_clean) : (aipl_truthy(aipl_eq(aipl_member_get(v_clean, "len"), aipl_int(2LL))) ? aipl_add(aipl_str_n("0", 1), v_clean) : v_clean));
-    v_pfx = aipl_add(aipl_add(aipl_str_n("ex_", 3), v_padded), aipl_str_n("_", 1));
-    if (aipl_truthy(aipl_fn_isDir(v_exDir))) {
-      v_ents = aipl_fn_listDir(v_exDir);
-      v_ei = aipl_int(0LL);
-      while (aipl_truthy(aipl_lt(v_ei, aipl_member_get(v_ents, "len")))) {
-        v_ent = aipl_index_get(v_ents, v_ei);
-        if (aipl_truthy((aipl_truthy(aipl_str_starts_with(v_ent, v_pfx)) ? aipl_bool(aipl_truthy(aipl_str_ends_with(v_ent, aipl_str_n(".aipl", 5)))) : aipl_bool(false)))) {
-          return aipl_str_replace(v_ent, aipl_str_n(".aipl", 5), aipl_str(""));
+    v_trimmed = aipl_str_trim(v_line);
+    if (aipl_truthy((aipl_truthy(aipl_not(aipl_str_starts_with(v_trimmed, aipl_str_n("#", 1)))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_starts_with(v_trimmed, aipl_str_n("//", 2))))) : aipl_bool(false)))) {
+      if (aipl_truthy(aipl_contains(v_trimmed, aipl_str_n("\"\"\"", 3)))) {
+        v_c = aipl_fn_countSubstr(v_trimmed, aipl_str_n("\"\"\"", 3));
+        if (aipl_truthy(aipl_eq(aipl_mod(v_c, aipl_int(2LL)), aipl_int(1LL)))) {
+          v_inMultiline = aipl_bool(true);
+          v_multilineClose = aipl_str_n("\"\"\"", 3);
+          (aipl_array_push(v_out, v_line), aipl_nil());
+          aipl_inc_int(&v_i, 1LL);
+          continue;
         }
-        aipl_inc_int(&v_ei, 1LL);
+      }
+      else if (aipl_truthy((aipl_truthy(aipl_contains(v_trimmed, aipl_str_n("r#\"", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_contains(v_trimmed, aipl_str_n("r##\"", 4))))))) {
+        v_openPat = (aipl_truthy(aipl_contains(v_trimmed, aipl_str_n("r##\"", 4))) ? aipl_str_n("r##\"", 4) : aipl_str_n("r#\"", 3));
+        v_closePat = (aipl_truthy(aipl_eq(v_openPat, aipl_str_n("r##\"", 4))) ? aipl_str_n("\"##", 3) : aipl_str_n("\"#", 2));
+        v_cOpen = aipl_fn_countSubstr(v_trimmed, v_openPat);
+        v_cClose = aipl_fn_countSubstr(v_trimmed, v_closePat);
+        if (aipl_truthy(aipl_gt(v_cOpen, v_cClose))) {
+          v_inMultiline = aipl_bool(true);
+          v_multilineClose = v_closePat;
+          (aipl_array_push(v_out, v_line), aipl_nil());
+          aipl_inc_int(&v_i, 1LL);
+          continue;
+        }
       }
     }
-  }
-  return v_clean;
-}
-
-/* AIPL Function: nextCFunctionMarker */
-__attribute__((hot)) AiplVal aipl_fn_nextCFunctionMarker(AiplVal v_src, AiplVal v_from) {
-  AiplVal v_p = aipl_nil();
-  AiplVal v_m = aipl_nil();
-  AiplVal v_eol = aipl_nil();
-  v_p = v_from;
-  while (aipl_truthy((aipl_truthy(aipl_ge(v_p, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_lt(v_p, aipl_member_get(v_src, "len")))) : aipl_bool(false)))) {
-    v_m = aipl_str_index_of_from(v_src, aipl_str_n("\n/* AIPL Function: ", 19), v_p);
-    if (aipl_truthy(aipl_lt(v_m, aipl_int(0LL)))) {
-      return aipl_int(-1LL);
+    v_startIdx = aipl_int(0LL);
+    while (aipl_truthy((aipl_truthy(aipl_lt(v_startIdx, aipl_member_get(v_line, "len"))) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(aipl_str_char_code_at(v_line, v_startIdx), aipl_int(32LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_str_char_code_at(v_line, v_startIdx), aipl_int(9LL))))))) : aipl_bool(false)))) {
+      aipl_inc_int(&v_startIdx, 1LL);
     }
-    v_eol = aipl_str_index_of_from(v_src, aipl_str_n("\n", 1), aipl_add(v_m, aipl_int(1LL)));
-    if (aipl_truthy((aipl_truthy(aipl_gt(v_eol, v_m)) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(aipl_slice(v_src, v_eol, aipl_add(v_eol, aipl_int(17LL))), aipl_str_n("\nAiplVal aipl_fn_", 17))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_slice(v_src, v_eol, aipl_add(v_eol, aipl_int(38LL))), aipl_str_n("\n__attribute__((hot)) AiplVal aipl_fn_", 38))))))) : aipl_bool(false)))) {
-      return v_m;
+    v_indentStr = aipl_slice(v_line, aipl_int(0LL), v_startIdx);
+    v_parts = aipl_fn_splitLineCodeAndComment(v_line);
+    v_codePart = aipl_str_trim(aipl_index_get(v_parts, aipl_int(0LL)));
+    v_commentPart = aipl_index_get(v_parts, aipl_int(1LL));
+    if (aipl_truthy((aipl_truthy(aipl_str_starts_with(v_codePart, aipl_str_n("fn ", 3))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_codePart, aipl_str_n("pub fn ", 7))))))) {
+      v_d = aipl_fn_scanCodeDelimiters(v_codePart);
+      v_parenDepth = aipl_index_get(v_d, aipl_int(0LL));
+      if (aipl_truthy(aipl_gt(v_parenDepth, aipl_int(0LL)))) {
+        v_acc = v_codePart;
+        while (aipl_truthy((aipl_truthy(aipl_gt(v_parenDepth, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_lines, "len")))) : aipl_bool(false)))) {
+          aipl_inc_int(&v_i, 1LL);
+          v_np = aipl_fn_splitLineCodeAndComment(aipl_index_get(v_lines, v_i));
+          v_nt = aipl_str_trim(aipl_index_get(v_np, aipl_int(0LL)));
+          if (aipl_truthy(aipl_gt(aipl_member_get(v_nt, "len"), aipl_int(0LL)))) {
+            v_nd = aipl_fn_scanCodeDelimiters(v_nt);
+            v_parenDepth = aipl_add(v_parenDepth, aipl_index_get(v_nd, aipl_int(0LL)));
+            v_acc = aipl_fn_joinCollapsedDeclPart(v_acc, v_nt);
+          }
+        }
+        if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_not(aipl_str_ends_with(v_acc, aipl_str_n(":", 1)))) ? aipl_bool(aipl_truthy(aipl_not(aipl_contains(v_acc, aipl_str_n("{", 1))))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_lines, "len")))) : aipl_bool(false)))) {
+          v_pp = aipl_fn_splitLineCodeAndComment(aipl_index_get(v_lines, aipl_add(v_i, aipl_int(1LL))));
+          v_pt = aipl_str_trim(aipl_index_get(v_pp, aipl_int(0LL)));
+          if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_str_starts_with(v_pt, aipl_str_n("->", 2))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_pt, aipl_str_n(":", 1)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_pt, aipl_str_n("requires ", 9)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_pt, aipl_str_n("ensures ", 8))))))) {
+            v_acc = aipl_fn_joinCollapsedDeclPart(v_acc, v_pt);
+            aipl_inc_int(&v_i, 1LL);
+          }
+        }
+        (aipl_array_push(v_out, aipl_add(aipl_add(v_indentStr, v_acc), (aipl_truthy(aipl_gt(aipl_member_get(v_commentPart, "len"), aipl_int(0LL))) ? aipl_add(aipl_str_n(" ", 1), v_commentPart) : aipl_str("")))), aipl_nil());
+        aipl_inc_int(&v_i, 1LL);
+        continue;
+      }
     }
-    v_p = aipl_add(v_m, aipl_int(1LL));
-  }
-  return aipl_int(-1LL);
-}
-
-/* AIPL Function: cmdOutline */
-__attribute__((hot)) AiplVal aipl_fn_cmdOutline(AiplVal v_cliArgs) {
-  AiplVal v_file = aipl_nil();
-  AiplVal v_jsonMode = aipl_nil();
-  AiplVal v_i = aipl_nil();
-  AiplVal v_a = aipl_nil();
-  AiplVal v_src = aipl_nil();
-  AiplVal v_toks = aipl_nil();
-  AiplVal v_arena = aipl_nil();
-  AiplVal v_symItems = aipl_nil();
-  AiplVal v_di = aipl_nil();
-  AiplVal v_d = aipl_nil();
-  AiplVal v_isPubStr = aipl_nil();
-  AiplVal v_item = aipl_nil();
-  AiplVal v_pubStr = aipl_nil();
-  v_file = aipl_str("");
-  v_jsonMode = aipl_bool(false);
-  v_i = aipl_int(1LL);
-  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_cliArgs, "len")))) {
-    v_a = aipl_index_get(v_cliArgs, v_i);
-    if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--json", 6)))) {
-      v_jsonMode = aipl_bool(true);
+    if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_str_starts_with(v_codePart, aipl_str_n("struct ", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_codePart, aipl_str_n("pub struct ", 11)))))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_ends_with(v_codePart, aipl_str_n(":", 1))))) : aipl_bool(false))) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_contains(v_codePart, aipl_str_n("(", 1))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_contains(v_codePart, aipl_str_n("{", 1))))))) : aipl_bool(false)))) {
+      v_d = aipl_fn_scanCodeDelimiters(v_codePart);
+      v_parenDepth = aipl_index_get(v_d, aipl_int(0LL));
+      v_braceDepth = aipl_index_get(v_d, aipl_int(2LL));
+      v_acc = v_codePart;
+      while (aipl_truthy((aipl_truthy((aipl_truthy(aipl_gt(v_parenDepth, aipl_int(0LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_gt(v_braceDepth, aipl_int(0LL)))))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_lines, "len")))) : aipl_bool(false)))) {
+        aipl_inc_int(&v_i, 1LL);
+        v_np = aipl_fn_splitLineCodeAndComment(aipl_index_get(v_lines, v_i));
+        v_nt = aipl_str_trim(aipl_index_get(v_np, aipl_int(0LL)));
+        if (aipl_truthy(aipl_gt(aipl_member_get(v_nt, "len"), aipl_int(0LL)))) {
+          v_nd = aipl_fn_scanCodeDelimiters(v_nt);
+          v_parenDepth = aipl_add(v_parenDepth, aipl_index_get(v_nd, aipl_int(0LL)));
+          v_braceDepth = aipl_add(v_braceDepth, aipl_index_get(v_nd, aipl_int(2LL)));
+          v_acc = aipl_fn_joinCollapsedDeclPart(v_acc, v_nt);
+        }
+      }
+      v_canonSt = aipl_fn_canonicalizeStructDeclLine(v_acc);
+      (aipl_array_push(v_out, aipl_add(aipl_add(v_indentStr, v_canonSt), (aipl_truthy(aipl_gt(aipl_member_get(v_commentPart, "len"), aipl_int(0LL))) ? aipl_add(aipl_str_n(" ", 1), v_commentPart) : aipl_str("")))), aipl_nil());
+      aipl_inc_int(&v_i, 1LL);
+      continue;
     }
-    else if (aipl_truthy((aipl_truthy(aipl_not(aipl_str_starts_with(v_a, aipl_str_n("-", 1)))) ? aipl_bool(aipl_truthy(aipl_eq(v_file, aipl_str("")))) : aipl_bool(false)))) {
-      v_file = v_a;
-    }
+    (aipl_array_push(v_out, v_line), aipl_nil());
     aipl_inc_int(&v_i, 1LL);
   }
-  if (aipl_truthy(aipl_eq(v_file, aipl_str("")))) {
-    aipl_println(aipl_str_n("Usage: aipl outline <file.aipl> [--json]", 40));
-    return aipl_int(1LL);
-  }
-  if (aipl_truthy(aipl_not(aipl_fn_fileExists(v_file)))) {
-    aipl_println(aipl_add(aipl_add(aipl_str_n("Error: file '", 13), v_file), aipl_str_n("' does not exist.", 17)));
-    return aipl_int(1LL);
-  }
-  v_src = aipl_fn_readFile(v_file);
-  v_toks = aipl_fn_tokenizeAipl(v_src, aipl_int(0LL));
-  v_arena = aipl_fn_parseModule(v_toks, v_src);
-  if (aipl_truthy(v_jsonMode)) {
-    v_symItems = aipl_array_new(NULL, 0);
-    v_di = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_di, aipl_member_get(aipl_member_get_idx(v_arena, 4, "decls"), "len")))) {
-      v_d = aipl_index_get(aipl_member_get_idx(v_arena, 4, "decls"), v_di);
-      v_isPubStr = (aipl_truthy(aipl_member_get(v_d, "isPub")) ? aipl_str_n("true", 4) : aipl_str_n("false", 5));
-      v_item = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"name\":\"", 9), aipl_member_get(v_d, "name")), aipl_str_n("\",\"kind\":\"", 10)), aipl_member_get(v_d, "kind")), aipl_str_n("\",\"line\":", 9)), aipl_to_str(aipl_member_get(aipl_member_get(v_d, "span"), "line"))), aipl_str_n(",\"isPub\":", 9)), v_isPubStr), aipl_str_n("}", 1));
-      (aipl_array_push(v_symItems, v_item), aipl_nil());
-      aipl_inc_int(&v_di, 1LL);
-    }
-    aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"file\":\"", 9), v_file), aipl_str_n("\",\"module\":\"", 12)), aipl_member_get(v_arena, "moduleName")), aipl_str_n("\",\"symbols\":[", 13)), aipl_array_join(v_symItems, aipl_str_n(",", 1))), aipl_str_n("]}", 2)));
-  }
-  else {
-    aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("Module ", 7), aipl_member_get(v_arena, "moduleName")), aipl_str_n(" (", 2)), v_file), aipl_str_n("):", 2)));
-    v_di = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_di, aipl_member_get(aipl_member_get_idx(v_arena, 4, "decls"), "len")))) {
-      v_d = aipl_index_get(aipl_member_get_idx(v_arena, 4, "decls"), v_di);
-      v_pubStr = (aipl_truthy(aipl_member_get(v_d, "isPub")) ? aipl_str_n("pub ", 4) : aipl_str(""));
-      aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("  ", 2), v_pubStr), aipl_member_get(v_d, "kind")), aipl_str_n(" ", 1)), aipl_member_get(v_d, "name")), aipl_str_n(" (line ", 7)), aipl_to_str(aipl_member_get(aipl_member_get(v_d, "span"), "line"))), aipl_str_n(")", 1)));
-      aipl_inc_int(&v_di, 1LL);
-    }
-  }
-  return aipl_int(0LL);
+  return v_out;
 }
 
-/* AIPL Function: cmdTokens */
-__attribute__((hot)) AiplVal aipl_fn_cmdTokens(AiplVal v_cliArgs) {
-  AiplVal v_file = aipl_nil();
-  AiplVal v_jsonMode = aipl_nil();
-  AiplVal v_i = aipl_nil();
-  AiplVal v_a = aipl_nil();
-  AiplVal v_src = aipl_nil();
-  AiplVal v_toks = aipl_nil();
-  AiplVal v_tItems = aipl_nil();
-  AiplVal v_ti = aipl_nil();
-  AiplVal v_t = aipl_nil();
-  AiplVal v_escapedLex = aipl_nil();
-  AiplVal v_item = aipl_nil();
-  v_file = aipl_str("");
-  v_jsonMode = aipl_bool(false);
-  v_i = aipl_int(1LL);
-  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_cliArgs, "len")))) {
-    v_a = aipl_index_get(v_cliArgs, v_i);
-    if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--json", 6)))) {
-      v_jsonMode = aipl_bool(true);
-    }
-    else if (aipl_truthy((aipl_truthy(aipl_not(aipl_str_starts_with(v_a, aipl_str_n("-", 1)))) ? aipl_bool(aipl_truthy(aipl_eq(v_file, aipl_str("")))) : aipl_bool(false)))) {
-      v_file = v_a;
-    }
-    aipl_inc_int(&v_i, 1LL);
-  }
-  if (aipl_truthy(aipl_eq(v_file, aipl_str("")))) {
-    aipl_println(aipl_str_n("Usage: aipl tokens <file.aipl> [--json]", 39));
-    return aipl_int(1LL);
-  }
-  if (aipl_truthy(aipl_not(aipl_fn_fileExists(v_file)))) {
-    aipl_println(aipl_add(aipl_add(aipl_str_n("Error: file '", 13), v_file), aipl_str_n("' does not exist.", 17)));
-    return aipl_int(1LL);
-  }
-  v_src = aipl_fn_readFile(v_file);
-  v_toks = aipl_fn_tokenizeAipl(v_src, aipl_int(0LL));
-  if (aipl_truthy(v_jsonMode)) {
-    v_tItems = aipl_array_new(NULL, 0);
-    v_ti = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_ti, aipl_member_get(v_toks, "len")))) {
-      v_t = aipl_index_get(v_toks, v_ti);
-      v_escapedLex = aipl_str_replace(aipl_str_replace(aipl_str_replace(aipl_str_replace(aipl_str_replace(aipl_member_get_idx(v_t, 1, "lexeme"), aipl_str_n("\\", 1), aipl_str_n("\\\\", 2)), aipl_str_n("\"", 1), aipl_str_n("\\\"", 2)), aipl_str_n("\n", 1), aipl_str_n("\\n", 2)), aipl_str_n("\r", 1), aipl_str_n("\\r", 2)), aipl_str_n("\t", 1), aipl_str_n("\\t", 2));
-      v_item = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"kind\":\"", 9), aipl_member_get(v_t, "kind")), aipl_str_n("\",\"lexeme\":\"", 12)), v_escapedLex), aipl_str_n("\",\"line\":", 9)), aipl_to_str(aipl_member_get(aipl_member_get(v_t, "span"), "line"))), aipl_str_n(",\"column\":", 10)), aipl_to_str(aipl_member_get_idx(aipl_member_get(v_t, "span"), 4, "column"))), aipl_str_n("}", 1));
-      (aipl_array_push(v_tItems, v_item), aipl_nil());
-      aipl_inc_int(&v_ti, 1LL);
-    }
-    aipl_println(aipl_add(aipl_add(aipl_str_n("[", 1), aipl_array_join(v_tItems, aipl_str_n(",", 1))), aipl_str_n("]", 1)));
-  }
-  else {
-    v_ti = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_ti, aipl_member_get(v_toks, "len")))) {
-      v_t = aipl_index_get(v_toks, v_ti);
-      aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[", 1), aipl_member_get(v_t, "kind")), aipl_str_n("] \"", 3)), aipl_member_get_idx(v_t, 1, "lexeme")), aipl_str_n("\" (", 3)), aipl_to_str(aipl_member_get(aipl_member_get(v_t, "span"), "line"))), aipl_str_n(":", 1)), aipl_to_str(aipl_member_get_idx(aipl_member_get(v_t, "span"), 4, "column"))), aipl_str_n(")", 1)));
-      aipl_inc_int(&v_ti, 1LL);
-    }
-  }
-  return aipl_int(0LL);
+/* AIPL Function: isCanonAnyBlockHeader */
+AiplVal aipl_fn_isCanonAnyBlockHeader(AiplVal v_code) {
+  return (aipl_truthy((aipl_truthy((aipl_truthy(aipl_fn_isCanonControlHeader(v_code)) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_code, aipl_str_n("fn ", 3)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_code, aipl_str_n("pub fn ", 7)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_code, aipl_str_n("match ", 6)))));
 }
 
-/* AIPL Function: sendDapEvent */
-AiplVal aipl_fn_sendDapEvent(AiplVal v_seq, AiplVal v_eventName, AiplVal v_bodyJson) {
-  AiplVal v_bodyPart = aipl_nil();
-  AiplVal v_jsonBody = aipl_nil();
-  v_bodyPart = (aipl_truthy(aipl_gt(aipl_member_get(v_bodyJson, "len"), aipl_int(0LL))) ? aipl_add(aipl_str_n(",\"body\":", 8), v_bodyJson) : aipl_str(""));
-  v_jsonBody = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"seq\":", 7), aipl_to_str(v_seq)), aipl_str_n(",\"type\":\"event\",\"event\":\"", 25)), v_eventName), aipl_str_n("\"", 1)), v_bodyPart), aipl_str_n("}", 1));
-  aipl_fn_sendDapMessage(v_jsonBody);
-  return aipl_add(v_seq, aipl_int(1LL));
+/* AIPL Function: canonicalizeAiplFileOnDisk */
+AiplVal aipl_fn_canonicalizeAiplFileOnDisk(AiplVal v_filePath) {
+  AiplVal v_rawSrc = aipl_nil();
+  AiplVal v_canonSrc = aipl_nil();
+  AiplVal v_envNoFmt = aipl_nil();
+  AiplVal v_noAutoFmt = aipl_nil();
+  AiplVal v_isTmpInternal = aipl_nil();
+  AiplVal v_isSkippedTmp = aipl_nil();
+  AiplVal v__ = aipl_nil();
+  if (aipl_truthy(aipl_not(aipl_fn_fileExists(v_filePath)))) {
+    return aipl_str("");
+  }
+  v_rawSrc = aipl_fn_readFile(v_filePath);
+  if (aipl_truthy((aipl_truthy(aipl_not(aipl_str_ends_with(v_filePath, aipl_str_n(".aipl", 5)))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(aipl_str_trim(v_rawSrc), "len"), aipl_int(0LL))))))) {
+    return v_rawSrc;
+  }
+  v_canonSrc = aipl_fn_formatAiplSource(v_rawSrc);
+  v_envNoFmt = aipl_fn_getEnv(aipl_str_n("AIPL_NO_AUTO_FMT", 16));
+  v_noAutoFmt = (aipl_truthy(aipl_opt_is_some(v_envNoFmt)) ? aipl_bool(aipl_truthy(aipl_eq(aipl_unwrap(v_envNoFmt), aipl_str_n("1", 1)))) : aipl_bool(false));
+  v_isTmpInternal = (aipl_truthy((aipl_truthy(aipl_str_starts_with(v_filePath, aipl_str_n("/tmp/aipl-", 10))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_filePath, aipl_str_n("/tmp/aipl_", 10)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_filePath, aipl_str_n("/tmp/_aipl_", 11)))));
+  v_isSkippedTmp = (aipl_truthy(aipl_str_starts_with(v_filePath, aipl_str_n("/tmp/", 5))) ? aipl_bool(aipl_truthy((aipl_truthy(v_isTmpInternal) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_not(aipl_contains(v_filePath, aipl_str_n("canon", 5)))))))) : aipl_bool(false));
+  if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_neq(v_canonSrc, v_rawSrc)) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(aipl_str_trim(v_canonSrc), "len"), aipl_int(0LL)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_not(v_isSkippedTmp))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_not(v_noAutoFmt))) : aipl_bool(false)))) {
+    v__ = aipl_fn_writeFile(v_filePath, v_canonSrc);
+  }
+  return v_canonSrc;
 }
 
-/* AIPL Function: escapeJsonString */
-AiplVal aipl_fn_escapeJsonString(AiplVal v_s) {
+/* AIPL Function: escapeJsonStr */
+AiplVal aipl_fn_escapeJsonStr(AiplVal v_s) {
   return aipl_str_replace(aipl_str_replace(aipl_str_replace(aipl_str_replace(aipl_str_replace(v_s, aipl_str_n("\\", 1), aipl_str_n("\\\\", 2)), aipl_str_n("\"", 1), aipl_str_n("\\\"", 2)), aipl_str_n("\n", 1), aipl_str_n("\\n", 2)), aipl_str_n("\r", 1), aipl_str_n("\\r", 2)), aipl_str_n("\t", 1), aipl_str_n("\\t", 2));
 }
 
-/* AIPL Function: getLspDocumentText */
-__attribute__((hot)) AiplVal aipl_fn_getLspDocumentText(AiplVal v_uri, AiplVal v_openUris, AiplVal v_openTexts) {
-  AiplVal v_idx = aipl_nil();
-  AiplVal v_localPath = aipl_nil();
-  v_idx = aipl_sub(aipl_member_get(v_openUris, "len"), aipl_int(1LL));
-  while (aipl_truthy(aipl_ge(v_idx, aipl_int(0LL)))) {
-    if (aipl_truthy(aipl_eq(aipl_index_get(v_openUris, v_idx), v_uri))) {
-      return aipl_index_get(v_openTexts, v_idx);
-    }
-    aipl_inc_int(&v_idx, -1LL);
-  }
-  v_localPath = v_uri;
-  if (aipl_truthy(aipl_str_starts_with(v_localPath, aipl_str_n("file://", 7)))) {
-    v_localPath = aipl_slice(v_localPath, aipl_int(7LL), aipl_member_get(v_localPath, "len"));
-  }
-  if (aipl_truthy(aipl_fn_fileExists(v_localPath))) {
-    return aipl_fn_readFile(v_localPath);
-  }
-  return aipl_str("");
-}
-
-/* AIPL Function: cmdDap */
-__attribute__((hot)) AiplVal aipl_fn_cmdDap(AiplVal v_cliArgs) {
-  AiplVal v_dapSeq = aipl_nil();
-  AiplVal v_programPath = aipl_nil();
-  AiplVal v_currentLine = aipl_nil();
-  AiplVal v_bpLines = aipl_nil();
-  AiplVal v_localNames = aipl_nil();
-  AiplVal v_localVals = aipl_nil();
-  AiplVal v_srcLines = aipl_nil();
-  AiplVal v_messageCount = aipl_nil();
-  AiplVal v_lineOpt = aipl_nil();
-  AiplVal v_msg = aipl_nil();
-  AiplVal v_reqSeq = aipl_nil();
-  AiplVal v_cmd = aipl_nil();
-  AiplVal v_prg = aipl_nil();
-  AiplVal v_p = aipl_nil();
-  AiplVal v_bpArr = aipl_nil();
-  AiplVal v_sf = aipl_nil();
-  AiplVal v_sc = aipl_nil();
+/* AIPL Function: cmdDocs */
+__attribute__((hot)) AiplVal aipl_fn_cmdDocs(AiplVal v_cliArgs) {
+  AiplVal v_home = aipl_nil();
+  AiplVal v_target = aipl_nil();
+  AiplVal v_outDir = aipl_nil();
+  AiplVal v_jsonMode = aipl_nil();
+  AiplVal v_i = aipl_nil();
+  AiplVal v_a = aipl_nil();
+  AiplVal v_query = aipl_nil();
+  AiplVal v_si = aipl_nil();
+  AiplVal v_dest = aipl_nil();
+  AiplVal v_idxFile = aipl_nil();
+  AiplVal v_rmFile = aipl_nil();
+  AiplVal v_chapter = aipl_nil();
+  AiplVal v_ci = aipl_nil();
+  AiplVal v_tutFile = aipl_nil();
+  AiplVal v_stdDir = aipl_nil();
+  AiplVal v_modNames = aipl_nil();
+  AiplVal v_ents = aipl_nil();
+  AiplVal v_mi = aipl_nil();
+  AiplVal v_ent = aipl_nil();
+  AiplVal v_dPath = aipl_nil();
+  AiplVal v_dEnts = aipl_nil();
+  AiplVal v_dei = aipl_nil();
+  AiplVal v_dent = aipl_nil();
+  AiplVal v_stem = aipl_nil();
+  AiplVal v_sj = aipl_nil();
+  AiplVal v_tmp = aipl_nil();
+  AiplVal v_colCount = aipl_nil();
+  AiplVal v_lineBuf = aipl_nil();
+  AiplVal v_ni = aipl_nil();
+  AiplVal v_mn = aipl_nil();
+  AiplVal v_docFile = aipl_nil();
+  AiplVal v_docList = aipl_nil();
+  AiplVal v_di = aipl_nil();
+  AiplVal v_df = aipl_nil();
+  AiplVal v_files = aipl_nil();
+  AiplVal v_isStdDomain = aipl_nil();
+  AiplVal v_domName = aipl_nil();
+  AiplVal v_possibleDir = aipl_nil();
+  AiplVal v_domDocFile = aipl_nil();
+  AiplVal v_ei = aipl_nil();
+  AiplVal v_fullPath = aipl_nil();
+  AiplVal v_src = aipl_nil();
+  AiplVal v_sLines = aipl_nil();
+  AiplVal v_sli = aipl_nil();
+  AiplVal v_sl = aipl_nil();
+  AiplVal v_rawMod = aipl_nil();
+  AiplVal v_modFile = aipl_nil();
+  AiplVal v_resolved = aipl_nil();
+  AiplVal v_entries = aipl_nil();
+  AiplVal v_resolvedStd = aipl_nil();
+  AiplVal v_fi = aipl_nil();
+  AiplVal v_fPath = aipl_nil();
+  AiplVal v_lines = aipl_nil();
+  AiplVal v_toks = aipl_nil();
+  AiplVal v_arena = aipl_nil();
+  AiplVal v_hir = aipl_nil();
+  AiplVal v_fnJsonItems = aipl_nil();
+  AiplVal v_fni = aipl_nil();
+  AiplVal v_f = aipl_nil();
+  AiplVal v_doc = aipl_nil();
+  AiplVal v_sigParams = aipl_nil();
+  AiplVal v_pi = aipl_nil();
+  AiplVal v_pn = aipl_nil();
+  AiplVal v_pt = aipl_nil();
+  AiplVal v_sig = aipl_nil();
+  AiplVal v_fnItem = aipl_nil();
+  AiplVal v_structJsonItems = aipl_nil();
+  AiplVal v_s = aipl_nil();
+  AiplVal v_fieldItems = aipl_nil();
+  AiplVal v_fli = aipl_nil();
+  AiplVal v_fnm = aipl_nil();
+  AiplVal v_fty = aipl_nil();
+  AiplVal v_stItem = aipl_nil();
+  AiplVal v_enumJsonItems = aipl_nil();
+  AiplVal v_en = aipl_nil();
   AiplVal v_varItems = aipl_nil();
   AiplVal v_vi = aipl_nil();
-  AiplVal v_vItem = aipl_nil();
-  v_dapSeq = aipl_int(1LL);
-  v_programPath = aipl_str("");
-  v_currentLine = aipl_int(1LL);
-  v_bpLines = aipl_array_new(NULL, 0);
-  v_localNames = aipl_array_new(NULL, 0);
-  v_localVals = aipl_array_new(NULL, 0);
-  v_srcLines = aipl_array_new(NULL, 0);
-  v_messageCount = aipl_int(0LL);
-  while (aipl_truthy(aipl_bool(true))) {
-    v_lineOpt = aipl_fn_readLine();
-    if (aipl_truthy(aipl_opt_is_none(v_lineOpt))) {
-      if (aipl_truthy(aipl_eq(v_messageCount, aipl_int(0LL)))) {
-        aipl_println(aipl_str_n("{\"jsonrpc\":\"2.0\",\"type\":\"response\",\"command\":\"initialize\",\"success\":true}", 73));
-        return aipl_int(0LL);
-      }
-      break;
+  AiplVal v_enItem = aipl_nil();
+  AiplVal v_jsonOut = aipl_nil();
+  AiplVal v_rawLines = aipl_nil();
+  AiplVal v_docLines = aipl_nil();
+  AiplVal v_hIdx = aipl_nil();
+  AiplVal v_hasHeaderDoc = aipl_nil();
+  AiplVal v_hl = aipl_nil();
+  AiplVal v_hc = aipl_nil();
+  AiplVal v_targetFiles = aipl_nil();
+  AiplVal v_mainHir = aipl_nil();
+  AiplVal v_rli = aipl_nil();
+  AiplVal v_rl = aipl_nil();
+  AiplVal v_fromIdx = aipl_nil();
+  AiplVal v_afterFrom = aipl_nil();
+  AiplVal v_endQuote = aipl_nil();
+  AiplVal v_impTarget = aipl_nil();
+  AiplVal v_resolvedImp = aipl_nil();
+  AiplVal v_structBlocks = aipl_nil();
+  AiplVal v_enumBlocks = aipl_nil();
+  AiplVal v_fnBlocks = aipl_nil();
+  AiplVal v_tfi = aipl_nil();
+  AiplVal v_tfPath = aipl_nil();
+  AiplVal v_tfSrc = aipl_nil();
+  AiplVal v_tfLines = aipl_nil();
+  AiplVal v_tfArena = aipl_nil();
+  AiplVal v_tfHir = aipl_nil();
+  AiplVal v_sDoc = aipl_nil();
+  AiplVal v_eLines = aipl_nil();
+  AiplVal v_eDoc = aipl_nil();
+  AiplVal v_fLines = aipl_nil();
+  AiplVal v_fDoc = aipl_nil();
+  AiplVal v_sbi = aipl_nil();
+  AiplVal v_ebi = aipl_nil();
+  AiplVal v_fbi = aipl_nil();
+  AiplVal v_md = aipl_nil();
+  AiplVal v_base = aipl_nil();
+  v_home = aipl_fn_getAiplHomeDir();
+  v_target = aipl_str("");
+  v_outDir = aipl_str("");
+  v_jsonMode = aipl_bool(false);
+  v_i = aipl_int(1LL);
+  while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_cliArgs, "len")))) {
+    v_a = aipl_index_get(v_cliArgs, v_i);
+    if (aipl_truthy(aipl_eq(v_a, aipl_str_n("--json", 6)))) {
+      v_jsonMode = aipl_bool(true);
     }
-    v_msg = aipl_str_trim(aipl_unwrap(v_lineOpt));
-    if (aipl_truthy(aipl_eq(v_msg, aipl_str("")))) {
-      continue;
-    }
-    aipl_inc_int(&v_messageCount, 1LL);
-    v_reqSeq = aipl_fn_extractJsonIntField(v_msg, aipl_str_n("seq", 3));
-    v_cmd = aipl_fn_extractJsonStringField(v_msg, aipl_str_n("command", 7));
-    if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("initialize", 10)))) {
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("initialize", 10), aipl_str_n("{\"supportsConfigurationDoneRequest\":true,\"supportsEvaluateForHovers\":true}", 74));
-      v_dapSeq = aipl_fn_sendDapEvent(v_dapSeq, aipl_str_n("initialized", 11), aipl_str(""));
-    }
-    else if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("launch", 6)))) {
-      v_prg = aipl_fn_extractJsonStringField(v_msg, aipl_str_n("program", 7));
-      if (aipl_truthy(aipl_neq(v_prg, aipl_str("")))) {
-        v_programPath = v_prg;
-      }
-      if (aipl_truthy((aipl_truthy(aipl_neq(v_programPath, aipl_str(""))) ? aipl_bool(aipl_truthy(aipl_fn_fileExists(v_programPath))) : aipl_bool(false)))) {
-        v_srcLines = aipl_str_split(aipl_fn_readFile(v_programPath), aipl_str_n("\n", 1));
-      }
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("launch", 6), aipl_str(""));
-    }
-    else if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("setBreakpoints", 14)))) {
-      v_p = aipl_fn_extractJsonStringField(v_msg, aipl_str_n("path", 4));
-      if (aipl_truthy((aipl_truthy(aipl_neq(v_p, aipl_str(""))) ? aipl_bool(aipl_truthy(aipl_eq(v_programPath, aipl_str("")))) : aipl_bool(false)))) {
-        v_programPath = v_p;
-        if (aipl_truthy(aipl_fn_fileExists(v_programPath))) {
-          v_srcLines = aipl_str_split(aipl_fn_readFile(v_programPath), aipl_str_n("\n", 1));
-        }
-      }
-      v_bpLines = aipl_fn_parseBreakpointLines(v_msg);
-      if (aipl_truthy(aipl_gt(aipl_member_get(v_bpLines, "len"), aipl_int(0LL)))) {
-        v_currentLine = aipl_index_get(v_bpLines, aipl_int(0LL));
-      }
-      aipl_fn_evaluateLocalsUpTo(v_srcLines, aipl_sub(v_currentLine, aipl_int(1LL)), v_localNames, v_localVals);
-      v_bpArr = aipl_add(aipl_add(aipl_str_n("[{\"verified\":true,\"line\":", 25), aipl_to_str(v_currentLine)), aipl_str_n("}]", 2));
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("setBreakpoints", 14), aipl_add(aipl_add(aipl_str_n("{\"breakpoints\":", 15), v_bpArr), aipl_str_n("}", 1)));
-      v_dapSeq = aipl_fn_sendDapEvent(v_dapSeq, aipl_str_n("stopped", 7), aipl_str_n("{\"reason\":\"breakpoint\",\"threadId\":1}", 36));
-    }
-    else if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("configurationDone", 17)))) {
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("configurationDone", 17), aipl_str(""));
-    }
-    else if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("threads", 7)))) {
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("threads", 7), aipl_str_n("{\"threads\":[{\"id\":1,\"name\":\"main\"}]}", 36));
-    }
-    else if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("stackTrace", 10)))) {
-      v_sf = aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("[{\"id\":1,\"name\":\"main\",\"line\":", 30), aipl_to_str(v_currentLine)), aipl_str_n(",\"column\":1,\"source\":{\"path\":\"", 30)), aipl_fn_escapeJsonString(v_programPath)), aipl_str_n("\"} }]", 5));
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("stackTrace", 10), aipl_add(aipl_add(aipl_str_n("{\"stackFrames\":", 15), v_sf), aipl_str_n(",\"totalFrames\":1}", 17)));
-    }
-    else if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("scopes", 6)))) {
-      v_sc = aipl_str_n("[{\"name\":\"Locals\",\"variablesReference\":1,\"expensive\":false}]", 60);
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("scopes", 6), aipl_add(aipl_add(aipl_str_n("{\"scopes\":", 10), v_sc), aipl_str_n("}", 1)));
-    }
-    else if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("variables", 9)))) {
-      v_varItems = aipl_array_new(NULL, 0);
-      v_vi = aipl_int(0LL);
-      while (aipl_truthy(aipl_lt(v_vi, aipl_member_get(v_localNames, "len")))) {
-        v_vItem = aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"name\":\"", 9), aipl_fn_escapeJsonString(aipl_index_get(v_localNames, v_vi))), aipl_str_n("\",\"value\":\"", 11)), aipl_fn_escapeJsonString(aipl_index_get(v_localVals, v_vi))), aipl_str_n("\",\"type\":\"int\",\"variablesReference\":0}", 38));
-        (aipl_array_push(v_varItems, v_vItem), aipl_nil());
-        aipl_inc_int(&v_vi, 1LL);
-      }
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("variables", 9), aipl_add(aipl_add(aipl_str_n("{\"variables\":[", 14), aipl_array_join(v_varItems, aipl_str_n(",", 1))), aipl_str_n("]}", 2)));
-    }
-    else if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_cmd, aipl_str_n("next", 4))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_cmd, aipl_str_n("stepIn", 6)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_cmd, aipl_str_n("stepOut", 7))))))) {
-      if (aipl_truthy((aipl_truthy(aipl_gt(v_currentLine, aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_le(v_currentLine, aipl_member_get(v_srcLines, "len")))) : aipl_bool(false)))) {
-        aipl_fn_evaluateLineForLocals(aipl_index_get(v_srcLines, aipl_sub(v_currentLine, aipl_int(1LL))), v_localNames, v_localVals);
-      }
-      aipl_inc_int(&v_currentLine, 1LL);
-      while (aipl_truthy((aipl_truthy(aipl_le(v_currentLine, aipl_member_get(v_srcLines, "len"))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_str_trim(aipl_index_get(v_srcLines, aipl_sub(v_currentLine, aipl_int(1LL)))), aipl_str("")))) : aipl_bool(false)))) {
-        aipl_inc_int(&v_currentLine, 1LL);
-      }
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, v_cmd, aipl_str(""));
-      v_dapSeq = aipl_fn_sendDapEvent(v_dapSeq, aipl_str_n("stopped", 7), aipl_str_n("{\"reason\":\"step\",\"threadId\":1}", 30));
-    }
-    else if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("continue", 8)))) {
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("continue", 8), aipl_str(""));
-      v_dapSeq = aipl_fn_sendDapEvent(v_dapSeq, aipl_str_n("terminated", 10), aipl_str(""));
-    }
-    else if (aipl_truthy(aipl_eq(v_cmd, aipl_str_n("disconnect", 10)))) {
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, aipl_str_n("disconnect", 10), aipl_str(""));
-      return aipl_int(0LL);
-    }
-    else {
-      v_dapSeq = aipl_fn_sendDapResponse(v_dapSeq, v_reqSeq, v_cmd, aipl_str(""));
-    }
-  }
-  return aipl_nil();
-}
-
-/* AIPL Function: cmdRecord */
-__attribute__((hot)) AiplVal aipl_fn_cmdRecord(AiplVal v_cliArgs) {
-  AiplVal v_target = aipl_nil();
-  AiplVal v_outPath = aipl_nil();
-  AiplVal v_frames = aipl_nil();
-  AiplVal v_fps = aipl_nil();
-  AiplVal v_ai = aipl_nil();
-  AiplVal v_a = aipl_nil();
-  AiplVal v_pid = aipl_nil();
-  AiplVal v_cmdPath = aipl_nil();
-  AiplVal v_ackPath = aipl_nil();
-  AiplVal v_maxWait = aipl_nil();
-  AiplVal v_waited = aipl_nil();
-  if (aipl_truthy(aipl_lt(aipl_member_get(v_cliArgs, "len"), aipl_int(3LL)))) {
-    aipl_println(aipl_str_n("Usage: aipl record <target> <out_path> [--frames <n>] [--fps <fps>]", 67));
-    return aipl_int(1LL);
-  }
-  v_target = aipl_index_get(v_cliArgs, aipl_int(1LL));
-  v_outPath = aipl_index_get(v_cliArgs, aipl_int(2LL));
-  v_frames = aipl_int(30LL);
-  v_fps = aipl_int(30LL);
-  v_ai = aipl_int(3LL);
-  while (aipl_truthy(aipl_lt(v_ai, aipl_member_get(v_cliArgs, "len")))) {
-    v_a = aipl_index_get(v_cliArgs, v_ai);
-    if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--frames", 8))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_a, aipl_str_n("-f", 2)))))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_ai, aipl_int(1LL)), aipl_member_get(v_cliArgs, "len")))) : aipl_bool(false)))) {
-      v_frames = aipl_fn_parseInt(aipl_index_get(v_cliArgs, aipl_add(v_ai, aipl_int(1LL))));
-      aipl_inc_int(&v_ai, 1LL);
-    }
-    else if (aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("--fps", 5))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_ai, aipl_int(1LL)), aipl_member_get(v_cliArgs, "len")))) : aipl_bool(false)))) {
-      v_fps = aipl_fn_parseInt(aipl_index_get(v_cliArgs, aipl_add(v_ai, aipl_int(1LL))));
-      aipl_inc_int(&v_ai, 1LL);
-    }
-    else if (aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--frames=", 9)))) {
-      v_frames = aipl_fn_parseInt(aipl_slice(v_a, aipl_int(9LL), aipl_member_get(v_a, "len")));
-    }
-    else if (aipl_truthy(aipl_str_starts_with(v_a, aipl_str_n("--fps=", 6)))) {
-      v_fps = aipl_fn_parseInt(aipl_slice(v_a, aipl_int(6LL), aipl_member_get(v_a, "len")));
-    }
-    aipl_inc_int(&v_ai, 1LL);
-  }
-  v_pid = aipl_fn_resolveWindowTargetPid(v_target);
-  if (aipl_truthy(aipl_le(v_pid, aipl_int(0LL)))) {
-    aipl_fn_eprintln(aipl_add(aipl_str_n("[AIPL] Target window not found: ", 32), v_target));
-    return aipl_int(1LL);
-  }
-  v_cmdPath = aipl_add(aipl_add(aipl_str_n("/tmp/aipl_windows/win_", 22), aipl_to_str(v_pid)), aipl_str_n(".cmd", 4));
-  v_ackPath = aipl_add(aipl_add(aipl_str_n("/tmp/aipl_windows/win_", 22), aipl_to_str(v_pid)), aipl_str_n(".ack", 4));
-  if (aipl_truthy(aipl_fn_fileExists(v_ackPath))) {
-    aipl_fn_removeFile(v_ackPath);
-  }
-  aipl_fn_writeFile(v_cmdPath, aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("record:", 7), v_outPath), aipl_str_n(":", 1)), aipl_to_str(v_frames)), aipl_str_n(":", 1)), aipl_to_str(v_fps)), aipl_str_n("\n", 1)));
-  v_maxWait = aipl_add(aipl_mul(aipl_div(v_frames, (aipl_truthy(aipl_gt(v_fps, aipl_int(0LL))) ? v_fps : aipl_int(30LL))), aipl_int(10LL)), aipl_int(50LL));
-  v_waited = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_waited, v_maxWait))) {
-    if (aipl_truthy(aipl_fn_fileExists(v_ackPath))) {
-      aipl_fn_removeFile(v_ackPath);
-      aipl_println(aipl_add(aipl_str_n("[AIPL] Recording saved to ", 26), v_outPath));
-      return aipl_int(0LL);
-    }
-    aipl_fn_execCommand(aipl_str_n("sleep", 5), aipl_array_new((AiplVal[]){ aipl_str_n("0.1", 3) }, 1));
-    aipl_inc_int(&v_waited, 1LL);
-  }
-  aipl_fn_eprintln(aipl_str_n("[AIPL] Timeout waiting for window recording ack", 47));
-  return aipl_int(1LL);
-}
-/* AIPL Function: stmtKindToTag */
-AiplVal aipl_fn_stmtKindToTag(AiplVal v_kind) {
-  if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_kind, aipl_str_n("VarDecl", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_kind, aipl_str_n("TupleVarDecl", 12)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_kind, aipl_str_n("Let", 3))))))) {
-    return v_STMT_LET;
-  }
-  if (aipl_truthy(aipl_eq(v_kind, aipl_str_n("Assign", 6)))) {
-    return v_STMT_ASSIGN;
-  }
-  if (aipl_truthy((aipl_truthy(aipl_eq(v_kind, aipl_str_n("If", 2))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_kind, aipl_str_n("Elif", 4))))))) {
-    return v_STMT_IF;
-  }
-  if (aipl_truthy(aipl_eq(v_kind, aipl_str_n("While", 5)))) {
-    return v_STMT_WHILE;
-  }
-  if (aipl_truthy(aipl_eq(v_kind, aipl_str_n("For", 3)))) {
-    return v_STMT_FOR;
-  }
-  if (aipl_truthy(aipl_eq(v_kind, aipl_str_n("Return", 6)))) {
-    return v_STMT_RETURN;
-  }
-  if (aipl_truthy(aipl_eq(v_kind, aipl_str_n("ExprStmt", 8)))) {
-    return v_STMT_EXPR;
-  }
-  if (aipl_truthy((aipl_truthy(aipl_eq(v_kind, aipl_str_n("Match", 5))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_kind, aipl_str_n("MatchArm", 8))))))) {
-    return v_STMT_MATCH;
-  }
-  return aipl_int(0LL);
-}
-
-/* AIPL Function: makeToken */
-AiplVal aipl_fn_makeToken(AiplVal v_kind, AiplVal v_lexeme, AiplVal v_span) {
-  return aipl_struct_new("Token", 3, (const char*[]){ "kind", "lexeme", "span" }, (AiplVal[]){ v_kind, v_lexeme, v_span });
-}
-
-/* AIPL Function: arenaAllocStmt */
-AiplVal aipl_fn_arenaAllocStmt(AiplVal v_arena, AiplVal v_kind, AiplVal v_name, AiplVal v_isMut, AiplVal v_typeId, AiplVal v_exprId, AiplVal v_condExpr, AiplVal v_bodyStmts, AiplVal v_elseStmts, AiplVal v_matchArms, AiplVal v_span) {
-  AiplVal v_id = aipl_nil();
-  AiplVal v_node = aipl_nil();
-  v_id = aipl_member_get(aipl_member_get_idx(v_arena, 3, "stmts"), "len");
-  v_node = aipl_struct_new("StmtNode", 12, (const char*[]){ "id", "kind", "kindTag", "name", "isMut", "typeId", "exprId", "condExpr", "bodyStmts", "elseStmts", "matchArms", "span" }, (AiplVal[]){ v_id, v_kind, aipl_fn_stmtKindToTag(v_kind), v_name, v_isMut, v_typeId, v_exprId, v_condExpr, v_bodyStmts, v_elseStmts, v_matchArms, v_span });
-  (aipl_array_push(aipl_member_get_idx(v_arena, 3, "stmts"), v_node), aipl_nil());
-  return v_id;
-}
-
-/* AIPL Function: arenaAllocDecl */
-AiplVal aipl_fn_arenaAllocDecl(AiplVal v_arena, AiplVal v_kind, AiplVal v_name, AiplVal v_isPub, AiplVal v_params, AiplVal v_paramTypes, AiplVal v_retType, AiplVal v_fieldNames, AiplVal v_fieldTypes, AiplVal v_variants, AiplVal v_variantPayloadTypes, AiplVal v_requiresExprs, AiplVal v_ensuresExprs, AiplVal v_agentName, AiplVal v_capabilities, AiplVal v_importPath, AiplVal v_importSpecs, AiplVal v_importAlias, AiplVal v_bodyStmts, AiplVal v_span) {
-  AiplVal v_id = aipl_nil();
-  AiplVal v_emptyTypeParams = aipl_nil();
-  AiplVal v_emptyTypeParamBounds = aipl_nil();
-  AiplVal v_node = aipl_nil();
-  v_id = aipl_member_get(aipl_member_get_idx(v_arena, 4, "decls"), "len");
-  v_emptyTypeParams = aipl_array_new(NULL, 0);
-  v_emptyTypeParamBounds = aipl_array_new(NULL, 0);
-  v_node = aipl_struct_new("DeclNode", 24, (const char*[]){ "id", "kind", "kindTag", "name", "isPub", "params", "paramTypes", "retType", "fieldNames", "fieldTypes", "variants", "variantPayloadTypes", "requiresExprs", "ensuresExprs", "agentName", "capabilities", "importPath", "importSpecs", "importAlias", "bodyStmts", "docComment", "typeParams", "typeParamBounds", "span" }, (AiplVal[]){ v_id, v_kind, aipl_fn_declKindToTag(v_kind), v_name, v_isPub, v_params, v_paramTypes, v_retType, v_fieldNames, v_fieldTypes, v_variants, v_variantPayloadTypes, v_requiresExprs, v_ensuresExprs, v_agentName, v_capabilities, v_importPath, v_importSpecs, v_importAlias, v_bodyStmts, aipl_str(""), v_emptyTypeParams, v_emptyTypeParamBounds, v_span });
-  (aipl_array_push(aipl_member_get_idx(v_arena, 4, "decls"), v_node), aipl_nil());
-  return v_id;
-}
-
-/* AIPL Function: hexDigitVal */
-AiplVal aipl_fn_hexDigitVal(AiplVal v_code) {
-  if (aipl_truthy((aipl_truthy(aipl_ge(v_code, aipl_int(48LL))) ? aipl_bool(aipl_truthy(aipl_le(v_code, aipl_int(57LL)))) : aipl_bool(false)))) {
-    return aipl_sub(v_code, aipl_int(48LL));
-  }
-  else if (aipl_truthy((aipl_truthy(aipl_ge(v_code, aipl_int(65LL))) ? aipl_bool(aipl_truthy(aipl_le(v_code, aipl_int(70LL)))) : aipl_bool(false)))) {
-    return aipl_sub(v_code, aipl_int(55LL));
-  }
-  else if (aipl_truthy((aipl_truthy(aipl_ge(v_code, aipl_int(97LL))) ? aipl_bool(aipl_truthy(aipl_le(v_code, aipl_int(102LL)))) : aipl_bool(false)))) {
-    return aipl_sub(v_code, aipl_int(87LL));
-  }
-  return aipl_int(-1LL);
-}
-
-/* AIPL Function: stripMultilineIndent */
-__attribute__((hot)) AiplVal aipl_fn_stripMultilineIndent(AiplVal v_raw) {
-  AiplVal v_text = aipl_nil();
-  AiplVal v_lines = aipl_nil();
-  AiplVal v_closingIndent = aipl_nil();
-  AiplVal v_lastIdx = aipl_nil();
-  AiplVal v_lastLine = aipl_nil();
-  AiplVal v_lastIsWs = aipl_nil();
-  AiplVal v_wsCount = aipl_nil();
-  AiplVal v_chk = aipl_nil();
-  AiplVal v_c = aipl_nil();
-  AiplVal v_minIndent = aipl_nil();
-  AiplVal v_i = aipl_nil();
-  AiplVal v_l = aipl_nil();
-  AiplVal v_ws = aipl_nil();
-  AiplVal v_outLines = aipl_nil();
-  AiplVal v_j = aipl_nil();
-  AiplVal v_cut = aipl_nil();
-  v_text = v_raw;
-  if (aipl_truthy((aipl_truthy(aipl_ge(aipl_member_get(v_text, "len"), aipl_int(2LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_slice(v_text, aipl_int(0LL), aipl_int(2LL)), aipl_str_n("\r\n", 2)))) : aipl_bool(false)))) {
-    v_text = aipl_slice(v_text, aipl_int(2LL), aipl_member_get(v_text, "len"));
-  }
-  else if (aipl_truthy((aipl_truthy(aipl_ge(aipl_member_get(v_text, "len"), aipl_int(1LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_slice(v_text, aipl_int(0LL), aipl_int(1LL)), aipl_str_n("\n", 1)))) : aipl_bool(false)))) {
-    v_text = aipl_slice(v_text, aipl_int(1LL), aipl_member_get(v_text, "len"));
-  }
-  v_lines = aipl_str_split(v_text, aipl_str_n("\n", 1));
-  if (aipl_truthy(aipl_eq(aipl_member_get(v_lines, "len"), aipl_int(0LL)))) {
-    return aipl_str("");
-  }
-  v_closingIndent = aipl_int(0LL);
-  v_lastIdx = aipl_sub(aipl_member_get(v_lines, "len"), aipl_int(1LL));
-  v_lastLine = aipl_index_get(v_lines, v_lastIdx);
-  v_lastIsWs = aipl_bool(true);
-  v_wsCount = aipl_int(0LL);
-  v_chk = aipl_int(0LL);
-  while (aipl_truthy(aipl_lt(v_chk, aipl_member_get(v_lastLine, "len")))) {
-    v_c = aipl_str_char_code_at(v_lastLine, v_chk);
-    if (aipl_truthy((aipl_truthy(aipl_eq(v_c, aipl_int(32LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_c, aipl_int(9LL))))))) {
-      aipl_inc_int(&v_wsCount, 1LL);
-    }
-    else if (aipl_truthy(aipl_eq(v_c, aipl_int(13LL)))) {
-      aipl_inc_int(&v_chk, 1LL);
-      continue;
-    }
-    else {
-      v_lastIsWs = aipl_bool(false);
-      break;
-    }
-    aipl_inc_int(&v_chk, 1LL);
-  }
-  if (aipl_truthy(v_lastIsWs)) {
-    v_closingIndent = v_wsCount;
-    aipl_array_pop(v_lines);
-  }
-  if (aipl_truthy(aipl_eq(aipl_member_get(v_lines, "len"), aipl_int(0LL)))) {
-    return aipl_str("");
-  }
-  if (aipl_truthy(aipl_gt(v_closingIndent, aipl_int(0LL)))) {
-    v_minIndent = v_closingIndent;
-    v_i = aipl_int(0LL);
-    while (aipl_truthy(aipl_lt(v_i, aipl_member_get(v_lines, "len")))) {
-      v_l = aipl_index_get(v_lines, v_i);
-      v_ws = aipl_int(0LL);
-      while (aipl_truthy((aipl_truthy(aipl_lt(v_ws, aipl_member_get(v_l, "len"))) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(aipl_str_char_code_at(v_l, v_ws), aipl_int(32LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_str_char_code_at(v_l, v_ws), aipl_int(9LL))))))) : aipl_bool(false)))) {
-        aipl_inc_int(&v_ws, 1LL);
-      }
-      if (aipl_truthy(aipl_lt(v_ws, aipl_member_get(v_l, "len")))) {
-        if (aipl_truthy(aipl_lt(v_ws, v_minIndent))) {
-          v_minIndent = v_ws;
-        }
-      }
+    else if (aipl_truthy((aipl_truthy(aipl_eq(v_a, aipl_str_n("-o", 2))) ? aipl_bool(aipl_truthy(aipl_lt(aipl_add(v_i, aipl_int(1LL)), aipl_member_get(v_cliArgs, "len")))) : aipl_bool(false)))) {
+      v_outDir = aipl_index_get(v_cliArgs, aipl_add(v_i, aipl_int(1LL)));
       aipl_inc_int(&v_i, 1LL);
     }
-    if (aipl_truthy(aipl_gt(v_minIndent, aipl_int(0LL)))) {
-      v_outLines = aipl_array_new(NULL, 0);
-      v_j = aipl_int(0LL);
-      while (aipl_truthy(aipl_lt(v_j, aipl_member_get(v_lines, "len")))) {
-        v_l = aipl_index_get(v_lines, v_j);
-        v_cut = aipl_int(0LL);
-        while (aipl_truthy((aipl_truthy((aipl_truthy(aipl_lt(v_cut, v_minIndent)) ? aipl_bool(aipl_truthy(aipl_lt(v_cut, aipl_member_get(v_l, "len")))) : aipl_bool(false))) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(aipl_str_char_code_at(v_l, v_cut), aipl_int(32LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_str_char_code_at(v_l, v_cut), aipl_int(9LL))))))) : aipl_bool(false)))) {
-          aipl_inc_int(&v_cut, 1LL);
-        }
-        (aipl_array_push(v_outLines, aipl_slice(v_l, v_cut, aipl_member_get(v_l, "len"))), aipl_nil());
-        aipl_inc_int(&v_j, 1LL);
+    else if (aipl_truthy((aipl_truthy(aipl_not(aipl_str_starts_with(v_a, aipl_str_n("-", 1)))) ? aipl_bool(aipl_truthy(aipl_eq(v_target, aipl_str("")))) : aipl_bool(false)))) {
+      v_target = v_a;
+    }
+    aipl_inc_int(&v_i, 1LL);
+  }
+  if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_gt(aipl_member_get(v_cliArgs, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_index_get(v_cliArgs, aipl_int(0LL)), aipl_str_n("doc", 3)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_eq(v_target, aipl_str("")))) : aipl_bool(false)))) {
+    aipl_println(aipl_str_n("Usage: aipl doc <file_or_dir> [-o <outDir>] [--json]", 52));
+    return aipl_int(1LL);
+  }
+  if (aipl_truthy(aipl_eq(v_target, aipl_str_n("search", 6)))) {
+    v_query = aipl_str("");
+    v_si = aipl_int(1LL);
+    while (aipl_truthy(aipl_lt(v_si, aipl_member_get(v_cliArgs, "len")))) {
+      v_a = aipl_index_get(v_cliArgs, v_si);
+      if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_neq(v_a, aipl_str_n("search", 6))) ? aipl_bool(aipl_truthy(aipl_neq(v_a, aipl_str_n("--search", 8)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_starts_with(v_a, aipl_str_n("-", 1))))) : aipl_bool(false)))) {
+        v_query = (aipl_truthy(aipl_eq(v_query, aipl_str(""))) ? v_a : aipl_add(aipl_add(v_query, aipl_str_n(" ", 1)), v_a));
       }
-      return aipl_array_join(v_outLines, aipl_str_n("\n", 1));
+      aipl_inc_int(&v_si, 1LL);
+    }
+    if (aipl_truthy(aipl_eq(v_query, aipl_str("")))) {
+      aipl_println(aipl_str_n("Usage: aipl docs search <query> [--json]", 40));
+      return aipl_int(1LL);
+    }
+    return aipl_fn_cmdDocsSearch(v_query, v_jsonMode);
+  }
+  if (aipl_truthy(aipl_eq(v_target, aipl_str_n("html", 4)))) {
+    v_dest = (aipl_truthy(aipl_neq(v_outDir, aipl_str(""))) ? v_outDir : aipl_str_n("docs/html/index.html", 20));
+    return aipl_fn_cmdDocsHtml(v_dest);
+  }
+  if (aipl_truthy(aipl_eq(v_target, aipl_str_n("index", 5)))) {
+    v_idxFile = aipl_add(v_home, aipl_str_n("/docs/INDEX.md", 14));
+    if (aipl_truthy(aipl_fn_fileExists(v_idxFile))) {
+      aipl_println(aipl_fn_readFile(v_idxFile));
+      return aipl_int(0LL);
+    }
+    v_rmFile = aipl_add(v_home, aipl_str_n("/README.md", 10));
+    if (aipl_truthy(aipl_fn_fileExists(v_rmFile))) {
+      aipl_println(aipl_fn_readFile(v_rmFile));
+      return aipl_int(0LL);
     }
   }
-  return aipl_array_join(v_lines, aipl_str_n("\n", 1));
+  if (aipl_truthy((aipl_truthy(aipl_eq(v_target, aipl_str_n("tutorial", 8))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_target, aipl_str_n("tutorials", 9))))))) {
+    v_chapter = aipl_str("");
+    v_ci = aipl_int(1LL);
+    while (aipl_truthy(aipl_lt(v_ci, aipl_member_get(v_cliArgs, "len")))) {
+      v_a = aipl_index_get(v_cliArgs, v_ci);
+      if (aipl_truthy((aipl_truthy((aipl_truthy((aipl_truthy(aipl_neq(v_a, aipl_str_n("tutorial", 8))) ? aipl_bool(aipl_truthy(aipl_neq(v_a, aipl_str_n("tutorials", 9)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_starts_with(v_a, aipl_str_n("-", 1))))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_eq(v_chapter, aipl_str("")))) : aipl_bool(false)))) {
+        v_chapter = v_a;
+      }
+      aipl_inc_int(&v_ci, 1LL);
+    }
+    if (aipl_truthy(aipl_gt(aipl_member_get(v_chapter, "len"), aipl_int(0LL)))) {
+      return aipl_fn_cmdHelpTutorials(aipl_array_new((AiplVal[]){ v_chapter }, 1));
+    }
+    v_tutFile = aipl_add(v_home, aipl_str_n("/docs/TUTORIAL.md", 17));
+    if (aipl_truthy(aipl_fn_fileExists(v_tutFile))) {
+      aipl_println(aipl_fn_readFile(v_tutFile));
+      return aipl_int(0LL);
+    }
+  }
+  if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(v_target, aipl_str(""))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_target, aipl_str_n("list", 4)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_target, aipl_str_n("--list", 6))))))) {
+    aipl_println(aipl_str_n("================================================================================", 80));
+    aipl_println(aipl_str_n("                 AIPL Master Documentation Catalog & Explorer                   ", 80));
+    aipl_println(aipl_str_n("================================================================================", 80));
+    aipl_println(aipl_str(""));
+    aipl_println(aipl_str_n("DOCUMENTATION MANUALS (View with `aipl docs <topic>`):", 54));
+    aipl_println(aipl_str_n("  - overview       AIPL Language Overview & Quickstart (`README.md`)", 68));
+    aipl_println(aipl_str_n("  - spec           Official AIPL 2.0 Language Specification (`SPEC.md`)", 71));
+    aipl_println(aipl_str_n("  - ai-spec        AI-Optimized Strict Parsing & AST Invariant Spec (`AI_SPEC.md`)", 82));
+    aipl_println(aipl_str_n("  - tutorial       Comprehensive Developer Tutorial (`docs/TUTORIAL.md`)", 72));
+    aipl_println(aipl_str_n("  - cookbook       Practical Recipes, Patterns & Idioms (`docs/COOKBOOK.md`)", 76));
+    aipl_println(aipl_str_n("  - cli            Complete CLI Command & Toolchain Reference (`docs/CLI_REFERENCE.md`)", 87));
+    aipl_println(aipl_str_n("  - stdlib         Standard Library Architecture & Indices (`docs/STDLIB_REFERENCE.md`)", 87));
+    aipl_println(aipl_str_n("  - architecture   Compiler Architecture & Lowering Pipeline (`docs/ARCHITECTURE.md`)", 85));
+    aipl_println(aipl_str_n("  - memory         Arena Memory Model & Allocation Lifecycles (`docs/MEMORY_MODEL.md`)", 86));
+    aipl_println(aipl_str_n("  - diagnostics    Compiler Diagnostics Schema & Error Codes (`docs/DIAGNOSTICS_SCHEMA.md`)", 91));
+    aipl_println(aipl_str_n("  - debugging      Interactive Debugging & DAP Server Guide (`docs/DEBUGGING.md`)", 81));
+    aipl_println(aipl_str_n("  - transpiler     Multi-Target Transpiler Backend Guide (`docs/TRANSPILER_GUIDE.md`)", 85));
+    aipl_println(aipl_str_n("  - agent-tooling  AI Agent Tooling, Splicing & Patching (`docs/AGENT_TOOLING.md`)", 82));
+    aipl_println(aipl_str_n("  - benchmarks     Performance Profiling & Microbenchmarks (`docs/BENCHMARKS.md`)", 81));
+    aipl_println(aipl_str_n("  - oracle         Cryptographic SSOT & Domain Constants (`ORACLE.md`)", 70));
+    aipl_println(aipl_str_n("  - improve        Continuous Language Evolution & Roadmap (`aipl_improve.md`)", 78));
+    aipl_println(aipl_str_n("  - all            Concatenated Master Documentation Suite", 58));
+    aipl_println(aipl_str(""));
+    aipl_println(aipl_str_n("STANDARD LIBRARY MODULES (298 modules — View with `aipl docs std/<module>` or `aipl docs <module>`):", 102));
+    v_stdDir = (aipl_truthy(aipl_fn_isDir(aipl_str_n("std", 3))) ? aipl_str_n("std", 3) : aipl_add(v_home, aipl_str_n("/std", 4)));
+    if (aipl_truthy(aipl_fn_isDir(v_stdDir))) {
+      v_modNames = aipl_array_new(NULL, 0);
+      v_ents = aipl_fn_listDir(v_stdDir);
+      v_mi = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_mi, aipl_member_get(v_ents, "len")))) {
+        v_ent = aipl_index_get(v_ents, v_mi);
+        if (aipl_truthy(aipl_not(aipl_str_starts_with(v_ent, aipl_str_n(".", 1))))) {
+          v_dPath = aipl_add(aipl_add(v_stdDir, aipl_str_n("/", 1)), v_ent);
+          if (aipl_truthy(aipl_fn_isDir(v_dPath))) {
+            v_dEnts = aipl_fn_listDir(v_dPath);
+            v_dei = aipl_int(0LL);
+            while (aipl_truthy(aipl_lt(v_dei, aipl_member_get(v_dEnts, "len")))) {
+              v_dent = aipl_index_get(v_dEnts, v_dei);
+              if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_str_ends_with(v_dent, aipl_str_n(".aipl", 5))) ? aipl_bool(aipl_truthy(aipl_neq(v_dent, aipl_str_n(".aipl", 5)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_starts_with(v_dent, aipl_str_n(".", 1))))) : aipl_bool(false)))) {
+                v_stem = aipl_slice(v_dent, aipl_int(0LL), aipl_sub(aipl_member_get(v_dent, "len"), aipl_int(5LL)));
+                (aipl_array_push(v_modNames, aipl_add(aipl_add(v_ent, aipl_str_n("/", 1)), v_stem)), aipl_nil());
+              }
+              aipl_inc_int(&v_dei, 1LL);
+            }
+          }
+          else if (aipl_truthy((aipl_truthy(aipl_str_ends_with(v_ent, aipl_str_n(".aipl", 5))) ? aipl_bool(aipl_truthy(aipl_neq(v_ent, aipl_str_n(".aipl", 5)))) : aipl_bool(false)))) {
+            v_stem = aipl_slice(v_ent, aipl_int(0LL), aipl_sub(aipl_member_get(v_ent, "len"), aipl_int(5LL)));
+            (aipl_array_push(v_modNames, v_stem), aipl_nil());
+          }
+        }
+        aipl_inc_int(&v_mi, 1LL);
+      }
+      v_si = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_si, aipl_member_get(v_modNames, "len")))) {
+        v_sj = aipl_add(v_si, aipl_int(1LL));
+        while (aipl_truthy(aipl_lt(v_sj, aipl_member_get(v_modNames, "len")))) {
+          if (aipl_truthy(aipl_lt(aipl_index_get(v_modNames, v_sj), aipl_index_get(v_modNames, v_si)))) {
+            v_tmp = aipl_index_get(v_modNames, v_si);
+            aipl_index_set(&v_modNames, v_si, aipl_index_get(v_modNames, v_sj));
+            aipl_index_set(&v_modNames, v_sj, v_tmp);
+          }
+          aipl_inc_int(&v_sj, 1LL);
+        }
+        aipl_inc_int(&v_si, 1LL);
+      }
+      v_colCount = aipl_int(0LL);
+      v_lineBuf = aipl_str_n("  ", 2);
+      v_ni = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_ni, aipl_member_get(v_modNames, "len")))) {
+        v_mn = aipl_index_get(v_modNames, v_ni);
+        v_lineBuf = aipl_add(v_lineBuf, v_mn);
+        aipl_inc_int(&v_colCount, 1LL);
+        if (aipl_truthy((aipl_truthy(aipl_ge(v_colCount, aipl_int(6LL))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_ni, aipl_sub(aipl_member_get(v_modNames, "len"), aipl_int(1LL)))))))) {
+          aipl_println(v_lineBuf);
+          v_lineBuf = aipl_str_n("  ", 2);
+          v_colCount = aipl_int(0LL);
+        }
+        else {
+          v_lineBuf = aipl_add(v_lineBuf, aipl_str_n(", ", 2));
+        }
+        aipl_inc_int(&v_ni, 1LL);
+      }
+    }
+    aipl_println(aipl_str(""));
+    aipl_println(aipl_str_n("EXAMPLES:", 9));
+    aipl_println(aipl_str_n("  aipl docs tutorial       # View the comprehensive tutorial", 60));
+    aipl_println(aipl_str_n("  aipl docs std/math       # View std/math module signatures and docs", 69));
+    aipl_println(aipl_str_n("  aipl docs all            # Print entire master documentation suite", 68));
+    return aipl_int(0LL);
+  }
+  v_docFile = aipl_str("");
+  if (aipl_truthy((aipl_truthy(aipl_eq(v_target, aipl_str_n("overview", 8))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_target, aipl_str_n("readme", 6))))))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/README.md", 10));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("spec", 4)))) {
+    v_docFile = (aipl_truthy(aipl_fn_fileExists(aipl_add(v_home, aipl_str_n("/docs/SPEC.md", 13)))) ? aipl_add(v_home, aipl_str_n("/docs/SPEC.md", 13)) : aipl_add(v_home, aipl_str_n("/SPEC.md", 8)));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("ai-spec", 7)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/AI_SPEC.md", 11));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("tutorial", 8)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/TUTORIAL.md", 17));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("cookbook", 8)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/COOKBOOK.md", 17));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("cli", 3)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/CLI_REFERENCE.md", 22));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("stdlib", 6)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/STDLIB_REFERENCE.md", 25));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("architecture", 12)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/ARCHITECTURE.md", 21));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("memory", 6)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/MEMORY_MODEL.md", 21));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("diagnostics", 11)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/DIAGNOSTICS_SCHEMA.md", 27));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("debugging", 9)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/DEBUGGING.md", 18));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("transpiler", 10)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/TRANSPILER_GUIDE.md", 25));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("agent-tooling", 13)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/AGENT_TOOLING.md", 22));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("benchmarks", 10)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/docs/BENCHMARKS.md", 19));
+  }
+  else if (aipl_truthy(aipl_eq(v_target, aipl_str_n("oracle", 6)))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/ORACLE.md", 10));
+  }
+  else if (aipl_truthy((aipl_truthy(aipl_eq(v_target, aipl_str_n("improve", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_target, aipl_str_n("roadmap", 7))))))) {
+    v_docFile = aipl_add(v_home, aipl_str_n("/aipl_improve.md", 16));
+  }
+  if (aipl_truthy(aipl_gt(aipl_member_get(v_docFile, "len"), aipl_int(0LL)))) {
+    if (aipl_truthy(aipl_fn_fileExists(v_docFile))) {
+      aipl_println(aipl_fn_readFile(v_docFile));
+      return aipl_int(0LL);
+    }
+    else {
+      aipl_println(aipl_add(aipl_str_n("# ", 2), v_target));
+      aipl_println(aipl_add(aipl_add(aipl_add(aipl_str_n("Documentation manual '", 22), v_target), aipl_str_n("' found in index at ", 20)), v_docFile));
+      return aipl_int(0LL);
+    }
+  }
+  if (aipl_truthy((aipl_truthy(aipl_eq(v_target, aipl_str_n("pack", 4))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(v_target, aipl_str_n("--pack", 6))))))) {
+    aipl_println(aipl_fn_buildAgentPromptPack());
+    return aipl_int(0LL);
+  }
+  if (aipl_truthy(aipl_eq(v_target, aipl_str_n("all", 3)))) {
+    v_docList = aipl_array_new((AiplVal[]){ aipl_str_n("README.md", 9), aipl_str_n("docs/SPEC.md", 12), aipl_str_n("AI_SPEC.md", 10), aipl_str_n("ORACLE.md", 9), aipl_str_n("docs/TUTORIAL.md", 16), aipl_str_n("docs/COOKBOOK.md", 16), aipl_str_n("docs/CLI_REFERENCE.md", 21), aipl_str_n("docs/STDLIB_REFERENCE.md", 24), aipl_str_n("docs/ARCHITECTURE.md", 20) }, 9);
+    v_di = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_di, aipl_member_get(v_docList, "len")))) {
+      v_df = aipl_add(aipl_add(v_home, aipl_str_n("/", 1)), aipl_index_get(v_docList, v_di));
+      if (aipl_truthy(aipl_fn_fileExists(v_df))) {
+        aipl_println(aipl_str_n("<!-- ================================================================ -->", 73));
+        aipl_println(aipl_add(aipl_add(aipl_str_n("<!-- DOCUMENT: ", 15), aipl_index_get(v_docList, v_di)), aipl_str_n(" -->", 4)));
+        aipl_println(aipl_str_n("<!-- ================================================================ -->", 73));
+        aipl_println(aipl_fn_readFile(v_df));
+        aipl_println(aipl_str(""));
+      }
+      aipl_inc_int(&v_di, 1LL);
+    }
+    return aipl_int(0LL);
+  }
+  v_files = aipl_array_new(NULL, 0);
+  v_isStdDomain = aipl_str_starts_with(v_target, aipl_str_n("std/", 4));
+  v_domName = (aipl_truthy(v_isStdDomain) ? aipl_str_replace(v_target, aipl_str_n("std/", 4), aipl_str("")) : v_target);
+  v_stdDir = (aipl_truthy(aipl_fn_isDir(aipl_str_n("std", 3))) ? aipl_str_n("std", 3) : aipl_add(v_home, aipl_str_n("/std", 4)));
+  if (aipl_truthy((aipl_truthy(aipl_not(v_isStdDomain)) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(v_target, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
+    if (aipl_truthy(aipl_fn_isDir(aipl_add(aipl_add(v_stdDir, aipl_str_n("/", 1)), v_target)))) {
+      v_isStdDomain = aipl_bool(true);
+      v_domName = v_target;
+    }
+  }
+  if (aipl_truthy(v_isStdDomain)) {
+    v_possibleDir = (aipl_truthy(aipl_fn_isDir(aipl_add(aipl_str_n("std/", 4), v_domName))) ? aipl_add(aipl_str_n("std/", 4), v_domName) : (aipl_truthy(aipl_fn_isDir(aipl_add(aipl_add(v_stdDir, aipl_str_n("/", 1)), v_domName))) ? aipl_add(aipl_add(v_stdDir, aipl_str_n("/", 1)), v_domName) : aipl_str("")));
+    if (aipl_truthy(aipl_gt(aipl_member_get(v_possibleDir, "len"), aipl_int(0LL)))) {
+      aipl_println(aipl_str_n("================================================================================", 80));
+      aipl_println(aipl_add(aipl_str_n("Standard Library Domain: std/", 29), v_domName));
+      aipl_println(aipl_str_n("================================================================================", 80));
+      v_domDocFile = aipl_fn_findDomainDocFile(v_home, v_domName);
+      if (aipl_truthy((aipl_truthy(aipl_neq(v_domDocFile, aipl_str(""))) ? aipl_bool(aipl_truthy(aipl_fn_fileExists(v_domDocFile))) : aipl_bool(false)))) {
+        aipl_println(aipl_fn_readFile(v_domDocFile));
+        aipl_println(aipl_str(""));
+      }
+      v_ents = aipl_fn_listDir(v_possibleDir);
+      aipl_println(aipl_str_n("Modules & Signatures:", 21));
+      v_ei = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_ei, aipl_member_get(v_ents, "len")))) {
+        v_ent = aipl_index_get(v_ents, v_ei);
+        if (aipl_truthy((aipl_truthy(aipl_str_ends_with(v_ent, aipl_str_n(".aipl", 5))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_starts_with(v_ent, aipl_str_n(".", 1))))) : aipl_bool(false)))) {
+          v_stem = aipl_str_replace(v_ent, aipl_str_n(".aipl", 5), aipl_str(""));
+          v_fullPath = aipl_add(aipl_add(v_possibleDir, aipl_str_n("/", 1)), v_ent);
+          aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("### Module: `std/", 17), v_domName), aipl_str_n("/", 1)), v_stem), aipl_str_n("`", 1)));
+          v_src = aipl_fn_readFile(v_fullPath);
+          v_sLines = aipl_str_split(v_src, aipl_str_n("\n", 1));
+          v_sli = aipl_int(0LL);
+          while (aipl_truthy(aipl_lt(v_sli, aipl_member_get(v_sLines, "len")))) {
+            v_sl = aipl_str_trim(aipl_index_get(v_sLines, v_sli));
+            if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_str_starts_with(v_sl, aipl_str_n("pub fn ", 7))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_sl, aipl_str_n("pub struct ", 11)))))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_str_starts_with(v_sl, aipl_str_n("pub enum ", 9))))))) {
+              aipl_println(aipl_add(aipl_str_n("  ", 2), v_sl));
+            }
+            aipl_inc_int(&v_sli, 1LL);
+          }
+          aipl_println(aipl_str(""));
+        }
+        aipl_inc_int(&v_ei, 1LL);
+      }
+      return aipl_int(0LL);
+    }
+    v_rawMod = (aipl_truthy(aipl_str_ends_with(v_target, aipl_str_n(".aipl", 5))) ? v_target : aipl_add(v_target, aipl_str_n(".aipl", 5)));
+    v_modFile = v_rawMod;
+    if (aipl_truthy(aipl_not(aipl_fn_fileExists(v_modFile)))) {
+      if (aipl_truthy(aipl_fn_fileExists(aipl_add(aipl_add(v_home, aipl_str_n("/", 1)), v_rawMod)))) {
+        v_modFile = aipl_add(aipl_add(v_home, aipl_str_n("/", 1)), v_rawMod);
+      }
+      else if (aipl_truthy(aipl_fn_fileExists(aipl_add(aipl_str_n("../", 3), v_rawMod)))) {
+        v_modFile = aipl_add(aipl_str_n("../", 3), v_rawMod);
+      }
+      else if (aipl_truthy(aipl_fn_fileExists(aipl_add(aipl_str_n("../../", 6), v_rawMod)))) {
+        v_modFile = aipl_add(aipl_str_n("../../", 6), v_rawMod);
+      }
+      else {
+        v_resolved = aipl_fn_resolveImportPath(aipl_str_n(".", 1), v_target);
+        if (aipl_truthy((aipl_truthy(aipl_gt(aipl_member_get(v_resolved, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_fn_fileExists(v_resolved))) : aipl_bool(false)))) {
+          v_modFile = v_resolved;
+        }
+      }
+    }
+    if (aipl_truthy(aipl_fn_fileExists(v_modFile))) {
+      (aipl_array_push(v_files, v_modFile), aipl_nil());
+    }
+    else {
+      aipl_println(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("Error: Standard library module '", 32), v_target), aipl_str_n("' (", 3)), v_modFile), aipl_str_n(") does not exist.", 17)));
+      return aipl_int(1LL);
+    }
+  }
+  else if (aipl_truthy((aipl_truthy(aipl_fn_isDir(v_target)) ? aipl_bool(aipl_truthy(aipl_gt(aipl_member_get(v_outDir, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
+    v_entries = aipl_fn_listDir(v_target);
+    v_ei = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_ei, aipl_member_get(v_entries, "len")))) {
+      v_ent = aipl_index_get(v_entries, v_ei);
+      if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_str_ends_with(v_ent, aipl_str_n(".aipl", 5))) ? aipl_bool(aipl_truthy(aipl_neq(v_ent, aipl_str_n(".aipl", 5)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_not(aipl_str_starts_with(v_ent, aipl_str_n(".", 1))))) : aipl_bool(false)))) {
+        (aipl_array_push(v_files, aipl_fn_pathJoin(v_target, v_ent)), aipl_nil());
+      }
+      aipl_inc_int(&v_ei, 1LL);
+    }
+  }
+  else if (aipl_truthy(aipl_fn_fileExists(v_target))) {
+    (aipl_array_push(v_files, v_target), aipl_nil());
+  }
+  else {
+    v_resolvedStd = aipl_fn_resolveImportPath(aipl_str_n(".", 1), aipl_add(aipl_str_n("std/", 4), v_target));
+    if (aipl_truthy((aipl_truthy(aipl_gt(aipl_member_get(v_resolvedStd, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_fn_fileExists(v_resolvedStd))) : aipl_bool(false)))) {
+      (aipl_array_push(v_files, v_resolvedStd), aipl_nil());
+    }
+    else if (aipl_truthy(aipl_fn_fileExists(aipl_add(aipl_add(aipl_add(v_home, aipl_str_n("/std/", 5)), v_target), aipl_str_n(".aipl", 5))))) {
+      (aipl_array_push(v_files, aipl_add(aipl_add(aipl_add(v_home, aipl_str_n("/std/", 5)), v_target), aipl_str_n(".aipl", 5))), aipl_nil());
+    }
+    else if (aipl_truthy(aipl_fn_fileExists(aipl_add(aipl_add(v_home, aipl_str_n("/", 1)), v_target)))) {
+      (aipl_array_push(v_files, aipl_add(aipl_add(v_home, aipl_str_n("/", 1)), v_target)), aipl_nil());
+    }
+    else {
+      aipl_println(aipl_add(aipl_add(aipl_str_n("Error: target '", 15), v_target), aipl_str_n("' does not exist.", 17)));
+      return aipl_int(1LL);
+    }
+  }
+  if (aipl_truthy(v_jsonMode)) {
+    v_fi = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_fi, aipl_member_get(v_files, "len")))) {
+      v_fPath = aipl_index_get(v_files, v_fi);
+      v_src = aipl_fn_readFile(v_fPath);
+      v_lines = aipl_str_split(v_src, aipl_str_n("\n", 1));
+      v_toks = aipl_fn_tokenizeAipl(v_src, aipl_int(0LL));
+      v_arena = aipl_fn_parseModule(v_toks, v_src);
+      v_hir = aipl_fn_lowerToHir(v_arena, aipl_member_get(v_arena, "moduleName"));
+      v_fnJsonItems = aipl_array_new(NULL, 0);
+      v_fni = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_fni, aipl_member_get(aipl_member_get_idx(v_hir, 5, "functions"), "len")))) {
+        v_f = aipl_index_get(aipl_member_get_idx(v_hir, 5, "functions"), v_fni);
+        if (aipl_truthy(aipl_member_get(v_f, "isPub"))) {
+          v_doc = aipl_fn_extractDocComment(v_lines, aipl_member_get(aipl_member_get(v_f, "span"), "line"));
+          if (aipl_truthy(aipl_eq(aipl_member_get(v_doc, "len"), aipl_int(0LL)))) {
+            v_doc = aipl_add(aipl_add(aipl_add(aipl_str_n("Function ", 9), aipl_member_get(v_f, "name")), aipl_str_n(" in module ", 11)), aipl_member_get(v_hir, "moduleName"));
+          }
+          v_sigParams = aipl_array_new(NULL, 0);
+          v_pi = aipl_int(0LL);
+          while (aipl_truthy(aipl_lt(v_pi, aipl_member_get(aipl_member_get(v_f, "paramNames"), "len")))) {
+            v_pn = aipl_index_get(aipl_member_get(v_f, "paramNames"), v_pi);
+            v_pt = (aipl_truthy(aipl_lt(v_pi, aipl_member_get(aipl_member_get(v_f, "paramTypes"), "len"))) ? aipl_index_get(aipl_member_get(v_f, "paramTypes"), v_pi) : aipl_str_n("any", 3));
+            (aipl_array_push(v_sigParams, aipl_add(aipl_add(v_pn, aipl_str_n(": ", 2)), v_pt)), aipl_nil());
+            aipl_inc_int(&v_pi, 1LL);
+          }
+          v_sig = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("fn ", 3), aipl_member_get(v_f, "name")), aipl_str_n("(", 1)), aipl_array_join(v_sigParams, aipl_str_n(", ", 2))), aipl_str_n("): ", 3)), aipl_member_get(v_f, "retType"));
+          v_fnItem = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"name\":\"", 9), aipl_fn_escapeJsonStr(aipl_member_get(v_f, "name"))), aipl_str_n("\",\"doc\":\"", 9)), aipl_fn_escapeJsonStr(v_doc)), aipl_str_n("\",\"signature\":\"", 15)), aipl_fn_escapeJsonStr(v_sig)), aipl_str_n("\"}", 2));
+          (aipl_array_push(v_fnJsonItems, v_fnItem), aipl_nil());
+        }
+        aipl_inc_int(&v_fni, 1LL);
+      }
+      v_structJsonItems = aipl_array_new(NULL, 0);
+      v_si = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_si, aipl_member_get(aipl_member_get_idx(v_hir, 3, "structs"), "len")))) {
+        v_s = aipl_index_get(aipl_member_get_idx(v_hir, 3, "structs"), v_si);
+        if (aipl_truthy(aipl_member_get(v_s, "isPub"))) {
+          v_doc = aipl_fn_extractDocComment(v_lines, aipl_member_get(aipl_member_get(v_s, "span"), "line"));
+          if (aipl_truthy(aipl_eq(aipl_member_get(v_doc, "len"), aipl_int(0LL)))) {
+            v_doc = aipl_add(aipl_add(aipl_add(aipl_str_n("Struct ", 7), aipl_member_get(v_s, "name")), aipl_str_n(" in module ", 11)), aipl_member_get(v_hir, "moduleName"));
+          }
+          v_fieldItems = aipl_array_new(NULL, 0);
+          v_fli = aipl_int(0LL);
+          while (aipl_truthy(aipl_lt(v_fli, aipl_member_get(aipl_member_get(v_s, "fieldNames"), "len")))) {
+            v_fnm = aipl_index_get(aipl_member_get(v_s, "fieldNames"), v_fli);
+            v_fty = (aipl_truthy(aipl_lt(v_fli, aipl_member_get(aipl_member_get(v_s, "fieldTypes"), "len"))) ? aipl_index_get(aipl_member_get(v_s, "fieldTypes"), v_fli) : aipl_str_n("any", 3));
+            (aipl_array_push(v_fieldItems, aipl_add(aipl_add(aipl_str_n("\"", 1), aipl_fn_escapeJsonStr(aipl_add(aipl_add(v_fnm, aipl_str_n(": ", 2)), v_fty))), aipl_str_n("\"", 1))), aipl_nil());
+            aipl_inc_int(&v_fli, 1LL);
+          }
+          v_stItem = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"name\":\"", 9), aipl_fn_escapeJsonStr(aipl_member_get(v_s, "name"))), aipl_str_n("\",\"doc\":\"", 9)), aipl_fn_escapeJsonStr(v_doc)), aipl_str_n("\",\"fields\":[", 12)), aipl_array_join(v_fieldItems, aipl_str_n(",", 1))), aipl_str_n("]}", 2));
+          (aipl_array_push(v_structJsonItems, v_stItem), aipl_nil());
+        }
+        aipl_inc_int(&v_si, 1LL);
+      }
+      v_enumJsonItems = aipl_array_new(NULL, 0);
+      v_ei = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_ei, aipl_member_get(aipl_member_get_idx(v_hir, 4, "enums"), "len")))) {
+        v_en = aipl_index_get(aipl_member_get_idx(v_hir, 4, "enums"), v_ei);
+        if (aipl_truthy(aipl_member_get(v_en, "isPub"))) {
+          v_doc = aipl_fn_extractDocComment(v_lines, aipl_member_get(aipl_member_get(v_en, "span"), "line"));
+          if (aipl_truthy(aipl_eq(aipl_member_get(v_doc, "len"), aipl_int(0LL)))) {
+            v_doc = aipl_add(aipl_add(aipl_add(aipl_str_n("Enum ", 5), aipl_member_get(v_en, "name")), aipl_str_n(" in module ", 11)), aipl_member_get(v_hir, "moduleName"));
+          }
+          v_varItems = aipl_array_new(NULL, 0);
+          v_vi = aipl_int(0LL);
+          while (aipl_truthy(aipl_lt(v_vi, aipl_member_get(aipl_member_get(v_en, "variants"), "len")))) {
+            (aipl_array_push(v_varItems, aipl_add(aipl_add(aipl_str_n("\"", 1), aipl_fn_escapeJsonStr(aipl_index_get(aipl_member_get(v_en, "variants"), v_vi))), aipl_str_n("\"", 1))), aipl_nil());
+            aipl_inc_int(&v_vi, 1LL);
+          }
+          v_enItem = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"name\":\"", 9), aipl_fn_escapeJsonStr(aipl_member_get(v_en, "name"))), aipl_str_n("\",\"doc\":\"", 9)), aipl_fn_escapeJsonStr(v_doc)), aipl_str_n("\",\"variants\":[", 14)), aipl_array_join(v_varItems, aipl_str_n(",", 1))), aipl_str_n("]}", 2));
+          (aipl_array_push(v_enumJsonItems, v_enItem), aipl_nil());
+        }
+        aipl_inc_int(&v_ei, 1LL);
+      }
+      v_jsonOut = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("{\"module\":\"", 11), aipl_fn_escapeJsonStr(aipl_member_get(v_hir, "moduleName"))), aipl_str_n("\",\"functions\":[", 15)), aipl_array_join(v_fnJsonItems, aipl_str_n(",", 1))), aipl_str_n("],\"structs\":[", 13)), aipl_array_join(v_structJsonItems, aipl_str_n(",", 1))), aipl_str_n("],\"enums\":[", 11)), aipl_array_join(v_enumJsonItems, aipl_str_n(",", 1))), aipl_str_n("]}", 2));
+      aipl_println(v_jsonOut);
+      aipl_inc_int(&v_fi, 1LL);
+    }
+    return aipl_int(0LL);
+  }
+  v_fi = aipl_int(0LL);
+  while (aipl_truthy(aipl_lt(v_fi, aipl_member_get(v_files, "len")))) {
+    v_fPath = aipl_index_get(v_files, v_fi);
+    v_src = aipl_fn_readFile(v_fPath);
+    v_rawLines = aipl_str_split(v_src, aipl_str_n("\n", 1));
+    v_toks = aipl_fn_tokenizeAipl(v_src, aipl_int(0LL));
+    v_arena = aipl_fn_parseModule(v_toks, v_src);
+    v_docLines = aipl_array_new(NULL, 0);
+    (aipl_array_push(v_docLines, aipl_add(aipl_str_n("# Module ", 9), aipl_member_get(v_arena, "moduleName"))), aipl_nil());
+    (aipl_array_push(v_docLines, aipl_str("")), aipl_nil());
+    (aipl_array_push(v_docLines, aipl_add(aipl_add(aipl_str_n("Source: `", 9), v_fPath), aipl_str_n("`", 1))), aipl_nil());
+    (aipl_array_push(v_docLines, aipl_str("")), aipl_nil());
+    v_hIdx = aipl_int(0LL);
+    v_hasHeaderDoc = aipl_bool(false);
+    while (aipl_truthy(aipl_lt(v_hIdx, aipl_member_get(v_rawLines, "len")))) {
+      v_hl = aipl_str_trim(aipl_index_get(v_rawLines, v_hIdx));
+      if (aipl_truthy(aipl_str_starts_with(v_hl, aipl_str_n("///", 3)))) {
+        v_hc = (aipl_truthy((aipl_truthy(aipl_gt(aipl_member_get(v_hl, "len"), aipl_int(3LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_slice(v_hl, aipl_int(3LL), aipl_int(4LL)), aipl_str_n(" ", 1)))) : aipl_bool(false))) ? aipl_slice(v_hl, aipl_int(4LL), aipl_member_get(v_hl, "len")) : aipl_slice(v_hl, aipl_int(3LL), aipl_member_get(v_hl, "len")));
+        (aipl_array_push(v_docLines, v_hc), aipl_nil());
+        v_hasHeaderDoc = aipl_bool(true);
+        aipl_inc_int(&v_hIdx, 1LL);
+      }
+      else {
+        break;
+      }
+    }
+    if (aipl_truthy(v_hasHeaderDoc)) {
+      (aipl_array_push(v_docLines, aipl_str("")), aipl_nil());
+    }
+    v_targetFiles = aipl_array_new((AiplVal[]){ v_fPath }, 1);
+    v_mainHir = aipl_fn_lowerToHir(v_arena, aipl_member_get(v_arena, "moduleName"));
+    if (aipl_truthy((aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get_idx(v_mainHir, 5, "functions"), "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get_idx(v_mainHir, 3, "structs"), "len"), aipl_int(0LL)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get_idx(v_mainHir, 4, "enums"), "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
+      v_rli = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_rli, aipl_member_get(v_rawLines, "len")))) {
+        v_rl = aipl_str_trim(aipl_index_get(v_rawLines, v_rli));
+        v_fromIdx = aipl_index_of(v_rl, aipl_str_n("from \"", 6));
+        if (aipl_truthy(aipl_ge(v_fromIdx, aipl_int(0LL)))) {
+          v_afterFrom = aipl_slice(v_rl, aipl_add(v_fromIdx, aipl_int(6LL)), aipl_member_get(v_rl, "len"));
+          v_endQuote = aipl_index_of(v_afterFrom, aipl_str_n("\"", 1));
+          if (aipl_truthy(aipl_gt(v_endQuote, aipl_int(0LL)))) {
+            v_impTarget = aipl_slice(v_afterFrom, aipl_int(0LL), v_endQuote);
+            v_resolvedImp = aipl_fn_resolveImportPath(aipl_fn_pathDirname(v_fPath), v_impTarget);
+            if (aipl_truthy((aipl_truthy(aipl_gt(aipl_member_get(v_resolvedImp, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_fn_fileExists(v_resolvedImp))) : aipl_bool(false)))) {
+              (aipl_array_push(v_targetFiles, v_resolvedImp), aipl_nil());
+            }
+          }
+        }
+        aipl_inc_int(&v_rli, 1LL);
+      }
+    }
+    v_structBlocks = aipl_array_new(NULL, 0);
+    v_enumBlocks = aipl_array_new(NULL, 0);
+    v_fnBlocks = aipl_array_new(NULL, 0);
+    v_tfi = aipl_int(0LL);
+    while (aipl_truthy(aipl_lt(v_tfi, aipl_member_get(v_targetFiles, "len")))) {
+      v_tfPath = aipl_index_get(v_targetFiles, v_tfi);
+      v_tfSrc = (aipl_truthy(aipl_eq(v_tfPath, v_fPath)) ? v_src : aipl_fn_readFile(v_tfPath));
+      v_tfLines = (aipl_truthy(aipl_eq(v_tfPath, v_fPath)) ? v_rawLines : aipl_str_split(v_tfSrc, aipl_str_n("\n", 1)));
+      v_tfArena = (aipl_truthy(aipl_eq(v_tfPath, v_fPath)) ? v_arena : aipl_fn_parseModule(aipl_fn_tokenizeAipl(v_tfSrc, aipl_int(0LL)), v_tfSrc));
+      v_tfHir = (aipl_truthy(aipl_eq(v_tfPath, v_fPath)) ? v_mainHir : aipl_fn_lowerToHir(v_tfArena, aipl_member_get(v_tfArena, "moduleName")));
+      v_si = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_si, aipl_member_get(aipl_member_get_idx(v_tfHir, 3, "structs"), "len")))) {
+        v_s = aipl_index_get(aipl_member_get_idx(v_tfHir, 3, "structs"), v_si);
+        if (aipl_truthy(aipl_member_get(v_s, "isPub"))) {
+          v_sLines = aipl_array_new(NULL, 0);
+          (aipl_array_push(v_sLines, aipl_add(aipl_add(aipl_str_n("### `pub struct ", 16), aipl_member_get(v_s, "name")), aipl_str_n("`", 1))), aipl_nil());
+          v_sDoc = aipl_fn_extractDocComment(v_tfLines, aipl_member_get(aipl_member_get(v_s, "span"), "line"));
+          if (aipl_truthy(aipl_gt(aipl_member_get(v_sDoc, "len"), aipl_int(0LL)))) {
+            (aipl_array_push(v_sLines, v_sDoc), aipl_nil());
+          }
+          (aipl_array_push(v_sLines, aipl_str_n("Fields:", 7)), aipl_nil());
+          v_fli = aipl_int(0LL);
+          while (aipl_truthy(aipl_lt(v_fli, aipl_member_get(aipl_member_get(v_s, "fieldNames"), "len")))) {
+            v_fnm = aipl_index_get(aipl_member_get(v_s, "fieldNames"), v_fli);
+            v_fty = (aipl_truthy(aipl_lt(v_fli, aipl_member_get(aipl_member_get(v_s, "fieldTypes"), "len"))) ? aipl_index_get(aipl_member_get(v_s, "fieldTypes"), v_fli) : aipl_str_n("any", 3));
+            (aipl_array_push(v_sLines, aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("- `", 3), v_fnm), aipl_str_n(": ", 2)), v_fty), aipl_str_n("`", 1))), aipl_nil());
+            aipl_inc_int(&v_fli, 1LL);
+          }
+          (aipl_array_push(v_sLines, aipl_str("")), aipl_nil());
+          (aipl_array_push(v_structBlocks, aipl_array_join(v_sLines, aipl_str_n("\n", 1))), aipl_nil());
+        }
+        aipl_inc_int(&v_si, 1LL);
+      }
+      v_ei = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_ei, aipl_member_get(aipl_member_get_idx(v_tfHir, 4, "enums"), "len")))) {
+        v_en = aipl_index_get(aipl_member_get_idx(v_tfHir, 4, "enums"), v_ei);
+        if (aipl_truthy(aipl_member_get(v_en, "isPub"))) {
+          v_eLines = aipl_array_new(NULL, 0);
+          (aipl_array_push(v_eLines, aipl_add(aipl_add(aipl_str_n("### `pub enum ", 14), aipl_member_get(v_en, "name")), aipl_str_n("`", 1))), aipl_nil());
+          v_eDoc = aipl_fn_extractDocComment(v_tfLines, aipl_member_get(aipl_member_get(v_en, "span"), "line"));
+          if (aipl_truthy(aipl_gt(aipl_member_get(v_eDoc, "len"), aipl_int(0LL)))) {
+            (aipl_array_push(v_eLines, v_eDoc), aipl_nil());
+          }
+          (aipl_array_push(v_eLines, aipl_str_n("Variants:", 9)), aipl_nil());
+          v_vi = aipl_int(0LL);
+          while (aipl_truthy(aipl_lt(v_vi, aipl_member_get(aipl_member_get(v_en, "variants"), "len")))) {
+            (aipl_array_push(v_eLines, aipl_add(aipl_add(aipl_str_n("- `", 3), aipl_index_get(aipl_member_get(v_en, "variants"), v_vi)), aipl_str_n("`", 1))), aipl_nil());
+            aipl_inc_int(&v_vi, 1LL);
+          }
+          (aipl_array_push(v_eLines, aipl_str("")), aipl_nil());
+          (aipl_array_push(v_enumBlocks, aipl_array_join(v_eLines, aipl_str_n("\n", 1))), aipl_nil());
+        }
+        aipl_inc_int(&v_ei, 1LL);
+      }
+      v_fni = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_fni, aipl_member_get(aipl_member_get_idx(v_tfHir, 5, "functions"), "len")))) {
+        v_f = aipl_index_get(aipl_member_get_idx(v_tfHir, 5, "functions"), v_fni);
+        if (aipl_truthy(aipl_member_get(v_f, "isPub"))) {
+          v_sigParams = aipl_array_new(NULL, 0);
+          v_pi = aipl_int(0LL);
+          while (aipl_truthy(aipl_lt(v_pi, aipl_member_get(aipl_member_get(v_f, "paramNames"), "len")))) {
+            v_pn = aipl_index_get(aipl_member_get(v_f, "paramNames"), v_pi);
+            v_pt = (aipl_truthy(aipl_lt(v_pi, aipl_member_get(aipl_member_get(v_f, "paramTypes"), "len"))) ? aipl_index_get(aipl_member_get(v_f, "paramTypes"), v_pi) : aipl_str_n("any", 3));
+            (aipl_array_push(v_sigParams, aipl_add(aipl_add(v_pn, aipl_str_n(": ", 2)), v_pt)), aipl_nil());
+            aipl_inc_int(&v_pi, 1LL);
+          }
+          v_sig = aipl_add(aipl_add(aipl_add(aipl_add(aipl_add(aipl_str_n("pub fn ", 7), aipl_member_get(v_f, "name")), aipl_str_n("(", 1)), aipl_array_join(v_sigParams, aipl_str_n(", ", 2))), aipl_str_n("): ", 3)), aipl_member_get(v_f, "retType"));
+          v_fLines = aipl_array_new(NULL, 0);
+          (aipl_array_push(v_fLines, aipl_add(aipl_add(aipl_str_n("### `", 5), v_sig), aipl_str_n("`", 1))), aipl_nil());
+          v_fDoc = aipl_fn_extractDocComment(v_tfLines, aipl_member_get(aipl_member_get(v_f, "span"), "line"));
+          if (aipl_truthy(aipl_gt(aipl_member_get(v_fDoc, "len"), aipl_int(0LL)))) {
+            (aipl_array_push(v_fLines, v_fDoc), aipl_nil());
+          }
+          (aipl_array_push(v_fLines, aipl_str("")), aipl_nil());
+          (aipl_array_push(v_fnBlocks, aipl_array_join(v_fLines, aipl_str_n("\n", 1))), aipl_nil());
+        }
+        aipl_inc_int(&v_fni, 1LL);
+      }
+      aipl_inc_int(&v_tfi, 1LL);
+    }
+    if (aipl_truthy(aipl_gt(aipl_member_get(v_structBlocks, "len"), aipl_int(0LL)))) {
+      (aipl_array_push(v_docLines, aipl_str_n("## Structs", 10)), aipl_nil());
+      (aipl_array_push(v_docLines, aipl_str("")), aipl_nil());
+      v_sbi = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_sbi, aipl_member_get(v_structBlocks, "len")))) {
+        (aipl_array_push(v_docLines, aipl_index_get(v_structBlocks, v_sbi)), aipl_nil());
+        aipl_inc_int(&v_sbi, 1LL);
+      }
+    }
+    if (aipl_truthy(aipl_gt(aipl_member_get(v_enumBlocks, "len"), aipl_int(0LL)))) {
+      (aipl_array_push(v_docLines, aipl_str_n("## Enums", 8)), aipl_nil());
+      (aipl_array_push(v_docLines, aipl_str("")), aipl_nil());
+      v_ebi = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_ebi, aipl_member_get(v_enumBlocks, "len")))) {
+        (aipl_array_push(v_docLines, aipl_index_get(v_enumBlocks, v_ebi)), aipl_nil());
+        aipl_inc_int(&v_ebi, 1LL);
+      }
+    }
+    if (aipl_truthy(aipl_gt(aipl_member_get(v_fnBlocks, "len"), aipl_int(0LL)))) {
+      (aipl_array_push(v_docLines, aipl_str_n("## Functions", 12)), aipl_nil());
+      (aipl_array_push(v_docLines, aipl_str("")), aipl_nil());
+      v_fbi = aipl_int(0LL);
+      while (aipl_truthy(aipl_lt(v_fbi, aipl_member_get(v_fnBlocks, "len")))) {
+        (aipl_array_push(v_docLines, aipl_index_get(v_fnBlocks, v_fbi)), aipl_nil());
+        aipl_inc_int(&v_fbi, 1LL);
+      }
+    }
+    v_md = aipl_add(aipl_array_join(v_docLines, aipl_str_n("\n", 1)), aipl_str_n("\n", 1));
+    if (aipl_truthy(aipl_neq(v_outDir, aipl_str("")))) {
+      v_base = aipl_str_replace(aipl_fn_pathBasename(v_fPath), aipl_str_n(".aipl", 5), aipl_str(""));
+      v_dest = aipl_fn_pathJoin(v_outDir, aipl_add(v_base, aipl_str_n(".md", 3)));
+      aipl_fn_writeFile(v_dest, v_md);
+      aipl_println(aipl_add(aipl_str_n("Generated documentation: ", 25), v_dest));
+    }
+    else {
+      aipl_print(v_md);
+    }
+    aipl_inc_int(&v_fi, 1LL);
+  }
+  return aipl_int(0LL);
 }
 

@@ -769,9 +769,9 @@ pub fn cmdInstallGlobal(cliArgs: [str]): int:
   let localTarget = pathJoin(localBin, "aipl")
   let cargoTarget = pathJoin(cargoBin, "aipl")
   let _m1 = execCommand("mkdir", ["-p", localBin, cargoBin])
-  let _c1 = execCommand("cp", [srcBin, localTarget])
+  let _c1 = execCommand("cp", ["--remove-destination", srcBin, localTarget])
   let _x1 = execCommand("chmod", ["+x", localTarget])
-  let _c2 = execCommand("cp", [srcBin, cargoTarget])
+  let _c2 = execCommand("cp", ["--remove-destination", srcBin, cargoTarget])
   let _x2 = execCommand("chmod", ["+x", cargoTarget])
   println("Installed global AIPL binary to " + localTarget + " and " + cargoTarget)
   ret 0
@@ -2021,7 +2021,8 @@ pub fn cmdVerify(cliArgs: [str]): int:
       let budgetItem = "{\"code\":\"AIPL_BUDGET_EXCEEDED\",\"message\":\"Binary size " + str(budgetActual) + " bytes exceeds budget of " + str(budgetMax) + " bytes (" + checkBudgetStr + ")\",\"line\":1,\"column\":1}"
       diagItems.push(budgetItem)
     let validStr = if (report.valid and budgetOk): "true" else: "false"
-    let jsonOut = "{\"file\":\"" + file + "\",\"valid\":" + validStr + ",\"moduleCount\":" + str(report.moduleCount) + ",\"functionCount\":" + str(report.functionCount) + ",\"structCount\":" + str(report.structCount) + ",\"enumCount\":" + str(report.enumCount) + ",\"diagnostics\":[" + diagItems.join(",") + "]}"
+    let escVerFile = file.replace("\\", "\\\\").replace("\"", "\\\"")
+    let jsonOut = "{\"file\":\"" + escVerFile + "\",\"valid\":" + validStr + ",\"moduleCount\":" + str(report.moduleCount) + ",\"functionCount\":" + str(report.functionCount) + ",\"structCount\":" + str(report.structCount) + ",\"enumCount\":" + str(report.enumCount) + ",\"diagnostics\":[" + diagItems.join(",") + "]}"
     println(jsonOut)
   else:
     if report.valid and budgetOk:
@@ -5680,7 +5681,9 @@ pub fn cmdBootstrap(): int:
 
     let _ = execCommand("cp", ["--remove-destination", "/tmp/aipl-bootstrap-stage2", "bin/aipl"])
     let _ = execCommand("chmod", ["+x", "bin/aipl"])
-    let _ = cmdInstallGlobal([])
+    let envSkipGlobal = getEnv("AIPL_SKIP_GLOBAL_INSTALL")
+    if not (envSkipGlobal.isSome() and envSkipGlobal.unwrap() == "1"):
+      let _ = cmdInstallGlobal([])
     let _rm1 = removeFile("/tmp/aipl-bootstrap-stage1")
     let _rm2 = removeFile("/tmp/aipl-bootstrap-stage1.c")
     let _rm3 = removeFile("/tmp/aipl-bootstrap-stage2")
@@ -5741,7 +5744,8 @@ pub fn cmdOutline(cliArgs: [str]): int:
       let item = "{\"name\":\"" + d.name + "\",\"kind\":\"" + d.kind + "\",\"line\":" + str(d.span.line) + ",\"isPub\":" + isPubStr + "}"
       symItems.push(item)
       di += 1
-    println("{\"file\":\"" + file + "\",\"module\":\"" + arena.moduleName + "\",\"symbols\":[" + symItems.join(",") + "]}")
+    let escOutFile = file.replace("\\", "\\\\").replace("\"", "\\\"")
+    println("{\"file\":\"" + escOutFile + "\",\"module\":\"" + arena.moduleName + "\",\"symbols\":[" + symItems.join(",") + "]}")
   else:
     println("Module " + arena.moduleName + " (" + file + "):")
     mut di = 0
