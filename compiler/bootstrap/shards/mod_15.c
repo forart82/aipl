@@ -985,10 +985,10 @@ __attribute__((hot)) AiplVal aipl_fn_cmdBuild(AiplVal v_cliArgs, AiplVal v_isBun
       return aipl_int(1LL);
     }
     v_srcText = aipl_fn_readFile(v_inputFile);
-    AiplVal _tup_34419 = aipl_fn_executeCliBuildApkContainer(v_srcText, aipl_member_get_idx(v_cfg, 2, "appId"), aipl_member_get_idx(v_cfg, 3, "appName"));
-    v_code = aipl_index_get(_tup_34419, aipl_int(0));
-    v_crc = aipl_index_get(_tup_34419, aipl_int(1));
-    v_sig = aipl_index_get(_tup_34419, aipl_int(2));
+    AiplVal _tup_34424 = aipl_fn_executeCliBuildApkContainer(v_srcText, aipl_member_get_idx(v_cfg, 2, "appId"), aipl_member_get_idx(v_cfg, 3, "appName"));
+    v_code = aipl_index_get(_tup_34424, aipl_int(0));
+    v_crc = aipl_index_get(_tup_34424, aipl_int(1));
+    v_sig = aipl_index_get(_tup_34424, aipl_int(2));
     if (aipl_truthy(aipl_neq(v_code, aipl_int(0LL)))) {
       aipl_println(aipl_str_n("Error: failed to build APK container", 36));
       return v_code;
@@ -3513,7 +3513,7 @@ static void aipl_rt_init_globals(void) {
   v_AIPL_DEFERRED_MACRO_SLOT = aipl_str_n("/*@@AIPL_DEFERRED_MACRO_SLOT@@*/", 32);
 }
 
-static const size_t AIPL_EMBEDDED_SOURCE_LEN = 1548792;
+static const size_t AIPL_EMBEDDED_SOURCE_LEN = 1549039;
 
 int main(int argc, char** argv) {
   (void)AIPL_EMBEDDED_SOURCE_LEN;

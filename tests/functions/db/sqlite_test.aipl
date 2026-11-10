@@ -503,16 +503,31 @@ pub fn test_sqlite_sqlTableNew_48(): int:
   ret 0
 
 pub fn test_sqlite_sqlTableFilter_49(): int:
-  let arg_tbl = SqliteTable(name = "test", columns = [], rows = [])
+  let cols = ["id", "name"]
+  let rowAlice = SqliteRow(columns = cols, values = [sqlValInt(101), sqlValStr("Alice")])
+  let rowBob = SqliteRow(columns = cols, values = [sqlValInt(102), sqlValStr("Bob")])
+  let populated = SqliteTable(name = "users", columns = cols, rows = [rowAlice, rowBob])
+  let aliceOnly = sqlTableFilter(populated, "name", "Alice")
+  assertEqStr(aliceOnly.name, "users", "sqlTableFilter preserves table name")
+  assertEqInt(sqlRowCount(aliceOnly), 1, "sqlTableFilter returns matching Alice row")
+  assertEqStr(sqlRowGet(aliceOnly.rows[0], "name").strVal, "Alice", "sqlTableFilter row has Alice")
+  let noneMatch = sqlTableFilter(populated, "name", "Charlie")
+  assertEqInt(sqlRowCount(noneMatch), 0, "sqlTableFilter returns 0 rows when unmatched")
   let edge_tbl = SqliteTable(name = "a", columns = [], rows = [])
-  let arg_colName = "test"
-  let edge_colName = "a"
-  let arg_expectedVal = "test"
-  let edge_expectedVal = "a"
-  let resNom = sqlTableFilter(arg_tbl, arg_colName, arg_expectedVal)
-  let resEdge = sqlTableFilter(edge_tbl, edge_colName, edge_expectedVal)
-  assertEqStr(resNom.name, "test", "sqlTableFilter nominal string matches")
+  let resEdge = sqlTableFilter(edge_tbl, "a", "a")
   assertEqStr(resEdge.name, "a", "sqlTableFilter boundary string matches")
+  assertEqInt(sqlRowCount(resEdge), 0, "sqlTableFilter missing column returns 0 rows")
+
+  mut db = sqliteOpenInMemory()
+  assert(sqliteExec(db, "CREATE TABLE scores (id INTEGER, score REAL)").isOk(), "CREATE TABLE scores")
+  assert(sqliteExec(db, "INSERT INTO scores (id, score) VALUES (1, 95.5)").isOk(), "INSERT float literal 95.5")
+  assert(sqliteExec(db, "INSERT INTO scores (id, score) VALUES (2, 42.25)").isOk(), "INSERT float literal 42.25")
+  let qRes = sqliteQuery(db, "SELECT id, score FROM scores WHERE score = 95.5")
+  assert(qRes.isOk(), "SELECT WHERE float literal succeeds")
+  let qTbl = qRes.unwrap()
+  assertEqInt(sqlRowCount(qTbl), 1, "float literal WHERE matches exact row")
+  assertApproxEq(sqlRowGet(qTbl.rows[0], "score").floatVal, 95.5, 0.0001, "parsed float literal equals 95.5")
+  assertEqInt(sqlRowGet(qTbl.rows[0], "id").intVal, 1, "parsed int literal remains kind int == 1")
   ret 0
 
 pub fn test_sqlite_sqlTableProject_50(): int:

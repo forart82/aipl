@@ -271,11 +271,50 @@ pub fn test_lang_07_elf64_x86_64_print_int_for_and_safe_div(): int:
   let _ = removeFile(elfPath)
   ret 0
 
+pub fn test_lang_07_smt_unannotated_while_prev_index_widening(): int:
+  let aiplBin = resolveAiplCliBin()
+  let srcPath = "/tmp/aipl_lang07_while_widen_ok.aipl"
+  let src = [
+    "module Lang07WhileWiden",
+    "",
+    "pub fn countSignFlips(samples: [float]): int:",
+    "  let n = samples.len",
+    "  if n == 0:",
+    "    ret 0",
+    "  mut flips = 0",
+    "  mut i = 0",
+    "  while i < n:",
+    "    let cur = samples[i]",
+    "    if i > 0:",
+    "      let prev = samples[i - 1]",
+    "      if (prev < 0.0 and cur >= 0.0) or (prev >= 0.0 and cur < 0.0):",
+    "        flips += 1",
+    "    i += 1",
+    "  if i > 0 and i <= n:",
+    "    let last = samples[i - 1]",
+    "    if last > 1000000.0:",
+    "      flips += 0",
+    "  ret flips",
+    "",
+    "pub fn main(): int:",
+    "  ret countSignFlips([1.0, 0.0 - 1.0, 2.0])"
+  ].join("\n") + "\n"
+  let _ = writeFile(srcPath, src)
+
+  let cRes = execCommand(aiplBin, ["check", srcPath])
+  assert(cRes.isOk(), "while-widen check execCommand succeeds")
+  let cOut = cRes.unwrap()
+  assertEqInt(cOut.status, 0, "unannotated while loop with guarded arr[i - 1] in-body and post-loop passes SMT check")
+
+  let _ = removeFile(srcPath)
+  ret 0
+
 fn main(): int:
   assertEqInt(test_lang_07_runtime_int64_overflow_pow_shifts_and_euclid(), 0, "test_lang_07_runtime_int64_overflow_pow_shifts_and_euclid")
   assertEqInt(test_lang_07_runtime_format_path_empty_file_and_map_safety(), 0, "test_lang_07_runtime_format_path_empty_file_and_map_safety")
   assertEqInt(test_lang_07_hir_side_effects_and_constant_floor_div(), 0, "test_lang_07_hir_side_effects_and_constant_floor_div")
   assertEqInt(test_lang_07_smt_octagon_closure_and_floor_div(), 0, "test_lang_07_smt_octagon_closure_and_floor_div")
+  assertEqInt(test_lang_07_smt_unannotated_while_prev_index_widening(), 0, "test_lang_07_smt_unannotated_while_prev_index_widening")
   assertEqInt(test_lang_07_wasm_for_continue_and_i64_bitwise(), 0, "test_lang_07_wasm_for_continue_and_i64_bitwise")
   assertEqInt(test_lang_07_elf64_x86_64_print_int_for_and_safe_div(), 0, "test_lang_07_elf64_x86_64_print_int_for_and_safe_div")
   ret 0

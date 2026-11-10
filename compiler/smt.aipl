@@ -2197,7 +2197,10 @@ pub fn checkStmtListSmt(arena: AstArena, hir: HirModule, mut env: SmtEnv, stmtId
           bi += 1
 
         if invStmtIds.len == 0 and decStmtIds.len == 0:
-          let loopEnv = refineEnvFromCond(arena, envClone(env), st.condExpr, true)
+          let emptyInvsWhile: [int] = []
+          mut loopEnv = widenMutatedVars(arena, envClone(env), st.bodyStmts, emptyInvsWhile)
+          if st.condExpr >= 0:
+            loopEnv = refineEnvFromCond(arena, loopEnv, st.condExpr, true)
           violations = checkStmtListSmt(arena, hir, loopEnv, st.bodyStmts, violations)
         else:
           // 2. Base Case: verify each invariant is not provably false on entry
@@ -2303,7 +2306,8 @@ pub fn checkStmtListSmt(arena: AstArena, hir: HirModule, mut env: SmtEnv, stmtId
       elif st.kind == "For":
         if st.exprId >= 0:
           violations = checkExprViolations(arena, hir, env, st.exprId, violations)
-        mut loopEnv = envClone(env)
+        let emptyInvsFor: [int] = []
+        mut loopEnv = widenMutatedVars(arena, envClone(env), st.bodyStmts, emptyInvsFor)
         if st.exprId >= 0:
           let iterExpr = arena.exprs[st.exprId]
           if iterExpr.kind == "Binary" and (iterExpr.op == ".." or iterExpr.op == "..="):

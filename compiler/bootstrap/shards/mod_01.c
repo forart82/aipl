@@ -884,6 +884,7 @@ __attribute__((hot)) AiplVal aipl_fn_checkStmtListSmt(AiplVal v_arena, AiplVal v
   AiplVal v_bi = aipl_nil();
   AiplVal v_bsId = aipl_nil();
   AiplVal v_bs = aipl_nil();
+  AiplVal v_emptyInvsWhile = aipl_nil();
   AiplVal v_loopEnv = aipl_nil();
   AiplVal v_ii = aipl_nil();
   AiplVal v_invSid = aipl_nil();
@@ -903,6 +904,7 @@ __attribute__((hot)) AiplVal aipl_fn_checkStmtListSmt(AiplVal v_arena, AiplVal v
   AiplVal v_emptyMutsWhile = aipl_nil();
   AiplVal v_mutatedInLoop = aipl_nil();
   AiplVal v_mli = aipl_nil();
+  AiplVal v_emptyInvsFor = aipl_nil();
   AiplVal v_iterExpr = aipl_nil();
   AiplVal v_sIv = aipl_nil();
   AiplVal v_eIv = aipl_nil();
@@ -1141,7 +1143,11 @@ __attribute__((hot)) AiplVal aipl_fn_checkStmtListSmt(AiplVal v_arena, AiplVal v
           aipl_inc_int(&v_bi, 1LL);
         }
         if (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_invStmtIds, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(v_decStmtIds, "len"), aipl_int(0LL)))) : aipl_bool(false)))) {
-          v_loopEnv = aipl_fn_refineEnvFromCond(v_arena, aipl_fn_envClone(v_env), aipl_member_get_idx(v_st, 7, "condExpr"), aipl_bool(true));
+          v_emptyInvsWhile = aipl_array_new(NULL, 0);
+          v_loopEnv = aipl_fn_widenMutatedVars(v_arena, aipl_fn_envClone(v_env), aipl_member_get(v_st, "bodyStmts"), v_emptyInvsWhile);
+          if (aipl_truthy(aipl_ge(aipl_member_get_idx(v_st, 7, "condExpr"), aipl_int(0LL)))) {
+            v_loopEnv = aipl_fn_refineEnvFromCond(v_arena, v_loopEnv, aipl_member_get_idx(v_st, 7, "condExpr"), aipl_bool(true));
+          }
           v_violations = aipl_fn_checkStmtListSmt(v_arena, v_hir, v_loopEnv, aipl_member_get(v_st, "bodyStmts"), v_violations);
         }
         else {
@@ -1232,7 +1238,8 @@ __attribute__((hot)) AiplVal aipl_fn_checkStmtListSmt(AiplVal v_arena, AiplVal v
         if (aipl_truthy(aipl_ge(aipl_member_get(v_st, "exprId"), aipl_int(0LL)))) {
           v_violations = aipl_fn_checkExprViolations(v_arena, v_hir, v_env, aipl_member_get(v_st, "exprId"), v_violations);
         }
-        v_loopEnv = aipl_fn_envClone(v_env);
+        v_emptyInvsFor = aipl_array_new(NULL, 0);
+        v_loopEnv = aipl_fn_widenMutatedVars(v_arena, aipl_fn_envClone(v_env), aipl_member_get(v_st, "bodyStmts"), v_emptyInvsFor);
         if (aipl_truthy(aipl_ge(aipl_member_get(v_st, "exprId"), aipl_int(0LL)))) {
           v_iterExpr = aipl_index_get(aipl_member_get_idx(v_arena, 2, "exprs"), aipl_member_get(v_st, "exprId"));
           if (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_iterExpr, "kind"), aipl_str_n("Binary", 6))) ? aipl_bool(aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get_idx(v_iterExpr, 3, "op"), aipl_str_n("..", 2))) ? aipl_bool(true) : aipl_bool(aipl_truthy(aipl_eq(aipl_member_get_idx(v_iterExpr, 3, "op"), aipl_str_n("..=", 3))))))) : aipl_bool(false)))) {

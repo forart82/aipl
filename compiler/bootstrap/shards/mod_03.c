@@ -782,11 +782,11 @@ __attribute__((hot)) AiplVal aipl_fn_emitWasmStmt(AiplVal v_arena, AiplVal v_hir
     v_out = aipl_fn_emitWasmExpr(v_arena, v_hir, aipl_member_get_idx(v_st, 7, "condExpr"), v_ctx, v_out);
     (aipl_array_push(v_out, aipl_int(0x04LL)), aipl_nil());
     (aipl_array_push(v_out, aipl_int(0x40LL)), aipl_nil());
-    v_ifCtx = ({ AiplVal _bif_134772 = aipl_nil(); if (aipl_truthy(aipl_member_get(v_ctx, "inLoop"))) {
-  _bif_134772 = aipl_struct_new("WasmFnContext", 7, (const char*[]){ "paramNames", "localNames", "stringPool", "loopContinueDepth", "loopBreakDepth", "inLoop", "returnsVal" }, (AiplVal[]){ aipl_member_get(v_ctx, "paramNames"), aipl_member_get_idx(v_ctx, 1, "localNames"), aipl_member_get(v_ctx, "stringPool"), aipl_add(aipl_member_get_idx(v_ctx, 3, "loopContinueDepth"), aipl_int(1LL)), aipl_add(aipl_member_get_idx(v_ctx, 4, "loopBreakDepth"), aipl_int(1LL)), aipl_bool(true), aipl_member_get_idx(v_ctx, 6, "returnsVal") });
+    v_ifCtx = ({ AiplVal _bif_134792 = aipl_nil(); if (aipl_truthy(aipl_member_get(v_ctx, "inLoop"))) {
+  _bif_134792 = aipl_struct_new("WasmFnContext", 7, (const char*[]){ "paramNames", "localNames", "stringPool", "loopContinueDepth", "loopBreakDepth", "inLoop", "returnsVal" }, (AiplVal[]){ aipl_member_get(v_ctx, "paramNames"), aipl_member_get_idx(v_ctx, 1, "localNames"), aipl_member_get(v_ctx, "stringPool"), aipl_add(aipl_member_get_idx(v_ctx, 3, "loopContinueDepth"), aipl_int(1LL)), aipl_add(aipl_member_get_idx(v_ctx, 4, "loopBreakDepth"), aipl_int(1LL)), aipl_bool(true), aipl_member_get_idx(v_ctx, 6, "returnsVal") });
 } else {
-  _bif_134772 = ({ AiplVal _db_res_134771 = aipl_nil();   _db_res_134771 = v_ctx;   _db_res_134771; });
-} _bif_134772; });
+  _bif_134792 = ({ AiplVal _db_res_134791 = aipl_nil();   _db_res_134791 = v_ctx;   _db_res_134791; });
+} _bif_134792; });
     v_bi = aipl_int(0LL);
     while (aipl_truthy(aipl_lt(v_bi, aipl_member_get(aipl_member_get(v_st, "bodyStmts"), "len")))) {
       v_out = aipl_fn_emitWasmStmt(v_arena, v_hir, aipl_index_get(aipl_member_get(v_st, "bodyStmts"), v_bi), v_ifCtx, v_out);
@@ -1493,11 +1493,11 @@ __attribute__((hot)) AiplVal aipl_fn_compileFile(AiplVal v_filePath) {
     }
     return aipl_struct_new("CompileReport", 11, (const char*[]){ "valid", "tokenCount", "declCount", "functionCount", "structCount", "enumCount", "verifiedContracts", "moduleCount", "bundledSource", "diagnostics", "hir" }, (AiplVal[]){ (aipl_truthy((aipl_truthy(aipl_eq(aipl_member_get(v_singleDiags, "len"), aipl_int(0LL))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get(v_graph, "errors"), "len"), aipl_int(0LL)))) : aipl_bool(false))) ? aipl_bool(aipl_truthy(aipl_eq(aipl_member_get(aipl_member_get(v_rootArena, "errors"), "len"), aipl_int(0LL)))) : aipl_bool(false)), aipl_member_get(v_rootTokens, "len"), aipl_member_get(aipl_member_get_idx(v_rootArena, 4, "decls"), "len"), aipl_member_get(aipl_member_get_idx(v_hir, 5, "functions"), "len"), aipl_member_get(aipl_member_get_idx(v_hir, 3, "structs"), "len"), aipl_member_get(aipl_member_get_idx(v_hir, 4, "enums"), "len"), aipl_member_get(v_smtRes, "verifiedContracts"), aipl_member_get(aipl_member_get_idx(v_graph, 1, "modules"), "len"), v_bundled, v_singleDiags, v_hir });
   }
-  v_fullArena = ({ AiplVal _bif_145601 = aipl_nil(); if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_graph, 5, "moduleChunks"), "len"), aipl_int(0LL)))) {
-  _bif_145601 = aipl_fn_compileFrontendParallel(aipl_member_get_idx(v_graph, 5, "moduleChunks"), aipl_member_get_idx(v_graph, 6, "chunkLineOffsets"), aipl_member_get(v_rootSummary, "moduleName"));
+  v_fullArena = ({ AiplVal _bif_145621 = aipl_nil(); if (aipl_truthy(aipl_gt(aipl_member_get(aipl_member_get_idx(v_graph, 5, "moduleChunks"), "len"), aipl_int(0LL)))) {
+  _bif_145621 = aipl_fn_compileFrontendParallel(aipl_member_get_idx(v_graph, 5, "moduleChunks"), aipl_member_get_idx(v_graph, 6, "chunkLineOffsets"), aipl_member_get(v_rootSummary, "moduleName"));
 } else {
-  _bif_145601 = ({ AiplVal _db_res_145600 = aipl_nil();   _db_res_145600 = aipl_fn_parseModule(aipl_fn_tokenizeAipl(v_bundled, aipl_int(0LL)), v_bundled);   _db_res_145600; });
-} _bif_145601; });
+  _bif_145621 = ({ AiplVal _db_res_145620 = aipl_nil();   _db_res_145620 = aipl_fn_parseModule(aipl_fn_tokenizeAipl(v_bundled, aipl_int(0LL)), v_bundled);   _db_res_145620; });
+} _bif_145621; });
   v_unifiedHir = aipl_fn_lowerToHir(v_fullArena, aipl_member_get(v_rootSummary, "moduleName"));
   v_tcRes = aipl_fn_typecheckHir(v_unifiedHir);
   v_smtRes = aipl_fn_verifyContracts(v_unifiedHir);
