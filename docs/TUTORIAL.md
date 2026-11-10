@@ -28,16 +28,15 @@
 
 ## 2. Production Recipes: The AIPL Cookbook
 
-Looking for immediate, copy-pasteable solutions to common systems and application patterns? Browse the [AIPL 50-Recipe Production Cookbook](tutorials/cookbook.md) covering:
+Looking for immediate, copy-pasteable solutions to common systems and application patterns? Browse the [AIPL 51-Recipe Production Cookbook](tutorials/cookbook.md) covering:
 - **Core Systems & Memory** (Recipes 01–06): Scoped scratch arenas, generational handles, ring buffers.
 - **Data Structures & Algorithms** (Recipes 07–12): LRU cache, A* pathfinding, Myers diff, topological sort.
 - **Serialization & Networking** (Recipes 13–18): Safe JSON decoding, streaming HTTP, binary RPC packets.
-- **Concurrency & Multithreading** (Recipes 19–23): Work-stealing pool, actor channels, atomic spinlocks.
-- **Graphics & Visualization** (Recipes 24–30): Sprite batching, 3D orbit camera, particle systems, procedural noise.
+- **Concurrency & Multithreading** (Recipes 19–23): Work-Stealing pool, actor channels, atomic spinlocks.
+- **Graphics, 2.5D Worlds & Visualization** (Recipes 24–30, 51): Sprite batching, continuous 2.5D/3D isometric worlds (`std/gfx25d/*`), 3D orbit camera, particle systems, procedural noise.
 - **User Interface & Layout** (Recipes 31–36): Responsive grid cards, modal dialogs, accessible forms.
 - **Game Engine & Simulation** (Recipes 37–43): Platformer kinematics, spatial hash broadphase, dialogue trees.
-- **Testing, Profiling & Tooling** (Recipes 44–50): Fuzz testing, TAP output, AST splicing.
-
+- **Testing, Profiling & Tooling** (Recipes 44–50): Fuzz testing, TAP output, AST splicing, 4-target parity.
 ---
 
 ## 3. Quickstart Verification Example

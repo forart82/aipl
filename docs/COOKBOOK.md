@@ -1,14 +1,13 @@
-# AIPL 50-Recipe Production Cookbook
+# AIPL 51-Recipe Production Cookbook
 **Single Source of Truth (SSOT) — Production Recipes Routing Hub**
 
 [Home](../README.md) | [Docs Index](INDEX.md) | [Tutorials](tutorials/INDEX.md) | [Cookbook](tutorials/cookbook.md) | [Stdlib Reference](reference/STDLIB_REFERENCE.md) | [CLI Reference](CLI_REFERENCE.md)
 
-> **When to Read This Document**: Read this index to locate immediate, tested, production-ready recipes across all 36 standard library domains. For full source code, contract annotations, and runnable snippets, navigate directly to the complete [50-Recipe Cookbook in docs/tutorials/cookbook.md](tutorials/cookbook.md).
+> **When to Read This Document**: Read this index to locate immediate, tested, production-ready recipes across all 38 standard library domain groups. For full source code, contract annotations, and runnable snippets, navigate directly to the complete [51-Recipe Cookbook in docs/tutorials/cookbook.md](tutorials/cookbook.md).
 
 ---
 
-## Cookbook Category Breakdown (50 Recipes)
-
+## Cookbook Category Breakdown (51 Recipes)
 1. **Category 1: Core Systems & Memory Architecture (Recipes 01–06)**:
    - Scoped Scratch Arena Allocation (`withScratchArena`)
    - Generational Object Pool Management
@@ -54,24 +53,22 @@
    - Multi-Device Input Action Map (Keyboard, Mouse, Gamepad)
    - 16-Voice Polyphonic Audio Tone Synthesis
    - 3D Doppler Spatial Audio Attenuation
-8. **Category 8: 2D & 3D Graphics, Shaders & Particles (Recipes 39–43)**:
+8. **Category 8: 2D, 2.5D & 3D Graphics, Shaders & Particles (Recipes 39–43, 51)**:
    - High-Throughput 2D Sprite Batching
    - 3D Perspective Orbit Camera with Frustum Culling
    - Physically Based Rendering (PBR) Lambertian Mesh
    - Zero-Allocation Burst Particle Emitter
    - Continuous 2D Canvas Affine Matrix Transforms
-   - Continuous 2.5D/3D Isometric Heightfield, Multi-Biome Splatting, 2.5D Lighting, 8-Dir Sprite Rigs & Weather (`std/gfx25d/*`, `beginWorldPass`/`endWorldPass`)
+   - Continuous 2.5D/3D Isometric Heightfield, Multi-Biome Splatting, 2.5D Lighting, 8-Dir Sprite Rigs & Weather (`std/gfx25d/*`, `beginWorldPass`/`endWorldPass` — Recipe 51)
 9. **Category 9: AuraDesign Immediate-Mode UI & Layout (Recipes 44–47)**:
    - Responsive Two-Pass Flexbox & Grid Layout
    - Dynamic Telemetry Sparklines & Gauges
    - Accessible Keyboard-Navigable Form Controls
    - Modal Dialogs & Topmost Dropdown Overlays
-10. **Category 10: ECS, Simulation, AI & Autonomous Tooling (Recipes 48–52)**:
+10. **Category 10: ECS, Simulation, AI & Autonomous Tooling (Recipes 48–50)**:
     - Sparse-Set Generational Entity-Component-System
-    - Composable Behavior Tree AI Decision Making
-    - Deterministic Wave Function Collapse & Noise Procgen
-    - 5-Bound HEBAR Referee & Deterministic IPC Window Handshake (`std/hebar/referee`, `connectTargetWindow`)
-
+    - Composable Behavior Tree AI Decision Making & 5-Bound HEBAR Referee (`std/hebar/referee`, `connectTargetWindow`)
+    - Deterministic Wave Function Collapse, Noise Procgen & 4-Target Fuzzing Parity
 ---
 
 ## Cookbook Verification Example
@@ -81,8 +78,8 @@ module tests.tutorials.cookbook_hub_verify
 import * from "std/prelude"
 
 pub fn verify_cookbook_hub(): int:
-  let recipeCount = 50
-  assertEqInt(recipeCount, 50, "50 production recipes cataloged")
+  let recipeCount = 51
+  assertEqInt(recipeCount, 51, "51 production recipes cataloged")
   ret 0
 ```
 
@@ -90,7 +87,7 @@ pub fn verify_cookbook_hub(): int:
 
 ## Building Continuous & UV-Textured 2.5D Isometric Worlds (`std/gfx25d`)
 
-Use `Camera25D`, `createProceduralTexture`, `createIsometricSpriteSheet`, `drawHeightfieldPatch25D`, `drawHeightfieldPatchTextured25D`, `drawHeightfieldSplat25D`, `drawGroundDecal25D`, `drawSplineRibbon25D`, `drawSplineRibbonTextured25D`, `drawPrism25D`, `drawPrismTextured25D`, `renderLightingPass25D`, `drawIsoSpriteRig25D`, `drawMistPlanes25D`, `drawWeatherParticles25D`, `setDepthTest(true)`, `clearDepth()`, `setBlendMode(mode)`, and `beginWorldPass()` / `endWorldPass()` to render seamless heightfield terrains, multi-biome alpha splatting, UV-scrolled rivers, Z-buffered volumetric buildings, 8-directional sprite rigs, and 2.5D light cookies without flat-shaded diamond tile seams:
+Use `Camera25D`, `createProceduralTexture`, `createIsometricSpriteSheet`, `drawHeightfieldPatch25D`, `drawHeightfieldPatchTextured25D`, `drawHeightfieldSplat25D`, `drawGroundDecal25D`, `drawSplineRibbon25D`, `drawSplineRibbonTextured25D`, `drawPrism25D`, `drawPrismTextured25D`, `renderLightingPass25D`, `stepIsoSpriteRig25D`, `drawSpriteBillboard25D`, `drawIsoSpriteRig25D`, `stepAndDrawRain25D`, `stepAndDrawEmberSmoke25D`, `drawGroundMist25D`, `setDepthTest(true)`, `clearDepth()`, `setBlendMode(mode)`, and `beginWorldPass()` / `endWorldPass()` to render seamless heightfield terrains, multi-biome alpha splatting, UV-scrolled rivers, Z-buffered volumetric buildings, 8-directional sprite rigs, and 2.5D light cookies without flat-shaded diamond tile seams:
 
 ```aipl
 module tests.tutorials.gfx25d_continuous_world_cookbook

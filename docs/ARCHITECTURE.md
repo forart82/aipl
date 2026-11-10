@@ -1749,31 +1749,30 @@ A lightweight (<15KB unminified, 3.65KB gzipped) vanilla JavaScript script:
 
 ---
 
-## 15. The 7-Pillar Language & Engine Architecture (v0.8.0)
+## 15. The 7-Pillar Language & Engine Architecture (v0.9.0)
 
-AIPL v0.8.0 establishes a complete, cohesive systems programming and interactive edge ecosystem structured across 7 foundational pillars:
+AIPL v0.9.0 establishes a complete, cohesive systems programming and interactive edge ecosystem structured across 7 foundational pillars:
 
-### Pillar 1: 3-Layer Stratified Package Hierarchy & Standard Library
-The standard library is structured into 3 architectural layers: Layer 0 Runtime Intrinsics (`std/sys`), Layer 1 Universal Core (`std/core`, `std/math`, `std/collections`, `std/time`, `std/text`, `std/serde`, `std/io`, `std/net`), and Layer 2 Engine Kits (`std/gfx`, `std/ui`, `std/sim`, `std/audio`) with backward-compatible re-export facades. Modules can be imported cleanly via hierarchical dot syntax (`import std.core.math`, `import std.gfx.canvas`, `import std.sys.mem`) or quoted paths (`"std/math"`, `"std/sys/fs"`).
-- **`std/sim/inventory.aipl`**: Generic 2D grid/bin container packing (`gridContainerCreate`, `gridContainerCanFit`, `gridContainerPlace`, `gridContainerRemove`), weighted modifier rolling (`rollWeightedModifier`), transformation recipes (`matchTransformRecipe`), and DAG prerequisite unlocking (`dagCanUnlockNode`, `dagAllocateNodePoint`).
-- **`std/sim/cellular.aipl`**: Generic 2D cellular automata stepping (`cellularStepDensitySwap`), pairwise reaction lookup matrix (`cellularApplyPairwiseRule`), 4-neighbor Laplacian scalar field diffusion (`scalarFieldStepLaplacian`), dirty-chunk bitmask tracking (`dirtyChunkMarkRegion`), and circular stencil stamping (`gridStampCircle`).
-- **`std/ui/datagrid.aipl`**: Generic virtualized data tables, column sorting/filtering, inline sparklines, multi-column swimlane boards, command palette fuzzy search, and multi-select state machine.
-- **`std/ui/nodegraph.aipl`**: Generic cubic Bezier node-graph editor, port hit-testing, topological node evaluation, split dock layout, minimap radar, and undo/redo history stack.
+### Pillar 1: 6-Layer, 38-Domain Stratified Standard Library (`std/<domain>/*.aipl`)
+The standard library comprises **299 `.aipl` modules** across **38 domain groups** (`std/std_root.aipl`, `std/prelude.aipl`, and `37` canonical domain directories) enforced by `tools/verify_stdlib.py` across 6 acyclic layers ($L_0$ Host/Memory Kernels through $L_5$ Simulation, AI, HEBAR & Mechanics):
+- **`std/mechanics/inventory_container.aipl` & `dialogue_dag.aipl`**: Generic 2D grid/bin container packing (`inventoryCanPlaceItem2D`, `inventoryPackItem2D`), weighted loot rolling (`weightedLootTableRoll`), and branching prerequisite DAGs (`objectiveDagNew`, `dialogueAdvanceChoice`).
+- **`std/procgen/cellular_automata.aipl` & `wfc_solver.aipl`**: Deterministic cellular cave smoothing, Wave Function Collapse constraint solving, BSP dungeon graphs, and Simplex/Worley fBm noise fields.
+- **`std/ui/ui_layout.aipl` & `ui_node_graph.aipl`**: Two-pass Flexbox/Grid layout engine, virtualized data tables, sparklines, cubic Bezier node-graph editor, and WCAG 2.1 AA accessibility audits.
+- **`std/gfx25d/*`, `std/hebar/referee.aipl` & `std/hebar/hebar_mod.aipl`**: Continuous 2.5D/3D isometric world engine (`camera25d`, `mesh25d`, `ribbon25d`, `light25d`, `sprite25d`, `weather25d`) and the 5-bound Human-Equivalent Bot Automated Referee.
 
 ### Pillar 2: Directional Lossless Numeric Lattice & Explicit Division
 Enforces the subtyping order `byte <: int <: float`. Uncontextualized silent narrowing from `float` to `int` is rejected at compile time (`[AIPL312]`). Provides fast hardware-inlined postfix conversions (`.i`, `.f`, `.round`, `.floor`, `.ceil`) and integer floor-division operator `//` (`7 // 2 == 3`, `-7 // 2 == -4`, with `//=` assignment operator).
 
-### Pillar 3: Automated `snake_case` -> `camelCase` Self-Healing
-Enforces canonical casing rules (`camelCase` for values/functions, `PascalCase` for types) with automated compile-time diagnostic `AIPL_W1003_SNAKE_CASE_AUTOFIX`. Both `aipl fmt` and `aipl fix` heal identifiers automatically while preserving `@extern` C-FFI calls and string interpolation literals.
+### Pillar 3: Automated Canonicalizer & `snake_case` -> `camelCase` Self-Healing
+Enforces canonical casing rules (`camelCase` for values/functions, `PascalCase` for types) and shortest 2-space indented syntax with automated compile-time diagnostic `AIPL_W1003_SNAKE_CASE_AUTOFIX`. Both `aipl fmt` and `aipl fix` heal identifiers automatically while preserving `@extern` C-FFI calls and string interpolation literals.
 
 ### Pillar 4: Self-Contained Canvas Desktop Engine & System I/O
-Native Linux X11 XIM (`Xutf8LookupString`) and Web IME composition (`getCompositionText()`, `getCompositionCursor()`), zero-dependency clipboard (`getClipboardText()`, `setClipboardText()`), `AuraTextEditBuffer` immediate-mode text editor with undo/redo stacks (`Ctrl+Z`, `Ctrl+Y`), file dialogs (`auraFileDialogStateNew`), and atomic/positional file I/O (`writeFileAtomic`, `fileWriteAt`, `fileTruncate`, `watchDir`).
+Native Linux X11 MIT-SHM / GLX (`Xutf8LookupString`) and Web IME composition (`getCompositionText()`, `getCompositionCursor()`), zero-dependency clipboard (`getClipboardText()`, `setClipboardText()`), `AuraTextEditBuffer` immediate-mode text editor with undo/redo stacks (`Ctrl+Z`, `Ctrl+Y`), file dialogs (`auraFileDialogStateNew`), and atomic/positional file I/O (`writeFileAtomic`, `fileWriteAt`, `fileTruncate`, `watchDir`).
 
-### Pillars 5 & 6: Hardware-Accelerated 3D Engine & Spatial Physics
-Dynamic graphics backend discovery (`isGpuAccelerated()`, `getGraphicsBackendName()`), procedural meshes (`genMeshCube`, `genMeshSphere`), mesh skinning (`skinMeshVertices`), model loaders for `.obj`/`.gltf`/`.glb`, PBR materials (`material3DPbr`, `evaluateMaterial3D`), analytic ray intersections (`rayIntersectSphere`, `rayIntersectAABB`, `rayIntersectMesh`), and continuous collision resolution (`capsuleIntersectsAABB`, `sweepSphereAABB`).
+### Pillars 5 & 6: Hardware-Accelerated 2.5D/3D Engine & Spatial Physics
+Dynamic graphics backend discovery (`isGpuAccelerated()`, `getGraphicsBackendName()`), hardware GLX & software Z-buffering (`setDepthTest`, `clearDepth`), 4 blend modes (`setBlendMode`), Gouraud & UV-textured triangles/quads (`drawTriangle3DGouraud`, `drawQuad3DTextured`), continuous 2.5D isometric worlds (`std/gfx25d/*`), procedural meshes (`genMeshCube`, `genMeshSphere`), mesh skinning (`skinMeshVertices`), `.obj`/`.gltf`/`.glb` loaders, PBR materials (`material3DPbr`, `evaluateMaterial3D`), analytic ray intersections, and continuous collision resolution (`capsuleIntersectsAABB`, `sweepSphereAABB`).
 
 ### Pillar 7: Dynamic Runtime Pools & Register VM
-High-capacity register bytecode VM with dynamic expansion to at least 1,048,576 registers (`getMaxVmRegistersLimit() >= 1048576`) and recursive call stack depth up to at least 65,536 frames (`getMaxCallDepthLimit() >= 65536`).
 
 ### Loop 2 Language Features & Ergonomics
 - **Optional `module` Header & Auto-Prelude**: Module headers (`module Name`) are optional. The compiler automatically imports standard prelude symbols: `std.cli` (`parseCliArgs`), `std.grid` (`gridNew`, `gridSet`, `grid2dNew`, `grid2dSet`), and `std.pathfinding` (`gridAStar`).
@@ -1805,21 +1804,13 @@ The bot engine abstracts operating system and platform interactions via the `IPl
 
 ---
 
-## 17. The 9-Domain Single-Copy Standard Library Taxonomy
+## 17. The 6-Layer, 38-Domain Standard Library Taxonomy (299 Modules)
 
-The standard library organizes 87 standard library modules and 9 runtime foundation modules across 9 orthogonal functional domains:
+The standard library organizes **299 `.aipl` modules** (`262` implementation/root modules + `37` `*_mod.aipl` barrel modules, totaling `4,347` library functions + `32` compiler built-ins = `4,379` callable functions) into a strict 6-layer acyclic dependency DAG verified by `tools/verify_stdlib.py`:
 
-1. **`std/core`**: Essential language primitives, memory arenas, dynamic arrays, strings, collections, math, and numeric conversions (`std.core.math`, `std.core.string`, `std.core.array`, `std.core.arena`, `std.core.collections`).
-2. **`std/io`**: Filesystem operations, standard I/O streams, path manipulation, terminal control, and atomic file utilities (`std.io.fs`, `std.io.io`, `std.io.path`, `std.io.term`, `std.io.cli`).
-3. **`std/data`**: Structured serialization formats, relational data, and cryptographic hashing (`std.data.json`, `std.data.csv`, `std.data.yaml`, `std.data.toml`, `std.data.crypto`, `std.data.db`).
-4. **`std/net`**: Network protocols, HTTP client/server, WebSockets, DNS resolution, and AI agent connectors (`std.net.http`, `std.net.net`, `std.net.dns`, `std.net.ai`).
-5. **`std/ui`**: Immediate-mode declarative UI components, AuraDS design system, text buffers, and layout managers (`std.ui.aura`, `std.ui.ui`).
-6. **`std/gfx2d`**: Hardware-accelerated 2D canvas, sprite rendering, isometric projection, and font blitting (`std.gfx2d.canvas`, `std.gfx2d.iso`, `std.gfx2d.color`, `std.gfx2d.image`).
-7. **`std/gfx3d`**: 3D geometric transformations, camera projections, mesh generation, PBR materials, dynamic lighting, and skeletal IK (`std.gfx3d.geom3d`, `std.gfx3d.transform`, `std.gfx3d.lighting`, `std.gfx3d.skeletal`).
-8. **`std/sim`**: Physics simulation, rigid bodies, spatial audio, particles, navgrid pathfinding, and weather generation (`std.sim.physics`, `std.sim.physics2d3d`, `std.sim.particles`, `std.sim.navgrid`, `std.sim.weather`, `std.sim.spatial_audio`).
-9. **`std/audio`**: Multi-channel audio mixer, DSP synthesis, polyphonic voice pools, and WAV PCM streaming (`std.audio.audio`).
-- **`std/rt`**: Pure-AIPL zero-dependency systems runtime foundation (`std.rt.alloc`, `std.rt.ptr`, `std.rt.canvas_x11`, `std.rt.audio`, `std.rt.string`, `std.rt.map`).
-
-
-
-
+1. **Layer 0 ($L_0$ — Host & Memory Kernels, 23 modules)**: `std/sys/*` (syscalls, FFI, Android NDK), `std/rt/*` (pure-AIPL allocators, strings, arrays, maps, X11 blitter, PCM mixer), `std/alloc/*` (bump arenas, generational pools, ring buffers, GPA).
+2. **Layer 1 ($L_1$ — Core Primitives, Math, Collections & Text, 48 modules)**: `std/std_root.aipl`, `std/prelude.aipl`, `std/math/*`, `std/collections/*`, `std/fmt/*`, `std/regex/*`, `std/time/*`.
+3. **Layer 2 ($L_2$ — Serialization, Compression, Crypto & Database, 32 modules)**: `std/encoding/*`, `std/compress/*`, `std/crypto/*`, `std/db/*`.
+4. **Layer 3 ($L_3$ — Streaming I/O, Filesystem, OS, Concurrency, Net & Test, 46 modules)**: `std/io/*`, `std/fs/*`, `std/os/*`, `std/sync/*`, `std/thread/*`, `std/net/*`, `std/test/*`.
+5. **Layer 4 ($L_4$ — Windowing, Input, Assets, Audio, 2D/2.5D/3D Graphics & UI, 97 modules)**: `std/window/*`, `std/input/*`, `std/asset/*`, `std/audio/*`, `std/gfx/*`, `std/gfx2d/*`, `std/gfx25d/*`, `std/gfx3d/*`, `std/particle/*`, `std/ui/*`.
+6. **Layer 5 ($L_5$ — ECS, Spatial Topologies, Physics, Procgen, AI, HEBAR & Mechanics, 53 modules)**: `std/ecs/*`, `std/spatial/*`, `std/phys2d/*`, `std/phys3d/*`, `std/procgen/*`, `std/ai/*`, `std/hebar/*`, `std/mechanics/*`.

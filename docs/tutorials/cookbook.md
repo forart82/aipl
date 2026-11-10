@@ -1,8 +1,8 @@
 [Home](../../README.md) | [Docs Index](../INDEX.md) | [Tutorials](INDEX.md) | [Cookbook](cookbook.md) | [Stdlib Reference](../STDLIB_REFERENCE.md) | [CLI Reference](../CLI_REFERENCE.md)
 
-# AIPL Practical Production Cookbook: 50 Real-World Recipes
+# AIPL Practical Production Cookbook: 51 Real-World Recipes
 
-> **Overview**: 50 copy-pasteable, battle-tested production recipes for systems programming, data serialization, concurrency, graphics, Aura immediate-mode UI, spatial game worlds, audio synthesis, and automated verification in AIPL.
+> **Overview**: 51 copy-pasteable, battle-tested production recipes for systems programming, data serialization, concurrency, 2D/2.5D/3D graphics, Aura immediate-mode UI, spatial game worlds, audio synthesis, and automated verification in AIPL.
 
 ## Table of Contents
 
@@ -56,6 +56,7 @@
 - [Recipe 48: Drive Autonomous NPCs with Behavior Trees, Utility AI Curves & A* GOAP Planners](#recipe-48-drive-autonomous-npcs-with-behavior-trees-utility-ai-curves--a-goap-planners)
 - [Recipe 49: Balance RPG Stat Modifiers, ARPG Grid Inventories & Economy Sinks/Faucets](#recipe-49-balance-rpg-stat-modifiers-arpg-grid-inventories--economy-sinksfaucets)
 - [Recipe 50: Shrink Property-Based Fuzzing Counterexamples & Verify 4-Target Compiler Parity](#recipe-50-shrink-property-based-fuzzing-counterexamples--verify-4-target-compiler-parity)
+- [Recipe 51: Building Continuous & UV-Textured 2.5D Isometric Worlds (`std/gfx25d`)](#recipe-51-building-continuous--uv-textured-25d-isometric-worlds-stdgfx25d)
 
 ---
 

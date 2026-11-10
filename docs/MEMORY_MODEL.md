@@ -20,7 +20,7 @@ AIPL partitions all runtime allocations into three deterministic tiers:
 
 ```mermaid
 flowchart TD
-    subgraph ThreeTierArchitecture ["AIPL Three-Tier Memory Hierarchy (compiler/codegen_c_or_ir.aipl & std/buffer.aipl)"]
+    subgraph ThreeTierArchitecture ["AIPL Three-Tier Memory Hierarchy (compiler/codegen_c_or_ir.aipl & std/alloc/*)"]
         direction TB
 
         subgraph Tier1 ["Tier 1: Transient Regional Memory"]
@@ -59,7 +59,7 @@ flowchart TD
 | **Tier 3** | `AiplArc<T>` / `DynamicList` | Linear heap buffer ($O(1)$ am.) | Static borrow elision + Bacon-Rajan trial deletion | Deterministic | Long-lived entities, global caches, circular graphs, ECS tables |
 | **DOD Tier** | `buffer[Struct, N]` / Flat Buffer | Contiguous `Float32Array` / SAB | Bulk buffer deallocation ($O(1)$) | **0 ns** (0 alloc) | High-throughput particle systems, physics simulation, WebGPU render buffers |
 
-### 2.1 Data-Oriented Flat Memory & Struct Lowering (`compiler/codegen_c_or_ir.aipl` & `std/buffer.aipl`)
+### 2.1 Data-Oriented Flat Memory & Struct Lowering (`compiler/codegen_c_or_ir.aipl` & `std/alloc/*`)
 
 AIPL complements the three-tier memory hierarchy with a specialized Data-Oriented Design (DOD) lowering engine (`compiler/codegen_c_or_ir.aipl` and `compiler/codegen_ts.aipl`). For high-throughput simulations, physics, particles, and graphics buffers, creating individual heap objects (e.g. `50,000` instances of `class Particle { pos: {x, y}, vel: {x, y} }`) results in catastrophic GC pressure, pointer chasing, and severe L1/L2 cache misses.
 
@@ -71,9 +71,9 @@ The AIPL DOD engine compiles nominal structs and ECS systems into flat, 4-byte-a
 
 ---
 
-## 3. Direct GPU Buffer Streaming: WebGL2 & WebGPU Staging Rings (`std/canvas.aipl` & `compiler/codegen_c_or_ir.aipl`)
+## 3. Direct GPU Buffer Streaming: WebGL2 & WebGPU Staging Rings (`std/gfx/gpu_buffer.aipl` & `compiler/codegen_c_or_ir.aipl`)
 
-High-performance visual computing, compute simulation, and real-time graphics pipelines require zero-copy, stall-free CPU-to-GPU data transfer. AIPL implements dedicated zero-allocation streaming architectures for both WebGL 2.0 and WebGPU in `std/canvas.aipl` and `compiler/codegen_c_or_ir.aipl`.
+High-performance visual computing, compute simulation, and real-time graphics pipelines require zero-copy, stall-free CPU-to-GPU data transfer. AIPL implements dedicated zero-allocation streaming architectures for both WebGL 2.0 and WebGPU in `std/gfx/gpu_buffer.aipl`, `std/gfx2d/shape2d.aipl`, and `compiler/codegen_c_or_ir.aipl`.
 
 ### 3.1 WebGL2 5-Argument `bufferSubData` Mechanics vs Deprecated 3-Arg Slicing
 
@@ -142,7 +142,7 @@ In modern WebGPU pipelines, CPU-to-GPU data transfer operates under strict memor
 
 ```mermaid
 flowchart LR
-    subgraph StagingRing ["WebGPU Triple-Buffered Staging Ring (std/canvas.aipl & compiler/codegen_c_or_ir.aipl)"]
+    subgraph StagingRing ["WebGPU Triple-Buffered Staging Ring (std/gfx/gpu_buffer.aipl & compiler/codegen_c_or_ir.aipl)"]
         direction LR
         Slot0["Staging Buffer 0\n(Frame N: CPU Write)"]
         Slot1["Staging Buffer 1\n(Frame N-1: Copy Transfer)"]
@@ -171,7 +171,7 @@ flowchart LR
 2. **256-Byte WebGPU Alignment**: WebGPU buffer copy operations and dynamic storage buffer offsets must be aligned to 256 bytes (`align_to_256_bytes(size)`). The staging ring rounds buffer sizes up:
    $$\text{alignedBufferSizeBytes} = \left\lceil \frac{\text{bufferSizeBytes}}{256} \right\rceil \times 256$$
 
-### 3.5 Shader Uniform Alignment & std140/WGSL Layout Hazards (`std/canvas.aipl` & `compiler/codegen_c_or_ir.aipl`)
+### 3.5 Shader Uniform Alignment & std140/WGSL Layout Hazards (`std/gfx/gpu_buffer.aipl` & `compiler/codegen_c_or_ir.aipl`)
 
 Uniform buffers bound across host CPU memory and GPU device memory operate under rigorous memory layout standards: OpenGL/WebGL2 **std140** and WebGPU **WGSL**. Mismatches between CPU struct memory layouts and GPU memory layouts lead to silent, hard-to-diagnose data corruption.
 
@@ -409,7 +409,7 @@ pub fn incrementCounter(mut c: Counter, delta: int): Counter:
 
 ## 6. Dynamic Collections Backed by Contiguous Linear Memory
 
-Modern processors feature 64-byte L1 data cache lines. Pointer-chasing node collections (such as linked lists or tree maps) cause pervasive cache misses. AIPL implements dynamic collections over contiguous linear heap buffers (`std/collections.aipl` and `compiler/codegen_c_or_ir.aipl`):
+Modern processors feature 64-byte L1 data cache lines. Pointer-chasing node collections (such as linked lists or tree maps) cause pervasive cache misses. AIPL implements dynamic collections over contiguous linear heap buffers (`std/collections/*` and `compiler/codegen_c_or_ir.aipl`):
 
 ### 6.1 `DynamicList<T>`
 - **Layout**: Contiguous buffer `ptr: NonNull<T>`, `cap: usize`, `len: usize`.
@@ -425,7 +425,7 @@ Modern processors feature 64-byte L1 data cache lines. Pointer-chasing node coll
 - **Layout**: Contiguous linear byte array backed by `DynamicList<u8>`.
 - **Zero-Copy Slicing**: Exposes `&str` directly via `Deref<Target = str>`, supporting $O(1)$ subslice extraction and in-place character appending.
 
-### 6.4 First-Class `ByteBuffer` Builder & Endian Intrinsics (`std/buffer.aipl`)
+### 6.4 First-Class `ByteBuffer` Builder & Endian Intrinsics (`std/io/byte_cursor.aipl`)
 For binary protocols, network packet serialization, cryptographic hashing, and file formats, AIPL provides the `ByteBuffer` dynamic builder and typed `bytes` buffer:
 - **Dynamic Allocation**: `byteBufferAlloc(initialCapacity)` or `ByteBuffer.alloc(capacity)` allocates an expandable contiguous byte buffer.
 - **Typed Endian Writes**:
@@ -449,7 +449,7 @@ pub fn buildHeader(): bytes:
 
 ### 6.5 Contiguous Numeric Buffers & Fast SIMD-Friendly Vector Intrinsics
 
-For numeric computing, audio DSP, physics simulation, and machine learning kernels, AIPL provides contiguous flat numeric buffers with direct scalar element access and vectorized reductions (`compiler/codegen_c_or_ir.aipl` and `std/math.aipl`):
+For numeric computing, audio DSP, physics simulation, and machine learning kernels, AIPL provides contiguous flat numeric buffers with direct scalar element access and vectorized reductions (`compiler/codegen_c_or_ir.aipl` and `std/math/*`):
 
 - **64-bit Integer Buffers (`Int64Buffer`)**:
   - `intBufferNew(size: int)`: Allocates a zero-initialized contiguous buffer of `int64_t` elements.
@@ -468,7 +468,8 @@ For numeric computing, audio DSP, physics simulation, and machine learning kerne
   - `axpyFloats(alpha: float, x: [float], y: [float]) -> [float]`: Scaled vector addition ($\mathbf{y} = \alpha \mathbf{x} + \mathbf{y}$) executing at memory bus bandwidth limits.
 
 ```aipl
-import std.math
+import { intBufferNew, intBufferSet, sumIntsFast, dotProductFloats, axpyFloats } from "std/math/simd"
+import { float } from "std/prelude"
 
 pub fn computeNumericBuffers(): float:
   mut ibuf = intBufferNew(10)
@@ -479,7 +480,9 @@ pub fn computeNumericBuffers(): float:
   let b = [4.0, 5.0, 6.0]
   let dot = dotProductFloats(a, b)
   let axpy = axpyFloats(2.0, a, b)
-  ret dot + axpy[0] + (sum as float)
+  if axpy.len > 0:
+    ret dot + axpy[0] + float(sum)
+  ret dot + float(sum)
 ```
 
 ---

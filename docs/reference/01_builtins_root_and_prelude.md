@@ -936,7 +936,7 @@ pub fn test_std_root_stdlibHasFeature(): int:
 - **Import**: `import * from "std/std_root"`
 - **Receiver**: `None (free function)` | **Parameters**: `none` | **Returns**: `int`
 - **Unit Test**: `tests/functions/core/std_root_test.aipl` | **Example**: `examples/ex_001_hello_world_and_io_cli.aipl`
-- **Behavioral Summary**: Return exact canonical domain subdirectory count `stdlibDomainCount() == 35`.
+- **Behavioral Summary**: Return exact canonical domain subdirectory count `stdlibDomainCount() == 37`.
 
 ```aipl
 module tests.functions.core.std_root_stdlibDomainCount_test
@@ -944,7 +944,7 @@ import * from "std/std_root"
 import * from "std/prelude"
 
 pub fn test_std_root_stdlibDomainCount(): int:
-  assertEqInt(stdlibDomainCount(), 35, "35 canonical domains")
+  assertEqInt(stdlibDomainCount(), 37, "37 canonical domains")
   assertEqInt(stdlibDomainCount(), stdlibCanonicalDomains().len(), "matches array length")
   ret 0
 ```
@@ -977,7 +977,7 @@ pub fn test_std_root_stdlibLayerCount(): int:
 - **Import**: `import * from "std/std_root"`
 - **Receiver**: `None (free function)` | **Parameters**: `none` | **Returns**: `[str]`
 - **Unit Test**: `tests/functions/core/std_root_test.aipl` | **Example**: `examples/ex_003_strings_and_interpolation_cli.aipl`
-- **Behavioral Summary**: Return ordered list of all 35 canonical domain names from `"sys"` (index 0) to `"mechanics"` (index 34).
+- **Behavioral Summary**: Return ordered list of all 37 canonical domain names from `"sys"` (index 0) to `"mechanics"` (index 36).
 
 ```aipl
 module tests.functions.core.std_root_stdlibCanonicalDomains_test
@@ -986,9 +986,9 @@ import * from "std/prelude"
 
 pub fn test_std_root_stdlibCanonicalDomains(): int:
   let doms = stdlibCanonicalDomains()
-  assertEqInt(doms.len(), 35, "35 domains")
+  assertEqInt(doms.len(), 37, "37 domains")
   assertEqStr(doms[0], "sys", "first domain is sys")
-  assertEqStr(doms[34], "mechanics", "last domain is mechanics")
+  assertEqStr(doms[36], "mechanics", "last domain is mechanics")
   ret 0
 ```
 

@@ -2,18 +2,17 @@
 
 # AIPL Standard Library & Domain API Reference Index
 
-> Canonical documentation portal index for all 36 AIPL standard library domains, 290 modules, 4,292 library functions/methods, 32 compiler built-ins (4,324 total functions), and 803 public data types (786 structs, 17 enums).
+> Canonical documentation portal index for all 38 AIPL standard library domains, 299 modules, 4,347 library functions/methods, 32 compiler built-ins (4,379 total functions), and 816 public data types (799 structs, 17 enums).
 
 ## Quick Links
 
-- [Master Standard Library Reference](STDLIB_REFERENCE.md) — 36-Domain lookup tables, layer architecture, and domain overviews.
+- [Master Standard Library Reference](STDLIB_REFERENCE.md) — 38-Domain lookup tables, layer architecture, and domain overviews.
 - [AIPL Language Specification](../SPEC.md) — Formal syntax, types, and semantics.
 - [Progressive Tutorials](../TUTORIAL.md) — 12 guided step-by-step chapters.
-- [Cookbook Recipes](../COOKBOOK.md) — 50 production recipes.
+- [Cookbook Recipes](../COOKBOOK.md) — 51 production recipes.
 - [CLI Reference](../CLI_REFERENCE.md) — Full CLI command manual.
 
-## 36 Domain Reference Manuals
-
+## 38 Domain Reference Manuals
 | Domain # | Domain Name | Target File | Modules | Functions | Types | Architecture Layer & Scope |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | 01 | `builtins_root_and_prelude` | [01_builtins_root_and_prelude.md](01_builtins_root_and_prelude.md) | 3 | 74 | 4 | Layer 0/1: Compiler Intrinsics, Root Metadata & Core Prelude |
@@ -41,7 +40,7 @@
 | 23 | `asset` | [23_asset.md](23_asset.md) | 8 | 159 | 25 | Layer 4: Asset Bundle, APK Container Format, Image Decoder, Atlas Packer, SDF Fonts & GLTF |
 | 24 | `audio` | [24_audio.md](24_audio.md) | 7 | 159 | 25 | Layer 4: Audio Device, Polyphonic Synth, DSP Filters, Mixer & 3D Spatial |
 | 25 | `gfx` | [25_gfx.md](25_gfx.md) | 10 | 55 | 32 | Layer 4: GPU Device, Pipelines, Shaders, Buffers, Textures & PostFX |
-| 26 | `gfx2d` | [26_gfx2d.md](26_gfx2d.md) | 12 | 420 | 65 | Layer 4: 2D Sprite Batches, Camera2D, Shapes, Skeletal Anim, Tilemaps |
+| 26 | `gfx2d` | [26_gfx2d.md](26_gfx2d.md) | 12 | 434 | 65 | Layer 4: 2D Sprite Batches, Camera2D, Shapes, Z-Buffer/Gouraud, Skeletal Anim, Tilemaps |
 | 27 | `gfx3d` | [27_gfx3d.md](27_gfx3d.md) | 11 | 107 | 26 | Layer 4: 3D Camera, Meshes, PBR Materials, Lighting, Decals, Rigging & Skybox |
 | 28 | `particle` | [28_particle.md](28_particle.md) | 8 | 52 | 18 | Layer 4: 2D/3D Particle Emitters, GPU Compute Particles, Ribbons & Affectors |
 | 29 | `ui` | [29_ui.md](29_ui.md) | 14 | 553 | 71 | Layer 4: Immediate-Mode Aura UI, Layout Engine, Widgets, Canvas, Watcher HUD, NodeGraph |
@@ -50,9 +49,11 @@
 | 32 | `phys2d` | [32_phys2d.md](32_phys2d.md) | 10 | 46 | 22 | Layer 5: 2D Rigid Bodies, Dynamic AABB, Broad/Narrow Phase, Joints, Fluids |
 | 33 | `phys3d` | [33_phys3d.md](33_phys3d.md) | 9 | 35 | 17 | Layer 5: 3D Rigid Bodies, Kinematic Character Controllers, Vehicles, Colliders |
 | 34 | `procgen` | [34_procgen.md](34_procgen.md) | 8 | 36 | 19 | Layer 5: Cellular Automata, Dungeon Graphs, Wave Function Collapse, Noise |
-| 35 | `ai` | [35_ai.md](35_ai.md) | 9 | 158 | 37 | Layer 5: Behavior Trees, GOAP, FSM, NavMesh/A*, Steering & HEBAR Referee |
+| 35 | `ai` | [35_ai.md](35_ai.md) | 9 | 165 | 37 | Layer 5: Behavior Trees, GOAP, FSM, NavMesh/A*, Steering & HEBAR Referee |
 | 36 | `mechanics` | [36_mechanics.md](36_mechanics.md) | 5 | 95 | 23 | Layer 5: Stat Modifier Pipelines, Inventories, Dialogue DAGs & Economy Ledgers |
+| 37 | `gfx25d` | [37_gfx25d.md](37_gfx25d.md) | 7 | 34 | 13 | Layer 4: Continuous 2.5D/3D Isometric Camera, Heightfield Splatting, Ribbons, Lighting, Rigs & Weather |
+| 38 | `hebar` | [38_hebar.md](38_hebar.md) | 2 | 16 (re-export) | 2 (re-export) | Layer 5: Canonical Human-Equivalent Bot Automated Referee (`std/hebar/referee`, `std/hebar/hebar_mod`) |
 
 ---
 
-*Total Inventory: 36 Domains, 290 Standard Library Modules, 4,292 Standard Library Functions & Methods + 32 Built-ins = 4,324 Total Functions; 786 Public Structs, 17 Public Enums (803 Total Data Types).*
+*Total Inventory: 38 Domains, 299 Standard Library Modules, 4,347 Standard Library Functions & Methods + 32 Built-ins = 4,379 Total Functions; 799 Public Structs, 17 Public Enums (816 Total Data Types).*

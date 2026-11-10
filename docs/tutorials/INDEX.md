@@ -21,8 +21,8 @@ Welcome to the **AIPL (AI-Programming Language)** progressive curriculum. This l
 | [09](09_3d_graphics_pbr_shaders_and_particles.md) | **3D Graphics, PBR, Shaders & Particles** | 3D orbit/FPS cameras, frustum culling, Cook-Torrance PBR, cascaded shadows, skinning, curl-noise particles | `ex_150`–`ex_189` |
 | [10](10_aura_immediate_mode_ui_and_accessibility.md) | **Aura Immediate-Mode UI & Accessibility** | Flexbox layout, Oklch palettes, WCAG/APCA contrast checks, TextEdit, virtualized DataGrid, node graph | `ex_190`–`ex_201` |
 | [11](11_ecs_spatial_worlds_physics_procgen_and_ai.md) | **ECS, Spatial Worlds, Physics, Procgen & AI** | Archetype ECS, Hex/Iso/Voxel worlds, 2D/3D physics, WFC procgen, A*/JPS/ORCA/GOAP/BehaviorTree AI | `ex_202`–`ex_245` |
-| [12](12_testing_fuzzing_and_multi_target_deployment.md) | **Testing, Property Fuzzing & Multi-Target Deployment** | Assertion matchers, TAP/JUnit runner, property fuzzing, native C99, HTML5 Canvas, WASM, AI agent tooling | `ex_127`–`ex_130`, `ex_246`–`ex_250` |
-| [Cookbook](cookbook.md) | **Practical Production Cookbook** | 50 copy-pasteable production recipes for systems, media, games, and web backends | `ex_001`–`ex_250` |
+| [12](12_testing_fuzzing_and_multi_target_deployment.md) | **Testing, Property Fuzzing & Multi-Target Deployment** | Assertion matchers, TAP/JUnit runner, property fuzzing, native C99, HTML5 Canvas, WASM, Android APK, 2.5D worlds | `ex_127`–`ex_130`, `ex_246`–`ex_263` |
+| [Cookbook](cookbook.md) | **Practical Production Cookbook** | 51 copy-pasteable production recipes for systems, media, 2.5D/3D games, and web backends | `ex_001`–`ex_263` |
 
 ---
 
@@ -98,10 +98,10 @@ pub fn test_prelude_Some(): int:
 
 ---
 
-### Curriculum Section 3: Complete Mapping of All 250 Curated Examples (ex_001..ex_250) & Twin Tests
+### Curriculum Section 3: Complete Mapping of All 263 Curated Examples (ex_001..ex_263) & Twin Tests
 
 #### 1. Concept in 30 Seconds
-Map all 250 curated examples (`118` CLI + `132` Window apps in `examples/ex_001_hello_world_and_io_cli.aipl` .. `ex_250_*.aipl`) and their post-`step_16` twin tests (`tests/examples/ex_001_*_test.aipl` .. `ex_250_*_test.aipl`) across Chapters 01–12.
+Map all 263 curated examples (`118` CLI + `145` Window apps in `examples/ex_001_hello_world_and_io_cli.aipl` .. `ex_263_*.aipl`) and their 1-to-1 twin tests (`tests/examples/ex_001_*_test.aipl` .. `ex_263_*_test.aipl`) across Chapters 01–12.
 
 #### 2. Minimal Runnable Example
 Run or verify this self-contained snippet exercising `pub fn stdlibVersionString(): str:` from `std/std_root.aipl` with `./bin/aipl verify`:
@@ -131,6 +131,8 @@ pub fn test_std_root_stdlibVersionString(): int:
 | `ex_100` | [examples/ex_100_fs_file_atomic_write_cli.aipl](../../examples/ex_100_fs_file_atomic_write_cli.aipl) | `tests/examples/ex_100_fs_file_atomic_write_cli_test.aipl` | `./bin/aipl test tests/examples/ex_100_fs_file_atomic_write_cli_test.aipl` |
 | `ex_200` | [examples/ex_200_ui_anim_spring_transitions_window.aipl](../../examples/ex_200_ui_anim_spring_transitions_window.aipl) | `tests/examples/ex_200_ui_anim_spring_transitions_window_test.aipl` | `./bin/aipl test tests/examples/ex_200_ui_anim_spring_transitions_window_test.aipl` |
 | `ex_250` | [examples/ex_250_mechanics_full_capstone_application_window.aipl](../../examples/ex_250_mechanics_full_capstone_application_window.aipl) | `tests/examples/ex_250_mechanics_full_capstone_application_window_test.aipl` | `./bin/aipl test tests/examples/ex_250_mechanics_full_capstone_application_window_test.aipl` |
+| `ex_259` | [examples/ex_259_continuous_world_25d.aipl](../../examples/ex_259_continuous_world_25d.aipl) | `tests/examples/ex_259_continuous_world_25d_test.aipl` | `./bin/aipl test tests/examples/ex_259_continuous_world_25d_test.aipl` |
+| `ex_263` | [examples/ex_263_isometric_8dir_rig_and_lighting_lab_window.aipl](../../examples/ex_263_isometric_8dir_rig_and_lighting_lab_window.aipl) | `tests/examples/ex_263_isometric_8dir_rig_and_lighting_lab_window_test.aipl` | `./bin/aipl test tests/examples/ex_263_isometric_8dir_rig_and_lighting_lab_window_test.aipl` |
 
 ---
 

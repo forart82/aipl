@@ -9,11 +9,11 @@
 
 ## Canonical Project Architecture & Inventory Counts
 
-- **36 Standard Library Domain Groups**: `2` root modules (`std/std_root.aipl`, `std/prelude.aipl`) + `35` canonical domain directories = **`290` `std/` modules** (`260` implementation modules + `30` barrel modules).
-- **4,324 Total Callable Functions**: **`32` compiler built-ins + `4,292` `std/` functions, constructors & receiver methods**.
+- **38 Standard Library Domain Groups**: `2` root modules (`std/std_root.aipl`, `std/prelude.aipl`) + `37` canonical domain directories = **`299` `std/` modules** (`262` implementation/root modules + `37` barrel modules).
+- **4,379 Total Callable Functions**: **`32` compiler built-ins + `4,347` `std/` functions, constructors & receiver methods**.
 - **263 Curated, Fully-Tested Examples**: `examples/ex_001_*.aipl` through `examples/ex_263_*.aipl` (`118` CLI + `145` interactive Window applications) with 1-to-1 twin unit tests in `tests/examples/`.
 - **37 Architecture Decision Records**: `docs/ADR/ADR-0001-*.md` through `docs/ADR/ADR-0037-*.md` indexed in [`docs/ADR/INDEX.md`](ADR/INDEX.md).
-- **629 Canonical Test Suites**: `250` example twin tests + `356` function test suites + `10` scenario suites + `13` complex system integration suites.
+- **653 Canonical Test Suites**: `263` example twin tests + `365` function test suites + `12` scenario suites + `13` complex system integration suites.
 
 ---
 
@@ -41,7 +41,7 @@ aipl <command> [arguments...] [flags...]
 | [`tokens`](#13-aipl-tokens) | `<file.aipl> [--vocab=sp256k]` | Analyzes tokenomics density across SentencePiece 256k and OpenAI BPE |
 | [`build`](#14-aipl-build--aipl-bundle) | `<file.aipl> [-o <out>] [-g\|--debug-info] [--native\|--c-native\|--c\|--c-modular\|--ts\|--html\|--wasm\|--elf64\|--arm64\|--pure-aipl] [--target <native\|c\|html\|ts\|wasm\|llvm\|x86_64-linux\|arm64-linux\|android-arm64\|apk>]` | Compiles AIPL into native binary, C99, TypeScript, HTML5, WASM32, Android shared library, signed APK, LLVM IR, or direct ELF64 |
 | [`docs`](#15-aipl-docs--aipl-prompt) | `search <q> [--json] \| html [-o <out>] \| index \| tutorial <NN> \| std/<domain> \| topic \| stdlib` | Interactive zero-dependency documentation portal, AST signatures, full-text search, and HTML compiler |
-| [`examples`](#16-aipl-examples) | `list [--all\|--window\|--cli\|<domain>] \| search <query> \| show <id> [--test] \| test <id> \| run <id>` | 258 verified curriculum examples explorer (`ex_001`–`ex_258`), domain filtering, source viewer, and twin test runner |
+| [`examples`](#16-aipl-examples) | `list [--all\|--window\|--cli\|<domain>] \| search <query> \| show <id> [--test] \| test <id> \| run <id>` | 263 verified curriculum examples explorer (`ex_001`–`ex_263`), domain filtering, source viewer, and twin test runner |
 | [`new`](#17-aipl-new) | `<name> [--template=canvas\|cli] [-o <file.aipl>]` | Scaffolds a self-documenting AIPL starter project with C++-style `main()` loop |
 | [`fmt`](#19-aipl-test-aipl-fmt-aipl-lint--aipl-lsp) | `<file.aipl> [--check] [--stdin]` | Formats AIPL source code with canonical 2-space indentation |
 | [`lint`](#19-aipl-test-aipl-fmt-aipl-lint--aipl-lsp) | `<file.aipl> [--fix] [--json]` | Runs static verification and linter diagnostics |
@@ -443,7 +443,7 @@ pub fn test_hex_hexNibbleToChar_1(): int:
 
 ## 12. `aipl verify`
 
-Performs complete static lexical, syntactic, type-checking, and SMT refinement verification on an AIPL source file, emitting machine-actionable single-root JSON (`ADR-0023`). Optionally verifies compiled binary size against strict budget limits via `--check-budget`.
+Performs complete static lexical, syntactic, type-checking, and SMT refinement verification on an AIPL source file, emitting machine-actionable single-root JSON (`ADR-0013` / `ADR-0023`). Transparently runs the idempotent shortest-syntax source canonicalizer on the entry `.aipl` file and resolved project modules on disk (unless `AIPL_NO_AUTO_FMT=1` is set). Optionally verifies compiled binary size against strict budget limits via `--check-budget`.
 
 ### Syntax
 ```bash
@@ -538,7 +538,7 @@ pub fn verify_compiler_codegen_c(): int:
 
 ## 15. `aipl docs` & `aipl prompt`
 
-Provides sub-millisecond, zero-network access to the authoritative AIPL documentation, language grammar, 290 embedded standard library modules across 36 domain directories (`std/<domain>/*.aipl`), 250 canonical examples (`examples/ex_001`–`ex_250`), token-optimized LLM system prompt, full-text & signature search, and static HTML portal compilation directly from the compiled CLI binary.
+Provides sub-millisecond, zero-network access to the authoritative AIPL documentation, language grammar, 299 embedded standard library modules across 38 domain groups (`2` root modules + `37` canonical domain directories `std/<domain>/*.aipl`), 263 canonical examples (`examples/ex_001`–`ex_263`), token-optimized LLM system prompt, full-text & signature search, and static HTML portal compilation directly from the compiled CLI binary.
 
 ### Syntax
 ```bash
@@ -552,13 +552,13 @@ aipl prompt
 ```
 
 ### Subcommands & Capabilities
-- `aipl docs search <query> [--json]`: Instant sub-millisecond full-text and signature search across all 4,292 standard library function signatures, 32 language built-ins, and 250 example programs. Emits highlighted matches with exact `import "std/..."` paths or machine-readable JSON (`{"query": "...", "total_matches": N, "results": [...]}`).
-- `aipl docs html [-o <path>]`: Compiles all embedded Markdown manuals, tutorials, stdlib references, and 250 example links into a standalone, zero-dependency HTML documentation portal (`docs/html/index.html` by default).
+- `aipl docs search <query> [--json]`: Instant sub-millisecond full-text and signature search across all 4,347 standard library function signatures, 32 language built-ins (`4,379` total callable functions), and 263 example programs. Emits highlighted matches with exact `import "std/..."` paths or machine-readable JSON (`{"query": "...", "total_matches": N, "results": [...]}`).
+- `aipl docs html [-o <path>]`: Compiles all embedded Markdown manuals, tutorials, stdlib references, and 263 example links into a standalone, zero-dependency HTML documentation portal (`docs/html/index.html` by default).
 - `aipl docs index`: Renders the master documentation index (`docs/INDEX.md`).
 - `aipl docs tutorial <01..12>`: Renders progressive step-by-step tutorial chapters (`docs/tutorials/<NN>_*.md`).
 - `aipl docs std/<domain>`: Displays the domain reference documentation and extracts live exported function/struct signatures across all modules in `std/<domain>/*.aipl`.
-- `aipl docs stdlib`: Full index of all 290 embedded standard library modules across the 36 domains under `std/`.
-- `aipl docs std/<module>`: Inspects top-of-file `///` module documentation headers, struct definitions, and exported function signatures for a specific module (e.g. `aipl docs std/fs`, `aipl docs std/db`, `aipl docs std/crypto`, `aipl docs std/math`, `aipl docs std/canvas`).
+- `aipl docs stdlib`: Full index of all 299 embedded standard library modules across the 38 domain groups under `std/`.
+- `aipl docs std/<module>`: Inspects top-of-file `///` module documentation headers, struct definitions, and exported function signatures for a specific module (e.g. `aipl docs std/fs`, `aipl docs std/db`, `aipl docs std/crypto`, `aipl docs std/math`, `aipl docs std/gfx2d`).
 - `aipl docs llm` / `aipl docs --llm` / `aipl prompt`: Emits the single-pass, token-optimized (<2,500 tokens) AIPL reference guide for AI coding agents.
 - `aipl docs syntax`: Full language specification and EBNF grammar (`docs/SPEC.md`).
 - `aipl docs canvas`: 2D vector drawing primitives, 4x MSAA, HiDPI, textures, and input polling.
@@ -574,7 +574,7 @@ aipl prompt
 
 ## 16. `aipl examples`
 
-Lists, filters, inspects, executes, or tests the 250 canonical self-contained AIPL examples stored in [`examples/`](../examples) (`ex_001`–`ex_250`) and their twin test suites in `tests/examples/`.
+Lists, filters, inspects, executes, or tests the 263 canonical self-contained AIPL examples stored in [`examples/`](../examples) (`ex_001`–`ex_263`) and their twin test suites in `tests/examples/`.
 
 ### Syntax
 ```bash
@@ -586,12 +586,12 @@ aipl examples run <id|slug> [--window] [--headless] [--frames <N>]
 ```
 
 ### Filtering & Inspection Subcommands
-- `aipl examples list`: Default 36-domain curriculum overview with domain ranges and flagship highlights.
-- `aipl examples list --all`: Lists all 250 verified examples (`ex_001` through `ex_250`) with `[CLI]` and `[WINDOW]` category badges.
-- `aipl examples list --window`: Filters the 132 interactive Window examples.
+- `aipl examples list`: Default 38-domain curriculum overview with domain ranges and flagship highlights.
+- `aipl examples list --all`: Lists all 263 verified examples (`ex_001` through `ex_263`) with `[CLI]` and `[WINDOW]` category badges.
+- `aipl examples list --window`: Filters the 145 interactive Window examples.
 - `aipl examples list --cli`: Filters the 118 command-line CLI examples.
-- `aipl examples list <domain>`: Filters examples by domain keyword (e.g., `aipl examples list crypto`, `aipl examples list math`).
-- `aipl examples search <query>`: Searches all 250 examples by keyword, domain name, or called standard library functions.
+- `aipl examples list <domain>`: Filters examples by domain keyword (e.g., `aipl examples list crypto`, `aipl examples list gfx25d`).
+- `aipl examples search <query>`: Searches all 263 examples by keyword, domain name, or called standard library functions.
 - `aipl examples show <id|slug>`: Displays the complete commented source code for an example program.
 - `aipl examples show <id|slug> --test`: Displays the Option A twin test suite (`tests/examples/ex_NNN_*_test.aipl`) for the targeted example.
 - `aipl examples test <id|slug>`: Directly runs the matching twin test suite via `aipl test`.
@@ -656,10 +656,10 @@ aipl help <symbol>
 - `aipl help quickstart`: 60-second language summary, 2-space indentation rules, `let`/`mut` immutability, `Option`/`Result`, and SMT refinement contracts (`req:` / `ens:`).
 - `aipl help syntax`: Complete lexical & AST grammar reference (modules, imports, structs, enums, receiver methods, closures, pattern matching).
 - `aipl help builtins`: All 32 core language built-in functions with exact signatures and one-line examples.
-- `aipl help std [domain|module|fn]`: Browse all 36 `std/` domain groups, inspect any of the 290 modules, or search 4,292 stdlib functions.
+- `aipl help std [domain|module|fn]`: Browse all 38 `std/` domain groups, inspect any of the 299 modules, or search 4,347 stdlib functions.
 - `aipl help tutorials [1..12]`: Read any of the 12 progressive step-by-step tutorials directly in the terminal.
-- `aipl help cookbook [query]`: Browse or search the catalog of 50 copy-pasteable production recipes.
-- `aipl help examples [domain|cli|window|001..250]`: Interactive 250-example curriculum explorer and twin test navigator.
+- `aipl help cookbook [query]`: Browse or search the catalog of 51 copy-pasteable production recipes.
+- `aipl help examples [domain|cli|window|001..263]`: Interactive 263-example curriculum explorer and twin test navigator.
 - `aipl help errors [E1xx|E2xx|E3xx]`: Compiler diagnostic codes (E1xx syntax, E2xx types, E3xx SMT refinements, E4xx runtime, LINT rules) with before/after autonomous self-repair patterns.
 - `aipl help <symbol>`: Fallback symbol lookup across standard library modules, structs, and functions (e.g. `aipl help Vec2`, `aipl help chacha20`, `aipl help std/math`).
 
@@ -728,7 +728,7 @@ pub fn test_test_runner_registerTestCase_2(): int:
 ```
 
 ### `aipl fmt`
-Formats AIPL source code to enforce strict canonical 2-space indentation, consistent colon blocks, and clean blank line spacing.
+Formats and canonicalizes AIPL source code into the shortest canonical AIPL form: strict 2-space indentation (`:` over `{}`), `ret` over `return`, `elif` over `else if`, `): Type` over `) -> Type`, `and`/`or`/`not` over `&&`/`||`/`!`, single-line `fn(...)` and `struct Name(...)` declarations, and canonical `import { ... } from "std/..."` imports (automatically triggered unless `AIPL_NO_AUTO_FMT=1` is set).
 
 ```bash
 aipl fmt <file.aipl> [--check] [--stdin]
@@ -990,19 +990,3 @@ aipl-shield <command> [flags...]
 | `eject` | | Cleanly strips all shield layers, restores 0644, and uninstalls hooks |
 | `--version` / `-v` | | Displays shield version |
 | `--help` / `-h` | | Displays shield command reference |
-
-
-
-## 12. `aipl verify`
-
-Performs complete static lexical, syntactic, type-checking, and SMT refinement verification on an AIPL source file, emitting machine-actionable single-root JSON (`ADR-0023`). Transparently runs the idempotent shortest-syntax source canonicalizer on the entry `.aipl` file and resolved project modules on disk (unless `AIPL_NO_AUTO_FMT=1` is set). Optionally verifies compiled binary size against strict budget limits via `--check-budget`.
-
-### `aipl fmt`
-Formats and canonicalizes AIPL source code into the shortest canonical AIPL form: 2-space indentation (`:` over `{}`), `ret` over `return`, `elif` over `else if`, `): Type` over `) -> Type`, `and`/`or`/`not` over `&&`/`||`/`!`, single-line `fn(...)` and `struct Name(...)` declarations, and canonical `import { ... } from "std/..."` imports. Automatically triggered on disk during `verify`, `check`, `build`, `run`, `test`, `transpile`, `lint`, `fmt`, `fix`, and `wire`.
-
-```bash
-aipl fmt <file.aipl> [--check] [--stdin]
-```
-
-- `--check`: Dry-run format verification. Exits with code `0` if the file is properly formatted, or exit code `1` if formatting is required.
-- `--stdin`: Reads unformatted source code from standard input (`/dev/stdin`) and prints formatted code directly to standard output. Enables seamless editor formatting pipes (VS Code, Zed, Neovim).

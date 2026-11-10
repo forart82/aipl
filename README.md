@@ -39,7 +39,7 @@ Large Language Models (LLMs) and autonomous AI coding agents have fundamentally 
 4. **Machine-Tractable Agent Interface**: Zero ambiguous terminal text. Diagnostics are emitted as structured JSON conforming to `diagnostic-v1.json`, featuring AST path locators, poisoned symbol cascade suppression, and unified diff candidate repairs.
 
 ### Canonical Architecture & Project Counts
-- **Standard Library Domain Groups**: `2` root modules (`std/std_root.aipl`, `std/prelude.aipl`) + canonical domain directories (including `std/gfx25d` and `std/hebar`) = **`298` `std/` modules** (`267` implementation modules + `31` barrel modules).
+- **38 Standard Library Domain Groups**: `2` root modules (`std/std_root.aipl`, `std/prelude.aipl`) + `37` canonical domain directories (including `std/gfx25d` and `std/hebar`) = **`299` `std/` modules** (`262` implementation/root modules + `37` `*_mod.aipl` barrel modules).
 - **4,379 Total Callable Functions**: **`32` compiler built-ins + `4,347` `std/` functions, constructors & receiver methods** (including `setWindowMode`, `getWindowMode`, `setDepthTest`, `clearDepth`, `setBlendMode`, `getBlendMode`, `blendModeAlpha`, `blendModeAdditive`, `blendModeMultiplied`, `blendModeScreen`, `beginWorldPass`, `endWorldPass`, `drawTriangleGouraud`, `drawTriangle3DGouraud`, `drawQuad3DGouraud`, `drawTriangle3DTextured`, `drawQuad3DTextured`, `createTextureFromRgba`, `createProceduralTexture`, `createIsometricSpriteSheet`, `saveTextureToPpm`, `cloneStruct`, `std/gfx25d/*`, and 5-bound `std/hebar/referee`).
 - **263 Curated, Fully-Tested Examples**: `examples/ex_001_*.aipl` through `examples/ex_263_*.aipl` (`118` CLI + `145` interactive Window applications, including `ex_251`–`ex_252` X11 MIT-SHM desktop apps, `ex_253`–`ex_255` GLX hardware OpenGL games, `ex_256`–`ex_258` polyphonic musical audio workstations, `ex_259` Continuous 2.5D/3D World Engine, `ex_260` Textured 2.5D Village & River, `ex_261` Textured 3D UV Mesh Gallery, `ex_262` Dark-Fantasy Encampment ARPG, and `ex_263` Isometric 8-Dir Rig & 2.5D Lighting Lab) with 1-to-1 twin tests in `tests/examples/`.
 - **Dual Window Backends, Hardware/Software Z-Buffer, 4 Blend Modes, UV Texture Splatting, 2.5D Lighting & Multi-Backend Hardware Audio**: Zero-copy X11 + MIT-SHM (`XShmPutImage`, `setWindowMode("x11")`, `--window-mode=x11`) for desktop apps, X11 + `libGL.so.1` GLX (`glDrawArrays`, `glXSwapBuffers`, `setWindowMode("glx")`, `--window-mode=glx`) with 16-bit hardware/software Z-buffering (`setDepthTest`, `clearDepth`), alpha-tested depth cutouts (`GL_ALPHA_TEST`), 4 canonical blend modes (`alpha`, `additive`, `multiply`, `screen` via `setBlendMode`), per-vertex Gouraud shading (`drawTriangle3DGouraud`, `drawQuad3DGouraud`), UV texture mapping & procedural FBM micro-normal texture/sprite-sheet synthesis (`drawTriangle3DTextured`, `drawQuad3DTextured`, `createProceduralTexture`, `createIsometricSpriteSheet`, `createTextureFromRgba`, `saveTextureToPpm`) for continuous 2.5D/3D ARPG worlds (`std/gfx25d/*`: `camera25d`, `mesh25d`, `ribbon25d`, `light25d`, `sprite25d`, `weather25d`), X11 compositor alpha-channel lock (`glColorMask(1,1,1,0)`), and multi-backend polyphonic audio synthesis (`libpulse-simple.so.0` PulseAudio -> `libasound.so.2` ALSA -> `libSDL2-2.0.so.0` SDL2).
@@ -110,36 +110,28 @@ AIPL is written entirely in AIPL itself, structured into 11 specialized compiler
 10. **`compiler/codegen_c_or_ir.aipl` & `runtime/*` (C99 Native Backend & Modular Runtime)**: Emits portable ISO C99 code (`#include <aipl_runtime.h>` in modular mode or standalone amalgamated C99 via `--c`) with dead post-return fallback suppression (`stmtListTerminatesWithRet`), emits `__attribute__((hot))` on hot-loop functions, lowers struct member reads to $O(1)$ slot indexing (`aipl_member_get_idx`), tags `Vec2`/`Vec3` structs with integer tags for $O(1)$ vector arithmetic, performs on-demand intrinsic macro and JSON decoder assembly (`assembleDeferredC`), and links against the split modular C runtime (`runtime/aipl_runtime.h`, `runtime/rt_core.c`, `runtime/rt_crypto_data.c`, `runtime/rt_sys.c`, `runtime/rt_gui_audio.c`) cached as `.aipl/cache/v1/libaipl_rt-<hash16>.a` and `libaipl_rt_gui-<hash16>.a` with content-addressed C shard caching in `/tmp/aipl-shard-cache/`.
 11. **`compiler/codegen_ts.aipl` & `compiler/codegen_wasm.aipl` (TypeScript/HTML5 & WebAssembly Emitters)**: Direct Canonical HIR lowering to TypeScript 5.x, React 19 JSX, standalone HTML5 bundles (`aipl bundle`), trap-free single-pass Wasm32 binaries (`emitWasm32Bytes`), WASI 0.2 Component Model WIT interfaces (`emitWitInterface`), and self-contained runnable Browser WebAssembly Host bundles (`emitWasmHtml5Bundle` -> `<app>_wasm.html`).
 
-### 2.2 The Standard Library Modules & Pure-AIPL Runtime (`std/*.aipl`, `std/rt/*.aipl`)
+### 2.2 The 38-Domain Standard Library & Pure-AIPL Runtime (`std/<domain>/*.aipl`)
 
-AIPL ships with a comprehensive, single-responsibility standard library and runtime comprising 87 standard library modules (`std/*.aipl`) and 9 pure-AIPL runtime foundation modules (`std/rt/*.aipl`, 96 modules total), each documented with a standardized top-of-file `///` specification header (`# Module`, `## Purpose & Domain Scope`, `## Exported Types & Functions`, `## Usage Example`, `## Target Compatibility`) covering all foundational algorithms, data structures, graphics, dynamic lighting, skeletal IK animation, 3D positional audio, procedural weather & fractal lightning, 3D color grading LUTs, N-body point-mass gravity wells, revenue analytics, responsive UI, document generation, networking, systems, memory arenas, AI agent tooling, and native FFI needs:
+AIPL ships with a strictly layered, application-agnostic standard library and pure-AIPL runtime comprising **299 `.aipl` modules** (`262` implementation/root modules + `37` `*_mod.aipl` barrel modules) across **38 domain groups** (`std/std_root.aipl` + `std/prelude.aipl` + `37` canonical domain directories) and **4,379 callable functions** (`32` compiler built-ins + `4,347` `std/` functions), verified by `tools/verify_stdlib.py` across 6 acyclic dependency layers ($L_0$–$L_5$):
 
-- **Collections & Data Structures**: `std/array.aipl`, `std/collections.aipl`, `std/grid.aipl`, `std/heap.aipl` (generic binary min-heap and max-heap priority queues: `newMinHeap`, `newMaxHeap`, `push`, `pop`, `peek`, `peekPriority`, `len`, `isEmpty`), `std/pool.aipl`, `std/sort.aipl`, `std/string.aipl`.
-- **Math, Physics, Lighting, Skeletal IK, Spatial Audio, Weather, Color LUTs, Gravity, Analytics, Simulation & Geometry**: `std/geom2d.aipl`, `std/geom3d.aipl` (including `computePointLightAttenuation`, `drawBillboardSprite3D`, and `drawFirstPersonViewmodelPrism`), `std/sim/inventory.aipl` (generic 2D grid/bin container packing `gridContainerCreate`/`gridContainerCanFit`/`gridContainerPlace`/`gridContainerRemove`, weighted modifier table rolling `rollWeightedModifier`, N-to-1 recipe matching `matchTransformRecipe`, DAG prerequisite unlocks `dagCanUnlockNode`/`dagAllocateNodePoint`), `std/sim/cellular.aipl` (generic 2D cellular automata stepping `cellularStepDensitySwap`, pairwise reaction matrix `cellularApplyPairwiseRule`, 4-neighbor Laplacian scalar diffusion `scalarFieldStepLaplacian`, dirty-chunk tracking `dirtyChunkMarkRegion`, circular stencil stamping `gridStampCircle`), `std/lighting.aipl` (`LightSource3D`, `lightComputePointAttenuation`, `lightComputeLambertDiffuseRGB`, `lightCast2DShadowVisibility`, `lightComputeSpotConeAttenuation`, `lightComputeLightningFlashAmbientBoost`, `lightComputeNvgPhosphorGain`), `std/skeletal.aipl` (`BoneJoint2D3D`, `skelForwardKinematics2D_X`, `skelForwardKinematics2D_Y`, `skelSolveTwoBoneIKAngleDeg`, `skelInterpolateKeyframeHermite`, `drawSkelArticulatedBiped2D`), `std/spatial_audio.aipl` (`SoundEmitter3D`, `audioComputeDistanceGain`, `audioComputeStereoPan2D`, `audioComputeDopplerPitchMultiplier`, `audioComputeWallOcclusionLowpass`, `audioComputeReverbDecayGain`, `audioComputeThunderDelaySeconds`, `audioComputeC4BeepIntervalMs`, `drawFxSpatialSoundWaveRings2D`), `std/weather.aipl` (`WeatherState3D`, `weatherComputeRainWindDriftX`, `weatherComputeSnowTurbulenceOffset`, `weatherStepFractalLightningMidpointX`, `weatherStepFractalLightningMidpointY`, `procgenValueNoise2D`, `procgenFbmTerrainHeight`, `procgenJitterSketchCoord`, `drawFxFractalLightningBolt2D`, `drawFxWeatherPrecipitationOverlay2D`), `std/lut.aipl` (`ColorGradeLut3D`, `lutEvalCubicCurveChannel`, `lutApplyLevelsGammaChannel`, `lutMapGradientStopColor`, `drawFxNightVisionPhosphorScanlines2D`), `std/gravity.aipl` (`GravityWellNode2D`, `gravComputePointWellAccelX`, `gravComputePointWellAccelY`, `gravComputeRadialBlastFalloff`, `drawFxGravityWellFieldLines2D`), `std/analytics.aipl` (`commComputeTieredAcceleratorPayout`), `std/iso.aipl` (isometric 2.5D projection, axial hex grids, heightfields, and portal geometry: `IsoCamera25D`, `HexCoordAxial`, `isoSortIndicesByDepth`, `drawIsoShadow`, `drawIsoLightHalo`, `drawIsoTexturedTile`, `drawIsoAutomapDiamond`, `tileWorldToIsoScreenX`, `tileWorldToIsoScreenY`, `tileIsoScreenToWorldX`, `tileIsoScreenToWorldY`, `tileHexAxialToPixelX`, `tileHexAxialToPixelY`, `tileHexAxialDistance`, `tileIsChunkInViewportFrustum`, `tileBilinearHeightSample`, `tileComputeLightRadiusFogAlpha`, `tileComputePortalTeleportX`, `tileComputePortalTeleportY`, `tileComputePortalFormationSlotX`, `tileComputePortalFormationSlotY`, `tileComputePortalVortexX`, `tileComputePortalVortexY`, `drawTileIsoDiamondWireframe`, `drawTileHeightfieldPrism25D`), `std/math.aipl` (SIMD auto-vectorization analysis `analyzeSimdLoopAutoVectorization`, unrolled vector intrinsics `simdDotProduct8Wide`, `simdAxpy8Wide`, `simdFma4Wide`, `simdMatmul4x4Tiled`, 64-bit bitboard operations `popcnt64`, `ctz64`, `clz64`, and robust math `ldexpFloat`, `sqrtSafePrescaled`), `std/navgrid.aipl` (`NavWaypoint`, `GravitySource`, `navHeuristicOctile`, `navStepTowardTarget`, `navBresenhamLineOfSight`, `navComputeBhopVelocity`, `navComputeGravityAccel`, `navStepGameOfLifeCell`, `navIsWithinLeashRadius`, `navComputeUpkeepTaxPct`, `navStepCellularPipeTransfer`, `navComputeNavMeshAreaCost`, `navComputeSoundPropagateRadius`, `navStepRayLogicGatePropagation`, `drawNavRadarMinimap`, `drawPerspectiveHorizonGrid`, `drawNavLeashRadiusRing`), `std/pathfinding.aipl`, `std/physics.aipl`, `std/physics2d3d.aipl` (`RigidBody3D`, `AABBBox3D`, `physIntegrateSymplecticEuler`, `physCheckAabbOverlap2D`, `physCheckAabbOverlap3D`, `physCheckSphereOverlap3D`, `physResolveElasticImpulse1D`, `physSpringDamperForce`, `physComputeSobelNormalRGB`, `physToroidalWrapCoord`, `physComputeGravFieldInverseSq`, `physReflectVelocityWall2D`, `physBitwisePhotonFilter30Bit`, `physComputeAcousticWaveNext`, `physComputeBallisticShieldReflectAngleDeg`, `physEvaluateSensorThresholdGate`, `drawPhysVelocityVectorArrow`), `std/random.aipl`, `std/spline.aipl`, `std/spring.aipl`, `std/transform.aipl`, `std/viewport.aipl` (dynamic aspect-ratio preserving viewport scaling `computeAspectViewport`, display-to-logical mouse unprojection `unprojectMouseX`/`unprojectMouseY`, letterbox/pillarbox bars `drawAspectLetterboxBars`, `viewportClampScrollOffset`, `viewportWrapToroidalPoint`, `viewportPanZoomBoardToScreenX`, `viewportPanZoomBoardToScreenY`, `viewportComputeReplayTimelineScrubTick`, `viewportComputePipInsetRectX`, `viewportComputePipInsetRectY`, `viewportSnapCursorToPerspectiveRayX`, `viewportSnapCursorToPerspectiveRayY`, `viewportComputeHistogramBinHeight`, `VanishingPointGuide2D`, `perspProjectToVanishingPointX`, `perspProjectToVanishingPointY`, `warpComputeLiquifyRadialDisplaceX`, `warpComputeLiquifyRadialDisplaceY`, `drawViewportMinimapFrame`, `drawViewportQuadrantGrid`, and HUD telemetry `drawViewportResolutionHudBadge`), `std/worldgen.aipl` (multi-perspective 2D/3D procedural environment, block/corridor, sky/floor horizon, weather particle, 3D turntable pedestal `worldRenderTurntablePedestal3D`, gravity well ring `worldRenderGravityWellRings`, `worldRenderNormalMapReliefQuad`, `worldRenderToroidalWrapGrid`, `worldComputeBreakableShardTrajectory`, and `worldEvaluateChemicalMixStoichiometry` generator across `TopDown2D`, `Iso25D`, `FixedCam3D`, `FirstPerson3D`, and `FreeOrbit3D`), `std/charbody.aipl` (procedural multi-perspective articulated 14-joint humanoid character rig `solveHumanoidJoints`, `drawCharacterBody`, `drawCharacterInspectorPreview`, `drawCharacterWeaponViewmodel3D`, `drawCharacterOnionSkinGhost`, `computeWeaponSilencerSpreadMod`, `drawCharacterWeaponSilencerAttachment`, `rollItemAffixBonus`, `charStepMercenaryFollowAI`, `charComputeSunderCharmResist`, `charComputeAttackFrameBreakpoint`, `computeLinearScaledCost`, `recipeOutputLevel`, `inventorySlotCanAccept`, `charComputeUltimateLv6CooldownSec`), `std/particles.aipl` (stateful multi-emitter particle systems, ribbon trails `ParticleRibbonNode2D`, `fxUpdateParticleTrailNodeX`, `fxUpdateParticleTrailNodeY`, `drawFxRibbonSegment2D`, `particleComputeRadialAttractorDv`, `drawParticleVelocityVectors`, `drawSoapPolymerLinkNetwork`, `drawBleedHemorrhageBurst`).
-- **Graphics, Audio, UI & Game Systems**: `std/anim.aipl` (2D skeletal FK/IK & animation state machines), `std/asset.aipl`, `std/audio.aipl` (16-voice polyphonic DSP audio synthesizer, 44.1kHz 16-bit PCM WAV RIFF loader, spatial audio, and `[float]`/`[int]` sample array playback via `playPcmBuffer`), `std/aura.aipl` (`AuraDS 6.8` with translucent `auraScrimColor`/`auraGlassColor`, `auraHsvColorWheel`, `auraSplitDiffView`, `auraInlineMathPill`, `auraKillFeedEntryColored`, `auraMinimapRTS`, `auraHeroPortraitStackRTS`, `auraSubgroupStripRTS`, `auraOrbsHealthManaCentered`, `auraFunnelChart`, `auraBossHealthBar`, `auraRadialCooldownSlot`, `auraPixelRulerBar`, `auraTimelineCelStrip`, `auraAutomapOverlay`, `auraStackedAreaChartDomain`, `auraKaTeXMathBlock`, `auraBidirectionalGraph`, `auraKillfeedBanner`, `auraECGHeartbeatMonitor`, `auraThermalScaleLegend`, `auraHeroSkillTreeConnector`, `auraSocketedRuneBadge`, `auraSplitDiffMinimap`, `auraMermaidClassBox`, `auraKanbanSwimlaneHeader`, `auraAnimationOnionSkin`, `auraSpectatorHudBar`, `auraInventoryCombineCard`, `auraSubGridProfilerBar`, `auraTechTreeTierCard`, `auraArpgItemCompareCard`, `auraSankeyConversionFlow`, `auraMermaidSequenceLifeline`, `auraBezierPathInspector`, `auraTacticalRadarMinimap`, `auraPuzzleWireCircuitBox`, `auraParticleSpectrumHistogram`, `auraReplayTimelineScrubber`, `auraRealmDifficultyBanner`, `auraDealRoomContractSigner`, `auraKanbanFrontmatterBoard`, `auraSymbolOutlineTree`, `auraColorHarmonyWheelCard`, `auraDemoPlaybackBar`, `auraChemicalMixValvePanel`, `auraFluidStreamlineLegend`, `auraUpkeepScoreSummary`, `auraCubeRecipeScrollCard`, `auraAttributionTouchpointBar`, `auraCalloutFoldableAdmonition`, `auraRefactorRenamePreview`, `auraTimelineKeyframeTrack`, `auraVoiceCommRosterStrip`, `auraSafeCombinationDial`, `auraLogicGateTruthTableCard`, `auraWorldEditorTriggerTree`, `auraRelicKeyShardTracker`, `auraTerritoryQuotaHeatmapCard`, `auraCitationBibtexInspector`, `auraHexBinaryInspectorStrip`, `auraCMYKSoftProofHistogram`, `auraBuyMenuEquipmentCard`, `auraSurvivalItemExamineCard`, `auraParticleSpectrometerCard`, `auraHeroTomeTavernCard`, `auraMercenaryEquipmentCard`, `auraForecastWaterfallCard`, `auraEquationNumberedBlock`, `auraDiffSideBySideGutter`, `auraLayerBlendChannelStrip`, `auraBhopVelocityVectorCard`, `auraItem3DTurntableModal`, `auraGravityFieldPotentialCard`, `auraMercenaryShopStockStrip`, `auraWorldEventWalksBanner`, `auraMonteCarloForecastCard`, `auraSpatialCanvasMinimapCard`, `auraDebuggerCallStackStrip`, `auraOnionSkinTimelineBar`, `auraNetGraphTelemetryStrip`, `auraGalleryPaintingPuzzleStrip`, `auraAirVelocityFieldCard`, `auraNeutralCampLeashCard`, `auraGlyphWeaponSwapBar`, `auraUnitEconomicsLtvCacCard`, `auraSm2FlashcardReviewBar`, `auraHttpScratchpadStatusCard`, `auraPbrNormalMapPreviewCard`, `auraPacketNetGraphHud`, `auraRetroSaveStationCard`, `auraPowderNewtonianGravityWellHud`, `auraResourceUpkeepTaxAndShopCard`, `auraSocketedArtifactItemTooltip`, `auraCrmForecastRollupMonteCarloCard`, `auraObsidianCanvasInfiniteBoardHud`, `auraMonacoDiffSplitGutterHud`, `auraPaintLiquifyMeshCageWarpHud`, `auraVoiceLoopbackAndBotNavCard`, `auraChemicalReagentMixLabCard`, `auraPowderSubframePhotonPrtiPortalHud`, `auraUnitControlGroupsAndReplayHud`, `auraRelicCharmInventoryGridHud`, `auraCrmCpqQuoteWaterfallAndRlsAuditCard`, `auraMarkdownTransclusionAndCitationCslHud`, `auraNotepadMacroRecorderAndSnippetTabstopHud`, `auraPaintChannelMixerAndGradientMapLutHud`, `auraSpectatorDirectorAndSoundRadarHud`, `auraAudioReverbAndPartnerSwapHud`, `auraPowderAcousticPressureAndSOAPBubbleHud`, `auraPortalTeleportAnd3DSoundHud`, `auraCompanionEquipAndLootFilterHud`, `auraCrmTerritoryHeatmapAndLiveCallCoachHud`, `auraMarkdownCanvasBoardAndPomodoroFocusHud`, `auraNotepadLspSignatureAndCodeLensBenchmarkHud`, `auraPaintTimelineOnionSkinAndSymmetryMandalaHud`, `auraTacticalShieldAndEnvReverbHud`, `auraRemixModeAndBattleTimerHud`, `auraPowderRayLogicAndTeslaLightningHud`, `auraAltarReviveAndScrollPortalHud`, `auraMysteryVendorAndPersonalizeHud`, `auraCrmAbmIntentSurgeAndChurnHealthHud`, `auraMarkdownPublishGraphAndGitConflictHud`, `auraNotepadMultiCursorAndRegexGroupHud`, `auraPaintPerspectiveRulerAndLiquifyMeshHud`, `auraObjectiveDefuseAndNightVisionHud`, `auraDataDiskPasscodeAndExtractionHud`, `auraPowderSensorArrayAndGravityWellHud`, `auraUltimateAbilityAndMarketOrbHud`, `auraSeasonalArtifactAndPortalHud`, `auraCrmSpiffCommissionAndAsc606WaterfallHud`, `auraMarkdownExcalidrawAndBibtexCslHud`, `auraNotepadDapDebuggerAndWatchTreeHud`, `auraPaintCurvesLutAndGradientMapHud`), `std/ui/datagrid.aipl` (virtualized data tables, column sorting/filtering, inline sparklines, multi-column swimlane boards, command palette fuzzy search, and multi-select state machine), `std/ui/nodegraph.aipl` (cubic Bezier node-graph editor, port hit-testing, topological node evaluation, split dock layout, minimap radar, and undo/redo history stack), `std/canvas.aipl` (hardware-accelerated 2D canvas, configurable frame rate cap `setMaxFps`, `getMaxFps`, `getCurrentFps`, `getFrameTimeMs`, `--MaxFps=<N>`, `--BenchmarkWindowFps`, affine transform stack, `drawPixelBuffer`, `drawCirclesSoA`, `drawRectsSoA`, `drawTexturedWallStrip`, `drawFloorCeilingScanlines`, `drawDepthColumnsSoA`, `drawPerspectiveQuad`, `drawGlowCircle`, `drawDashedRectOutline`, `drawVectorField2D`, `drawCrosshairSniperScope`, `drawIsometricWallSegment`, `drawRadialRadarSweep`, `drawPerspectiveCheckerFloor`, `drawVolumetricFogLayer`, `drawBezierRibbonConnection`, `drawNormalLitSurface`, `drawAudioSpectrumBars`, `drawSubpixelAASpan`, `drawParticleRibbonTrail`, `listRunningWindowsFiltered`), `std/color.aipl`, `std/ecs.aipl` (deterministic 2D ECS bitmask world & spatial broadphase engine), `std/fx.aipl`, `std/game.aipl`, `std/gpu.aipl` (WebGPU `@compute` WGSL pipelines, workgroup shared memory, triple-buffered staging rings, 64-bit `BigInt` bitboard intrinsics), `std/image.aipl`, `std/procgen.aipl` (deterministic dungeons & fBm noise), `std/tilemap.aipl` (2D tilemaps, collision, dialogue & inventory), `std/tween.aipl`, `std/ui.aipl` (including `drawProgressBarUI`, `drawKeycapBadge`, `drawCallStackStripUI`, `drawOnionSkinTimelineBarUI`, `drawNetGraphPacketBar`, `drawSm2FlashcardMasteryBar`, `uiComputeLiquifyPushOffset`, `uiComputeChannelMixerChannel`, `uiComputeMandalaSymmetryPointX`, and `uiComputeMandalaSymmetryPointY`).
-- **Self-Hosted Pure-AIPL Developer Tooling (`tools/*.aipl`)**: `tools/texgen.aipl` (procedural texture, FBM noise, normal-map & sprite-sheet generator), `tools/visual_diff.aipl` (PPM/BMP/PNG visual entropy, luminance contrast, pixel-diff & `--research-audit` / `--purge-and-recapture` clean-slate screenshot verifier against `wave_research_spec.md`), `tools/wasm_harness.aipl` (WASM32 binary section parser & `<app>_wasm.html` validator), `tools/perf_profiler.aipl` (source LOC & tri-target binary size profiler), `tools/subagent_health.aipl` (subagent pair & fleet health inspector), `tools/html_browser_audit.aipl` (HTML5 & Browser WASM bundle + `__aipl_vfs` + `vm.Script` syntax & 2-frame runtime auditor), `tools/asset_auditor.aipl` (9/9 POC tri-target & HEBAR telemetry auditor), `tools/save_validator.aipl` (multi-act/campaign/vault persistent save & progression validator), `tools/net_replay_verifier.aipl` (HEBAR FIFO input-queue, reaction latency & multiplayer LAN/replay verifier), `tools/shader_parity_auditor.aipl` (WebGL2/Canvas2D shader, lighting & AuraDS tri-target parity auditor), `tools/perf_regression_gate.aipl` (0 `_aipl_op` dynamic dispatch & bundle size gate), `tools/hebar_smoke.aipl` (HEBAR bot binary & telemetry verifier), and `tools/fps_window_benchmark.aipl` (mandatory `>= 120.0 FPS` full-resolution X11 window-mode benchmark gate achieving `147.27 FPS – 912.85 FPS` across all 9 POCs).
-- **I/O, Filesystem & Operating System**: `std/buffer.aipl`, `std/cli.aipl`, `std/dotenv.aipl`, `std/env.aipl`, `std/fs.aipl` (including `realpath` symlink resolution), `std/io.aipl` (standard I/O streams and streaming line iterators: `readLines`, `eachLine(path, |line| ...)`, `streamLines`, `streamStdin`), `std/path.aipl`, `std/process.aipl`, `std/term.aipl`.
-- **Networking & Web**: `std/dns.aipl`, `std/html.aipl`, `std/http.aipl`, `std/net.aipl`.
-- **Database & Cryptography**: `std/crypto.aipl`, `std/db.aipl` (embedded SQLite3 driver), `std/uuid.aipl`.
-- **Concurrency & Multithreading**: `std/thread.aipl` (work-stealing threadpool, MPSC channels, multi-core helpers: `hardwareConcurrency()`, `defaultJobs()`, `execParallel(cmds, maxJobs)`), `std/async.aipl`.
-- **Data Formats, Serialization & Parsing**: `std/compress.aipl`, `std/csv.aipl`, `std/diff.aipl`, `std/doc.aipl` (universal document compiler & PDF-1.4/RTF/LaTeX emitter), `std/encoding.aipl`, `std/ini.aipl`, `std/json.aipl`, `std/markdown.aipl`, `std/qrcode.aipl`, `std/regex.aipl`, `std/tar.aipl`, `std/toml.aipl`, `std/xml.aipl`, `std/yaml.aipl`.
-- **Time, Testing & Utilities**: `std/cron.aipl`, `std/date.aipl`, `std/datetime.aipl`, `std/semver.aipl`, `std/test.aipl`, `std/time.aipl`.
-- **Memory & Arenas**: `std/arena.aipl` (scoped scratch arena allocation, active depth introspection, and deterministic $O(1)$ bulk reclamation with automatic return-value evacuation via `arenaMark`, `arenaReset`, `arenaActiveDepth`, `arenaPopEvacuate`, `withScratchArena`, and `with arena:` blocks).
-- **Systems & Kernel ABI**: `std/syscall.aipl` (direct Linux kernel ABI layer: `sysRead`, `sysWrite`, `sysOpenat`, `sysClose`, `sysMmap`, `sysMunmap`, `sysExit`, and `rawSyscall` emitting direct `0x0F 0x05` kernel syscalls without `libc`), `std/ffi.aipl` (zero-FFI dynamic C library loading via `dlopen`/`dlsym`).
-- **Pure-AIPL Runtime Suite (`std/rt/*`)**: Low-level systems foundations replacing legacy C runtime headers with pure AIPL: `std/rt/ptr.aipl` (memory buffer, slice, and bitcast primitives), `std/rt/alloc.aipl` (bump arena & free-list allocator), `std/rt/string.aipl` (zero-copy UTF-8 string slices), `std/rt/array.aipl` (dynamic vectors), `std/rt/map.aipl` (open-addressed SwissTable/FNV-1a hash map), `std/rt/json.aipl` (RFC 8259 parser/serializer), `std/rt/crypto_compress.aipl` (SHA-256/ChaCha20/Deflate), `std/rt/canvas_x11.aipl` (pure X11 framebuffer blitter), and `std/rt/audio.aipl` (PCM audio mixer).
-- **AI & LLM Tooling**: `std/ai.aipl` (multi-provider Gemini/OpenAI/Anthropic/Ollama request generation, tool calling, JSON schema validation, token estimation; game AI: `Agent2D`, `agent2DNew`, `steerSeek`, `steerFlee`, `steerArrive`, `steerPursue`, `agentStep`, `btSuccess`/`btFailure`/`btRunning`, `btInvert`, `btSequence`, `btSelector`, `utilityLinear`, `utilityQuadratic`, `utilitySelectBest`).
+- **Layer 0 ($L_0$ — Host & Memory Kernels)**: `std/sys/*` (direct Linux/POSIX/Android NDK syscalls, mmap, dynamic C FFI, hardware audio/GPU bridges), `std/rt/*` (pure-AIPL bump/free-list allocators, UTF-8 strings, dynamic arrays, Robin Hood maps, X11 framebuffer blitter, PCM mixer), and `std/alloc/*` (bump arenas, generational pools, ring buffers, leak-detecting GPA).
+- **Layer 1 ($L_1$ — Core Primitives, Math, Collections & Text)**: `std/std_root.aipl`, `std/prelude.aipl` (`Option[T]`, `Result[T, E]`, assertions), `std/math/*` (BigInt, Complex/FFT, `Vec2`..`Vec4`, `Mat2`..`Mat4`, `Quat`, splines, SIMD), `std/collections/*` (bitsets, deques, heaps, BTree/HashMaps, graphs), `std/fmt/*`, `std/regex/*` (Thompson NFA & Myers diff), and `std/time/*`.
+- **Layer 2 ($L_2$ — Serialization, Compression, Crypto & Database)**: `std/encoding/*` (JSON, YAML, TOML, XML, Android binary AXML, CSV, HTML, Markdown, Base64/Hex, Protobuf), `std/compress/*` (Deflate, Gzip, Zlib, LZ4, Zstandard, APK Zip), `std/crypto/*` (SHA-256/512, BLAKE3, HMAC, ChaCha20-Poly1305 AEAD, APK Signature Scheme v2), and `std/db/*` (WAL key-value & embedded relational engines).
+- **Layer 3 ($L_3$ — Streaming I/O, Filesystem, OS, Concurrency, Net & Test)**: `std/io/*`, `std/fs/*` (atomic writes, Android VFS, 50ms debounced mobile file watcher), `std/os/*` (CLI subcommands, processes, signals), `std/sync/*`, `std/thread/*` (fibers & Chase-Lev work-stealing job queues), `std/net/*` (TCP/UDP, HTTP, WebSockets, JSON-RPC 2.0, LAN live-reload), and `std/test/*`.
+- **Layer 4 ($L_4$ — Windowing, Input, Assets, Audio, 2D/2.5D/3D Graphics & UI)**: `std/window/*`, `std/input/*`, `std/asset/*` (APK container format, multi-format image codecs, SDF fonts, glTF), `std/audio/*` (16-voice polyphonic synth, ADSR, 3D Doppler), `std/gfx/*`, `std/gfx2d/*` (X11 MIT-SHM & GLX hardware Z-buffer/Gouraud/UV-textured rasterization, Trauma² camera, Wang 47-tile autotilers, skeletal IK), `std/gfx25d/*` (continuous 2.5D/3D isometric camera, alpha-splatted heightfields, spline ribbons, point-light cookies, 8-dir sprite rigs, rain/ember/mist weather), `std/gfx3d/*` (`terrain3d`, PBR, Gribb-Hartmann culling), `std/particle/*`, and `std/ui/*` (AuraDesign immediate-mode flexbox/grid UI & WCAG 2.1 AA accessibility).
+- **Layer 5 ($L_5$ — ECS, Spatial Topologies, Physics, Procgen, AI, HEBAR & Mechanics)**: `std/ecs/*`, `std/spatial/*` (8 world topologies), `std/phys2d/*`, `std/phys3d/*`, `std/procgen/*` (Perlin/Simplex/Worley fBm, WFC, BSP dungeons, cellular automata), `std/ai/*` (A*/JPS, NavMesh, ORCA steering, Behavior Trees, GOAP, Utility AI, vector RAG), `std/hebar/*` (5-bound Human-Equivalent Bot Automated Referee), and `std/mechanics/*` (4-stage stat modifier pipelines, grid inventories, dialogue DAGs, double-entry economy ledgers). See [`docs/STDLIB_REFERENCE.md`](docs/STDLIB_REFERENCE.md) for the complete catalog.
 
-### 2.3 The 5 Compilation Targets
+### 2.3 The 6 Compilation Target Tiers
 
 <a id="23-dual-backends-c99-native--typescripthtml5"></a>
-AIPL lowers Canonical HIR into 5 dedicated target tiers:
+AIPL lowers Canonical HIR into 6 dedicated target tiers:
 
-1. **Direct Native ELF64 Zero-C Machine Code Emitter (`--target x86_64-linux` / `--target arm64-linux`, `--elf64`, `--arm64`, `--pure-aipl`)**: Lowers Canonical HIR directly to standalone native 64-bit ELF machine code executables for Linux `x86_64` (System V AMD64 ABI) and `ARM64` (`aarch64-linux`). Features linear-scan register allocation across GPRs and vector registers, direct Linux system calls (`std/syscall.aipl`), and the pure-AIPL runtime suite (`std/rt/*`) with **zero C compiler dependencies**.
+1. **Direct Native ELF64 Zero-C Machine Code Emitter (`--target x86_64-linux` / `--target arm64-linux`, `--elf64`, `--arm64`, `--pure-aipl`)**: Lowers Canonical HIR directly to standalone native 64-bit ELF machine code executables for Linux `x86_64` (System V AMD64 ABI) and `ARM64` (`aarch64-linux`). Features linear-scan register allocation across GPRs and vector registers, direct Linux system calls (`std/sys/sys_syscall.aipl`), and the pure-AIPL runtime suite (`std/rt/*`) with **zero C compiler dependencies**.
 2. **Native C99 Backend (`--c-native` / `--c` / `--c-modular`)**: Lowers Canonical HIR to optimized, dependency-free ANSI/ISO C99. Incorporates compact 16-byte `AiplVal` tagged unions, `@unboxed` C structs, $O(1)$ indexed struct slot access (`aipl_member_get_idx`), tagged `Vec2`/`Vec3` arithmetic, open-addressing Robin Hood hash tables (`AiplMap` with $O(1)$ `aipl_map_find_slot`), and chained 16MiB arena pages (`AiplArenaPage` with `aipl_arena_pop_evacuate`). Compiles sharded translation units across all CPU cores (`-j <N>`) via host `gcc -O2` or `clang` and links against precompiled content-addressed runtime archives (`.aipl/cache/v1/libaipl_rt-<hash16>.a` and `libaipl_rt_gui-<hash16>.a`) into native standalone binaries with cold-start latency < 100µs.
 3. **TypeScript & React 19 JSX Backend (`--ts`, `--html`)**: Lowers Canonical HIR into idiomatic TypeScript 5.x and React 19 JSX, or self-contained single-file HTML5 web apps (`aipl bundle`). Integrates a hardware-accelerated WebGL2/WebGPU instanced uber-shader batch renderer capable of sustaining 60 FPS across tens of thousands of dynamic sprites.
-4. **Direct Single-Pass WebAssembly 1.0 Emitter (`--target wasm32`)**: Directly emits binary `.wasm` modules with WASI Preview 1 systems calls (`fd_write`, `fd_read`, `clock_time_get`, `proc_exit`), `i64`/`f64` opcodes, and linear-memory bump allocation (`$__heap_ptr`) in a single pass without intermediary text formats or external LLVM dependencies.
-5. **32-Bit 3-Address Register Bytecode VM (`formatVersion = 4`)**: Emits high-throughput 32-bit register bytecode executed via computed-`goto` indirect threaded dispatch in the native runtime, providing sub-millisecond REPL evaluation and test runs.
-
+4. **Direct Single-Pass WebAssembly 1.0 Emitter (`--target wasm32`)**: Directly emits binary `.wasm` modules with WASI Preview 1 system calls (`fd_write`, `fd_read`, `clock_time_get`, `proc_exit`), `i64`/`f64` opcodes, and linear-memory bump allocation (`$__heap_ptr`) in a single pass without intermediary text formats or external LLVM dependencies.
+5. **32-Bit 3-Address Register Bytecode VM (`formatVersion = 4`)**: Emits high-throughput 32-bit register bytecode executed via computed-`goto` indirect threaded dispatch in the native runtime, providing sub-millisecond REPL evaluation, mobile hot-reload, and test runs.
+6. **Native Android NDK & Zero-NDK Signed APK Packager (`--target android-arm64`, `--target apk`)**: Packages AIPL applications into native Android `ANativeWindow` / `AAudio` binaries (`ADR-0034`), offline-capable hot-reload Watcher environments (`ADR-0035`), or deterministic ZIP-aligned, APK Signature Scheme v2 signed `.apk` packages (`ADR-0036`) without external Java/Gradle toolchains.
 - **Compiler-Synthesized JSON Schema & Serde**: Every nominal `struct` and `enum` automatically exposes `.jsonSchema()` emitting a Draft 2020-12 JSON Schema, `.toJson()` for RFC 8259 serialization, and `StructName.fromJson(str)` returning `Result[StructName, str]`.
 
 ### 2.4 Autonomous LLM 100-POC Benchmark Matrix
@@ -160,7 +152,7 @@ AIPL v0.9.0 guarantees sound type safety and formal invariant verification:
 AIPL v0.9.0 establishes a complete, cohesive systems programming and interactive edge ecosystem structured across 7 foundational pillars:
 
 1. **Pillar 1: Hierarchical 9-Domain Standard Library**:
-   Consolidates 298 specialized standard library modules under 9 canonical top-level domains (`core`, `io`, `net`, `data`, `ui`, `gfx2d`, `gfx25d`, `gfx3d`, `ai`) while preserving 100% backward compatibility with legacy `std/<domain>/<module>` paths.
+   Consolidates 299 specialized standard library modules under 9 canonical top-level domains (`core`, `io`, `net`, `data`, `ui`, `gfx2d`, `gfx25d`, `gfx3d`, `ai`) while preserving 100% backward compatibility with legacy `std/<domain>/<module>` paths.
 2. **Pillar 2: Directional Lossless Numeric Lattice & Explicit Division**:
    Enforces the subtyping order `byte <: int <: float`. Uncontextualized silent narrowing from `float` to `int` is rejected at compile time (`[AIPL312]`). Provides fast hardware-inlined postfix conversions (`.i`, `.f`, `.round`, `.floor`, `.ceil`) and integer floor-division operator `//` (`7 // 2 == 3`, `-7 // 2 == -4`).
 3. **Pillar 3: Automatic Source Canonicalizer & `snake_case` -> `camelCase` Self-Healing**:
@@ -169,14 +161,14 @@ AIPL v0.9.0 establishes a complete, cohesive systems programming and interactive
    Native Linux X11 XIM (`Xutf8LookupString`) and Web IME composition (`getCompositionText()`, `getCompositionCursor()`), zero-dependency clipboard (`getClipboardText()`, `setClipboardText()`), `AuraTextEditBuffer` immediate-mode text editor with undo/redo stacks (`Ctrl+Z`, `Ctrl+Y`), file dialogs (`auraFileDialogStateNew`), and atomic/positional file I/O (`writeFileAtomic`, `fileWriteAt`, `fileTruncate`, `watchDir`).
 5. **Pillars 5 & 6: Hardware-Accelerated 2.5D/3D Engine & Spatial Physics**:
    Dynamic graphics backend discovery (`isGpuAccelerated()`, `getGraphicsBackendName()`), hardware OpenGL/GLX & software blend modes (`alpha`, `additive`, `multiply`, `screen`), alpha-cutout depth testing (`setAlphaTestThreshold`), 2.5D isometric camera/tilemap/lighting/sprite/weather pipelines (`std/gfx25d/*`), 3D-to-2.5D sprite sheet baking (`renderMesh3DToSpriteSheet`), procedural meshes (`genMeshCube`, `genMeshSphere`), mesh skinning (`skinMeshVertices`), model loaders for `.obj`/`.gltf`/`.glb`, PBR materials (`material3DPbr`, `evaluateMaterial3D`), analytic ray intersections (`rayIntersectSphere`, `rayIntersectAABB`, `rayIntersectMesh`), and continuous collision resolution (`capsuleIntersectsAABB`, `sweepSphereAABB`).
-6. **Pillar 7: Dynamic Runtime Pools & Register VM**:
-The toolchain provides instant, offline access to reference documentation, signatures, and examples:
-- `aipl --help` & `aipl help <cmd>`: Top-level reference and command-specific help.
-- `aipl docs --list`: Displays all available documentation topics.
-- `aipl docs stdlib`: Lists all 290 standard library modules across 36 domain directories (`std/<domain>/*.aipl`).
-- `aipl docs std/<module>`: Queries module documentation headers (`///`), structs, and function signatures for any standard module (`aipl docs std/fs`, `aipl docs std/lighting`).
-- `aipl examples --list`, `aipl examples show <name>`, `aipl examples run <name>`: Inspects and executes canonical examples.
-- `aipl install-global`: Installs `./bin/aipl` globally into `/usr/local/bin` system PATH.
+6. **Pillar 7: Dynamic Runtime Pools, Register VM & Offline CLI Knowledge Base**:
+   Combines deterministic scoped scratch arenas (`withScratchArena` / `aipl_arena_pop_evacuate`), generational object pools, and the 32-bit 3-address register VM (`formatVersion = 4`) with instant, zero-network CLI documentation and example introspection:
+   - `aipl --help` & `aipl help <cmd>`: Top-level reference and command-specific help.
+   - `aipl docs --list`: Displays all available documentation topics.
+   - `aipl docs stdlib`: Lists all 299 standard library modules across 37 canonical domain directories (`38` domain groups, `std/<domain>/*.aipl`).
+   - `aipl docs std/<domain>/<module>`: Queries module documentation headers (`///`), structs, and function signatures for any standard module (`aipl docs std/fs/fs_mod`, `aipl docs std/gfx25d/gfx25d_mod`).
+   - `aipl examples --list`, `aipl examples show <name>`, `aipl examples run <name>`: Inspects and executes all 263 canonical examples (`ex_001`–`ex_263`).
+   - `aipl install-global`: Installs `./bin/aipl` globally into `/usr/local/bin` system PATH.
 
 Detailed architectural specifications are provided in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md).
 
@@ -474,7 +466,7 @@ Discovers, queries, controls, and injects simulated input into running AIPL desk
 - `aipl window action <target> <bot_script>`: Dispatches simulated mouse clicks, key presses, or moves to the target window (e.g. `"click:100,200;key:Enter"`).
 - Aliases: `aipl screenshot <target> <out_path>` and `aipl record <target> <out_path>`.
 
-#### 16. Single-Instance Mode & IPC Window Management (`std/process`, `std/canvas`)
+#### 16. Single-Instance Mode & IPC Window Management (`std/os/process`, `std/gfx2d/shape2d`)
 - `setSingleInstance(enabled: bool)`: Enforces flock-backed single-instance mutual exclusion using lockfiles under `/tmp/aipl_single_instance_<title>.lock`. When enabled, duplicate processes cleanly exit or fail fast.
 - `isSingleInstance()`: Queries active single-instance lock status.
 - `setWindowPosition(x, y)`: Repositions the native window on the desktop display via native X11 `XMoveWindow`.
@@ -496,11 +488,11 @@ Runs AIPL directly in any modern browser without build tools or `node_modules`:
 - **In-Browser HMR**: Preserves component state (`window.__AIPL_STATE__`) across live code edits.
 - See [docs/BROWSER_ZERO_BUILD.md](docs/BROWSER_ZERO_BUILD.md) for full CDN guide and API reference.
 
-#### 18. VS Code & Cursor Extension (`editors/vscode-aipl/aipl-lang-0.8.0.vsix`)
-AIPL provides a packaged, production-ready extension for VS Code and Cursor:
-- **Single-Command Install**:
+#### 18. VS Code & Cursor Extension (`editors/vscode-aipl/` — v0.9.0)
+AIPL provides a packaged, production-ready extension for VS Code and Cursor (`editors/vscode-aipl/package.json` `0.9.0`, packaged via `python3 tools/package_vsix.py`):
+- **Single-Command Package & Install**:
   ```bash
-  code --install-extension editors/vscode-aipl/aipl-lang-0.8.0.vsix
+  python3 tools/package_vsix.py && code --install-extension editors/vscode-aipl/aipl-lang-0.9.0.vsix
   ```
 - **Language Features**: Complete TextMate grammar highlighting (`syntaxes/aipl.tmLanguage.json`), high-throughput streaming format-on-save (`aipl fmt --stdin`), automated compiler candidate repairs (`aipl fix`), DAP interactive debugger (`aipl dap`), and curated snippets (`withScratchArena`, `jsonSchema`, `fromJson`, `geminiReq`, `openAiReq`, `ffiOpen`).
 
@@ -530,7 +522,7 @@ pub fn test_cli_args_cliAppNew_1(): int:
 
 ### 5.4 Built-in CLI Documentation & Examples (`aipl docs`, `aipl examples`, `aipl --help`)
 
-The `aipl` binary embeds the complete Single-Source-of-Truth (SSOT) language specification, all 290 standard library modules across 36 domain directories (`std/<domain>/*.aipl`), all 250 canonical examples (`examples/ex_001`–`ex_250`), and a token-optimized LLM system prompt (<2,500 tokens) directly inside the executable for sub-millisecond, zero-network retrieval:
+The `aipl` binary embeds the complete Single-Source-of-Truth (SSOT) language specification, all 299 standard library modules across 37 domain directories (`38` domain groups, `std/<domain>/*.aipl`), all 263 canonical examples (`examples/ex_001`–`ex_263`), and a token-optimized LLM system prompt (<2,500 tokens) directly inside the executable for sub-millisecond, zero-network retrieval:
 
 ```bash
 # Display top-level or subcommand-specific CLI help
@@ -542,14 +534,14 @@ aipl build --help
 aipl docs
 aipl docs --llm              # Or 'aipl prompt' for single-pass AI agent context
 aipl docs transforms         # 2D affine matrix stack & 3D depth-sorted pipeline reference
-aipl docs stdlib             # All 290 standard library modules across 36 domain directories
+aipl docs stdlib             # All 299 standard library modules across 37 domain directories (38 domain groups)
 aipl docs --json             # Machine-readable JSON documentation array
 
-# List, inspect, or execute the 250 canonical examples
+# List, inspect, or execute the 263 canonical examples
 aipl examples
 aipl examples show 062       # Print source code of Example 062 (Myers O(ND) Diff & Patch)
 aipl examples 001 --run      # Execute Example 001 directly
-aipl examples 176 --run --headless --frames 5
+aipl examples 259 --run --headless --frames 5
 ```
 
 ### 5.5 Autonomous C++-Style `pub fn main()` Game Loop
@@ -600,7 +592,7 @@ aipl build examples/ex_176_gfx3d_cull3d_frustum_and_occlusion_window.aipl --nati
 
 ### 5.8 Representative Language & Domain Examples (`examples/`)
 
-The [`examples/`](examples) directory provides 250 self-contained canonical programs (`ex_001` through `ex_250`) covering all 35 standard library domains across Layers 0–5:
+The [`examples/`](examples) directory provides 263 self-contained canonical programs (`ex_001` through `ex_263`) covering all 38 standard library domain groups (`2` root modules + `37` domain directories) across Layers 0–5:
 
 | # | Slug | Representative Example File | Target / Layer | Highlights |
 | :---: | :--- | :--- | :--- | :--- |
@@ -620,12 +612,15 @@ The [`examples/`](examples) directory provides 250 self-contained canonical prog
 | **216** | `physics_procgen` | [`examples/ex_216_phys2d_rigid_body_gravity_stacks_window.aipl`](examples/ex_216_phys2d_rigid_body_gravity_stacks_window.aipl) | Layer 5 | 2D symplectic Euler rigid-body world, gravity substepping, and sleep islands window |
 | **245** | `ai_rag_hebar` | [`examples/ex_245_ai_hebar_referee_flow_corridor_window.aipl`](examples/ex_245_ai_hebar_referee_flow_corridor_window.aipl) | Layer 5 | Human-Equivalent Bot Automated Referee (`HEBAR`) & Wilson 85% flow-corridor window |
 | **250** | `mechanics_capstone` | [`examples/ex_250_mechanics_full_capstone_application_window.aipl`](examples/ex_250_mechanics_full_capstone_application_window.aipl) | Layer 5 | Full-stack capstone: ECS tactical arena, alias-method loot, pity timer, and v1->v3 save window |
+| **259** | `world_25d` | [`examples/ex_259_continuous_world_25d.aipl`](examples/ex_259_continuous_world_25d.aipl) | Layer 4/5 | Continuous 2.5D/3D heightfield terrain, Gouraud Z-buffer, spline rivers, and HEBAR bot |
+| **262** | `arpg_25d` | [`examples/ex_262_dark_fantasy_encampment_arpg_window.aipl`](examples/ex_262_dark_fantasy_encampment_arpg_window.aipl) | Layer 4/5 | Multi-biome alpha-splatted 2.5D ARPG encampment, campfire embers, rain, and lighting cookies |
+| **263** | `rig_light_25d` | [`examples/ex_263_isometric_8dir_rig_and_lighting_lab_window.aipl`](examples/ex_263_isometric_8dir_rig_and_lighting_lab_window.aipl) | Layer 4 | 8-directional isometric sprite-sheet character rig, contact shadows, and dynamic 2.5D lighting lab |
 
-### 5.9 250-Example Showcase & Option A Twin Test Suite (`examples/`)
+### 5.9 263-Example Showcase & Option A Twin Test Suite (`examples/`)
 
-The [`examples/`](examples) directory specifies the complete 250-example and Option A 1-to-1 twin test suite architecture across all 28 language and `std/` categories:
+The [`examples/`](examples) directory provides the complete 263-example and Option A 1-to-1 twin test suite architecture across all 38 standard library domain groups:
 - **118 CLI Tools & Systems Utilities**: Covering core AIPL language semantics, `std/sys`, `std/rt`, `std/alloc`, `std/math`, `std/collections`, `std/fmt`, `std/regex`, `std/time`, `std/encoding`, `std/compress`, `std/crypto`, `std/db`, `std/io`, `std/fs`, `std/os`, `std/sync`, `std/thread`, `std/net`, `std/test`, and `std/ai` RAG/embedding pipelines.
-- **132 Interactive Desktop/Web Window Applications**: Covering `std/window`, `std/input`, `std/asset`, `std/audio`, `std/gfx`, `std/gfx2d`, `std/gfx3d`, `std/particle`, `std/ui`, `std/ecs`, `std/spatial`, `std/phys2d`, `std/phys3d`, `std/procgen`, `std/ai`, and `std/mechanics`.
+- **145 Interactive Desktop/Web Window Applications**: Covering `std/window`, `std/input`, `std/asset`, `std/audio`, `std/gfx`, `std/gfx2d`, `std/gfx25d`, `std/gfx3d`, `std/particle`, `std/ui`, `std/ecs`, `std/spatial`, `std/phys2d`, `std/phys3d`, `std/procgen`, `std/ai`, `std/hebar`, and `std/mechanics` (including X11 MIT-SHM desktop apps `ex_251`–`ex_252`, GLX OpenGL games `ex_253`–`ex_255`, polyphonic audio workstations `ex_256`–`ex_258`, and continuous 2.5D/3D isometric worlds `ex_259`–`ex_263`).
 - **Option A Mirrored 1-to-1 Twin Test Standard**: Every `examples/ex_XXX_<name>.aipl` application file is paired with a dedicated twin verification test file at `tests/examples/ex_XXX_<name>_test.aipl`, keeping application entrypoints 100% free of embedded test harness clutter.
 
 ### 5.10 Universal Multi-Instance, Multi-Target HEBAR Bot Engine (`aipl_hebar_bot/`)
@@ -638,7 +633,7 @@ AIPL v0.9.0 features a universal autonomous testing, game playing, and referee b
 - **Multi-Seat IPC Adapter (`aipl_hebar_bot/adapters/ipc_window_adapter.aipl`)**: Dispatches simulated input events across separate OS windows (`targetWindowSeatAction`).
 - **Tri-Target Portability**: Compiles and runs identically as a native binary (`hebar_bot_bin`), single-file HTML5 app (`hebar_bot.html`), or WebAssembly module (`hebar_bot.wasm`), with a live multi-player test arena in `aipl_hebar_bot/demos/ludo_chess_arena.aipl`.
 
-### 5.11 TrueType/Cairo Vector Typography (`std/canvas`)
+### 5.11 TrueType/Cairo Vector Typography (`std/gfx2d/shape2d`, `std/asset/font_sdf`)
 
 AIPL includes vector font rendering backed by Cairo and embedded TrueType rasterizers:
 - **Scalable Font Loading**: `loadFont("sans" | "bold" | "mono" | "serif" | path)` returns a numeric font resource handle `fontId`.
@@ -656,7 +651,7 @@ Real-time 16-voice polyphonic DSP audio synthesizer with zero external dependenc
 - **2D Spatial Audio & Panning**: `computeSpatialGain(listenerX, listenerY, sourceX, sourceY, minDist, maxDist)` for Euclidean distance gain attenuation; `computeStereoPan(listenerX, sourceX, maxSpread)` for constant-power stereo panning; `computeDopplerPitch(baseFreq, relVelocity, soundSpeed)` for frequency Doppler shifts; `playSpatialTone(freq, durationMs, listenerX, listenerY, sourceX, sourceY, maxDist, baseVol)` for distance-attenuated spatial audio playback.
 - **PCM Audio DSP Filters**: `pcmApplyEcho(samples, delaySamples, decay)`, `pcmLowPassFilter(samples, alpha)`, and `pcmComputeRms(samples)` for digital signal processing on 16-bit PCM sample buffers.
 
-### 5.13 Dynamic X11 Window Resizing & Collision-Free `AuraFlowContainer` (`std/aura`)
+### 5.13 Dynamic X11 Window Resizing & Collision-Free `AuraFlowContainer` (`std/ui`)
 
 Responsive UI system designed for dynamic viewport reflow:
 - **Window Resize Handling**: `isWindowResized()` detects geometry changes; `setWindowMinSize(w, h)` clamps minimum desktop window bounds; `auraAutoWindowSize(container, minW, minH, padBottom)` automatically clamps window height to content.
@@ -665,17 +660,17 @@ Responsive UI system designed for dynamic viewport reflow:
 - **Data Visualization & Telemetry**: `auraSparkline(rect, values, minVal, maxVal, lineCol, fillCol)`, `auraCircularGauge(cx, cy, radius, value, minVal, maxVal, label, unit, theme)`, and `auraDataTable(rect, headers, rows, theme)` render high-density telemetry dashboards.
 - **AuraDS 4.0 Extended Themes & Typography**: `auraThemeCyberpunk()`, `auraThemeHighContrast()`, `auraThemeNord()`, `auraThemeSolarized()`, plus typography scale tokens (`auraFontSizeSmall()`, `auraFontSizeBody()`, `auraFontSizeTitle()`, `auraFontSizeDisplay()`, `auraHeading()`, `auraSubheading()`).
 - **Rich Desktop & Web App Widgets**: `auraElevatedCard`, `auraGlassCard`, `auraCollapsiblePanel`, `auraAccordionItem`, `auraSplitContainerVertical`, `auraStatusBar`, `auraMenuBar`, `auraToolbarRibbon`, `auraBreadcrumbs`, `auraPaginationBar`, `auraEmptyStateCard`, `auraAlertBanner`, `auraVirtualizedList`, `auraRichListItem`, `auraPropertyGridRow`, `auraColorSwatchGrid`, `auraLayerListRow`, `auraMarkdownBlock`, `auraCodeBlockView`, `auraFindReplaceBar`, `auraShortcutPill`, `auraSankeyConversionFlow`, `auraMermaidSequenceLifeline`, `auraCommandPaletteModal`, and `auraBezierPathInspector`.
-- **Genre-Authentic Game HUD Helpers**: `auraCrosshairDynamic`, `auraKillFeedEntry`, `auraRadarMinimap`, `auraResourceBarRTS`, `auraCommandCardGrid`, `auraOrbsHealthMana`, `auraECGStatusMonitor`, `auraElementToolbarStrip`, `auraSpectatorHudBar`, `auraInventoryCombineCard`, `auraSubGridProfilerBar`, `auraTechTreeTierCard`, and `auraArpgItemCompareCard` (plus `drawCrosshairSniperScope` and `drawIsometricWallSegment` in `std/canvas` and 8 self-hosted developer tools in `tools/*.aipl` including `tools/perf_profiler_bin`).
+- **Genre-Authentic Game HUD Helpers**: `auraCrosshairDynamic`, `auraKillFeedEntry`, `auraRadarMinimap`, `auraResourceBarRTS`, `auraCommandCardGrid`, `auraOrbsHealthMana`, `auraECGStatusMonitor`, `auraElementToolbarStrip`, `auraSpectatorHudBar`, `auraInventoryCombineCard`, `auraSubGridProfilerBar`, `auraTechTreeTierCard`, and `auraArpgItemCompareCard` (plus `drawCrosshairSniperScope` and `drawIsometricWallSegment` in `std/gfx2d/shape2d` and 8 self-hosted developer tools in `tools/*.aipl` including `tools/perf_profiler_bin`).
 - **Flexbox & Grid Utilities**: `auraFlexRow`, `auraFlexCol`, and `auraGridCell` compute responsive grid cells and split panes.
 
-### 5.14 Built-in Native Screenshot & Video Recording (`std/canvas`, `std/asset`)
+### 5.14 Built-in Native Screenshot & Video Recording (`std/gfx2d/shape2d`, `std/asset`)
 
 Direct framebuffer capture for visual testing and game replay generation:
 - **Instant Screenshot**: `saveScreenshot(path)` captures the active framebuffer directly to PNG format.
 - **Native Video Recording**: `startVideoRecording(path, fps)` initializes an MP4/WebM video stream; `recordVideoFrame()` commits the active frame; `stopVideoRecording()` finalizes the recording.
 - **Headless Video Capture**: Setting `AIPL_VIDEO_PATH="run.mp4"` records complete headless CI runs without requiring a physical monitor.
 
-### 5.15 Universal Multi-Format Image Engine (`std/image`)
+### 5.15 Universal Multi-Format Image Engine (`std/asset/image_codec`)
 
 Pure AIPL image parsing, processing, and encoding engine supporting 12 formats:
 - **Universal Format Detection**: `detectImageFormat(bytes)` identifies `PNG`, `JPEG`, `BMP`, `GIF`, `WEBP`, `PPM`, `PGM`, `TGA`, `SVG`, `ICO`, `TIFF`, and `QOI` via magic bytes.
@@ -683,7 +678,7 @@ Pure AIPL image parsing, processing, and encoding engine supporting 12 formats:
 - **Procedural Textures & Raster Drawing**: `imageCheckerboard(w, h, cellSize, r1, g1, b1, r2, g2, b2)`, `imageLinearGradient(w, h, r1, g1, b1, r2, g2, b2, vertical)`, `imageFillRect(img, rx, ry, rw, rh, r, g, b, a)`, and `imageBlit(dst, src, dx, dy)`.
 - **Image Filters**: `imageBoxBlur(img, radius)`, `imageSepia(img)`, `imagePosterize(img, levels)`, `imageEdgeDetect(img)` (3x3 Sobel convolution), `imageRotate90(img)`, `imageGrayscale(img)`, `imageInvert(img)`.
 
-### 5.16 Universal Document Engine (`std/doc`, `std/yaml`, `std/toml`, `std/ini`)
+### 5.16 Universal Document & Config Engine (`std/encoding/markdown`, `std/encoding/yaml`, `std/encoding/toml`)
 
 Multi-format structured document generation, relational queries, and configuration parsing:
 - **Universal Document Model**: `UniversalDocument`, `newUniversalDocument(title, author)`, `newDocument(title, headers, rows)`, `addDocumentSection(doc, heading, body, level)`.
@@ -694,7 +689,7 @@ Multi-format structured document generation, relational queries, and configurati
 - **Template Rendering & Line Queries**: `docRenderTemplate(template, vars)` for key-value template interpolation with `DocMeta`, and `docSearchLines(text, query)` for line index search queries.
 - **Unified Diff & HTML5 Slide Decks**: `docUnifiedDiff(oldText, newText, oldLabel, newLabel)` for Myers-style unified diffs, and `docMarkdownToSlideDeckHtml(md, deckTitle)` for converting markdown presentations into responsive Material Design 3 HTML5 slide decks.
 
-### 5.17 Complete 2D/3D Game Creation Engine (`std/game`, `std/physics`, `std/fx`, `std/ai`)
+### 5.17 Complete 2D/3D Game Creation Engine (`std/gfx2d/camera2d`, `std/phys2d`, `std/particle`, `std/ai`)
 
 Full-featured game creation stack combining camera feel, physics, steering, behavior trees, utility AI, and particles:
 - **Trauma² Camera**: `Camera2D`, `addCameraTrauma`, `camera2DFollow` implementing Squirrel Eiserloh's quadratic camera shake ($\text{shake} = \text{trauma}^2$).
@@ -705,7 +700,7 @@ Full-featured game creation stack combining camera feel, physics, steering, beha
 - **Verlet Soft-Body & Rope Physics**: `VerletPoint`, `verletPointNew(x, y, pinned)`, `verletIntegrate(p, gx, gy, dt, damping)`, and `verletSolveDistance(a, b, restLen)` for soft-body, cloth, and rope distance constraints.
 - **Visual FX**: `emitExplosionParticles`, `emitSparkTrail`, and `updateFxParticles` for zero-allocation particle bursts.
 
-### 5.18 2D Tilemap Systems, Kinematic Collision & RPG Engines (`std/tilemap`)
+### 5.18 2D Tilemap Systems, Kinematic Collision & RPG Engines (`std/gfx2d/tilemap_renderer2d`, `std/mechanics`)
 
 Grid-based level loading, kinematic character navigation, and narrative data models:
 - **Tilemap Grid**: `Tilemap2D`, `tilemapNew(w, h, tileSize)`, `tilemapFromAscii(rows, tileSize)` parsing ASCII levels with solid obstacle tagging and spawn location extraction.
@@ -720,30 +715,30 @@ Bit-identical procedural level synthesis and continuous multi-scale math:
 - **2D Value Noise & fBm**: `valueNoise2D(x, y, seed)` using cubic Hermite interpolation; `fbm2D(x, y, octaves, persistence, lacunarity, seed)` synthesizing natural fractal elevation maps.
 - **Dungeon & Cave Generators**: `generateDungeonRooms(width, height, maxRooms, tileSize, seed)` carving BSP rooms connected with corridors; `generateCaveCellular(width, height, fillPercent, iterations, tileSize, seed)` running 4-5 cellular automata smoothing passes.
 
-### 5.20 UI Motion, Easing Curves & Physics Springs (`std/tween`)
+### 5.20 UI Motion, Easing Curves & Physics Springs (`std/math/curve`, `std/ui`)
 
 Stateful animation timelines and dynamic physical springs:
 - **11 Robert Penner / MD3 Easing Curves**: `easeLinear`, `easeInQuad`, `easeOutQuad`, `easeInOutQuad`, `easeInCubic`, `easeOutCubic`, `easeInOutCubic`, `easeSmoothstep`, `easeSmootherstep`, `easeOutBack`, `easeOutBounce`, `easeOutElastic`.
 - **Stateful Tween Timelines**: `Tween`, `tweenNew(start, end, duration, easing, looping, pingPong)`, `tweenUpdate(tw, dtMs)`, and `tweenValue(tw)`.
 - **Physical 1D Springs**: `Spring1D`, `springNew(initial, stiffness, damping)`, `springSetTarget(s, target)`, and `springStep(s, dtSec)` modeling Hooke's law with critical damping.
 
-### 5.21 Isometric 2.5D Projection & Axial Hexagonal Grids (`std/iso`)
+### 5.21 Isometric 2.5D Projection, Continuous Heightfields & Axial Hexagonal Grids (`std/gfx25d`, `std/gfx2d/iso_projector2d`, `std/spatial`)
 
 2.5D axonometric projection math, depth sorting, and hexagonal grid topologies:
 - **Isometric 2.5D Projection**: `worldToIso(gx, gy, gz, tileW, tileH, originX, originY)` projecting grid coords to screen pixels; `isoToWorld(sx, sy, ...)` providing exact screen picking; `isoDepthKey(gx, gy, gz)` for painter's algorithm back-to-front sorting.
 - **Isometric Rendering Primitives**: `drawIsoDiamond(cx, cy, tileW, tileH, fillCol, outlineCol)` and `drawIsoBlock(cx, cy, tileW, tileH, heightPx, topCol, leftCol, rightCol, outlineCol)` rendering illuminated 3D extruded prisms.
 - **Pointy-Top Axial Hex Grids**: `HexCoord`, `hexDistance(a, b)` using cube coordinates representation, `hexNeighbors(h)` returning 6 adjacent axial coords, `hexToPixel(h, radius, originX, originY)`, and `drawHexagon(cx, cy, radius, fillCol, outlineCol)`.
 
-### 5.22 2D Animation State Machines & Skeletal FK/IK Rig (`std/anim`)
+### 5.22 2D Animation State Machines & Skeletal FK/IK Rig (`std/gfx2d/sprite_anim2d`, `std/gfx2d/skeletal2d`)
 
 Frame-accurate sprite timelines, skeletal chains, and analytical inverse kinematics:
 - **Animation State Machine**: `AnimClip(name, startFrame, frameCount, fps, looping, fallbackState)`, `AnimStateMachine`, `animMachineNew(initialState, clips)`, `animSetState(sm, newState)`, `animStep(sm, dtMs)`, and `animCurrentSpriteFrame(sm)` managing frame-accurate clip timelines and automatic fallback transitions.
 - **2D Skeletal Forward Kinematics**: `Bone2D(name, length, localAngleDeg)` and `solveChainFK2D(rootX, rootY, bones)` computing cumulative world-space joint positions for multi-segment skeletal chains.
 - **Analytical 2-Bone Inverse Kinematics**: `solveTwoBoneIK2D(rootX, rootY, len1, len2, targetX, targetY, bendPositive)` using the Law of Cosines to calculate exact shoulder and elbow joint angles and effector coordinates.
 
-### 5.23 Flagship Interactive Architecture Showcases (`examples/ex_131`–`ex_250`)
+### 5.23 Flagship Interactive Architecture Showcases (`examples/ex_131`–`ex_263`)
 
-Seven production-grade flagship showcases demonstrate composing standard library modules into complete, interactive applications:
+Eight production-grade flagship showcase groups demonstrate composing standard library modules into complete, interactive applications:
 - **Window, Input, Assets & DSP Audio Showcase** ([`examples/ex_131_window_app_loop_fixed_timestep_window.aipl`](examples/ex_131_window_app_loop_fixed_timestep_window.aipl)): Fixed-timestep window loop, 16:9 letterboxing, radial gamepad deadzone filtering, mobile virtual joystick, MaxRects 2px bleed gutters, ADSR synthesis, and 3D Doppler audio.
 - **GPU Buffers, Gfx2D, Gfx3D & Particles Showcase** ([`examples/ex_176_gfx3d_cull3d_frustum_and_occlusion_window.aipl`](examples/ex_176_gfx3d_cull3d_frustum_and_occlusion_window.aipl)): std140 GPU alignment, WCAG contrast validation, Trauma² 2D camera shake, 4-bit autotile bitmasking, 3D Gribb-Hartmann frustum culling, GGX microfacet PBR, and vortex particle affectors.
 - **UI Layout, Widgets, Charts & Accessibility Showcase** ([`examples/ex_190_ui_layout_flexbox_and_grid_solver_window.aipl`](examples/ex_190_ui_layout_flexbox_and_grid_solver_window.aipl)): Flexbox layout solver, Fitts's Law >= 48dp touch target audit, photometric Weber contrast, sparkline & pie chart geometry, and WCAG 2.1 AA accessibility trees.
@@ -751,7 +746,7 @@ Seven production-grade flagship showcases demonstrate composing standard library
 - **2D/3D Physics & Procedural Generation Showcase** ([`examples/ex_216_phys2d_rigid_body_gravity_stacks_window.aipl`](examples/ex_216_phys2d_rigid_body_gravity_stacks_window.aipl)): Swept AABB & coyote/jump-buffer platformer physics, 2-link FABRIK inverse kinematics, 3D raycast vehicle suspension, Wave Function Collapse, and BSP dungeons.
 - **Autonomous AI, RAG & HEBAR Guard Showcase** ([`examples/ex_245_ai_hebar_referee_flow_corridor_window.aipl`](examples/ex_245_ai_hebar_referee_flow_corridor_window.aipl)): Behavior Trees, GOAP A* planner, Utility AI, Craig Reynolds boids flocking, BPE tokenizer & cosine RAG vector store, and HEBAR human-reflex referee guard.
 - **Application Mechanics Capstone Showcase** ([`examples/ex_250_mechanics_full_capstone_application_window.aipl`](examples/ex_250_mechanics_full_capstone_application_window.aipl)): Hit-stop & coyote/jump-buffer combat, Elo matchmaking, Directed Acyclic Dialogue Graph, sink/faucet inflation monitor, and atomic v1->vN save schema migration.
-
+- **Continuous 2.5D/3D Worlds, Multi-Biome Splatting & 8-Dir Isometric Rigs** ([`examples/ex_259_continuous_world_25d.aipl`](examples/ex_259_continuous_world_25d.aipl) – [`examples/ex_263_isometric_8dir_rig_and_lighting_lab_window.aipl`](examples/ex_263_isometric_8dir_rig_and_lighting_lab_window.aipl)): Invertible `Camera25D`, hardware/software Z-buffered Gouraud & UV-splatted heightfield terrains, flowing river ribbons, dark-fantasy point-light cookies, campfire smoke/embers, rain, and 8-directional character rigs.
 ### 5.24 Deterministic 2D Entity-Component-System & Spatial Broadphase (`std/ecs`)
 
 Data-oriented game entity lifecycle and spatial broadphase collision querying:
@@ -839,21 +834,20 @@ The AuraDesign UI system ([`std/ui/ui_imui.aipl`](std/ui/ui_imui.aipl)) supports
 
 ---
 
-## 6. 36-Domain Standard Library Architecture Map & 250 Curated Examples Index
+## 6. 38-Domain Standard Library Architecture Map & 263 Curated Examples Index
 
-The standard library encompasses 36 domain groups (root core `std/std_root.aipl` and `std/prelude.aipl` + 35 canonical domain directories = 290 `.aipl` modules) organized across 6 hierarchical layers ($L_0$ to $L_5$):
+The standard library encompasses 38 domain groups (`2` root modules `std/std_root.aipl` and `std/prelude.aipl` + `37` canonical domain directories = `299` `.aipl` modules) organized across 6 hierarchical layers ($L_0$ to $L_5$):
 
 | Layer | Domain Group | Implementations (`std/<domain>/`) | Unit Tests (`tests/functions/<domain>/`) | Curated Example Coverage |
 | :--- | :--- | :--- | :--- | :--- |
-| **$L_0$** | **Core / Prelude** | `std/std_root.aipl`, `std/prelude.aipl` | `tests/functions/core/` | `ex_001` .. `ex_010` |
-| **$L_1$** | **Systems & Runtime** | `std/sys/`, `std/rt/`, `std/alloc/`, `std/memory/` | `tests/functions/sys/`, `rt/`, `alloc/`, `memory/` | `ex_011` .. `ex_045` |
-| **$L_2$** | **Algorithms & Data** | `std/math/`, `std/collections/`, `std/fmt/`, `std/regex/`, `std/time/` | `tests/functions/math/`, `collections/`, `fmt/`, `regex/`, `time/` | `ex_046` .. `ex_075` |
-| **$L_3$** | **I/O & Serialization** | `std/encoding/`, `std/compress/`, `std/crypto/`, `std/db/`, `std/io/`, `std/fs/`, `std/os/`, `std/sync/`, `std/thread/`, `std/net/`, `std/test/` | `tests/functions/encoding/`, `compress/`, `crypto/`, `db/`, `io/`, `fs/`, `os/`, `sync/`, `thread/`, `net/`, `test/` | `ex_076` .. `ex_130` |
-| **$L_4$** | **Media & Graphics** | `std/window/`, `std/input/`, `std/asset/`, `std/audio/`, `std/gfx/`, `std/gfx2d/`, `std/gfx3d/`, `std/particle/`, `std/ui/` | `tests/functions/window/`, `input/`, `asset/`, `audio/`, `gfx/`, `gfx2d/`, `gfx3d/`, `particle/`, `ui/` | `ex_131` .. `ex_200` |
-| **$L_5$** | **Simulation & Capstone**| `std/ecs/`, `std/spatial/`, `std/phys2d/`, `std/phys3d/`, `std/procgen/`, `std/ai/`, `std/mechanics/` | `tests/functions/ecs/`, `spatial/`, `phys2d/`, `phys3d/`, `procgen/`, `ai/`, `mechanics/` | `ex_201` .. `ex_250` |
+| **$L_0$** | **Host & Memory Kernels** | `std/sys/`, `std/rt/`, `std/alloc/` | `tests/functions/sys/`, `rt/`, `alloc/` | `ex_011` .. `ex_030` |
+| **$L_1$** | **Core Primitives & Math** | `std/std_root.aipl`, `std/prelude.aipl`, `std/math/`, `std/collections/`, `std/fmt/`, `std/regex/`, `std/time/` | `tests/functions/core/`, `math/`, `collections/`, `fmt/`, `regex/`, `time/` | `ex_001` .. `ex_010`, `ex_031` .. `ex_075` |
+| **$L_2$** | **Serialization, Crypto & DB** | `std/encoding/`, `std/compress/`, `std/crypto/`, `std/db/` | `tests/functions/encoding/`, `compress/`, `crypto/`, `db/` | `ex_076` .. `ex_098` |
+| **$L_3$** | **I/O, OS, Sync, Net & Test** | `std/io/`, `std/fs/`, `std/os/`, `std/sync/`, `std/thread/`, `std/net/`, `std/test/` | `tests/functions/io/`, `fs/`, `os/`, `sync/`, `thread/`, `net/`, `test/` | `ex_099` .. `ex_130` |
+| **$L_4$** | **Media, 2D/2.5D/3D & UI** | `std/window/`, `std/input/`, `std/asset/`, `std/audio/`, `std/gfx/`, `std/gfx2d/`, `std/gfx25d/`, `std/gfx3d/`, `std/particle/`, `std/ui/` | `tests/functions/window/`, `input/`, `asset/`, `audio/`, `gfx/`, `gfx2d/`, `gfx25d/`, `gfx3d/`, `particle/`, `ui/` | `ex_131` .. `ex_200`, `ex_251` .. `ex_263` |
+| **$L_5$** | **Simulation, AI & Capstone**| `std/ecs/`, `std/spatial/`, `std/phys2d/`, `std/phys3d/`, `std/procgen/`, `std/ai/`, `std/hebar/`, `std/mechanics/` | `tests/functions/ecs/`, `spatial/`, `phys2d/`, `phys3d/`, `procgen/`, `ai/`, `hebar/`, `mechanics/` | `ex_201` .. `ex_250` |
 
-All 250 curated example programs (`examples/ex_001_*.aipl` through `examples/ex_250_*.aipl`) are verified 1-to-1 with dedicated twin tests in `tests/examples/ex_001_*_test.aipl` through `tests/examples/ex_250_*_test.aipl`.
-
+All 263 curated example programs (`examples/ex_001_*.aipl` through `examples/ex_263_*.aipl`) are verified 1-to-1 with dedicated twin tests in `tests/examples/ex_001_*_test.aipl` through `tests/examples/ex_263_*_test.aipl`.
 - **Primary Source Module**: `std/std_root.aipl` (`pub fn stdlibVersionString(): str:`)
 - **Verification Test**: `tests/functions/core/std_root_test.aipl`
 - **Runnable Example Reference**: `examples/ex_010_modules_and_multi_file_imports_cli.aipl` (tested by `tests/examples/ex_010_modules_and_multi_file_imports_cli_test.aipl`)
@@ -873,7 +867,7 @@ pub fn test_std_root_stdlibVersionString(): int:
 
 ---
 
-## 7. Architecture Decision Records Summary (ADR-0001..ADR-0033)
+## 7. Architecture Decision Records Summary (ADR-0001..ADR-0037)
 
 Key architectural choices are preserved in Michael Nygard format within `docs/ADR/` and indexed in [`docs/ADR/INDEX.md`](docs/ADR/INDEX.md):
 
@@ -910,7 +904,10 @@ Key architectural choices are preserved in Michael Nygard format within `docs/AD
 - [ADR-0031: Scoped Region Arena Memory Reclamation & Zero-Pause Determinism](docs/ADR/ADR-0031-scoped-region-arena-memory-reclamation.md)
 - [ADR-0032: Compiler JSON Schema Reflection & Standard AI Client Integration](docs/ADR/ADR-0032-compiler-json-schema-and-std-ai.md)
 - [ADR-0033: Zero-FFI Dynamic C Interop & Headless-First Desktop Canvas Blitter](docs/ADR/ADR-0033-zero-ffi-c-interop-and-desktop-canvas.md)
-
+- [ADR-0034: Native Android NDK NativeActivity, ANativeWindow RGBA Blitter, AAudio & Touch Bridge](docs/ADR/ADR-0034-android-ndk-native-activity-and-touch-bridge.md)
+- [ADR-0035: Smartphone AIPL Watcher, Embedded Offline VFS & Stateful Hot-Reload](docs/ADR/ADR-0035-smartphone-aipl-watcher-and-stateful-hot-reload.md)
+- [ADR-0036: Single-App Android Container & Zero-NDK APK Packager](docs/ADR/ADR-0036-single-app-android-container-and-zero-ndk-apk-packager.md)
+- [ADR-0037: Continuous 2.5D/3D World Engine, Hardware/Software Z-Buffering & Per-Vertex Gouraud Pipeline](docs/ADR/ADR-0037-continuous-25d-world-and-zbuffer-pipeline.md)
 - **Primary Source Module**: `std/encoding/markdown.aipl` (`fn escapeMdHtml(s: str): str:`)
 - **Verification Test**: `tests/functions/encoding/markdown_test.aipl`
 - **Runnable Example Reference**: `examples/ex_076_encoding_markdown_to_html_cli.aipl` (tested by `tests/examples/ex_076_encoding_markdown_to_html_cli_test.aipl`)
@@ -936,13 +933,13 @@ pub fn test_markdown_escapeMdHtml_1(): int:
 The post-`step_16` quality assurance and verification architecture validates language semantics, compiler correctness, memory invariants, and documentation across four distinct tiers:
 
 1. **Unit & Functional Test Suites (`tests/functions/<domain>/`)**:
-   - Comprehensive unit test coverage for all 36 standard library domain groups (`core`, `sys`, `rt`, `alloc`, `math`, `collections`, `fmt`, `regex`, `time`, `encoding`, `compress`, `crypto`, `db`, `io`, `fs`, `os`, `sync`, `thread`, `net`, `test`, `window`, `input`, `asset`, `audio`, `gfx`, `gfx2d`, `gfx3d`, `particle`, `ui`, `ecs`, `spatial`, `phys2d`, `phys3d`, `procgen`, `ai`, `mechanics`).
+   - Comprehensive unit test coverage for all 38 standard library domain groups (`core`, `sys`, `rt`, `alloc`, `math`, `collections`, `fmt`, `regex`, `time`, `encoding`, `compress`, `crypto`, `db`, `io`, `fs`, `os`, `sync`, `thread`, `net`, `test`, `window`, `input`, `asset`, `audio`, `gfx`, `gfx2d`, `gfx25d`, `gfx3d`, `particle`, `ui`, `ecs`, `spatial`, `phys2d`, `phys3d`, `procgen`, `ai`, `hebar`, `mechanics`).
 2. **Scenario & Multi-Domain Integration Suites (`tests/scenarios/`, `tests/complex/`)**:
    - Compiler scenario tests in `tests/scenarios/compiler/`.
    - Multi-domain integration and stress tests in `tests/scenarios/multi_domain/`.
    - Complex lang and simulation tests in `tests/complex/`.
 3. **Canonical Example Twin Tests (`tests/examples/`)**:
-   - 1-to-1 parity tests for all 250 curated example programs (`tests/examples/ex_001_*_test.aipl` through `tests/examples/ex_250_*_test.aipl`).
+   - 1-to-1 parity tests for all 263 curated example programs (`tests/examples/ex_001_*_test.aipl` through `tests/examples/ex_263_*_test.aipl`).
    - Headless automated execution via `AIPL_HEADLESS=1 ./bin/aipl run <example.aipl>`.
 4. **Automated Documentation & Inventory Verification**:
    - `python3 tools/verify_doc_snippets.py`: Verifies that 100% of documentation code blocks compile cleanly.

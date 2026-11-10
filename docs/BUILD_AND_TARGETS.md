@@ -9,11 +9,10 @@
 
 ## Canonical Project Architecture & Counts
 
-- **36 Standard Library Domain Groups**: `2` root modules (`std/std_root.aipl`, `std/prelude.aipl`) + `35` canonical domain directories = **`290` `std/` modules**.
-- **4,324 Total Callable Functions**: **`32` compiler built-ins + `4,292` `std/` functions, constructors & receiver methods**.
-- **250 Curated, Fully-Tested Examples**: `examples/ex_001_*.aipl` through `examples/ex_250_*.aipl` with twin unit tests in `tests/examples/`.
-- **36 Architecture Decision Records**: `docs/ADR/ADR-0001-*.md` through `docs/ADR/ADR-0036-*.md` indexed in [`docs/ADR/INDEX.md`](ADR/INDEX.md).
-
+- **38 Standard Library Domain Groups**: `2` root modules (`std/std_root.aipl`, `std/prelude.aipl`) + `37` canonical domain directories = **`299` `std/` modules** (`262` implementation/root modules + `37` barrel modules).
+- **4,379 Total Callable Functions**: **`32` compiler built-ins + `4,347` `std/` functions, constructors & receiver methods**.
+- **263 Curated, Fully-Tested Examples**: `examples/ex_001_*.aipl` through `examples/ex_263_*.aipl` with twin unit tests in `tests/examples/`.
+- **37 Architecture Decision Records**: `docs/ADR/ADR-0001-*.md` through `docs/ADR/ADR-0037-*.md` indexed in [`docs/ADR/INDEX.md`](ADR/INDEX.md).
 ---
 
 ## 1. Supported Compilation Targets
@@ -133,7 +132,7 @@ Canonical HIR Optimizer
 | **Linux** | `x86_64`, `aarch64` | `gcc`, `clang` | `native`, `c`, `ts`, `html`, `wasm`, `bytecode` |
 | **macOS** | `Apple Silicon (M1..M4)`, `x86_64` | `clang` (Xcode) | `native`, `c`, `ts`, `html`, `wasm`, `bytecode` |
 | **Windows** | `x86_64` | `MSVC`, `clang-cl`, `gcc (MinGW)` | `native`, `c`, `ts`, `html`, `wasm`, `bytecode` |
-| **Android** | `arm64-v8a`, `x86_64` | Android NDK (`clang`) | `native` (NativeActivity), `html` (WebView) |
+| **Android** | `arm64-v8a`, `x86_64` | Pure-AIPL APK Packager / Android NDK (`clang`) | `apk` (Signed Single-App APK), `android-arm64` (NativeActivity), `html` (WebView) |
 | **Browser** | `wasm32`, `js` | Chrome, Firefox, Safari | `html`, `wasm`, `ts` |
 
 ---

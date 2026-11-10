@@ -1,8 +1,8 @@
 [Home](../../README.md) | [Docs Index](../INDEX.md) | [Tutorials](../TUTORIAL.md) | [Cookbook](../COOKBOOK.md) | [Stdlib Reference](STDLIB_REFERENCE.md) | [CLI Reference](../CLI_REFERENCE.md)
 
-# AIPL Standard Library Reference (36 Domains, 290 Modules, 4,324 Total Functions, 803 Data Types)
+# AIPL Standard Library Reference (38 Domains, 299 Modules, 4,379 Total Functions, 816 Data Types)
 
-> Master Standard Library Architecture, Domain Lookup Tables, and Verified Pedagogical Snippets across all 36 domains.
+> Master Standard Library Architecture, Domain Lookup Tables, and Verified Pedagogical Snippets across all 38 domains.
 
 ## 1. Standard Library Architecture & 6-Layer DAG
 
@@ -10,13 +10,12 @@
 - **Layer 1: Core Primitives & Math**: `prelude` (`01_builtins_root_and_prelude`), `math`, `collections`, `fmt`, `regex`, `time`
 - **Layer 2: Serialization, Compression, Crypto & Database**: `encoding`, `compress`, `crypto`, `db`
 - **Layer 3: Streaming I/O, Filesystem, OS, Concurrency, Networking & Testing**: `io`, `fs`, `os`, `sync`, `thread`, `net`, `test`
-- **Layer 4: Windowing, Input, Assets, Audio, GPU, 2D/3D Rendering & UI**: `window`, `input`, `asset`, `audio`, `gfx`, `gfx2d`, `gfx3d`, `particle`, `ui`
-- **Layer 5: ECS, Spatial Topologies, Physics, Procgen, AI & Generic Mechanics**: `ecs`, `spatial`, `phys2d`, `phys3d`, `procgen`, `ai`, `mechanics`
+- **Layer 4: Windowing, Input, Assets, Audio, GPU, 2D/2.5D/3D Rendering & UI**: `window`, `input`, `asset`, `audio`, `gfx`, `gfx2d`, `gfx25d`, `gfx3d`, `particle`, `ui`
+- **Layer 5: ECS, Spatial Topologies, Physics, Procgen, AI, HEBAR & Generic Mechanics**: `ecs`, `spatial`, `phys2d`, `phys3d`, `procgen`, `ai`, `hebar`, `mechanics`
 
 ---
 
-## 2. 36-Domain Master Routing Index
-
+## 2. 38-Domain Master Routing Index
 
 | # | Section / Recipe / Domain Covered | Ground-Truth Source | Exact Verbatim Signature |
 | :--- | :--- | :--- | :--- |
@@ -45,7 +44,7 @@
 | `23` | [23_asset.md](23_asset.md) (`asset` — 8 mods, 159 fns, 25 types) | `std/asset/asset_bundle.aipl` | `pub fn createAssetBundle(entries: [BundleEntry], data: [int]): AssetBundle:` |
 | `24` | [24_audio.md](24_audio.md) (`audio` — 7 mods, 159 fns, 25 types) | `std/audio/audio_codec.aipl` | `fn readU16LEWav(b: [int], off: int): int:` |
 | `25` | [25_gfx.md](25_gfx.md) (`gfx` — 10 mods, 55 fns, 32 types) | `std/gfx/color.aipl` | `fn clampByte8(v: int): int:` |
-| `26` | [26_gfx2d.md](26_gfx2d.md) (`gfx2d` — 12 mods, 420 fns, 65 types) | `std/gfx2d/batch2d.aipl` | `pub fn createSpriteBatch2D(maxQuads: int = 2048): SpriteBatch2D:` |
+| `26` | [26_gfx2d.md](26_gfx2d.md) (`gfx2d` — 12 mods, 434 fns, 65 types) | `std/gfx2d/batch2d.aipl` | `pub fn createSpriteBatch2D(maxQuads: int = 2048): SpriteBatch2D:` |
 | `27` | [27_gfx3d.md](27_gfx3d.md) (`gfx3d` — 11 mods, 107 fns, 26 types) | `std/gfx3d/camera3d.aipl` | `pub fn createPerspectiveCamera3D(pos: Vec3, target: Vec3, fovDeg: float, aspect: float, nearZ: float = 0.1, farZ: float = 1000.0): Camera3D:` |
 | `28` | [28_particle.md](28_particle.md) (`particle` — 8 mods, 52 fns, 18 types) | `std/particle/affector.aipl` | `pub fn createGravityAffector(gravityVec: Vec3): ParticleAffector:` |
 | `29` | [29_ui.md](29_ui.md) (`ui` — 14 mods, 553 fns, 71 types) | `std/ui/ui_a11y.aipl` | `pub fn createA11yNode(id: int, role: int, label: str, bounds: Rect): A11yNode:` |
@@ -54,9 +53,10 @@
 | `32` | [32_phys2d.md](32_phys2d.md) (`phys2d` — 10 mods, 46 fns, 22 types) | `std/phys2d/broadphase2d.aipl` | `pub fn dynamicAABBTreeNew(): DynamicAABBTree2D:` |
 | `33` | [33_phys3d.md](33_phys3d.md) (`phys3d` — 9 mods, 35 fns, 17 types) | `std/phys3d/character3d.aipl` | `pub fn characterControllerNew(settings: CharacterControllerSettings3D, height: float, radius: float): KinematicCharacterController3D:` |
 | `34` | [34_procgen.md](34_procgen.md) (`procgen` — 8 mods, 36 fns, 19 types) | `std/procgen/cellular_automata.aipl` | `fn lcgRandFloat(state: int): (int, float):` |
-| `35` | [35_ai.md](35_ai.md) (`ai` — 9 mods, 158 fns, 37 types) | `std/ai/btree_ai.aipl` | `pub fn blackboardNew(): Blackboard:` |
+| `35` | [35_ai.md](35_ai.md) (`ai` — 9 mods, 165 fns, 37 types) | `std/ai/btree_ai.aipl` | `pub fn blackboardNew(): Blackboard:` |
 | `36` | [36_mechanics.md](36_mechanics.md) (`mechanics` — 5 mods, 95 fns, 23 types) | `std/mechanics/attribute_pipeline.aipl` | `pub fn evalStatModifierStack(baseValue: float, modifiers: [StatModifier]): float:` |
-
+| `37` | [37_gfx25d.md](37_gfx25d.md) (`gfx25d` — 7 mods, 34 fns, 13 types) | `std/gfx25d/camera25d.aipl` | `pub fn createCamera25D(viewportW: float, viewportH: float, zoom: float = 1.0, yawDeg: float = 45.0, pitchDeg: float = 30.0): Camera25D:` |
+| `38` | [38_hebar.md](38_hebar.md) (`hebar` — 2 mods, 16 re-exported fns, 2 types) | `std/hebar/referee.aipl` | `pub fn hebarRefereeNew(minDelayMs: int = 150, maxDelayMs: int = 250, maxApm: int = 900): HebarReferee:` |
 ---
 
 ## 3. Domain Lookup Tables & Verification Snippets
@@ -878,9 +878,9 @@ pub fn test_color_clampByte8_1(): int:
 
 ---
 
-### Domain 26: `gfx2d` (12 Modules, 420 Functions -> `26_gfx2d.md`)
+### Domain 26: `gfx2d` (12 Modules, 434 Functions -> `26_gfx2d.md`)
 
-Layer 4: 2D Rendering Engine (Camera2D Trauma Shake, Shapes, Sprites, Wang 47-Tile Tilemaps, Lighting, SDF Shadows, IK).
+Layer 4: 2D Rendering Engine (Camera2D Trauma Shake, Shapes, Hardware/Software Z-Buffer & Gouraud/Textured Intrinsics, Sprites, Wang 47-Tile Tilemaps, Lighting, SDF Shadows, IK).
 
 | Source Module | Unit Test File | Callable Functions | Canonical Import Syntax |
 | :--- | :--- | :--- | :--- |
@@ -891,8 +891,7 @@ Layer 4: 2D Rendering Engine (Camera2D Trauma Shake, Shapes, Sprites, Wang 47-Ti
 | `std/gfx2d/iso_projector2d.aipl` | `tests/functions/gfx2d/iso_projector2d_test.aipl` | 48 | `import * from "std/gfx2d/iso_projector2d"` |
 | `std/gfx2d/light2d.aipl` | `tests/functions/gfx2d/light2d_test.aipl` | 4 | `import * from "std/gfx2d/light2d"` |
 | `std/gfx2d/ninepatch2d.aipl` | `tests/functions/gfx2d/ninepatch2d_test.aipl` | 2 | `import * from "std/gfx2d/ninepatch2d"` |
-| `std/gfx2d/shape2d.aipl` | `tests/functions/gfx2d/shape2d_test.aipl` | 173 | `import * from "std/gfx2d/shape2d"` |
-| `std/gfx2d/skeletal2d.aipl` | `tests/functions/gfx2d/skeletal2d_test.aipl` | 9 | `import * from "std/gfx2d/skeletal2d"` |
+| `std/gfx2d/shape2d.aipl` | `tests/functions/gfx2d/shape2d_test.aipl` | 187 | `import * from "std/gfx2d/shape2d"` |
 | `std/gfx2d/sprite2d.aipl` | `tests/functions/gfx2d/sprite2d_test.aipl` | 38 | `import * from "std/gfx2d/sprite2d"` |
 | `std/gfx2d/sprite_anim2d.aipl` | `tests/functions/gfx2d/sprite_anim2d_test.aipl` | 14 | `import * from "std/gfx2d/sprite_anim2d"` |
 | `std/gfx2d/tilemap_renderer2d.aipl` | `tests/functions/gfx2d/tilemap_renderer2d_test.aipl` | 23 | `import * from "std/gfx2d/tilemap_renderer2d"` |
@@ -1212,7 +1211,7 @@ pub fn test_cellular_automata_lcgRandFloat_1(): int:
 
 ---
 
-### Domain 35: `ai` (9 Modules, 158 Functions -> `35_ai.md`)
+### Domain 35: `ai` (9 Modules, 165 Functions -> `35_ai.md`)
 
 Layer 5: Autonomous Game & Agent AI (A*/JPS Pathfinding, ORCA Crowd Steering, Behavior Trees, HFSM, Utility AI, GOAP, Influence Maps, HEBAR Referee).
 
@@ -1222,8 +1221,7 @@ Layer 5: Autonomous Game & Agent AI (A*/JPS Pathfinding, ORCA Crowd Steering, Be
 | `std/ai/btree_ai.aipl` | `tests/functions/ai/btree_ai_test.aipl` | 15 | `import * from "std/ai/btree_ai"` |
 | `std/ai/fsm.aipl` | `tests/functions/ai/fsm_test.aipl` | 9 | `import * from "std/ai/fsm"` |
 | `std/ai/goap.aipl` | `tests/functions/ai/goap_test.aipl` | 14 | `import * from "std/ai/goap"` |
-| `std/ai/hebar_referee.aipl` | `tests/functions/ai/hebar_referee_test.aipl` | 10 | `import * from "std/ai/hebar_referee"` |
-| `std/ai/navmesh.aipl` | `tests/functions/ai/navmesh_test.aipl` | 16 | `import * from "std/ai/navmesh"` |
+| `std/ai/hebar_referee.aipl` | `tests/functions/ai/hebar_referee_test.aipl` | 17 | `import * from "std/ai/hebar_referee"` |
 | `std/ai/pathfind.aipl` | `tests/functions/ai/pathfind_test.aipl` | 58 | `import * from "std/ai/pathfind"` |
 | `std/ai/steering.aipl` | `tests/functions/ai/steering_test.aipl` | 19 | `import * from "std/ai/steering"` |
 | `std/ai/vector_embedding.aipl` | `tests/functions/ai/vector_embedding_test.aipl` | 17 | `import * from "std/ai/vector_embedding"` |
@@ -1268,5 +1266,54 @@ pub fn test_attribute_pipeline_evalStatModifierStack_1(): int:
   let resEdge = evalStatModifierStack(edge_baseValue, edge_modifiers)
   assertApproxEq(resNom, 2.0, 0.001, "evalStatModifierStack nominal resNom ~= 2.0")
   assertApproxEq(resEdge, 0.5, 0.001, "evalStatModifierStack boundary resEdge ~= 0.5")
+  ret 0
+```
+---
+
+### Domain 37: `gfx25d` (7 Modules, 34 Functions -> `37_gfx25d.md`)
+
+Layer 4: Continuous 2.5D/3D Isometric World Engine (Camera25D Projection/Unprojection, Elevation-Aware Frustum Culling, Gouraud & Multi-Biome Splatting Terrain Meshes, Spline Ribbons, Lighting Cookies, 8-Dir Isometric Sprite Rigs & Weather).
+
+| Source Module | Unit Test File | Callable Functions | Canonical Import Syntax |
+| :--- | :--- | :--- | :--- |
+| `std/gfx25d/camera25d.aipl` | `tests/functions/gfx25d/camera25d_test.aipl` | 5 | `import * from "std/gfx25d/camera25d"` |
+| `std/gfx25d/mesh25d.aipl` | `tests/functions/gfx25d/mesh25d_test.aipl` | 11 | `import * from "std/gfx25d/mesh25d"` |
+| `std/gfx25d/ribbon25d.aipl` | `tests/functions/gfx25d/ribbon25d_test.aipl` | 3 | `import * from "std/gfx25d/ribbon25d"` |
+| `std/gfx25d/light25d.aipl` | `tests/functions/gfx25d/light25d_test.aipl` | 4 | `import * from "std/gfx25d/light25d"` |
+| `std/gfx25d/sprite25d.aipl` | `tests/functions/gfx25d/sprite25d_test.aipl` | 6 | `import * from "std/gfx25d/sprite25d"` |
+| `std/gfx25d/weather25d.aipl` | `tests/functions/gfx25d/weather25d_test.aipl` | 5 | `import * from "std/gfx25d/weather25d"` |
+| `std/gfx25d/gfx25d_mod.aipl` | `tests/examples/ex_259_continuous_world_25d_test.aipl` | 0 | `import * from "std/gfx25d/gfx25d_mod"` |
+
+```aipl
+module tests.functions.gfx25d.camera25d_z1_test
+import { createCamera25D, project3DToIso, unprojectIsoTo3D } from "std/gfx25d/camera25d"
+import { assertApproxEq } from "std/prelude"
+pub fn test_camera25d_createCamera25D_1(): int:
+  let cam = createCamera25D(1280.0, 720.0, 1.5, 45.0, 30.0)
+  let p = project3DToIso(cam, 64.0, 48.0, 12.0)
+  let u = unprojectIsoTo3D(cam, p.x, p.y, 12.0)
+  assertApproxEq(u.x, 64.0, 0.01, "x inverse")
+  assertApproxEq(u.y, 48.0, 0.01, "y inverse")
+  ret 0
+```
+
+---
+
+### Domain 38: `hebar` (2 Modules, 16 Re-Exported Functions -> `38_hebar.md`)
+
+Layer 5: Human-Equivalent Bot Automated Referee Alias Domain (`std/hebar/referee.aipl` and barrel `std/hebar/hebar_mod.aipl`, re-exporting all 5 biological fairness bounds from `std/ai/hebar_referee.aipl`).
+
+| Source Module | Unit Test File | Callable Functions | Canonical Import Syntax |
+| :--- | :--- | :--- | :--- |
+| `std/hebar/referee.aipl` | `tests/functions/hebar/referee_test.aipl` | 16 (re-exported) | `import * from "std/hebar/referee"` |
+| `std/hebar/hebar_mod.aipl` | `tests/functions/hebar/hebar_mod_test.aipl` | 0 (barrel re-export) | `import * from "std/hebar/hebar_mod"` |
+
+```aipl
+module tests.functions.hebar.referee_z1_test
+import { hebarRefereeNew, hebarVerifyZeroTampering } from "std/hebar/referee"
+import { assert } from "std/prelude"
+pub fn test_hebar_referee_1(): int:
+  let refState = hebarRefereeNew(150, 250, 900)
+  assert(hebarVerifyZeroTampering(refState, 0), "zero direct memory tampering")
   ret 0
 ```

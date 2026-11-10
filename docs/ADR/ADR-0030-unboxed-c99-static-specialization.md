@@ -96,7 +96,7 @@ The following canonical AIPL code snippet demonstrates the utilization of specia
 ```aipl
 module FastMathExample
 
-import { intBufferNew, intBufferSet, sumIntsFast, floatBufferNew, floatBufferSet, dotProductFloats, axpyFloats } from "std/math"
+import { intBufferNew, intBufferSet, sumIntsFast, floatBufferNew, floatBufferSet, dotProductFloats, axpyFloats } from "std/math/simd"
 
 pub fn runBenchmarks(): int:
   mut ibuf = intBufferNew(4)

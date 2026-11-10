@@ -10,7 +10,7 @@
 ## Canonical Architectural Inventory
 
 - **Total Architecture Decision Records**: `37` Active & Accepted ADRs (`ADR-0001` to `ADR-0037`).
-- **Standard Library Domains**: `38` domain groups (`std_root`/`prelude` + `37` domain subdirectories = `298` modules).
+- **Standard Library Domains**: `38` domain groups (`std_root`/`prelude` + `37` domain subdirectories = `299` modules).
 - **Callable Functions**: `4,379` functions (`32` compiler built-ins + `4,347` standard library functions & methods).
 - **Curated Examples & Twin Tests**: `263` examples (`ex_001`..`ex_263`) and `263` 1-to-1 twin tests in `tests/examples/`.
 - **Compiler Subsystems**: `11` self-hosted compiler modules in `compiler/*.aipl`.
@@ -55,7 +55,7 @@
 | **ADR-0032** | [Compiler JSON Schema Reflection & Standard AI Client Integration](ADR-0032-compiler-json-schema-and-std-ai.md) | AI Integration | `Accepted` | `std/ai/` | Reflects compiler types into standard JSON schemas and provides native AI client interfaces in `std/ai/`. |
 | **ADR-0033** | [Zero-FFI Dynamic C Interop & Headless Desktop Canvas Blitter](ADR-0033-zero-ffi-c-interop-and-desktop-canvas.md) | Runtime | `Accepted` | `std/rt/rt_canvas_x11.aipl`| Integrates dynamic C ABI bindings and software/hardware canvas blitting with headless CI verification. |
 | **ADR-0034** | [Native Android NDK NativeActivity, ANativeWindow RGBA Blitter, AAudio & Touch Bridge](ADR-0034-android-ndk-native-activity-and-touch-bridge.md) | Mobile Systems | `Accepted` | `std/sys/sys_android.aipl` | Direct native activity execution, hardware surface blitting, low-latency AAudio streaming, and isolated touch input. |
-| **ADR-0035** | [Smartphone AIPL Watcher, Embedded Offline VFS & Stateful Hot-Reload](ADR-0035-smartphone-aipl-watcher-and-stateful-hot-reload.md) | Mobile Systems | `Accepted` | `std/fs/android_vfs.aipl` | Offline 281-module embedded VFS, 50ms debounced file watcher, LAN live-reload receiver, and stateful bytecode hot-swapping. |
+| **ADR-0035** | [Smartphone AIPL Watcher, Embedded Offline VFS & Stateful Hot-Reload](ADR-0035-smartphone-aipl-watcher-and-stateful-hot-reload.md) | Mobile Systems | `Accepted` | `std/fs/android_vfs.aipl` | Offline embedded stdlib VFS, 50ms debounced file watcher, LAN live-reload receiver, and stateful bytecode hot-swapping. |
 | **ADR-0036** | [Single-App Android Container & Zero-NDK APK Packager](ADR-0036-single-app-android-container-and-zero-ndk-apk-packager.md) | Packaging | `Accepted` | `std/asset/apk_container_format.aipl` | Standalone single-app APK packaging, locked container execution, deterministic ZIP alignment, and APK Signature Scheme v2. |
 | **ADR-0037** | [Continuous 2.5D/3D World Engine, Hardware/Software Z-Buffering & Per-Vertex Gouraud Pipeline](ADR-0037-continuous-25d-world-and-zbuffer-pipeline.md) | Graphics & Referee | `Accepted` | `std/gfx25d/gfx25d_mod.aipl` | Continuous 2.5D/3D isometric camera, heightfield/ribbon/volumetric meshes, hardware/software Z-buffering, per-vertex Gouraud shading, and 5-bound HEBAR referee. |
 
@@ -95,7 +95,7 @@
 - **[ADR-0026: Zero-Build Browser Ingestion Loader (aipl-web.js)](ADR-0026-zero-build-browser-ingestion-loader.md)**: Browser runtime running `.aipl` files directly with zero bundling steps.
 - **[ADR-0033: Zero-FFI Dynamic C Interop & Headless Desktop Canvas Blitter](ADR-0033-zero-ffi-c-interop-and-desktop-canvas.md)**: Native C ABI interop and headless-verified X11/software canvas blitter.
 - **[ADR-0034: Native Android NDK NativeActivity, ANativeWindow RGBA Blitter, AAudio & Touch Bridge](ADR-0034-android-ndk-native-activity-and-touch-bridge.md)**: Native Android execution, hardware surface blitting, AAudio stream, and multi-touch isolation.
-- **[ADR-0035: Smartphone AIPL Watcher, Embedded Offline VFS & Stateful Hot-Reload](ADR-0035-smartphone-aipl-watcher-and-stateful-hot-reload.md)**: Embedded offline 281-module VFS, file observer debouncing, LAN live-reload sync, and stateful bytecode hot-swap.
+- **[ADR-0035: Smartphone AIPL Watcher, Embedded Offline VFS & Stateful Hot-Reload](ADR-0035-smartphone-aipl-watcher-and-stateful-hot-reload.md)**: Embedded offline stdlib VFS, file observer debouncing, LAN live-reload sync, and stateful bytecode hot-swap.
 - **[ADR-0036: Single-App Android Container & Zero-NDK APK Packager](ADR-0036-single-app-android-container-and-zero-ndk-apk-packager.md)**: Zero-NDK APK packaging, locked container mode, deterministic ZIP alignment, and APK v2 signature block.
 - **[ADR-0037: Continuous 2.5D/3D World Engine, Hardware/Software Z-Buffering & Per-Vertex Gouraud Pipeline](ADR-0037-continuous-25d-world-and-zbuffer-pipeline.md)**: Hardware/software Z-buffering, per-vertex Gouraud interpolation, X11 alpha lock, `std/gfx25d/` continuous world engine, and 5-bound HEBAR referee.
 

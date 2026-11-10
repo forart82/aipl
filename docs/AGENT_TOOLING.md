@@ -829,10 +829,9 @@ Every nominal `struct` and `enum` automatically exposes a static `.jsonSchema()`
 
 ---
 
-## 8. Multi-Provider AI Runtime: `std/ai` (`std/ai.aipl`)
+## 8. Multi-Provider AI Runtime & HEBAR Referee (`std/ai/*`, `std/hebar/*`)
 
-The standard library module [`std/ai/ai_mod.aipl`](../std/ai/ai_mod.aipl) delivers a unified, zero-dependency client layer for interacting with frontier LLMs and agent tool-calling loops:
-
+The standard library barrels [`std/ai/ai_mod.aipl`](../std/ai/ai_mod.aipl) and [`std/hebar/hebar_mod.aipl`](../std/hebar/hebar_mod.aipl) (re-exporting [`std/hebar/referee.aipl`](../std/hebar/referee.aipl)) deliver a unified, zero-dependency layer for frontier LLM tool-calling loops, vector RAG embeddings, game AI planners, and 5-bound biological fairness verification:
 ### 8.1 Multi-Provider Request Builders
 - **`buildGeminiRequest(model, systemPrompt, userPrompt, responseSchemaJson)`**: Constructs standard Gemini REST API payloads with structured `responseSchema` generation configurations.
 - **`buildOpenAiRequest(model, messages, responseSchemaJson)`**: Constructs OpenAI chat completion payloads with `response_format: { type: "json_schema", ... }`.
@@ -846,7 +845,7 @@ The standard library module [`std/ai/ai_mod.aipl`](../std/ai/ai_mod.aipl) delive
 - **`estimateTokenCount(text: str) -> int`**: Pure-AIPL heuristic token estimator calibrated against SentencePiece 256k and BPE vocabularies for prompt budgeting.
 
 ```text
-import { buildGeminiRequest, buildOpenAiRequest, parseAiToolCall, estimateTokenCount } from "std/ai"
+import { buildGeminiRequest, buildOpenAiRequest, parseAiToolCall, estimateTokenCount } from "std/ai/ai_mod"
 
 pub struct AgentToolParams:
   query: str
